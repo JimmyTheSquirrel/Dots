@@ -1,0 +1,31 @@
+#// installed programs \\#
+
+
+#// Pacman \\#
+sudo pacman -S steam
+sudo pacman -S code
+sudo pacman -S gnome-disk-utility
+sudo pacman -S gimp
+sudo pacman -S os-prober #(Allows Grub to detect Windows)
+sudo pacman -S sdl_sound #(For AGS-Git)
+
+
+#// Yay \\#
+yay -S brave-bin
+yay -S discord
+yay -S eww
+yay -S rpcs3-git
+
+#Run together to get Ags-git to install
+export GIT_ALLOW_PROTOCOL=file
+yay -S ags-git
+
+
+#Needs marketplace - (seperate install)
+yay -S spicetify-cli-git
+
+#// Created AGS - Widget for showing Day / Time / Date 
+#// To copy across you need:
+# - Config.js
+# - Style.css
+# - Widget.js
