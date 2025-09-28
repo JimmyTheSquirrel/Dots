@@ -15,7 +15,7 @@
       shell /run/current-system/sw/bin/zsh
 
       # Appearance
-      background_opacity 0.92
+      background_opacity 0.6
       confirm_os_window_close 0
       enable_audio_bell no
     '';
