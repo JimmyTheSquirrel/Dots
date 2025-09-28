@@ -1,75 +1,111 @@
-programs.hyprland = {
-  enable = true;
+{ pkgs, ... }:
+let
+  booksDir = "$HOME/Downloads/books";
+  booksScript = pkgs.writeScriptBin "open_books" ''
+    #!/bin/sh
 
-  settings = {
-    env = [
-      "mainMod SUPER"
-      "scriptsDir $HOME/.config/hypr/scripts"
-      "UserScripts $HOME/.config/hypr/UserScripts"
-      "UserConfigs $HOME/.config/hypr/UserConfigs"
-      "term kitty"         # ⬅️ Set your default terminal here
-      "files nautilus"     # ⬅️ Set your default file manager here
-    ];
+    BOOKS_DIR="${booksDir}"
 
+    BOOK=$(find "$BOOKS_DIR" -type f \( -iname "*.pdf" -o -iname "*.epub" -o -iname "*.djvu" \) | wofi --dmenu --prompt "Select a book" --width 1200 --height 400)
+
+    if [[ -n "$BOOK" ]]; then
+        zathura "$BOOK" &
+    else
+        echo "No book selected."
+    fi
+  '';
+in {
+  home.packages = [ booksScript ];
+
+  wayland.windowManager.hyprland.settings = {
     bind = [
-      # Common shortcuts
-      "$mainMod, D, exec, pkill rofi || true && rofi -show drun -modi drun,filebrowser,run,window"
-      "$mainMod, A, exec, pkill rofi || true && ags -t 'overview'"
-      "$mainMod, Return, exec, $term"
-      "$mainMod, E, exec, $files"
+      "$mainMod SHIFT, Return, exec, $terminal"
+      "$mainMod SHIFT, C, killactive,"
+      "$mainMod SHIFT, Q, exit,"
+      "$mainMod,       R, exec, $fileManager"
+      "$mainMod,       F, togglefloating,"
+      "$mainMod,       D, exec, $menu --show drun"
+      "$mainMod,       P, pin,"
+      "$mainMod,       J, togglesplit,"
+      "$mainMod,       E, exec, bemoji -cn"
+      "$mainMod,       V, exec, cliphist list | $menu --dmenu | cliphist decode | wl-copy"
+      "$mainMod,       B, exec, pkill -SIGUSR2 waybar"
+      "$mainMod SHIFT, B, exec, pkill -SIGUSR1 waybar"
+      "$mainMod,       L, exec, loginctl lock-session"
+      "$mainMod,       P, exec, hyprpicker -an"
+      "$mainMod,       N, exec, swaync-client -t"
+      ", Print, exec, grimblast --notify --freeze copysave area"
+      "$mainMod,       W, exec, ${booksScript}/bin/open_books"
 
-      # Features / Extras
-      "$mainMod, H, exec, $scriptsDir/KeyHints.sh"
-      "$mainMod ALT, R, exec, $scriptsDir/Refresh.sh"
-      "$mainMod ALT, E, exec, $scriptsDir/RofiEmoji.sh"
-      "$mainMod, S, exec, $scriptsDir/RofiSearch.sh"
-      "$mainMod ALT, O, exec, $scriptsDir/ChangeBlur.sh"
-      "$mainMod SHIFT, G, exec, $scriptsDir/GameMode.sh"
-      "$mainMod ALT, L, exec, $scriptsDir/ChangeLayout.sh"
-      "$mainMod ALT, V, exec, $scriptsDir/ClipManager.sh"
-      "$mainMod CTRL, R, exec, $scriptsDir/RofiThemeSelector.sh"
-      "$mainMod CTRL SHIFT, R, exec, pkill rofi || true && $scriptsDir/RofiThemeSelector-modified.sh"
+      # Moving focus
+      "$mainMod, left, movefocus, l"
+      "$mainMod, right, movefocus, r"
+      "$mainMod, up, movefocus, u"
+      "$mainMod, down, movefocus, d"
 
-      # Floating / fullscreen
-      "$mainMod SHIFT, F, fullscreen"
-      "$mainMod CTRL, F, fullscreen, 1"
-      "$mainMod, SPACE, togglefloating"
-      "$mainMod ALT, SPACE, exec, hyprctl dispatch workspaceopt allfloat"
-      "$mainMod SHIFT, Return, exec, [float; move 15% 5%; size 70% 60%] $term"
+      # Moving windows
+      "$mainMod SHIFT, left,  swapwindow, l"
+      "$mainMod SHIFT, right, swapwindow, r"
+      "$mainMod SHIFT, up,    swapwindow, u"
+      "$mainMod SHIFT, down,  swapwindow, d"
 
-      # Zoom / magnifier
-      "$mainMod SHIFT, mouse_down, exec, hyprctl keyword cursor:zoom_factor \"$(hyprctl getoption cursor:zoom_factor | awk 'NR==1 {factor = $2; if (factor < 1) {factor = 1}; print factor * 2.0}')\""
-      "$mainMod SHIFT, mouse_up, exec, hyprctl keyword cursor:zoom_factor \"$(hyprctl getoption cursor:zoom_factor | awk 'NR==1 {factor = $2; if (factor < 1) {factor = 1}; print factor / 2.0}')\""
+      # Resizeing windows                   X  Y
+      "$mainMod CTRL, left,  resizeactive, -60 0"
+      "$mainMod CTRL, right, resizeactive,  60 0"
+      "$mainMod CTRL, up,    resizeactive,  0 -60"
+      "$mainMod CTRL, down,  resizeactive,  0  60"
 
-      # Waybar
-      "$mainMod CTRL ALT, B, exec, pkill -SIGUSR1 waybar"
-      "$mainMod CTRL, B, exec, $scriptsDir/WaybarStyles.sh"
-      "$mainMod ALT, B, exec, $scriptsDir/WaybarLayout.sh"
+      # Switching workspaces
+      "$mainMod, 1, workspace, 1"
+      "$mainMod, 2, workspace, 2"
+      "$mainMod, 3, workspace, 3"
+      "$mainMod, 4, workspace, 4"
+      "$mainMod, 5, workspace, 5"
+      "$mainMod, 6, workspace, 6"
+      "$mainMod, 7, workspace, 7"
+      "$mainMod, 8, workspace, 8"
+      "$mainMod, 9, workspace, 9"
+      "$mainMod, 0, workspace, 10"
 
-      # UserScripts
-      "$mainMod SHIFT, M, exec, $UserScripts/RofiBeats.sh"
-      "$mainMod, W, exec, $UserScripts/WallpaperSelect.sh"
-      "$mainMod SHIFT, W, exec, $UserScripts/WallpaperEffects.sh"
-      "CTRL ALT, W, exec, $UserScripts/WallpaperRandom.sh"
-      "$mainMod CTRL, O, exec, hyprctl setprop active opaque toggle"
-      "$mainMod SHIFT, K, exec, $scriptsDir/KeyBinds.sh"
-      "$mainMod SHIFT, A, exec, $scriptsDir/Animations.sh"
-      "$mainMod SHIFT, O, exec, $UserScripts/ZshChangeTheme.sh"
-      "$mainMod ALT, C, exec, $UserScripts/RofiCalc.sh"
+      # Moving windows to workspaces
+      "$mainMod SHIFT, 1, movetoworkspacesilent, 1"
+      "$mainMod SHIFT, 2, movetoworkspacesilent, 2"
+      "$mainMod SHIFT, 3, movetoworkspacesilent, 3"
+      "$mainMod SHIFT, 4, movetoworkspacesilent, 4"
+      "$mainMod SHIFT, 5, movetoworkspacesilent, 5"
+      "$mainMod SHIFT, 6, movetoworkspacesilent, 6"
+      "$mainMod SHIFT, 7, movetoworkspacesilent, 7"
+      "$mainMod SHIFT, 8, movetoworkspacesilent, 8"
+      "$mainMod SHIFT, 9, movetoworkspacesilent, 9"
+      "$mainMod SHIFT, 0, movetoworkspacesilent, 10"
 
-      # Browser
-      "$mainMod, F, exec, brave"
+      # Scratchpad
+      "$mainMod,       S, togglespecialworkspace,  magic"
+      "$mainMod SHIFT, S, movetoworkspace, special:magic"
     ];
 
+    # Move/resize windows with mainMod + LMB/RMB and dragging
+    bindm = [
+      "$mainMod, mouse:272, movewindow"
+      "$mainMod, mouse:273, resizewindow"
+    ];
+
+    # Laptop multimedia keys for volume and LCD brightness
+    bindel = [
+      ",XF86AudioRaiseVolume,  exec, wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
+      ",XF86AudioLowerVolume,  exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+      ",XF86AudioMute,         exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+      ",XF86AudioMicMute,      exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
+      "$mainMod, bracketright, exec, brightnessctl s 10%+"
+      "$mainMod, bracketleft,  exec, brightnessctl s 10%-"
+    ];
+
+    # Audio playback
     bindl = [
-      # Layout switcher
-      "ALT_L SHIFT_L, exec, $scriptsDir/SwitchKeyboardLayout.sh"
+      ", XF86AudioNext,  exec, playerctl next"
+      ", XF86AudioPause, exec, playerctl play-pause"
+      ", XF86AudioPlay,  exec, playerctl play-pause"
+      ", XF86AudioPrev,  exec, playerctl previous"
     ];
-
-    # Example: You can add monitor/input/windowrules/decoration/animations/input/etc here
-    # input = {
-    #   kb_layout = "us";
-    # };
   };
-};
-
+}
