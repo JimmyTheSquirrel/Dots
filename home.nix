@@ -5,6 +5,7 @@
     ./Modules/Brave.nix
     ./Modules/Kitty.nix
     ./Modules/Zsh.nix
+    ./Modules/Hyprpanel.nix
   ];
 
   home.username = "rock";
