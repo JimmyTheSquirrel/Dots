@@ -25,24 +25,25 @@
   home.sessionVariables = { };
 
   # zsh + oh-my-zsh
-  programs.zsh = {
+programs.zsh = {
+  enable = true;
+  enableCompletion = true;
+  enableAutosuggestions = true;   # <-- fix
+  syntaxHighlighting.enable = true;
+
+  oh-my-zsh = {
     enable = true;
-    enableCompletion = true;
-    autosuggestions.enable = true;
-    syntaxHighlighting.enable = true;
-
-    oh-my-zsh = {
-      enable = true;
-      theme = "agnoster";    # try "ys" or "robbyrussell" if you prefer
-      plugins = [ "git" "sudo" "z" ];
-    };
-
-    shellAliases = {
-      ll = "ls -lh";
-      la = "ls -lha";
-      gs = "git status";
-    };
+    theme = "agnoster";
+    plugins = [ "git" "sudo" "z" ];
   };
+
+  shellAliases = {
+    ll = "ls -lh";
+    la = "ls -lha";
+    gs = "git status";
+  };
+};
+
 
   # let Home Manager manage itself
   programs.home-manager.enable = true;
