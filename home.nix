@@ -4,6 +4,7 @@
   # bring in your per-app modules
   imports = [
     ./Modules/Brave.nix
+    ./Modules/Kitty.nix
   ];
 
   # user basics
