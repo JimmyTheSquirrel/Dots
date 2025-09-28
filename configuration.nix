@@ -92,15 +92,6 @@
     ];
   };
 
-  home-manager = {
-  useGlobalPkgs = true;
-  useUserPackages = true;
-  extraSpecialArgs = { inherit inputs; };
-
-  users.rock = import ./home.nix;
-};
-
-
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
 
