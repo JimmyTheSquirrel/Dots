@@ -20,5 +20,18 @@
          inputs.home-manager.nixosModules.default
       ];
     };
+        homeConfigurations =
+      nixpkgs.lib.genAttrs ["rock"]
+      (username:
+        home-manager.lib.homeManagerConfiguration {
+          inherit pkgs;
+          extraSpecialArgs = {
+            inherit userSettings;
+            inherit inputs;
+          };
+          modules = [
+            ./users/${username}/home.nix
+          ];
+        });
   };
 }
