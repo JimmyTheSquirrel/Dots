@@ -21,8 +21,9 @@
 
     # initExtra is deprecated on your HM; use initContent
     initContent = ''
-      # --- Dots helpers -------------------------------------------------------
-
+      # --------------------------------
+      # --- Dots helpers ---------------
+      # --------------------------------
       # System rebuild (flake in ~/Dots)
       system-rebuild() {
         (
@@ -30,6 +31,7 @@
           sudo nixos-rebuild switch --flake .
         )
       }
+      # ------------------------------------------------------------------------
 
       # One-shot Git sync in ~/Dots.
       # - If a message is given: add+commit first
@@ -67,10 +69,14 @@
         )
       }
 
+      # ------------------------------------------------------------------------
+
       # Show Fastfetch on startup (only in Kitty)
       if [[ $- == *i* ]] && [[ -n "$KITTY_WINDOW_ID" ]]; then
         command -v fastfetch >/dev/null && fastfetch
       fi
+
+      # ------------------------------------------------------------------------
 
       # Override 'clear' so it re-runs Fastfetch (Kitty only)
       clear() {
@@ -79,6 +85,7 @@
           command -v fastfetch >/dev/null && fastfetch
         fi
       }
+
       # ------------------------------------------------------------------------
     '';
   };
