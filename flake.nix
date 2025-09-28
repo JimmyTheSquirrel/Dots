@@ -21,17 +21,17 @@
     # it's a better practice than "default" shown in the video
     nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
       modules = [
-        ./configuration.nix
+        system = "x86_64-linux";
+        modules = [ ./configuration.nix ]
       ];
     };
-        homeConfigurations =
-      nixpkgs.lib.genAttrs ["rock"]
-      (username:
-        home-manager.lib.homeManagerConfiguration {
-          inherit pkgs;
-          modules = [
-            ./users/${username}/home.nix
-          ];
-        });
+    homeConfigurations = {
+      rock = home-manager.lib.homeManagerConfiguration {
+        system = system;
+        modules = [ ./home.nix ];
+      };
+
+    };
+
   };
 }
