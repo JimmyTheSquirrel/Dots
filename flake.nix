@@ -20,14 +20,19 @@
     # use "nixos", or your hostname as the name of the configuration
     # it's a better practice than "default" shown in the video
     nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
-      modules = [
-        system = "x86_64-linux";
-        modules = [ ./configuration.nix ]
-      ];
+      system = system;
+        modules = [ ./configuration.nix ];
+      specialArgs = {
+        inherit inputs;
+        pkgs = import inputs.nixpkgs {
+          system = "x86_64-linux";
+          config = { allowUnfree = true; };
+        };
+      };
     };
     homeConfigurations = {
       rock = home-manager.lib.homeManagerConfiguration {
-        system = system;
+        inherit pkgs;
         modules = [ ./home.nix ];
       };
 
