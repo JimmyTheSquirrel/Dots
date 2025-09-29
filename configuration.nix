@@ -14,7 +14,7 @@
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  networking.hostName = "nixos"; # Define your hostname.
+  networking.hostName = "Sisyphus"; # Define your hostname.
   # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
 
   # Configure network proxy if necessary
@@ -48,7 +48,7 @@
 
   # Enable the KDE Plasma Desktop Environment.
   services.displayManager.sddm.enable = true;
-  #services.desktopManager.plasma6.enable = true;
+  services.desktopManager.plasma6.enable = true;
   programs.hyprland.enable = true;
 
   # Configure keymap in X11
@@ -112,7 +112,7 @@
   home-manager
  # dolphin
   nwg-look
-  rofi 
+  rofi
   #  vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
   #  wget
   ];

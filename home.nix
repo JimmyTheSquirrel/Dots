@@ -6,8 +6,6 @@
     ./Modules/Kitty.nix
     ./Modules/Zsh.nix
     ./Modules/Hyprpanel.nix
-    ./Modules/Hyprland.nix
-    ./Modules/Hyprland-Main.nix  
 ];
 
   home.username = "rock";
