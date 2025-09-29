@@ -7,7 +7,7 @@
     ./Modules/Zsh.nix
     ./Modules/Hyprpanel.nix
     ./Modules/Fastfetch.nix
-    ./modules/vscodium.nix
+    ./modules/Vscodium.nix
 ];
 
   home.username = "rock";
