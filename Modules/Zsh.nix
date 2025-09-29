@@ -26,15 +26,26 @@
       # --------------------------------
       # In your Zsh.nix (or wherever your shell functions live)
 
-       system-rebuild() {
-          (
-            cd ~/Dots || exit 1
-            echo "Rebuilding NixOS system..."
-            sudo nixos-rebuild switch --flake .
-            echo "Rebuilding Home Manager..."
-            home-manager switch --flake .
-          )
-        }
+system-rebuild() {
+  (
+    cd ~/Dots || exit 1
+
+    echo -e "\n\033[1;34m==> Rebuilding NixOS system...\033[0m"
+    sudo nixos-rebuild switch --flake . || {
+      echo -e "\033[1;31mNixOS rebuild failed\033[0m"
+      exit 1
+    }
+
+    echo -e "\n\033[1;34m==> Rebuilding Home Manager...\033[0m"
+    home-manager switch --flake . || {
+      echo -e "\033[1;31mHome Manager rebuild failed\033[0m"
+      exit 1
+    }
+
+    echo -e "\n\033[1;32m==> All done!\033[0m"
+  )
+}
+
 
       # ------------------------------------------------------------------------
 
