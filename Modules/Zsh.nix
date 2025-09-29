@@ -9,7 +9,7 @@
 
     oh-my-zsh = {
       enable = true;
-      theme = "agnoster";
+      theme = "agnosterzak";
       plugins = [ "git" "sudo" "z" ];
     };
 

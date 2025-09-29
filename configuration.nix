@@ -47,7 +47,9 @@
   services.xserver.enable = true;
 
   # Enable the KDE Plasma Desktop Environment.
-  services.displayManager.sddm.enable = true;
+  #services.displayManager.sddm.enable = true;
+  services.xserver.displayManager.gdm.wayland = true;
+  services.xserver.displayManager.gdm.enable = true;
   services.desktopManager.plasma6.enable = true;
   programs.hyprland.enable = true;
 
@@ -88,7 +90,6 @@
     extraGroups = [ "networkmanager" "wheel" ];
     shell = pkgs.zsh;
     packages = with pkgs; [
-      kdePackages.kate
     #  thunderbird
     ];
   };
@@ -105,16 +106,17 @@
   environment.systemPackages = with pkgs; [
 
   discord
-  vim
+  neovim
   git
   fastfetch
   kitty
+  vimPlugins.nvchad-ui
   home-manager
- # dolphin
-  nwg-look
+  xfce.thunar # file manager
+  nautilus # File manager
+  nemo # File manager
+  #nwg-displays
   rofi
-  #  vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
-  #  wget
   ];
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
