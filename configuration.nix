@@ -110,7 +110,6 @@
   git
   fastfetch
   kitty
-  vimPlugins.nvchad-ui
   home-manager
   xfce.thunar # file manager
   nautilus # File manager
