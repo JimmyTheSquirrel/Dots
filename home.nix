@@ -6,6 +6,7 @@
     ./Modules/Kitty.nix
     ./Modules/Zsh.nix
     ./Modules/Hyprpanel.nix
+    ./Modules/Fastfetch.nix
 ];
 
   home.username = "rock";
