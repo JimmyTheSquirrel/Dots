@@ -4,54 +4,56 @@
   programs.kitty = {
     enable = true;
 
-    # fonts
     font = {
-      # matches:  "font_family FantasqueSansM Nerd Font Mono Bold"
-      # In kitty the “Bold” part is usually controlled by bold_font, so we set family only:
       name = "FantasqueSansM Nerd Font Mono";
       size = 16.0;
     };
 
-    # most kitty.conf options map 1:1 here
     settings = {
       bold_font = "auto";
       italic_font = "auto";
       bold_italic_font = "auto";
 
-      background_opacity = "0.4";
+      # Transparency & blur vibe
+      background_opacity = "0.85";
       dynamic_background_opacity = "yes";
+
+      # No nags on close
       confirm_os_window_close = 0;
 
-      # cursor
+      # Cursor
+      cursor_shape = "beam";
+      cursor_blink_interval = 0;
       cursor_trail = 1;
 
-      # platform
-      linux_display_server = "auto";
-
-      # scrolling
-      scrollback_lines = 2000;
+      # Scrolling
+      scrollback_lines = 5000;
       wheel_scroll_min_lines = 1;
 
-      # misc
+      # Misc
       enable_audio_bell = "no";
-      window_padding_width = 4;
+      window_padding_width = 12;
 
-      # selection + colors
-      selection_foreground = "none";
-      selection_background = "none";
-      foreground = "#dddddd";
-      background = "#000000";
-      cursor = "#dddddd";
+      # Gruvbox-inspired palette
+      foreground = "#ebdbb2";
+      background = "#1d2021";
+      cursor     = "#ebdbb2";
+      color0     = "#282828";
+      color1     = "#cc241d";
+      color2     = "#98971a";
+      color3     = "#d79921";
+      color4     = "#458588";
+      color5     = "#b16286";
+      color6     = "#689d6a";
+      color7     = "#a89984";
+      color8     = "#928374";
+      color9     = "#fb4934";
+      color10    = "#b8bb26";
+      color11    = "#fabd2f";
+      color12    = "#83a598";
+      color13    = "#d3869b";
+      color14    = "#8ec07c";
+      color15    = "#ebdbb2";
     };
-
-    # if you keep a theme file, include it like your old config
-    extraConfig = ''
-      include ~/.config/kitty/kitty-themes/00-Default.conf
-    '';
   };
-
-  # (optional) Have HM manage/symlink your themes folder/file
-  # Point this to wherever your theme(s) live inside your flake repo
-  # Example if you store them under ./dotfiles/kitty-themes in your repo:
-  # xdg.configFile."kitty/kitty-themes".source = ./kitty-themes;
 }
