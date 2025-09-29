@@ -19,7 +19,7 @@
    in {
     # use "nixos", or your hostname as the name of the configuration
     # it's a better practice than "default" shown in the video
-    nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
+    nixosConfigurations.Sisyphus = nixpkgs.lib.nixosSystem {
       system = system;
         modules = [ ./configuration.nix ];
       specialArgs = {
