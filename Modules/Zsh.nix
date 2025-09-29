@@ -24,13 +24,18 @@
       # --------------------------------
       # --- Dots helpers ---------------
       # --------------------------------
-      # System rebuild (flake in ~/Dots)
-      system-rebuild() {
-        (
-          cd ~/Dots || exit 1
-          sudo nixos-rebuild switch --flake .
-        )
-      }
+      # In your Zsh.nix (or wherever your shell functions live)
+
+       system-rebuild() {
+          (
+            cd ~/Dots || exit 1
+            echo "Rebuilding NixOS system..."
+            sudo nixos-rebuild switch --flake .
+            echo "Rebuilding Home Manager..."
+            home-manager switch --flake .
+          )
+        }
+
       # ------------------------------------------------------------------------
 
       # One-shot Git sync in ~/Dots.
