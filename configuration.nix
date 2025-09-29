@@ -104,16 +104,13 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
-
+  vscodium
   discord
-  neovim
   git
   fastfetch
   kitty
   home-manager
-  xfce.thunar # file manager
-  nautilus # File manager
-  nemo # File manager
+  xfce.thunar
   #nwg-displays
   rofi
   ];

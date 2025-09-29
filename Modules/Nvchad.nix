@@ -1,22 +1,16 @@
-{ stdenv, pkgs, fetchFromGithub }:
+{ config, pkgs, ... }:
 
 {
-nvchad = stdenv.mkDerivation rec {
-  pname = "nvchad";
-  version = "";
-  dontBuild = true;
-
-  src = pkgs.fetchFromGitHub {
-    owner = "NvChad";
-    repo = "NvChad";
-    rev = "c8777040fbda6a656f149877b796d120085cd918";
-    sha256 = "sha256-J4SGwo/XkKFXvq+Va1EEBm8YOQwIPPGWH3JqCGpFnxY=";
+  programs.neovim = {
+    enable = true;
+    viAlias = true;
+    vimAlias = true;
+    # NvChad doesn't really need extraConfig here, we just clone it if missing
   };
 
-  installPhase = ''
-    # Fetch the whole repo and put it in $out
-    mkdir $out
-    cp -aR $src/* $out/
+  home.activation.installNvChad = pkgs.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ ! -d "$HOME/.config/nvim" ]; then
+      git clone https://github.com/NvChad/NvChad "$HOME/.config/nvim" --depth 1
+    fi
   '';
-  };
 }
