@@ -10,7 +10,7 @@ in
 
     settings = {
       # --- MONITORS ---
-   monitor = [
+      monitor = [
         # DP-4 ultrawide (main, bottom)
         "DP-4,2560x1080@144,0x0,1"
 
@@ -27,6 +27,10 @@ in
       env = [
         "XCURSOR_SIZE,24"
         "HYPRCURSOR_SIZE,24"
+
+        # Force Electron apps to use Wayland instead of X11
+        "NIXOS_OZONE_WL,1"
+        "ELECTRON_OZONE_PLATFORM_HINT,wayland"
       ];
 
       # --- LOOK AND FEEL ---
