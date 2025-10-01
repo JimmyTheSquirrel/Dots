@@ -47,10 +47,10 @@
   services.xserver.enable = true;
 
   # Enable the KDE Plasma Desktop Environment.
-  #services.displayManager.sddm.enable = true;
+  services.displayManager.sddm.enable = true;
   services.xserver.displayManager.gdm.wayland = true;
-  services.xserver.displayManager.gdm.enable = true;
-  services.desktopManager.plasma6.enable = true;
+ #services.xserver.displayManager.gdm.enable = true;
+ #services.desktopManager.plasma6.enable = true;
   programs.hyprland.enable = true;
 
   # Configure keymap in X11

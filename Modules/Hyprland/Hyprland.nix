@@ -10,15 +10,18 @@ in
 
     settings = {
       # --- MONITORS ---
-      monitor = [
-        "DP-1,2560x1080@144,0x0,1"       # main (ultrawide)
-        "HDMI-A-1,preferred,2560x0,1"    # secondary
+   monitor = [
+        # DP-4 ultrawide (main, bottom)
+        "DP-4,2560x1080@144,0x0,1"
+
+        # HDMI-A-2 (secondary, top — centered above ultrawide)
+        "HDMI-A-2,1920x1080@60,320x-1080,1"
       ];
 
       # --- PROGRAM VARIABLES ---
       "$terminal"    = "kitty";
       "$fileManager" = "thunar";
-      "$menu"        = "rofi --show drun";
+      "$menu"        = "rofi -show drun";
 
       # --- ENVIRONMENT VARIABLES ---
       env = [

@@ -21,7 +21,7 @@ in {
     "${mainMod}, up, movefocus, u"
     "${mainMod}, down, movefocus, d"
 
-    # ---- dp-1 workspaces (ultrawide) ----
+    # ---- dp-4 workspaces (ultrawide, numbered) ----
     # Switch
     "${mainMod}, 1, workspace, 1"
     "${mainMod}, 2, workspace, 2"
@@ -46,18 +46,18 @@ in {
     "${mainMod} SHIFT, 9, movetoworkspace, 9"
     "${mainMod} SHIFT, 0, movetoworkspace, 10"
 
-    # ---- hdmi workspaces (named) ----
-    # Switch
-    "CTRL, 1, workspace, discord"
-    "CTRL, 2, workspace, spotify"
-    "CTRL, 3, workspace, blank-01"
-    "CTRL, 4, workspace, blank-02"
+    # ---- hdmi-a-2 workspaces (named on F1–F4) ----
+    # Switch (use name:<ws> to be explicit)
+    "${mainMod}, F1, workspace, name:discord"
+    "${mainMod}, F2, workspace, name:spotify"
+    "${mainMod}, F3, workspace, name:blank-01"
+    "${mainMod}, F4, workspace, name:blank-02"
 
     # Move
-    "CTRL SHIFT, 1, movetoworkspace, discord"
-    "CTRL SHIFT, 2, movetoworkspace, spotify"
-    "CTRL SHIFT, 3, movetoworkspace, blank-01"
-    "CTRL SHIFT, 4, movetoworkspace, blank-02"
+    "${mainMod} SHIFT, F1, movetoworkspace, name:discord"
+    "${mainMod} SHIFT, F2, movetoworkspace, name:spotify"
+    "${mainMod} SHIFT, F3, movetoworkspace, name:blank-01"
+    "${mainMod} SHIFT, F4, movetoworkspace, name:blank-02"
 
     # ---- special workspace ----
     "${mainMod}, S, togglespecialworkspace, magic"
