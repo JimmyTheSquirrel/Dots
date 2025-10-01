@@ -152,7 +152,7 @@ in
       # Uncomment to autostart things the Hyprland way:
        exec-once = [
          "hyprpanel"
-
+       ];
     };
   };
 }
