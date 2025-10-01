@@ -20,7 +20,7 @@ in
 
       # --- PROGRAM VARIABLES ---
       "$terminal"    = "kitty";
-      "$fileManager" = "thunar";
+      "$fileManager" = "nemo";
       "$menu"        = "rofi -show drun";
 
       # --- ENVIRONMENT VARIABLES ---
@@ -137,6 +137,15 @@ in
 
       # --- WORKSPACES / WINDOW RULES ---
       inherit (ws) workspace windowrule;
+
+      # --- Per-app opacity ---
+      windowrulev2 = [
+        "opacity 0.80 0.80, class:^(nemo)$"
+        "opacity 0.80 0.80, class:^(Brave)$"
+        "opacity 0.80 0.80, class:^(codium)$"
+
+      ];
+
 
       # --- AUTOSTART ---
       exec-once = [ "hyprpanel" ];

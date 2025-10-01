@@ -199,7 +199,7 @@
       # --- Wallpaper ---
       wallpaper = {
         enable = false;
-        pywal = false;
+        pywal = true;
         image = "";
       };
     };

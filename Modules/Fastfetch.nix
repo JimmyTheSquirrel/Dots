@@ -1,131 +1,45 @@
-{ config, pkgs, ... }:
+# Modules/Fastfetch.nix
+{ pkgs, ... }:
 
 let
   jsonConfig = builtins.toJSON {
     logo = {
-      type = "file";
-      source = ""; # You can specify an image path here
-      padding = { top = 1; };
+      # Medium logo via Kitty graphics (works great in kitty)
+      type = "kitty";
+      source = "${pkgs.nixos-icons}/share/pixmaps/nix-snowflake.png";
+      height = 9;                 # tweak 10–14 to taste
+      padding = { top = 1; left = 1; };
     };
 
-    display = {
-      separator = " 󰑃  ";
-    };
+    display = { separator = " 󰑃  "; };
 
     modules = [
       "break"
-      {
-        type = "os";
-        key = " DISTRO";
-        keyColor = "yellow";
-      }
-      {
-        type = "kernel";
-        key = "│ ├";
-        keyColor = "yellow";
-      }
-      {
-        type = "packages";
-        key = "│ ├󰏖";
-        keyColor = "yellow";
-      }
-      {
-        type = "shell";
-        key = "│ └";
-        keyColor = "yellow";
-      }
-      {
-        type = "wm";
-        key = " DE/WM";
-        keyColor = "blue";
-      }
-      {
-        type = "wmtheme";
-        key = "│ ├󰉼";
-        keyColor = "blue";
-      }
-      {
-        type = "icons";
-        key = "│ ├󰀻";
-        keyColor = "blue";
-      }
-      {
-        type = "cursor";
-        key = "│ ├";
-        keyColor = "blue";
-      }
-      {
-        type = "terminalfont";
-        key = "│ ├";
-        keyColor = "blue";
-      }
-      {
-        type = "terminal";
-        key = "│ └";
-        keyColor = "blue";
-      }
-      {
-        type = "host";
-        key = "󰌢 SYSTEM";
-        keyColor = "green";
-      }
-      {
-        type = "cpu";
-        key = "│ ├󰻠";
-        keyColor = "green";
-      }
-      {
-        type = "gpu";
-        key = "│ ├󰻑";
-        keyColor = "green";
-        format = "{2}";
-      }
-      {
-        type = "display";
-        key = "│ ├󰍹";
-        keyColor = "green";
-        compactType = "original-with-refresh-rate";
-      }
-      {
-        type = "memory";
-        key = "│ ├󰾆";
-        keyColor = "green";
-      }
-      {
-        type = "swap";
-        key = "│ ├󰓡";
-        keyColor = "green";
-      }
-      {
-        type = "uptime";
-        key = "│ ├󰅐";
-        keyColor = "green";
-      }
-      {
-        type = "display";
-        key = "│ └󰍹";
-        keyColor = "green";
-      }
-      {
-        type = "sound";
-        key = " AUDIO";
-        keyColor = "magenta";
-        format = "{2}";
-      }
-      {
-        type = "player";
-        key = "│ ├󰥠";
-        keyColor = "magenta";
-      }
-      {
-        type = "media";
-        key = "│ └󰝚";
-        keyColor = "magenta";
-      }
-      {
-        type = "custom";
-        format = "\u001b[90m  \u001b[31m  \u001b[32m  \u001b[33m  \u001b[34m  \u001b[35m  \u001b[36m  \u001b[37m  \u001b[38m  \u001b[39m  \u001b[39m    \u001b[38m  \u001b[37m  \u001b[36m  \u001b[35m  \u001b[34m  \u001b[33m  \u001b[32m  \u001b[31m  \u001b[90m ";
-      }
+
+      # --- OS / Kernel / Packages / Shell ---
+      { type = "os";       key = " DISTRO"; keyColor = "yellow"; }
+      { type = "kernel";   key = "│ ├";     keyColor = "yellow"; }
+      { type = "packages"; key = "│ ├󰏖";    keyColor = "yellow"; }
+      { type = "shell";    key = "│ └";    keyColor = "yellow"; }
+
+      # --- Desktop / Theming ---
+      { type = "wm";           key = " DE/WM";   keyColor = "blue"; }
+      { type = "wmtheme";      key = "│ ├󰉼";     keyColor = "blue"; }
+      { type = "icons";        key = "│ ├󰀻";     keyColor = "blue"; }
+      { type = "cursor";       key = "│ ├";     keyColor = "blue"; }
+      { type = "terminalfont"; key = "│ ├";     keyColor = "blue"; }
+      { type = "terminal";     key = "│ └";     keyColor = "blue"; }
+
+      # --- System Info ---
+      { type = "host";    key = "󰌢 SYSTEM"; keyColor = "green"; }
+      { type = "cpu";     key = "│ ├󰻠";    keyColor = "green"; }
+      { type = "gpu";     key = "│ ├󰻑";    keyColor = "green"; format = "{2}"; }
+      { type = "display"; key = "│ ├󰍹";    keyColor = "green"; compactType = "original-with-refresh-rate"; }
+      { type = "memory";  key = "│ ├󰾆";    keyColor = "green"; }
+      { type = "swap";    key = "│ ├󰓡";    keyColor = "green"; }
+      { type = "uptime";  key = "│ └󰅐";    keyColor = "green"; }
+
+      # (Removed sound/player/media and the rainbow custom line)
       "break"
     ];
   };
@@ -134,4 +48,5 @@ in
   home.packages = [ pkgs.fastfetch ];
 
   xdg.configFile."fastfetch/config.jsonc".text = jsonConfig;
+
 }

@@ -14,7 +14,8 @@ in {
     "${mainMod}, V, togglefloating,"
     "${mainMod}, P, pseudo,"
     "${mainMod}, J, togglesplit,"
-    "${mainMod} SHIFT, S, exec, swappy"
+    "${mainMod}, F, exec, Brave,"
+
 
     # Move focus
     "${mainMod}, left, movefocus, l"
@@ -59,10 +60,6 @@ in {
     "${mainMod} SHIFT, F2, movetoworkspace, name:spotify"
     "${mainMod} SHIFT, F3, movetoworkspace, name:blank-01"
     "${mainMod} SHIFT, F4, movetoworkspace, name:blank-02"
-
-    # ---- special workspace ----
-    "${mainMod}, S, togglespecialworkspace, magic"
-    "${mainMod} SHIFT, S, movetoworkspace, special:magic"
 
     # Scroll workspaces
     "${mainMod}, mouse_down, workspace, e+1"

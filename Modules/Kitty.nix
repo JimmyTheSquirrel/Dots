@@ -15,7 +15,7 @@
       bold_italic_font = "auto";
 
       # Transparency & blur vibe
-      background_opacity = "0.85";
+      background_opacity = "0.70";
       dynamic_background_opacity = "yes";
 
       # No nags on close

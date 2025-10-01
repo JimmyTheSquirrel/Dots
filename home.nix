@@ -10,6 +10,7 @@
     ./Modules/Vscodium.nix
     ./Modules/Nemo.nix
     ./Modules/Screenshot.nix
+    ./Modules/WallpaperCarousel.nix
     ./Modules/Hyprland/Hyprland.nix
 
 ];

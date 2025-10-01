@@ -2,12 +2,10 @@
 { config, pkgs, ... }:
 
 {
-  ##### Install Nemo
-  home.packages = with pkgs; [
-    nemo
-  ];
+  # Install Nemo
+  home.packages = with pkgs; [ nemo ];
 
-  ##### Make Nemo the default file manager
+  # Make Nemo the default file manager
   xdg.mimeApps = {
     enable = true;
     defaultApplications = {
@@ -16,42 +14,44 @@
     };
   };
 
-  ##### GTK theming (Catppuccin + Tela)
+  # GTK theming (reliable dark)
   gtk = {
     enable = true;
 
-    # If nixpkgs ever renames variants, you can list available ones with:
-    # nix eval nixpkgs#catppuccin-gtk.themes
+    # adw-gtk3 is very dependable for GTK3 apps like Nemo
     theme = {
-      name = "Catppuccin-Mocha-Standard-Blue-Dark";
-      package = pkgs.catppuccin-gtk;
+      name = "adw-gtk3-dark";
+      package = pkgs.adw-gtk3;
     };
 
-    # If tela-circle fails on your channel, swap to pkgs.tela-icon-theme
+    # Pick any icon theme you like; these two are good:
     iconTheme = {
-      name = "Tela-circle-dark";
-      package = pkgs.tela-circle-icon-theme;
+      name = "Papirus-Dark";             # or "Tela-circle-dark"
+      package = pkgs.papirus-icon-theme; # or pkgs.tela-circle-icon-theme
     };
 
     font = { name = "Inter 11"; };
   };
 
-  ##### Nemo preferences (via dconf)
+  # Nemo defaults (list, hidden, nicer sizing)
   dconf.settings = {
     "org/nemo/preferences" = {
-      default-folder-viewer = "list-view"; # start in list view
-      show-hidden-files = true;            # show dotfiles
-      sort-directories-first = true;       # folders on top
-      use-extra-pane = true;               # enable split pane (toggle with F3)
-      date-format = "iso";                 # cleaner timestamps
+      default-folder-viewer   = "list-view";
+      show-hidden-files       = true;
+      sort-directories-first  = true;
+      use-extra-pane          = true;
+      date-format             = "iso";
     };
-
     "org/nemo/list-view" = {
-      default-zoom-level = "large";       # small, standard, large, larger, largest
+      default-zoom-level = "larger";     # small|standard|large|larger|largest
+    };
+    "org/nemo/icon-view" = {
+      default-zoom-level = "larger";
     };
 
-    "org/nemo/icon-view" = {
-      default-zoom-level = "large";
+    # Some toolkits also respect this dark hint:
+    "org/gnome/desktop/interface" = {
+      color-scheme = "prefer-dark";
     };
   };
 }
