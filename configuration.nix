@@ -94,9 +94,6 @@
     ];
   };
 
-  
-#fonts.packages = with pkgs; [ nerdfonts ];
-
 
 # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
