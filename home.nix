@@ -8,6 +8,7 @@
     ./Modules/Hyprpanel.nix
     ./Modules/Fastfetch.nix
     ./Modules/Vscodium.nix
+    ./Modules/Hyprland/Hyprland.nix
 ];
 
   home.username = "rock";
