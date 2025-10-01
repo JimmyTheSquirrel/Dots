@@ -2,39 +2,31 @@
 
 let
   kb = import ./Hyprland-Keybinds.nix { inherit lib; };
+  ws = import ./Workspace.nix { inherit lib; };
 in
 {
-  programs.hyprland = {
+  wayland.windowManager.hyprland = {
     enable = true;
 
-    # This produces ~/.config/hypr/hyprland.conf declaratively
     settings = {
-      ################
-      ### MONITORS ###
-      ################
+      # --- MONITORS ---
       monitor = [
-        ",preferred,auto,auto"
+        "DP-1,2560x1080@144,0x0,1"       # main (ultrawide)
+        "HDMI-A-1,preferred,2560x0,1"    # secondary
       ];
 
-      ###################
-      ### MY PROGRAMS ###
-      ###################
-      # In Hyprland configs, variables start with $. Quote them in Nix:
+      # --- PROGRAM VARIABLES ---
       "$terminal"    = "kitty";
       "$fileManager" = "thunar";
       "$menu"        = "rofi --show drun";
 
-      #############################
-      ### ENVIRONMENT VARIABLES ###
-      #############################
+      # --- ENVIRONMENT VARIABLES ---
       env = [
         "XCURSOR_SIZE,24"
         "HYPRCURSOR_SIZE,24"
       ];
 
-      #####################
-      ### LOOK AND FEEL ###
-      #####################
+      # --- LOOK AND FEEL ---
       general = {
         gaps_in  = 5;
         gaps_out = 20;
@@ -67,6 +59,7 @@ in
         };
       };
 
+      # --- ANIMATIONS ---
       animations = {
         enabled = "yes, please :)";
 
@@ -98,6 +91,7 @@ in
         ];
       };
 
+      # --- LAYOUTS ---
       dwindle = {
         pseudotile = true;
         preserve_split = true;
@@ -105,14 +99,13 @@ in
 
       master = { new_status = "master"; };
 
+      # --- MISC ---
       misc = {
         force_default_wallpaper = -1;
         disable_hyprland_logo = false;
       };
 
-      #############
-      ### INPUT ###
-      #############
+      # --- INPUT ---
       input = {
         kb_layout  = "us";
         kb_variant = "";
@@ -132,27 +125,14 @@ in
         { name = "epic-mouse-v1"; sensitivity = -0.5; }
       ];
 
-      ##############################
-      ### WINDOWS / WORKSPACES  ###
-      ##############################
-      windowrule = [
-        "suppressevent maximize, class:.*"
-        "nofocus,class:^$,title:^$,xwayland:1,floating:1,fullscreen:0,pinned:0"
-      ];
-
-      ###################
-      ### KEYBINDINGS ###
-      ###################
-      # Pull in all keybind arrays from the separate file
+      # --- KEYBINDINGS ---
       inherit (kb) bind bindm bindel bindl;
 
-      #################
-      ### AUTOSTART ###
-      #################
-      # Uncomment to autostart things the Hyprland way:
-       exec-once = [
-         "hyprpanel"
-       ];
+      # --- WORKSPACES / WINDOW RULES ---
+      inherit (ws) workspace windowrule;
+
+      # --- AUTOSTART ---
+      exec-once = [ "hyprpanel" ];
     };
   };
 }

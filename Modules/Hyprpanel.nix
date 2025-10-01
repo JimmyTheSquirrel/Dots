@@ -1,16 +1,18 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 
 {
+  # --- Packages (fonts Hyprpanel expects) ---
   home.packages = with pkgs; [
     nerd-fonts.caskaydia-cove
     nerd-fonts.fantasque-sans-mono
   ];
 
+  # --- Hyprpanel config (writes ~/.config/hyprpanel/config.json) ---
   programs.hyprpanel = {
     enable = true;
 
     settings = {
-      # --- LAYOUTS (note the quoted key) ---
+      # --- LAYOUTS ---
       layout = {
         "bar.layouts" = {
           "0" = {
@@ -69,7 +71,6 @@
           unit = "metric";
           location = "Sydney";
           interval = 2000;
-          # key = "YOUR_API_KEY"
         };
       };
 
@@ -127,7 +128,7 @@
         cava = { channels = 2; stereo = true; bars = 15; samplerate = 44100; };
       };
 
-      # --- Theme (trimmed to key bits you used) ---
+      # --- Theme ---
       theme = {
         bar = {
           location = "top";
@@ -186,7 +187,7 @@
         };
 
         font = {
-          name  = "FantasqueSansM Nerd Font Propo";
+          name  = "FantasqueSansM Nerd Font Propo";  # or "CaskaydiaCove NF"
           label = "FantasqueSansM Nerd Font Propo Bold Italic";
           style = "italic";
         };
@@ -199,8 +200,11 @@
       wallpaper = {
         enable = false;
         pywal = false;
-        image = "/home/rock/Pictures/Wallpapers_git/Extra Wallpapers/Defult Wallpapers/Street-2.png";
+        image = "";
       };
     };
   };
+
+  # --- Disable HM’s hyprpanel systemd service (let Hyprland exec-once handle it) ---
+  systemd.user.services.hyprpanel.Install.WantedBy = lib.mkForce [ ];
 }
