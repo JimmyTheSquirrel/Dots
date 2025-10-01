@@ -8,7 +8,8 @@
     ./Modules/Hyprpanel.nix
     ./Modules/Fastfetch.nix
     ./Modules/Vscodium.nix
-    #./Modules/Thunar.nix
+    ./Modules/Nemo.nix
+    ./Modules/Screenshot.nix
     ./Modules/Hyprland/Hyprland.nix
 
 ];

@@ -123,7 +123,9 @@
       fastfetch
       kitty
       home-manager
-      rofi-wayland   # swap to pkgs.rofi if you prefer the X build
+      rofi-wayland
+      swappy
+
     ];
   };
 

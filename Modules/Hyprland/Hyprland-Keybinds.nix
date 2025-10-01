@@ -14,6 +14,7 @@ in {
     "${mainMod}, V, togglefloating,"
     "${mainMod}, P, pseudo,"
     "${mainMod}, J, togglesplit,"
+    "${mainMod} SHIFT, S, exec, swappy"
 
     # Move focus
     "${mainMod}, left, movefocus, l"
