@@ -143,9 +143,9 @@ in
       # --- Per-app opacity ---
       windowrulev2 = [
         "opacity 0.80 0.80, class:^(nemo)$"
-        "opacity 0.80 0.80, class:^(Brave)$"
+        "opacity 0.60 0.60, class:^(brave)$"
         "opacity 0.80 0.80, class:^(codium)$"
-
+        "opacity 0.60 0.60, class:^(discord)$"
       ];
 
 
