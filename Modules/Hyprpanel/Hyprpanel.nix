@@ -1,19 +1,30 @@
-{ lib, ... }:
+{ pkgs, lib, ... }:
 
 {
-  # Clean up any bad self-referencing symlink first
-  home.activation.fixHyprpanelConfig = lib.hm.dag.entryBefore [ "linkGeneration" ] ''
-    CFG="$HOME/.config/hyprpanel/config.json"
-    if [ -L "$CFG" ]; then
-      tgt="$(readlink -f "$CFG" || true)"
-      if [ ! -e "$tgt" ] || [ "$tgt" = "$CFG" ]; then rm -f "$CFG"; fi
-    fi
+  programs.hyprpanel.enable = true;
+  systemd.user.services.hyprpanel.Install.WantedBy = lib.mkForce [ ];
+
+  home.packages = with pkgs; [
+    nerd-fonts.caskaydia-cove
+    nerd-fonts.fantasque-sans-mono
+  ];
+
+  home.activation.fixHyprpanelFiles = lib.hm.dag.entryBefore [ "linkGeneration" ] ''
+    dir="$HOME/.config/hyprpanel"
+    mkdir -p "$dir"
+    for f in config.json hyprpanel_theme.json modules.json modules.scss; do
+      p="$dir/$f"
+      if [ -L "$p" ]; then
+        tgt="$(readlink -f "$p" || true)"; [ ! -e "$tgt" ] || [ "$tgt" = "$p" ] && rm -f "$p"
+      fi
+    done
   '';
 
-  # Install your EXACT old files
-  xdg.configFile."Hyprpanel/config.json".source = ./config.json;
-  xdg.configFile."Hyprpanel/hyprpanel_theme.json".source = ./hyprpanel_theme.json;
+  # USE THE MODULES FORMAT:
+  xdg.configFile."hyprpanel/modules.json" = { source = ./modules.json; force = true; };
+  xdg.configFile."hyprpanel/modules.scss" = { source = ./modules.scss; force = true; };
 
-  # Avoid Home-Manager’s hyprpanel service; launch it yourself (Hyprland exec-once)
-  systemd.user.services.hyprpanel.Install.WantedBy = lib.mkForce [ ];
+  # (comment these so there’s no confusion)
+  # xdg.configFile."hyprpanel/config.json".source = ./config.json;
+  # xdg.configFile."hyprpanel/hyprpanel_theme.json".source = ./hyprpanel_theme.json;
 }

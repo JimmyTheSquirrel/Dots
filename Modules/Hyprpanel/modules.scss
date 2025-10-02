@@ -1,0 +1,39 @@
+/* warm brown + sand palette like your old setup */
+$bg:        #1c1917;   // very dark brown
+$bg2:       #2a2420;   // chips/cards
+$text:      #e8e0d5;   // warm light text
+$label:     #d9b47a;   // sand accent
+$muted:     #6c625a;   // faint text
+$accent:    #d5a67a;   // primary accent
+$accent2:   #e29d7a;   // overflow accent
+$success:   #7fb58a;   // subtle green
+
+.bar {
+  background: $bg; color: $text; opacity: 0.88; border: none;
+}
+.chip, .button, .widget {
+  background: $bg2; color: $text; border: none;
+}
+.label { color: $label; }
+.icon  { color: $text; }
+
+.menu, .card, .popover {
+  background: $bg; color: $text; border: 1px solid $bg2;
+}
+
+.notification {
+  background: $bg2; color: $text;
+  .time { color: $muted; }
+  .action { background: $label; color: $bg; }
+  .close  { background: $accent; color: $bg; }
+}
+
+.osd {
+  .icon-container { background: $label; color: $bg; }
+  .bar-container  { background: $bg; }
+  .bar            { background: $label; }
+  .bar-empty      { background: $bg2; }
+  .bar-overflow   { background: $accent2; }
+  border: 1px solid $success;
+}
+

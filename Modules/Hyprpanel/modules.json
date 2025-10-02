@@ -1,0 +1,77 @@
+{
+  "scalingPriority": "hyprland",
+
+  "bar": {
+    "height": 52,
+    "margin": 0,
+    "widgetSpacing": 14,
+    "padding": { "horizontal": 10, "vertical": 9 },
+    "iconSize": 22
+  },
+
+  "bar.layouts": {
+    "0": {
+      "left":   ["launcher", "workspaces", "windowtitle"],
+      "middle": ["media"],
+      "right":  ["volume", "microphone", "systray", "clock", "notifications"]
+    },
+    "1": {
+      "left":   ["launcher", "workspaces", "windowtitle"],
+      "middle": ["media"],
+      "right":  ["volume", "network", "updates", "clock", "notifications"]
+    }
+  },
+
+  "bar.launcher": {
+    "icon": "",
+    "iconSize": 22,
+    "showTitle": false,
+    "rightClick": "menu:powerdropdown",
+    "paddingLeft": 0,
+    "paddingRight": 8
+  },
+
+  "bar.workspaces": {
+    "monitorSpecific": true,
+    "showWsIcons": true,
+    "showApplicationIcons": true,
+    "applicationIconOncePerWorkspace": true,
+    "numbered_active_indicator": "underline",
+    "showAllActive": false,
+    "pillHeight": 28,
+    "pillWidth": 36,
+    "fontSize": 17,
+    "spacing": 8
+  },
+
+  "bar.windowtitle": { "custom_title": true, "label": true, "icon": true, "truncation": true, "class_name": true, "truncation_size": 50, "fontSize": 17, "iconSize": 19 },
+  "bar.media":       { "truncation_size": 80, "fontSize": 17, "iconSize": 19 },
+  "bar.notifications": { "show_total": false, "hideCountWhenZero": false, "fontSize": 17, "iconSize": 19 },
+  "bar.clock":       { "showTime": true, "format": "%a %b %d  %I:%M %p", "showIcon": true, "fontSize": 17, "iconSize": 19 },
+  "bar.network":     { "label": true, "showWifiInfo": true, "fontSize": 17, "iconSize": 19 },
+  "bar.volume":      { "label": true, "fontSize": 17, "iconSize": 19 },
+  "bar.microphone":  { "label": true, "fontSize": 17, "iconSize": 19 },
+  "bar.battery":     { "label": true, "hideLabelWhenFull": true, "fontSize": 17, "iconSize": 19 },
+  "bar.systray":     { "iconSize": 19, "iconSpacing": 6 },
+
+  "menus.transition": "crossfade",
+  "menus.transitionTime": 150,
+
+  "menus.dashboard": {
+    "directories.enabled": false,
+    "stats": { "enabled": true, "enable_gpu": false, "interval": 2000 },
+    "powermenu": {
+      "avatar": { "name": "Rock @ Sisyphus", "image": "/home/rock/Downloads/My ChatGPT image.png" },
+      "sleep": "systemctl suspend",
+      "logout": "hyprctl dispatch exit",
+      "reboot": "systemctl reboot",
+      "shutdown": "systemctl poweroff",
+      "confirmation": true
+    },
+    "controls.enabled": false,
+    "shortcuts.left.shortcut1": { "command": "brave", "tooltip": "Brave" },
+    "shortcuts.left.shortcut4": { "tooltip": "Screenshot", "command": "bash -c \"/usr/share/hyprpanel/scripts/snapshot.sh\"", "icon": "󰄀" },
+    "recording.path": "$HOME/Videos/Screen Recs",
+    "profile.size": "17.5em"
+  }
+}
