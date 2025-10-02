@@ -1,49 +1,91 @@
-#!/bin/bash
-#  ██╗    ██╗ █████╗ ██╗     ██╗     ██████╗  █████╗ ██████╗ ███████╗██████╗
-#  ██║    ██║██╔══██╗██║     ██║     ██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗
-#  ██║ █╗ ██║███████║██║     ██║     ██████╔╝███████║██████╔╝█████╗  ██████╔╝
-#  ██║███╗██║██╔══██║██║     ██║     ██╔═══╝ ██╔══██║██╔═══╝ ██╔══╝  ██╔══██╗
-#  ╚███╔███╔╝██║  ██║███████╗███████╗██║     ██║  ██║██║     ███████╗██║  ██║
-#   ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝
-#
-#  ██╗      █████╗ ██╗   ██╗███╗   ██╗ ██████╗██╗  ██╗███████╗██████╗
-#  ██║     ██╔══██╗██║   ██║████╗  ██║██╔════╝██║  ██║██╔════╝██╔══██╗
-#  ██║     ███████║██║   ██║██╔██╗ ██║██║     ███████║█████╗  ██████╔╝
-#  ██║     ██╔══██║██║   ██║██║╚██╗██║██║     ██╔══██║██╔══╝  ██╔══██╗
-#  ███████╗██║  ██║╚██████╔╝██║ ╚████║╚██████╗██║  ██║███████╗██║  ██║
-#  ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
-#	
-#	Heavily inspired by:  develcooking - https://github.com/develcooking/hyprland-dotfiles	
-# Info    - This script runs the rofi launcher, to select
-#             the wallpapers included in the theme you are in.
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Set some variables
-wall_dir="${HOME}/Pictures/Wallpapers/"
-cache_dir="${HOME}/.cache/thumbnails/wal_selector"
-rofi_config_path="${HOME}/.config/rofi/wallpaper-sel-config.rasi "
-rofi_command="rofi -dmenu -config ${rofi_config_path} -theme-str ${rofi_override}"
+# --- User settings ------------------------------------------------------------
+WALL_DIR="${HOME}/Pictures/Wallpapers"
+CACHE_DIR="${HOME}/.cache/thumbnails/wal_selector"
+THEME="${HOME}/.config/rofi/wallpaper-sel-config.rasi"
 
-# Create cache dir if not exists
-if [ ! -d "${cache_dir}" ] ; then
-        mkdir -p "${cache_dir}"
+# Rofi: ignore global config; force our theme
+ROFI=(rofi -no-config -dmenu -theme "$THEME" -show-icons)
+
+# Thumbnails
+THUMB_SIZE=500
+
+# swww transition defaults
+SWWW_ARGS=(
+  --transition-type any
+  --transition-fps 60
+  --transition-duration 1.0
+  --resize crop
+)
+
+# --- Checks -------------------------------------------------------------------
+command -v rofi >/dev/null 2>&1 || { echo "Error: rofi not found." >&2; exit 1; }
+command -v swww >/dev/null 2>&1 || { echo "Error: swww not found." >&2; exit 1; }
+
+[[ -f "$THEME" ]] || { echo "Error: theme not found: $THEME" >&2; exit 1; }
+[[ -d "$WALL_DIR" ]] || { echo "Error: wallpapers dir not found: $WALL_DIR" >&2; exit 1; }
+
+mkdir -p "$CACHE_DIR"
+
+# --- Thumb helper -------------------------------------------------------------
+make_thumb () {
+  local src="$1" dst="$2"
+  if command -v magick >/dev/null 2>&1; then
+    magick convert -strip "$src" -thumbnail "${THUMB_SIZE}x${THUMB_SIZE}^" \
+      -gravity center -extent "${THUMB_SIZE}x${THUMB_SIZE}" "$dst"
+  elif command -v convert >/dev/null 2>&1; then
+    convert -strip "$src" -thumbnail "${THUMB_SIZE}x${THUMB_SIZE}^" \
+      -gravity center -extent "${THUMB_SIZE}x${THUMB_SIZE}" "$dst"
+  else
+    echo "Error: ImageMagick (magick/convert) not found." >&2
+    exit 1
+  fi
+}
+
+# --- Build thumbnails ---------------------------------------------------------
+while IFS= read -r -d '' img; do
+  bn="$(basename "$img")"
+  thumb="$CACHE_DIR/$bn"
+  [[ -f "$thumb" ]] || make_thumb "$img" "$thumb"
+done < <(find "$WALL_DIR" -maxdepth 1 -type f \
+          \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) -print0)
+
+# --- Rofi menu (newest first) -------------------------------------------------
+SELECTION="$(
+  find "$WALL_DIR" -maxdepth 1 -type f \
+    \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) \
+    -printf "%T@|%f\n" \
+  | sort -nr \
+  | cut -d'|' -f2- \
+  | while IFS= read -r bn; do
+      printf '%s\x00icon\x1f%s\n' "$bn" "$CACHE_DIR/$bn"
+    done \
+  | "${ROFI[@]}"
+)"
+
+[[ -n "${SELECTION:-}" ]] || exit 0
+CHOSEN="$WALL_DIR/$SELECTION"
+
+# --- swww: ensure daemon, then set on ALL outputs -----------------------------
+# Start daemon if needed
+if ! swww query >/dev/null 2>&1; then
+  swww init
+  # tiny wait so the socket is ready
+  sleep 0.15
 fi
 
-# Convert images in directory and save to cache dir
-for imagen in "$wall_dir"/*.{jpg,jpeg,png,webp}; do
-	if [ -f "$imagen" ]; then
-		filename=$(basename "$imagen")
-			if [ ! -f "${cache_dir}/${filename}" ] ; then
-				magick convert -strip "$imagen" -thumbnail 500x500^ -gravity center -extent 500x500 "${cache_dir}/${filename}"
-			fi
-    fi
-done
-
-# Select a picture with rofi
-wall_selection=$(ls "${wall_dir}" -t | while read -r A ; do  echo -en "$A\x00icon\x1f""${cache_dir}"/"$A\n" ; done | $rofi_command)
-
-# Set the wallpaper with waypaper
-[[ -n "$wall_selection" ]] || exit 1
-waypaper --wallpaper ${wall_dir}${wall_selection}
+# Get output names and apply on each
+# (works on Hyprland, sway, wlroots generally)
+mapfile -t OUTPUTS < <(swww query | awk '/^OUTPUT/ {print $2}')
+if ((${#OUTPUTS[@]}==0)); then
+  # Fallback: try once without explicit output (swww will pick focused)
+  swww img "$CHOSEN" "${SWWW_ARGS[@]}"
+else
+  for out in "${OUTPUTS[@]}"; do
+    swww img -o "$out" "$CHOSEN" "${SWWW_ARGS[@]}"
+  done
+fi
 
 exit 0
-

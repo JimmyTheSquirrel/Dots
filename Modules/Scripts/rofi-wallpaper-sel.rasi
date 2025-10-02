@@ -1,166 +1,151 @@
-@theme '~/.cache/wal/rofi-colors.rasi'
+/* ~/.config/rofi/wallpaper-sel-config.rasi
+   Tall cards, filename pill at bottom, subtle mint-green selection stroke
+*/
 
-configuration {{
-    modi:                        "drun";
-    show-icons:                  true;
-    drun-display-format:         "{{name}}";    
-	hover-select:				 true;
-}}
+* {
+  font:                         "Caskaydia Cove Nerd Font 12";
 
-//----- Global Properties -----//
+  /* palette (dark green/gray like the reference) */
+  background:                   #0f1216;   /* panel bg */
+  surface:                      #0f1216;   /* same as panel */
+  foreground:                   #e6ebef;   /* text */
+  muted:                        #a4adb7;   /* placeholders */
+  frame:                        #2a313a;   /* card stroke (idle) */
+  accent:                       #7fd6b6;   /* mint-green selection stroke */
+  accent-soft:                  rgba(127,214,182,0.18);
+  pill:                         rgba(255,255,255,0.06); /* filename/search pills */
+}
 
-//----- Main Window -----//
+/* --- global --- */
+configuration {
+  show-icons:      true;
+  hover-select:    true;
+  cycle:           true;
+}
 
-window {{
-    transparency:                "real";
-    location:                    center;
-    anchor:                      center;
-    fullscreen:                  false;
-    width:                       80%;
-    
-	spacing:                     0px;
-    padding:                     0px;
-    border:                      0px;
-    border-radius:               30px 5px 30px 5px;
-	cursor:						 "default";
-    background-color:            @background;
-}}
+/* --- window / container --- */
+window {
+  location:        center;
+  anchor:          center;
+  fullscreen:      false;
+  width:           78%;
+  padding:         22px;
+  border:          0px;
+  border-radius:   22px;
+  background-color:@surface;
+}
 
-//----- Main Box -----//
+mainbox {
+  spacing:         0px;
+  padding:         0px;
+  border:          0px;
+  background-color:transparent;
+}
 
-mainbox {{
-    children:                    [ "listview", "inputbar" ];
-    background-color:            transparent;
-	border: 					 2px;
-	border-radius:				 inherit;
-	border-color: 				 @border-color;
-}}
+/* --- list of cards --- */
+listview {
+  enabled:         true;
+  columns:         6;         /* change to 5 or 4 if you want wider cards */
+  lines:           1;
+  spacing:         36px;      /* gap between cards */
+  padding:         22px 28px 16px 28px;
+  dynamic:         false;
+  scrollbar:       false;
+  fixed-height:    true;
+  fixed-columns:   true;
+  layout:          vertical;  /* icon then text */
+  background-color:transparent;
+  text-color:      @foreground;
+  cursor:          "default";
+}
 
-inputbar {{
-    enabled:                     true;
-    spacing:                     10px;
-    padding:                     30px 60px;
-    background-color:            transparent;
-    text-color:                  @background;
-	border-radius: 				 15px 5px 15px 5px;
-    orientation:                 horizontal;
-    children:                    [ "dummy", "textbox-prompt-colon", "entry", "entry-counter", "dummy" ];
-}}
+/* --- card wrapper (image + pill together) --- */
+element {
+  orientation:     vertical;
+  spacing:         12px;
+  padding:         10px;
+  border:          1px;
+  border-radius:   18px;
+  border-color:    @frame;      /* idle stroke */
+  background-color:transparent;
+  cursor:          pointer;
+}
 
-textbox-prompt-colon {{
-    enabled:                     true;
-    expand:                      false;
-    str:                         "󰸉 ";
-    padding:                     10px 15px;
-    border-radius:               15px 5px 15px 5px;
-    background-color:            @foreground;
-    text-color:                  inherit;
-}}
+/* mint-green stroke when selected */
+element selected {
+  border-color:    @accent;
+}
 
-entry {{
-    enabled:                     true;
-    expand:                      false;
-    width:                       300px;
-    padding:                     12px 16px;
-    border-radius:               5px 15px 5px 15px;
-    background-color:            @foreground;
-    text-color:                  inherit;
-    cursor:                      text;
-    placeholder:                 "Search Wallpaper";
-    placeholder-color:           rgba({background.rgb}, 0.5);
-}}
+/* --- image --- */
+element-icon {
+  /* make the card taller by increasing size below */
+  size:            340px;       /* was smaller; bump to 360–380 if you want even taller */
+  border:          0px;
+  border-radius:   14px 14px 0px 0px;
+  background-color:transparent;
+  text-color:      inherit;
+}
 
-dummy {{
-    expand:                      true;
-    background-color:            transparent;
-}}
+/* --- filename pill (bottom) --- */
+element-text {
+  padding:         10px 14px;
+  background-color:@pill;       /* subtle bg */
+  text-color:      @foreground;
+  border:          0px;
+  border-radius:   0px 0px 12px 12px; /* connects visually with the image above */
+  horizontal-align:0.5;
+  vertical-align:  0.5;
+}
 
-entry-counter {{
-    enabled: 					 true; 
-    expand:                      false;
-	orientation:				 horizontal;	
-    padding:                     12px 16px;
-	border-radius:               15px 5px 15px 5px;
-    background-color:            @foreground;
-    text-color:                  inherit;
-	children: 					 [ num-filtered-rows, textbox-divider, num-rows ];
-}}
+/* when the card is selected, subtly tint the pill */
+element-text selected {
+  background-color:@accent-soft;
+  text-color:      @foreground;
+}
 
-#num-filtered-rows {{
-	enabled: 					 true;	
-	text-color: 				 inherit;
-}}
+/* --- search bar --- */
+inputbar {
+  enabled:         true;
+  spacing:         12px;
+  padding:         12px 18px 6px 18px; /* a bit tighter under cards */
+  background-color:transparent;
+  text-color:      @foreground;
+  children:        [ "dummy", "textbox-prompt-colon", "entry", "entry-counter", "dummy" ];
+}
 
-#textbox-divider {{
-	enabled: 					 true;
-	text-color: 				 inherit;
-	str: 						 "/";
-}}
+dummy {
+  expand:          true;
+  background-color:transparent;
+}
 
-#num-rows {{
-	enabled: 					 true;
-	text-color: 				 inherit;
-}}
+textbox-prompt-colon {
+  enabled:         true;
+  expand:          false;
+  str:             "󰍉";
+  padding:         10px 12px;
+  border-radius:   10px;
+  background-color:@pill;
+  text-color:      @foreground;
+}
 
-//----- Listview -----//
+entry {
+  enabled:         true;
+  expand:          false;
+  width:           540px;    /* adjust if you want the search wider */
+  padding:         10px 14px;
+  border-radius:   10px;
+  background-color:@pill;
+  text-color:      @foreground;
+  cursor:          text;
+  placeholder:     "Search Wallpaper";
+  placeholder-color:@muted;
+}
 
-listview {{
-    enabled:                     true;
-    columns:                     6;
-    lines:                       1;
-    spacing:                     50px;
-    padding:                     20px 30px;
-    cycle:                       true;
-    dynamic:                     false;
-    scrollbar:                   false;
-    layout:                      vertical;
-    reverse:                     true;
-    fixed-height:                true;
-    fixed-columns:               true;
-    cursor:                      "default";
-    background-color:            transparent;
-    text-color:                  @foreground;
-}}
-
-//----- Elements -----//
-
-element {{
-    enabled:                     true;
-    orientation:                 horizontal;
-    spacing:                     0px;
-    padding:                     0px;
-    border-radius:               10px;
-    cursor:                      pointer;
-    background-color:            @foreground;
-	border:						 2px;
-	border-color:				 rgba({color2.rgb}, 0.8);
-    text-color:                  @background;
-}}
-
-@media(max-aspect-ratio: 1.8) {{
-    element {{
-        orientation:             vertical;
-    }}
-}}
-
-element selected.normal {{
-    background-color:            @selected-normal-background;
-    text-color:                  @selected-normal-foreground;
-}}
-
-element-icon {{
-    size:                        33%;
-    cursor:                      inherit;
-    border-radius:               0px;
-    background-color:            transparent;
-    text-color:                  inherit;
-}}
-
-element-text {{
-    vertical-align:              0.5;
-    horizontal-align:            0.5;
-    padding:                     20px;
-    cursor:                      inherit;
-    background-color:            transparent;
-    text-color:                  inherit;
-}}
+entry-counter {
+  enabled:         true;
+  expand:          false;
+  padding:         10px 12px;
+  border-radius:   10px;
+  background-color:@pill;
+  text-color:      @foreground;
+}

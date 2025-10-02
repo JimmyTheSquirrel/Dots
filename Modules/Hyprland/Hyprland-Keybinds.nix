@@ -15,7 +15,7 @@ in {
     "${mainMod}, P, pseudo,"
     "${mainMod}, J, togglesplit,"
     "${mainMod}, F, exec, brave"
-    "${mainMod}, W, exec, bash ~/scripts/wallpaper_selector.sh"
+    "${mainMod}, W, exec, /home/rock/.local/bin/wallpaper_selector.sh"
 
 
     # Move focus

@@ -1,25 +1,30 @@
-{ config, lib, pkgs, ... }:
+# modules/wallpaper-picker.nix
+{ config, pkgs, lib, ... }:
 
-let
-  scriptsDir = ./Scripts;
-in {
-  home.packages = with pkgs; [
-    rofi
-    swww
-    imagemagick
-    jq
-  ];
-
-  # Install the wallpaper selector script
-  home.file."scripts/wallpaper_selector.sh" = {
-    source = scriptsDir + "/wallpaper_selector.sh";
-    executable = true;
+{
+  # Use rofi-wayland explicitly (prevents the rofi vs rofi-wayland collision)
+  programs.rofi = {
+    enable = true;
+    package = pkgs.rofi-wayland;
   };
 
-  # Link your static rofi theme (manually written)
-  home.file.".config/rofi/wallpaper-sel-config.rasi".source =
-    scriptsDir + "/wallpaper-sel-config.rasi";
+  # Tools used by the script
+  home.packages = with pkgs; [
+    imagemagick
+    swww   # or waypaper if you prefer
+  ];
 
-  # Optional: run via alias
-  home.shellAliases.wall = "bash ~/scripts/wallpaper_selector.sh";
+  # Put your theme files in ~/.config/rofi/
+  xdg.configFile = {
+    "rofi/rofi-simple-config.rasi".source   = ./Scripts/rofi-simple-config.rasi;
+    "rofi/rofi-wallpaper-sel.rasi".source   = ./Scripts/rofi-wallpaper-sel.rasi;
+    # optional compat symlink: some scripts look for this name
+    "rofi/wallpaper-sel-config.rasi".source = ./Scripts/rofi-wallpaper-sel.rasi;
+  };
+
+  # Install the launcher script
+  home.file.".local/bin/wallpaper_selector.sh" = {
+    source = ./Scripts/wallpaper_selector.sh;
+    executable = true;
+  };
 }
