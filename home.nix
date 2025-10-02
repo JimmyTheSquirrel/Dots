@@ -9,6 +9,7 @@
     ./Modules/Fastfetch.nix
     ./Modules/Vscodium.nix
     ./Modules/Nemo.nix
+    ./Modules/Rofi.nix
     ./Modules/Screenshot.nix
     ./Modules/WallpaperCarousel.nix
     ./Modules/Hyprland/Hyprland.nix

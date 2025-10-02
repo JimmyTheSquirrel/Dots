@@ -125,7 +125,6 @@
       fastfetch
       kitty
       home-manager
-      rofi-wayland
       swappy
 
     ];
@@ -137,7 +136,6 @@ fonts = {
     pkgs.nerd-fonts.jetbrains-mono
   ];
 };
-
 
   nixpkgs.config.allowUnfree = true;
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
