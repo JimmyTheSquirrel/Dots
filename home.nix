@@ -11,6 +11,7 @@
     ./Modules/Nemo.nix
     ./Modules/Screenshot.nix
     ./Modules/WallpaperCarousel.nix
+   #./Modules/Pywal.nix
     ./Modules/Hyprland/Hyprland.nix
 
 ];
