@@ -21,6 +21,8 @@
 
   home.packages = with pkgs; [
     pkgs.swww
+    nerd-fonts.jetbrains-mono
+    nerd-fonts.fira-code
    ];
 
   home.file = { };
