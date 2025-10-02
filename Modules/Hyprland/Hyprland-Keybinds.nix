@@ -14,7 +14,8 @@ in {
     "${mainMod}, V, togglefloating,"
     "${mainMod}, P, pseudo,"
     "${mainMod}, J, togglesplit,"
-    "${mainMod}, F, exec, Brave,"
+    "${mainMod}, F, exec, brave"
+    "${mainMod}, W, exec, bash ~/scripts/wallpaper_selector.sh"
 
 
     # Move focus

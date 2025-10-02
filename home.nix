@@ -19,7 +19,9 @@
   home.homeDirectory = "/home/rock";
   home.stateVersion = "25.05";
 
-  home.packages = with pkgs; [ ];
+  home.packages = with pkgs; [
+    pkgs.swww
+   ];
 
   home.file = { };
 

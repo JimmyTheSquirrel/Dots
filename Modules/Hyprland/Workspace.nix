@@ -10,7 +10,7 @@
     "6, monitor:DP-4"
 
     # HDMI-A-2 named workspaces (persistent)
-    "name:discord,  monitor:HDMI-A-2"
+    "name:discord,  monitor:HDMI-A-2, persistent:true"
     "name:spotify,  monitor:HDMI-A-2, persistent:true"
     "name:blank-01, monitor:HDMI-A-2, persistent:true"
     "name:blank-02, monitor:HDMI-A-2, persistent:true"
