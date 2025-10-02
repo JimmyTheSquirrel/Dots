@@ -11,8 +11,8 @@
   '';
 
   # Install your EXACT old files
-  xdg.configFile."hyprpanel/config.json".source = ./config.json;
-  xdg.configFile."hyprpanel/hyprpanel_theme.json".source = ./hyprpanel_theme.json;
+  xdg.configFile."Hyprpanel/config.json".source = ./config.json;
+  xdg.configFile."Hyprpanel/hyprpanel_theme.json".source = ./hyprpanel_theme.json;
 
   # Avoid Home-Manager’s hyprpanel service; launch it yourself (Hyprland exec-once)
   systemd.user.services.hyprpanel.Install.WantedBy = lib.mkForce [ ];
