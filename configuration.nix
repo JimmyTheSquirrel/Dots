@@ -7,6 +7,7 @@
   ########################
   imports = [
     ./hardware-configuration.nix
+    ./Modules/Games-Programs/Steam.nix
   ];
 
   boot.loader.systemd-boot.enable = true;
@@ -84,6 +85,7 @@
     powerManagement.enable = true;
     open = false;                                # proprietary driver for 30-series
   };
+
 
   # Wayland/Electron/NVIDIA stability env
   environment.sessionVariables = {
