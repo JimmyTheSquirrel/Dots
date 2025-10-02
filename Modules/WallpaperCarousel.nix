@@ -3,22 +3,25 @@
 let
   scriptsDir = ./Scripts;
 in {
-  # Required programs
+  # Required tools
   home.packages = with pkgs; [
     rofi
     swww
     imagemagick
     jq
-    pywal
   ];
 
-  # Wallpaper script
-  home.file."scripts/wallpaper_selector.sh".source = scriptsDir + "/wallpaper_selector.sh";
+  # Install the wallpaper selector script, with executable flag
+  home.file."scripts/wallpaper_selector.sh" = {
+    source = scriptsDir + "/wallpaper_selector.sh";
+    executable = true;
+  };
 
-  # Rofi theme file
-  home.file.".config/rofi/wallpaper-sel-config.rasi".source = scriptsDir + "/wallpaper-sel-config.rasi";
+  # Install the custom rofi theme
+  home.file.".config/rofi/wallpaper-sel-config.rasi".source =
+    scriptsDir + "/wallpaper-sel-config.rasi";
 
-  # Stub out the pywal rofi-colors if not generated yet
+  # Stub pywal's rofi-colors file (until pywal runs)
   home.file.".cache/wal/rofi-colors.rasi".text = ''
     * {
       background: #1e1e2e;
@@ -29,11 +32,15 @@ in {
     }
   '';
 
-  # Make script executable
-  home.activation.makeWallpaperScriptExecutable = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    chmod +x "${config.home.homeDirectory}/scripts/wallpaper_selector.sh"
+  # Optional: auto-generate initial pywal theme if missing
+  home.activation.generateInitialPywalTheme = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    WAL_COLORS="${config.home.homeDirectory}/.cache/wal/colors.sh"
+    if [ ! -f "$WAL_COLORS" ]; then
+      echo "Generating pywal theme..."
+      wal -i "${config.home.homeDirectory}/Pictures/Wallpapers" || true
+    fi
   '';
 
-  # Optional: Rofi alias for quick testing
+  # Alias to run the script easily
   home.shellAliases.wall = "bash ~/scripts/wallpaper_selector.sh";
 }

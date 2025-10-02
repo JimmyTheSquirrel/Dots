@@ -148,7 +148,8 @@ in
 
 
       # --- AUTOSTART ---
-      exec-once = [ "hyprpanel" ];
+      exec-once = [ "hyprpanel" "swww-daemon" ];
+
     };
   };
 }
