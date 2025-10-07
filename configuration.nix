@@ -10,6 +10,7 @@
     ./Modules/Games-Programs/Steam.nix
     ./Modules/Global_Modules/Grub.nix
     ./Modules/Global_Modules/Polkit.nix
+   #./Modules/Games-Programs/Spotify.nix
   ];
 
   #boot.loader.systemd-boot.enable = true;

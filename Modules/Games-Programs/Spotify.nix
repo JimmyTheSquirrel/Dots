@@ -1,46 +1,51 @@
-# Modules/Spotify.nix
-{ config, pkgs, lib, inputs, ... }:
+# Modules/Games-Programs/Spotify.nix
+{ config, pkgs, lib, ... }:
 
 let
-  sp = inputs.spicetify-nix;  # provided via extraSpecialArgs in flake
+  # Pin the maintained fork (pure)
+  spSrc = builtins.fetchTarball {
+    url = "https://github.com/Gerg-L/spicetify-nix/archive/e13267e8f3eb1664329fcb78a43b38b985f96f6f.tar.gz";
+    sha256 = "1qriwhfw7hpl2g9nmmrsd8dvs8699sz6hbflvygq2lywv4wa353g";
+  };
+
+  # Import the package set directly (exposes .themes and .extensions)
+  spicePkgs = import "${spSrc}/pkgs" { inherit pkgs; };
+
+  # Provide a flake-like `self` the module expects
+  selfShim = {
+    # Some code paths check `self.packages`, others `self.legacyPackages.${system}`
+    packages = spicePkgs;
+    legacyPackages = { ${pkgs.stdenv.system} = spicePkgs; };
+  };
+
+  # ✅ Import the NixOS module FUNCTION and pass `self` explicitly
+  spNixosModule = import "${spSrc}/modules/nixos.nix" {
+    inherit lib pkgs;
+    self = selfShim;
+  };
+
 in
 {
-  # Pull in the spicetify Home Manager module
-  imports = [ sp.homeManagerModule ];
+  # Allow Spotify if unfree isn’t global
+  nixpkgs.config.allowUnfreePredicate =
+    pkg: builtins.elem (lib.getName pkg) [ "spotify" ];
 
-  # Install Spotify itself
-  home.packages = [ pkgs.spotify ];
+  # Import the module we just constructed (already closed over `self`)
+  imports = [ spNixosModule ];
 
-  # Spicetify config
   programs.spicetify = {
     enable = true;
 
-    # Pick a theme you like. Catppuccin is a nice default.
-    # You can swap to: sp.themes.Sleek, sp.themes.Ziro, sp.themes.Comfy, etc.
-    theme = sp.themes.catppuccin;
-    colorScheme = "mocha"; # "latte" | "frappe" | "macchiato" | "mocha"
+    theme = spicePkgs.themes.catppuccin;
+    colorScheme = "mocha";
 
-    enabledExtensions = with sp.extensions; [
-      adblock
-      autoSkipVideos
-      betterGenres
-      keyboardShortcut
-      loopylist
-      powerBar
-      shuffle
+    enabledExtensions = with spicePkgs.extensions; [
       fullAppDisplay
+      shuffle
+      hidePodcasts
+      adblock
       volumePercentage
+      keyboardShortcut
     ];
-
-    # These are safe defaults that work well
-    injectCss = true;
-    replaceColors = true;
-    overwriteAssets = true;
-
-    # Optional tweaks
-    spotifyPackage = pkgs.spotify;  # explicit
   };
-
-  # Quality of life: desktop entry for "Spicetified" Spotify stays the same,
-  # so you just launch Spotify as normal.
 }

@@ -40,11 +40,5 @@
 
     # Spawn Spotify into its workspace
     "hyprctl dispatch exec [workspace name:spotify silent] spotify"
-
-    # Ensure blank-01 exists at startup
-    "hyprctl dispatch workspace name:blank-01"
-
-    # Jump focus back to ultrawide (DP-4) after creating HDMI workspaces
-    "hyprctl dispatch focusmonitor DP-4"
   ];
 }

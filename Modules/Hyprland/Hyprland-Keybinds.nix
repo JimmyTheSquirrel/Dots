@@ -16,6 +16,7 @@ in {
     "${mainMod}, J, togglesplit,"
     "${mainMod}, F, exec, brave"
     "${mainMod}, W, exec, /home/rock/.local/bin/wallpaper_selector.sh"
+    "${mainMod} SHIFT, F, fullscreen"
 
 
     # Move focus

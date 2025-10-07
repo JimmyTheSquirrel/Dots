@@ -35,8 +35,8 @@ in
 
       # --- LOOK AND FEEL ---
       general = {
-        gaps_in  = 3;
-        gaps_out = 8;
+        gaps_in  = 1;
+        gaps_out = 2;
         border_size = 2;
 
         "col.active_border"   = "rgba(595959aa)";
@@ -142,9 +142,9 @@ in
 
       # --- Per-app opacity ---
       windowrulev2 = [
-        "opacity 0.80 0.80, class:^(nemo)$"
+        "opacity 0.75 0.75, class:^(nemo)$"
         "opacity 0.60 0.60, class:^(brave)$"
-        "opacity 0.80 0.80, class:^(codium)$"
+        "opacity 0.75 0.75, class:^(codium)$"
         "opacity 0.60 0.60, class:^(discord)$"
       ];
 
