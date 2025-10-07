@@ -126,9 +126,12 @@
       kitty
       home-manager
       swappy
-      efibootmgr
     ];
   };
+
+environment.systemPackages = with pkgs; [
+  efibootmgr
+];
 
 fonts = {
   enableDefaultPackages = true;

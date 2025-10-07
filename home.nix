@@ -13,6 +13,7 @@
     ./Modules/Screenshot.nix
     ./Modules/WallpaperCarousel.nix
     ./Modules/Hyprland/Hyprland.nix
+    ./Modules/Games-Programs/Spotify.nix
 
 ];
 
