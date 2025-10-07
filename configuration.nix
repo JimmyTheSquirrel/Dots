@@ -9,7 +9,7 @@
     ./hardware-configuration.nix
     ./Modules/Games-Programs/Steam.nix
     ./Modules/Global_Modules/Grub.nix
-    #./Modules/Global_Modules/Polkit.nix
+    ./Modules/Global_Modules/Polkit.nix
   ];
 
   #boot.loader.systemd-boot.enable = true;
