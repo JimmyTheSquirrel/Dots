@@ -14,18 +14,19 @@
   boot.extraModulePackages = [ ];
 
   fileSystems."/" =
-    { device = "/dev/disk/by-uuid/17ff244e-b2cb-4a60-b536-17b9d192580c";
+    { device = "/dev/disk/by-uuid/fd484d55-c532-4ad1-91f7-023e663087ae";
       fsType = "ext4";
     };
 
   fileSystems."/boot" =
-    { device = "/dev/disk/by-uuid/E306-7929";
+    { device = "/dev/disk/by-uuid/7666-E24E";
       fsType = "vfat";
       options = [ "fmask=0077" "dmask=0077" ];
     };
 
-  swapDevices = [ ];
-
+  swapDevices =
+    [ { device = "/dev/disk/by-uuid/c183321a-dbd1-427f-9a37-ce5e190dd24e"; }
+    ];
 
   # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
   # (the default) this is the recommended approach. When using systemd-networkd it's
@@ -37,22 +38,4 @@
 
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
   hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
-
-  hardware = {
-    graphics.enable = true;
-
-    nvidia = {
-      # Enable the Nvidia settings menu,
-      # accessible via nvidia-settings.
-      nvidiaSettings = true;
-      modesetting.enable = true;
-
-      # Optionally, you may need to select the appropriate driver version for your specific GPU.
-      package = config.boot.kernelPackages.nvidiaPackages.production;
-    };
-  };
-
-
 }
-
-

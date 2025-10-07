@@ -8,10 +8,12 @@
   imports = [
     ./hardware-configuration.nix
     ./Modules/Games-Programs/Steam.nix
+    ./Modules/Global_Modules/Grub.nix
+    #./Modules/Global_Modules/Polkit.nix
   ];
 
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.efi.canTouchEfiVariables = true;
+  #boot.loader.systemd-boot.enable = true;
+  #boot.loader.efi.canTouchEfiVariables = true;
 
   ########################
   # Host, network, locale
@@ -65,7 +67,6 @@
   ########################
   services.pulseaudio.enable = false;
   security.rtkit.enable = true;
-  security.polkit.enable = true;
 
   services.pipewire = {
     enable = true;
@@ -105,7 +106,6 @@
   # Printing, file manager helpers
   ########################
   services.printing.enable = true;
-  services.gvfs.enable = true;       # mounting, trash, etc for Thunar
   services.tumbler.enable = true;    # thumbnails for Thunar
 
   ########################
@@ -126,7 +126,7 @@
       kitty
       home-manager
       swappy
-
+      efibootmgr
     ];
   };
 

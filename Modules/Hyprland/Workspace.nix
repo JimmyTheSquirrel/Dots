@@ -2,7 +2,7 @@
   # ---- WORKSPACES ----
   workspace = [
     # DP-4 ultrawide (main workspaces 1–6)
-    "1, monitor:DP-4"
+    "1, monitor:DP-4, persistent:true"
     "2, monitor:DP-4"
     "3, monitor:DP-4"
     "4, monitor:DP-4"
