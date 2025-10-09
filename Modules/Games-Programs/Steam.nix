@@ -17,11 +17,7 @@
 
   programs.gamemode.enable = true;
 
-  hardware.graphics.enable = true;  # updated here
-
-  services.xserver.videoDrivers = [ "nvidia" ];
-
-  hardware.nvidia.modesetting.enable = true;
+  hardware.graphics.enable = true;
 
   environment.systemPackages = with pkgs; [
     steam-run

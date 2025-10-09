@@ -76,32 +76,31 @@
     pulse.enable = true;
   };
 
-  ########################
-  # NVIDIA (RTX 3070)
-  ########################
-  services.xserver.videoDrivers = [ "nvidia" ];  # pulls NVIDIA userspace/GL
-  hardware.graphics.enable = true;
+########################
+# AMD GPU (Radeon / amdgpu)
+########################
+services.xserver.videoDrivers = [ "amdgpu" ];
 
-  hardware.nvidia = {
-    modesetting.enable = true;
-    powerManagement.enable = true;
-    open = false;                                # proprietary driver for 30-series
-  };
+hardware.graphics = {
+  enable = true;
+  enable32Bit = true;     # Steam/Wine 32-bit
+  extraPackages = with pkgs; [
+    vaapiVdpau
+    libvdpau-va-gl
+    # optional Vulkan OpenCL/ROCm pieces if you use them:
+    # rocmPackages.clr.icd
+  ];
+};
 
-
-  # Wayland/Electron/NVIDIA stability env
-  environment.sessionVariables = {
-    NIXOS_OZONE_WL = "1";
-    ELECTRON_OZONE_PLATFORM_HINT = "auto";
-    XDG_SESSION_TYPE = "wayland";
-    XDG_CURRENT_DESKTOP = "Hyprland";
-    GTK_USE_PORTAL = "1";
-
-    WLR_NO_HARDWARE_CURSORS = "1";
-    LIBVA_DRIVER_NAME = "nvidia";
-    GBM_BACKEND = "nvidia-drm";
-    __GLX_VENDOR_LIBRARY_NAME = "nvidia";
-  };
+# Wayland-friendly defaults (keep the Wayland bits, drop NVIDIA-specific ones)
+environment.sessionVariables = {
+  NIXOS_OZONE_WL = "1";
+  ELECTRON_OZONE_PLATFORM_HINT = "auto";
+  XDG_SESSION_TYPE = "wayland";
+  XDG_CURRENT_DESKTOP = "Hyprland";
+  GTK_USE_PORTAL = "1";
+  # Do NOT set any NVIDIA vars; no WLR_NO_HARDWARE_CURSORS override needed for AMD
+};
 
   ########################
   # Printing, file manager helpers
