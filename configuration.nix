@@ -10,11 +10,12 @@
     ./Modules/Games-Programs/Steam.nix
     ./Modules/Global_Modules/Grub.nix
     ./Modules/Global_Modules/Polkit.nix
-   #./Modules/Games-Programs/Spotify.nix
+    # ./Modules/Games-Programs/Spotify.nix
   ];
 
-  #boot.loader.systemd-boot.enable = true;
-  #boot.loader.efi.canTouchEfiVariables = true;
+  # If you ever switch to systemd-boot, uncomment:
+  # boot.loader.systemd-boot.enable = true;
+  # boot.loader.efi.canTouchEfiVariables = true;
 
   ########################
   # Host, network, locale
@@ -53,13 +54,13 @@
   services.displayManager.defaultSession = "hyprland";
 
   ########################
-  # Portals (non-KDE)
+  # Portals (Hyprland-friendly)
   ########################
   xdg.portal = {
     enable = true;
     extraPortals = with pkgs; [
       xdg-desktop-portal-gtk
-      xdg-desktop-portal-wlr
+      xdg-desktop-portal-hyprland
     ];
   };
 
@@ -76,31 +77,43 @@
     pulse.enable = true;
   };
 
-########################
-# AMD GPU (Radeon / amdgpu)
-########################
-services.xserver.videoDrivers = [ "amdgpu" ];
+  ########################
+  # AMD GPU (Radeon / amdgpu)
+  ########################
+  # Firmware & microcode so amdgpu can load blobs early:
+  hardware.enableRedistributableFirmware = true;
+  hardware.cpu.amd.updateMicrocode = true;   # if you have an AMD CPU
 
-hardware.graphics = {
-  enable = true;
-  enable32Bit = true;     # Steam/Wine 32-bit
-  extraPackages = with pkgs; [
-    vaapiVdpau
-    libvdpau-va-gl
-    # optional Vulkan OpenCL/ROCm pieces if you use them:
-    # rocmPackages.clr.icd
-  ];
-};
+  # Load amdgpu in the initrd (avoids blank screens at hand-off):
+  boot.initrd.kernelModules = [ "amdgpu" ];
 
-# Wayland-friendly defaults (keep the Wayland bits, drop NVIDIA-specific ones)
-environment.sessionVariables = {
-  NIXOS_OZONE_WL = "1";
-  ELECTRON_OZONE_PLATFORM_HINT = "auto";
-  XDG_SESSION_TYPE = "wayland";
-  XDG_CURRENT_DESKTOP = "Hyprland";
-  GTK_USE_PORTAL = "1";
-  # Do NOT set any NVIDIA vars; no WLR_NO_HARDWARE_CURSORS override needed for AMD
-};
+  # Use a newer kernel for very new GPUs (recommended for RX 9060 XT–class):
+  boot.kernelPackages = pkgs.linuxPackages_latest;
+
+  # Explicit Xorg driver list (harmless even if you only use Wayland):
+  services.xserver.videoDrivers = [ "amdgpu" ];
+
+  # Mesa / Vulkan stack
+  hardware.graphics = {
+    enable = true;
+    enable32Bit = true;     # Steam/Wine 32-bit
+    extraPackages = with pkgs; [
+      vaapiVdpau
+      libvdpau-va-gl
+      # rocmPackages.clr.icd   # <- uncomment if you need OpenCL/HIP
+    ];
+  };
+
+  # Wayland-friendly defaults
+  environment.sessionVariables = {
+    NIXOS_OZONE_WL = "1";
+    ELECTRON_OZONE_PLATFORM_HINT = "auto";
+    XDG_SESSION_TYPE = "wayland";
+    XDG_CURRENT_DESKTOP = "Hyprland";
+    GTK_USE_PORTAL = "1";
+    # Optional: force RADV if any game/app prefers AMDVLK:
+    # AMD_VULKAN_ICD = "RADV";
+  };
 
   ########################
   # Printing, file manager helpers
@@ -129,16 +142,16 @@ environment.sessionVariables = {
     ];
   };
 
-environment.systemPackages = with pkgs; [
-  efibootmgr
-];
-
-fonts = {
-  enableDefaultPackages = true;
-  packages = with pkgs; [
-    pkgs.nerd-fonts.jetbrains-mono
+  environment.systemPackages = with pkgs; [
+    efibootmgr
   ];
-};
+
+  fonts = {
+    enableDefaultPackages = true;
+    packages = with pkgs; [
+      pkgs.nerd-fonts.jetbrains-mono
+    ];
+  };
 
   nixpkgs.config.allowUnfree = true;
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
