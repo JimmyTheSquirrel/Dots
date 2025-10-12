@@ -1,23 +1,16 @@
 # /etc/nixos/configuration.nix
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 {
   ########################
-  # Core imports & boot
+  # Core imports
   ########################
   imports = [
     ./hardware-configuration.nix
     ./Modules/Games-Programs/Steam.nix
     ./Modules/Global_Modules/Grub.nix
     ./Modules/Global_Modules/Polkit.nix
-    # ./Modules/Games-Programs/Spotify.nix
   ];
-
-  # If you ever switch to systemd-boot, uncomment:
-  # boot.loader.systemd-boot.enable = true;
-  # boot.loader.efi.canTouchEfiVariables = true;
-
-  hardware.bluetooth.enable = false;
 
   ########################
   # Host, network, locale
@@ -26,52 +19,14 @@
   networking.networkmanager.enable = true;
 
   time.timeZone = "Australia/Sydney";
-
   i18n.defaultLocale = "en_AU.UTF-8";
-  i18n.extraLocaleSettings = {
-    LC_ADDRESS = "en_AU.UTF-8";
-    LC_IDENTIFICATION = "en_AU.UTF-8";
-    LC_MEASUREMENT = "en_AU.UTF-8";
-    LC_MONETARY = "en_AU.UTF-8";
-    LC_NAME = "en_AU.UTF-8";
-    LC_NUMERIC = "en_AU.UTF-8";
-    LC_PAPER = "en_AU.UTF-8";
-    LC_TELEPHONE = "en_AU.UTF-8";
-    LC_TIME = "en_AU.UTF-8";
-  };
+
 
   ########################
-  # Display stack (pure Wayland)
-  ########################
-  services.xserver.enable = false;      # no Xorg
-  programs.xwayland.enable = true;      # XWayland for legacy apps
-  programs.hyprland.enable = true;
-
-  # SDDM on Wayland (no auto-login)
-  services.displayManager.sddm = {
-    enable = true;
-    wayland.enable = true;
-  };
-  # Make Hyprland the default session in the greeter
-  services.displayManager.defaultSession = "hyprland";
-
-  ########################
-  # Portals (Hyprland-friendly)
-  ########################
-  xdg.portal = {
-    enable = true;
-    extraPortals = with pkgs; [
-      xdg-desktop-portal-gtk
-      xdg-desktop-portal-hyprland
-    ];
-  };
-
-  ########################
-  # Audio + permissions
+  # Audio
   ########################
   services.pulseaudio.enable = false;
   security.rtkit.enable = true;
-
   services.pipewire = {
     enable = true;
     alsa.enable = true;
@@ -80,79 +35,75 @@
   };
 
   ########################
-  # AMD GPU (Radeon / amdgpu)
+  # AMD GPU (Radeon / RDNA4)
   ########################
-  # Firmware & microcode so amdgpu can load blobs early:
   hardware.enableRedistributableFirmware = true;
-  hardware.cpu.amd.updateMicrocode = true;   # if you have an AMD CPU
+  hardware.firmware = [ pkgs.linux-firmware ];
+  hardware.cpu.amd.updateMicrocode = true;
 
-  # Load amdgpu in the initrd (avoids blank screens at hand-off):
-  boot.initrd.kernelModules = [ "amdgpu" ];
+  # Keep amdgpu OUT of initrd while stabilising (avoid stage-1 freezes)
+  # boot.initrd.kernelModules = [ "amdgpu" ];
 
-  # Use a newer kernel for very new GPUs (recommended for RX 9060 XT–class):
+  # New enough kernel (has the freshest amdgpu bits)
   boot.kernelPackages = pkgs.linuxPackages_latest;
 
-  # Explicit Xorg driver list (harmless even if you only use Wayland):
+  # Xorg driver list (harmless on Wayland; some tools still read it)
+  services.xserver.enable = false;
   services.xserver.videoDrivers = [ "amdgpu" ];
 
-  # Mesa / Vulkan stack
+  # Mesa/Vulkan userspace
   hardware.graphics = {
     enable = true;
-    enable32Bit = true;     # Steam/Wine 32-bit
-    extraPackages = with pkgs; [
-      vaapiVdpau
-      libvdpau-va-gl
-      # rocmPackages.clr.icd   # <- uncomment if you need OpenCL/HIP
-    ];
+    enable32Bit = true;
   };
 
-  # Wayland-friendly defaults
+  # Wayland-friendly defaults (take effect once GUI is enabled)
   environment.sessionVariables = {
     NIXOS_OZONE_WL = "1";
     ELECTRON_OZONE_PLATFORM_HINT = "auto";
     XDG_SESSION_TYPE = "wayland";
     XDG_CURRENT_DESKTOP = "Hyprland";
     GTK_USE_PORTAL = "1";
-    # Optional: force RADV if any game/app prefers AMDVLK:
-    # AMD_VULKAN_ICD = "RADV";
+    AMD_VULKAN_ICD = "RADV";
   };
 
+  programs.xwayland.enable = true;
+
+  programs.hyprland.enable = true;
+  services.displayManager.sddm = {
+     enable = true;
+     wayland.enable = true;
+   };
+   services.displayManager.defaultSession = "hyprland";
+
   ########################
-  # Printing, file manager helpers
+  # Printing, users, packages
   ########################
   services.printing.enable = true;
-  services.tumbler.enable = true;    # thumbnails for Thunar
 
-  ########################
-  # Users, shells, packages
-  ########################
   programs.zsh.enable = true;
-
   users.users.rock = {
     isNormalUser = true;
     description = "Rock";
     extraGroups = [ "networkmanager" "wheel" "audio" "video" ];
     shell = pkgs.zsh;
     packages = with pkgs; [
-      vscodium
-      discord
-      git
-      fastfetch
-      kitty
-      home-manager
-      swappy
+      vscodium discord git fastfetch kitty home-manager swappy
     ];
   };
 
   environment.systemPackages = with pkgs; [
     efibootmgr
+    vulkan-tools
+    vulkan-validation-layers
+    pciutils
+    usbutils
+    glxinfo
   ];
 
   fonts = {
     enableDefaultPackages = true;
-    packages = with pkgs; [
-      pkgs.nerd-fonts.jetbrains-mono
-    ];
+    packages = with pkgs; [ pkgs.nerd-fonts.jetbrains-mono ];
   };
 
   nixpkgs.config.allowUnfree = true;

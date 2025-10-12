@@ -1,3 +1,4 @@
+# $HOME/.config/home-manager/Hyprland.nix  (import this from your home.nix)
 { pkgs, lib, ... }:
 
 let
@@ -10,38 +11,34 @@ in
 
     settings = {
       # --- MONITORS ---
-      monitor = [
-        # DP-4 ultrawide (main, bottom)
-        "DP-4,2560x1080@144,0x0,1"
+      # Temporarily let Hyprland detect displays. Once you know the
+      # real names from `hyprctl monitors`, replace with explicit lines.
+      monitor = [ ",preferred,auto,1" ];
 
-        # HDMI-A-2 (secondary, top — centered above ultrawide)
-        "HDMI-A-2,1920x1080@60,320x-1080,1"
-      ];
+      # Example to restore later (replace DP-1/HDMI-A-1 with real names):
+      # monitor = [
+      #   "DP-1,2560x1080@144,0x0,1"
+      #   "HDMI-A-1,1920x1080@60,320x-1080,1"
+      # ];
 
-      # --- PROGRAM VARIABLES ---
+      # --- PROGRAM VARS ---
       "$terminal"    = "kitty";
       "$fileManager" = "nemo";
       "$menu"        = "rofi -show drun";
 
-      # --- ENVIRONMENT VARIABLES ---
+      # --- ENV (keep only cursor sizes here; the rest is system-level) ---
       env = [
         "XCURSOR_SIZE,24"
         "HYPRCURSOR_SIZE,24"
-
-        # Force Electron apps to use Wayland instead of X11
-        "NIXOS_OZONE_WL,1"
-        "ELECTRON_OZONE_PLATFORM_HINT,wayland"
       ];
 
-      # --- LOOK AND FEEL ---
+      # --- LOOK & FEEL ---
       general = {
         gaps_in  = 1;
         gaps_out = 2;
         border_size = 2;
-
         "col.active_border"   = "rgba(595959aa)";
         "col.inactive_border" = "rgba(595959aa)";
-
         resize_on_border = false;
         allow_tearing    = false;
         layout = "dwindle";
@@ -52,26 +49,12 @@ in
         rounding_power = 2;
         active_opacity   = 1.0;
         inactive_opacity = 1.0;
-
-        shadow = {
-          enabled = true;
-          range = 4;
-          render_power = 3;
-          color = "rgba(1a1a1aee)";
-        };
-
-        blur = {
-          enabled = true;
-          size = 3;
-          passes = 1;
-          vibrancy = 0.1696;
-        };
+        shadow = { enabled = true; range = 4; render_power = 3; color = "rgba(1a1a1aee)"; };
+        blur = { enabled = true; size = 3; passes = 1; vibrancy = 0.1696; };
       };
 
-      # --- ANIMATIONS ---
       animations = {
         enabled = "yes, please :)";
-
         bezier = [
           "easeOutQuint,0.23,1,0.32,1"
           "easeInOutCubic,0.65,0.05,0.36,1"
@@ -79,7 +62,6 @@ in
           "almostLinear,0.5,0.5,0.75,1.0"
           "quick,0.15,0,0.1,1"
         ];
-
         animation = [
           "global, 1, 10, default"
           "border, 1, 5.39, easeOutQuint"
@@ -100,47 +82,32 @@ in
         ];
       };
 
-      # --- LAYOUTS ---
-      dwindle = {
-        pseudotile = true;
-        preserve_split = true;
-      };
+      dwindle = { pseudotile = true; preserve_split = true; };
+      master  = { new_status = "master"; };
 
-      master = { new_status = "master"; };
-
-      # --- MISC ---
       misc = {
         force_default_wallpaper = -1;
         disable_hyprland_logo = false;
       };
 
-      # --- INPUT ---
       input = {
         kb_layout  = "us";
         kb_variant = "";
         kb_model   = "";
         kb_options = "";
         kb_rules   = "";
-
         follow_mouse = 1;
         sensitivity  = 0;
-
         touchpad = { natural_scroll = false; };
       };
 
       gestures = { workspace_swipe = false; };
 
-      device = [
-        { name = "epic-mouse-v1"; sensitivity = -0.5; }
-      ];
+      device = [ { name = "epic-mouse-v1"; sensitivity = -0.5; } ];
 
-      # --- KEYBINDINGS ---
       inherit (kb) bind bindm bindel bindl;
-
-      # --- WORKSPACES / WINDOW RULES ---
       inherit (ws) workspace windowrule;
 
-      # --- Per-app opacity ---
       windowrulev2 = [
         "opacity 0.75 0.75, class:^(nemo)$"
         "opacity 0.60 0.60, class:^(brave)$"
@@ -148,10 +115,7 @@ in
         "opacity 0.60 0.60, class:^(discord)$"
       ];
 
-
-      # --- AUTOSTART ---
       exec-once = [ "hyprpanel" "swww-daemon" ];
-
     };
   };
 }
