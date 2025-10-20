@@ -1,6 +1,4 @@
-{ lib, ... }:
-
-let
+{lib, ...}: let
   mainMod = "SUPER";
 in {
   # ---- core keybinds ----
@@ -10,14 +8,13 @@ in {
     "${mainMod}, Q, killactive,"
     "${mainMod}, D, exec, $menu"
     "${mainMod}, M, exit,"
-    "${mainMod}, E, exec, $fileManager"
+    "${mainMod}, E, exec, thunar"
     "${mainMod}, V, togglefloating,"
     "${mainMod}, P, pseudo,"
     "${mainMod}, J, togglesplit,"
     "${mainMod}, F, exec, brave"
     "${mainMod}, W, exec, /home/rock/.local/bin/wallpaper_selector.sh"
     "${mainMod} SHIFT, F, fullscreen"
-
 
     # Move focus
     "${mainMod}, left, movefocus, l"

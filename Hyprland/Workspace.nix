@@ -1,19 +1,19 @@
 { lib, ... }: {
   # ---- WORKSPACES ----
   workspace = [
-    # DP-4 ultrawide (main workspaces 1–6)
-    "1, monitor:DP-4"
-    "2, monitor:DP-4"
-    "3, monitor:DP-4"
-    "4, monitor:DP-4"
-    "5, monitor:DP-4"
-    "6, monitor:DP-4"
+    # DP-2 ultrawide (main workspaces 1–6)
+    "1, monitor:DP-2"
+    "2, monitor:DP-2"
+    "3, monitor:DP-2"
+    "4, monitor:DP-2"
+    "5, monitor:DP-2"
+    "6, monitor:DP-2"
 
-    # HDMI-A-2 named workspaces (persistent)
-    "name:discord,  monitor:HDMI-A-2"
-    "name:spotify,  monitor:HDMI-A-2"
-    "name:blank-01, monitor:HDMI-A-2"
-    "name:blank-02, monitor:HDMI-A-2"
+    # HDMI-A-1 named workspaces
+    "name:discord,  monitor:HDMI-A-1"
+    "name:spotify,  monitor:HDMI-A-1"
+    "name:blank-01, monitor:HDMI-A-1"
+    "name:blank-02, monitor:HDMI-A-1"
   ];
 
   # ---- WINDOW RULES ----

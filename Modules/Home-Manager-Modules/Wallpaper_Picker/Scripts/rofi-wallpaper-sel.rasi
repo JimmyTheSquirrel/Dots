@@ -1,0 +1,100 @@
+/* Minimal, compatible theme (RGBA only; no #AARRGGBB) */
+
+* {
+  font: "JetBrainsMono Nerd Font 11";
+}
+
+configuration {
+  show-icons: true;
+}
+
+window {
+  background-color: rgba(18, 19, 20, 0.94);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+mainbox {
+  spacing: 16px;
+  padding: 8px;
+}
+
+inputbar {
+  background-color: rgba(27, 29, 32, 1.0);
+  border-radius: 10px;
+  padding: 8px 12px;
+  spacing: 8px;
+}
+
+prompt {
+  background-color: transparent;
+  text-color: rgba(170, 178, 189, 1.0);
+}
+
+entry {
+  background-color: transparent;
+  text-color: rgba(216, 222, 233, 1.0);
+  placeholder-color: rgba(170, 178, 189, 1.0);
+}
+
+button {
+  background-color: rgba(27, 29, 32, 1.0);
+  text-color: rgba(170, 178, 189, 1.0);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+button selected,
+button active {
+  background-color: rgba(45, 50, 55, 1.0);
+  text-color: rgba(216, 222, 233, 1.0);
+}
+
+/* Grid; script will override columns/spacing via -theme-str */
+listview {
+  background-color: transparent;
+  cycle: false;
+  dynamic: true;
+  spacing: 24px;
+  columns: 5;
+  layout: vertical;
+}
+
+/* Card; script can still override padding/margins */
+element {
+  orientation: vertical;
+  background-color: rgba(27, 29, 32, 1.0);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 6px 10px;
+  border: 1px solid rgba(31, 35, 39, 1.0);
+}
+
+element selected {
+  background-color: rgba(45, 50, 55, 1.0);
+  border: 1px solid rgba(106, 166, 255, 1.0);
+}
+
+/* Thumbnail — script overrides size via -theme-str element-icon { size: … } */
+element-icon {
+  size: 480px;
+  /* fallback */
+  border-radius: 12px;
+  horizontal-align: 0.5;
+  vertical-align: 0.0;
+}
+
+/* Hide filename text */
+element-text {
+  width: 0px;
+  font-size: 0px;
+  padding: 0px;
+  margin: 0px;
+  text-color: transparent;
+}
+
+/* No scrollbar */
+scrollbar {
+  handle-width: 0px;
+  background-color: transparent;
+}

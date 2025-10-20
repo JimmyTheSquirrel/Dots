@@ -14,18 +14,18 @@
   boot.extraModulePackages = [ ];
 
   fileSystems."/" =
-    { device = "/dev/disk/by-uuid/fd484d55-c532-4ad1-91f7-023e663087ae";
+    { device = "/dev/disk/by-uuid/ff16a856-67de-4de4-97ce-ee3e552cc369";
       fsType = "ext4";
     };
 
   fileSystems."/boot" =
-    { device = "/dev/disk/by-uuid/7666-E24E";
+    { device = "/dev/disk/by-uuid/4B49-9F19";
       fsType = "vfat";
       options = [ "fmask=0077" "dmask=0077" ];
     };
 
   swapDevices =
-    [ { device = "/dev/disk/by-uuid/c183321a-dbd1-427f-9a37-ce5e190dd24e"; }
+    [ { device = "/dev/disk/by-uuid/00a44e57-465b-4fe4-a854-98e8c52b6641"; }
     ];
 
   # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
@@ -33,8 +33,8 @@
   # still possible to use this option, but it's recommended to use it in conjunction
   # with explicit per-interface declarations with `networking.interfaces.<interface>.useDHCP`.
   networking.useDHCP = lib.mkDefault true;
-  # networking.interfaces.enp7s0.useDHCP = lib.mkDefault true;
-  # networking.interfaces.wlp6s0.useDHCP = lib.mkDefault true;
+  # networking.interfaces.enp9s0.useDHCP = lib.mkDefault true;
+  # networking.interfaces.wlp8s0.useDHCP = lib.mkDefault true;
 
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
   hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;

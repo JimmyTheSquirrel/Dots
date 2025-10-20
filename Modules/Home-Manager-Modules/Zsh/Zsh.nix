@@ -1,6 +1,12 @@
 { config, pkgs, ... }:
 
 {
+  # Install helper script into a stable path in your home
+  home.file.".config/zsh/zsh-helpers.sh" = {
+    source = ./Scripts/zsh-helpers.sh;
+    executable = true;
+  };
+
   programs.zsh = {
     enable = true;
     enableCompletion = true;
@@ -13,53 +19,30 @@
       gs = "git status";
     };
 
+    # Use initContent (initExtra is deprecated)
     initContent = ''
-      # --------------------------------
-      # --- Dots helpers ---------------
-      # --------------------------------
-      system-rebuild() {
-        (
-          cd ~/Dots || exit 1
-          echo -e "\n\033[1;34m==> Rebuilding NixOS system...\033[0m"
-          sudo nixos-rebuild switch --flake . || { echo -e "\033[1;31mNixOS rebuild failed\033[0m"; exit 1; }
-          echo -e "\n\033[1;34m==> Rebuilding Home Manager...\033[0m"
-          home-manager switch --flake . || { echo -e "\033[1;31mHome Manager rebuild failed\033[0m"; exit 1; }
-          echo -e "\n\033[1;32m==> All done!\033[0m"
-        )
-      }
+      # Load helper functions
+      if [ -f "${config.home.homeDirectory}/.config/zsh/zsh-helpers.sh" ]; then
+        source "${config.home.homeDirectory}/.config/zsh/zsh-helpers.sh"
+      fi
 
-      git-sync() {
-        (
-          set -e
-          cd ~/Dots || exit 1
-          if [[ -n "$1" ]]; then git add -A; git commit -m "$1" || echo "Nothing to commit."; fi
-          if [[ -n "$(git status --porcelain=2 --untracked-files=all)" ]]; then
-            STASH_MSG="autosync-$(date +%Y%m%d-%H%M%S)"
-            echo "↪ repo dirty — stashing as $STASH_MSG"
-            git stash push -u -m "$STASH_MSG"; HAD_STASH=1
-          fi
-          echo "↪ pulling (rebase)…"; git pull --rebase
-          if [[ -n "$HAD_STASH" ]]; then echo "↪ restoring stashed changes…"; git stash pop || echo "⚠ stash pop had conflicts"; fi
-          echo "↪ pushing…"; git push
-        )
-      }
-
-      # --- Fastfetch on new Kitty tabs ---
+      # Fastfetch on new Kitty tabs
       if [[ $- == *i* ]] && [[ -n "$KITTY_WINDOW_ID" ]]; then
         command -v fastfetch >/dev/null && fastfetch
       fi
 
-      # --- Custom clear: re-run fastfetch ---
-clear() {
-  command clear "$@"
-  if [[ $- == *i* ]] && [[ -n "$KITTY_WINDOW_ID" ]]; then
-    command -v fastfetch >/dev/null && fastfetch && echo ""
-  fi
-}
+      # Custom clear: re-run fastfetch
+      clear() {
+        command clear "$@"
+        if [[ $- == *i* ]] && [[ -n "$KITTY_WINDOW_ID" ]]; then
+          command -v fastfetch >/dev/null && fastfetch && echo ""
+        fi
+      }
 
-
-      # --- Starship must be initialized last ---
-      eval "$(starship init zsh)"
+      # Starship (guarded so terminals don’t break before HM runs)
+      if command -v starship >/dev/null 2>&1; then
+        eval "$(starship init zsh)"
+      fi
     '';
   };
 
@@ -77,8 +60,7 @@ clear() {
         color_charcoal = "#3c3836";
       };
 
-format = "[](fg:color_orange)[$username](bg:color_orange fg:color_fg0)[](fg:color_orange bg:color_charcoal)[@](bg:color_charcoal fg:color_fg0)[](fg:color_charcoal bg:color_yellow)[ $hostname](bg:color_yellow fg:color_fg0)[](fg:color_yellow bg:color_green)[$directory](bg:color_green fg:color_fg0)[](fg:color_green bg:color_blue)$git_branch$git_status[](fg:color_blue bg:color_charcoal)[](fg:color_charcoal) $character";
-
+      format = "[](fg:color_orange)[$username](bg:color_orange fg:color_fg0)[](fg:color_orange bg:color_charcoal)[@](bg:color_charcoal fg:color_fg0)[](fg:color_charcoal bg:color_yellow)[ $hostname](bg:color_yellow fg:color_fg0)[](fg:color_yellow bg:color_green)[$directory](bg:color_green fg:color_fg0)[](fg:color_green bg:color_blue)$git_branch$git_status[](fg:color_blue bg:color_charcoal)[](fg:color_charcoal) $character";
 
       username = {
         show_always = true;
@@ -116,7 +98,6 @@ format = "[](fg:color_orange)[$username](bg:color_orange fg:color_fg0)[](f
         error_symbol   = "[](bold fg:#fb4934)";
       };
 
-      # Fully nuke nix_shell display
       nix_shell = {
         disabled = false;
         format = "";
@@ -125,7 +106,6 @@ format = "[](fg:color_orange)[$username](bg:color_orange fg:color_fg0)[](f
         pure_msg = "";
       };
 
-      # Disable everything else
       line_break     = { disabled = true; };
       os             = { disabled = true; };
       package        = { disabled = true; };

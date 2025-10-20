@@ -11,15 +11,10 @@ in
 
     settings = {
       # --- MONITORS ---
-      # Temporarily let Hyprland detect displays. Once you know the
-      # real names from `hyprctl monitors`, replace with explicit lines.
-      monitor = [ ",preferred,auto,1" ];
-
-      # Example to restore later (replace DP-1/HDMI-A-1 with real names):
-      # monitor = [
-      #   "DP-1,2560x1080@144,0x0,1"
-      #   "HDMI-A-1,1920x1080@60,320x-1080,1"
-      # ];
+       monitor = [
+         "DP-2,2560x1080@144,0x0,1"
+         "HDMI-A-1,1920x1080@60,320x-1080,1"
+       ];
 
       # --- PROGRAM VARS ---
       "$terminal"    = "kitty";
@@ -109,13 +104,16 @@ in
       inherit (ws) workspace windowrule;
 
       windowrulev2 = [
-        "opacity 0.75 0.75, class:^(nemo)$"
+        "opacity 0.75 0.75, class:^(thunar)$"
         "opacity 0.60 0.60, class:^(brave)$"
         "opacity 0.75 0.75, class:^(codium)$"
         "opacity 0.60 0.60, class:^(discord)$"
       ];
 
-      exec-once = [ "hyprpanel" "swww-daemon" ];
+      exec-once = [
+      "tpanel"
+      "swww-daemon"
+      ];
     };
   };
 }
