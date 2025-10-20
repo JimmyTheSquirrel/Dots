@@ -1,27 +1,28 @@
 # $HOME/.config/home-manager/Hyprland.nix  (import this from your home.nix)
-{ pkgs, lib, ... }:
-
-let
-  kb = import ./Hyprland-Keybinds.nix { inherit lib; };
-  ws = import ./Workspace.nix { inherit lib; };
-in
 {
+  pkgs,
+  lib,
+  ...
+}: let
+  kb = import ./Hyprland-Keybinds.nix {inherit lib;};
+  ws = import ./Workspace.nix {inherit lib;};
+in {
   wayland.windowManager.hyprland = {
     enable = true;
 
     settings = {
       # --- MONITORS ---
-       monitor = [
-         "DP-2,2560x1080@144,0x0,1"
-         "HDMI-A-1,1920x1080@60,320x-1080,1"
-       ];
+      monitor = [
+        "DP-2,2560x1080@144,0x0,1"
+        "HDMI-A-1,1920x1080@60,320x-1080,1"
+      ];
 
       # --- PROGRAM VARS ---
-      "$terminal"    = "kitty";
+      "$terminal" = "kitty";
       "$fileManager" = "nemo";
-      "$menu"        = "rofi -show drun";
+      "$menu" = "rofi -show drun"; # launcher unchanged
 
-      # --- ENV (keep only cursor sizes here; the rest is system-level) ---
+      # --- ENV ---
       env = [
         "XCURSOR_SIZE,24"
         "HYPRCURSOR_SIZE,24"
@@ -29,23 +30,34 @@ in
 
       # --- LOOK & FEEL ---
       general = {
-        gaps_in  = 1;
+        gaps_in = 1;
         gaps_out = 2;
         border_size = 2;
-        "col.active_border"   = "rgba(595959aa)";
+        "col.active_border" = "rgba(595959aa)";
         "col.inactive_border" = "rgba(595959aa)";
         resize_on_border = false;
-        allow_tearing    = false;
+        allow_tearing = false;
         layout = "dwindle";
       };
 
       decoration = {
         rounding = 10;
         rounding_power = 2;
-        active_opacity   = 1.0;
+        active_opacity = 1.0;
         inactive_opacity = 1.0;
-        shadow = { enabled = true; range = 4; render_power = 3; color = "rgba(1a1a1aee)"; };
-        blur = { enabled = true; size = 3; passes = 1; vibrancy = 0.1696; };
+        shadow = {
+          enabled = true;
+          range = 4;
+          render_power = 3;
+          color = "rgba(1a1a1aee)";
+        };
+        # keep your blur settings; compositor does the blur
+        blur = {
+          enabled = true;
+          size = 3;
+          passes = 1;
+          vibrancy = 0.1696;
+        };
       };
 
       animations = {
@@ -77,8 +89,11 @@ in
         ];
       };
 
-      dwindle = { pseudotile = true; preserve_split = true; };
-      master  = { new_status = "master"; };
+      dwindle = {
+        pseudotile = true;
+        preserve_split = true;
+      };
+      master = {new_status = "master";};
 
       misc = {
         force_default_wallpaper = -1;
@@ -86,19 +101,24 @@ in
       };
 
       input = {
-        kb_layout  = "us";
+        kb_layout = "us";
         kb_variant = "";
-        kb_model   = "";
+        kb_model = "";
         kb_options = "";
-        kb_rules   = "";
+        kb_rules = "";
         follow_mouse = 1;
-        sensitivity  = 0;
-        touchpad = { natural_scroll = false; };
+        sensitivity = 0;
+        touchpad = {natural_scroll = false;};
       };
 
-      gestures = { workspace_swipe = false; };
+      gestures = {workspace_swipe = false;};
 
-      device = [ { name = "epic-mouse-v1"; sensitivity = -0.5; } ];
+      device = [
+        {
+          name = "epic-mouse-v1";
+          sensitivity = -0.5;
+        }
+      ];
 
       inherit (kb) bind bindm bindel bindl;
       inherit (ws) workspace windowrule;
@@ -110,9 +130,18 @@ in
         "opacity 0.60 0.60, class:^(discord)$"
       ];
 
+      # --- LAYER RULES: blur/dim ONLY for the wallpaper picker ---------------
+      # The script must launch rofi with:  -name "rofi-wal"
+      layerrule = [
+        "blur, ^rofi-wal$"
+        "blurpopups, ^rofi-wal$"
+        "dimaround, ^rofi-wal$" # soften the backdrop around the carousel
+        "ignorezero, ^rofi-wal$"
+      ];
+
       exec-once = [
-      "tpanel"
-      "swww-daemon"
+        "tpanel"
+        "swww-daemon"
       ];
     };
   };

@@ -1,100 +1,92 @@
-/* Minimal, compatible theme (RGBA only; no #AARRGGBB) */
-
 * {
-  font: "JetBrainsMono Nerd Font 11";
-}
+  background:        #00000000;
+  foreground:        #E6EAF0FF;
+  foreground-alt:    #AAB2BDFF;
 
-configuration {
-  show-icons: true;
+  card-bg:           #0F1116E6;
+  frame-outer:       #232832FF;
+  frame-inner:       #343A46FF;
+
+  accent:            #6AA6FFFF;
+  accent-soft:       #A9C4FFFF;
 }
 
 window {
-  background-color: rgba(18, 19, 20, 0.94);
-  border-radius: 14px;
-  padding: 16px;
+  border: 0;
+  border-radius: 18px;
+  background-color: transparent;
+  padding: 32px;            /* slightly larger gap around content */
 }
 
 mainbox {
-  spacing: 16px;
-  padding: 8px;
-}
-
-inputbar {
-  background-color: rgba(27, 29, 32, 1.0);
-  border-radius: 10px;
-  padding: 8px 12px;
-  spacing: 8px;
-}
-
-prompt {
+  spacing: 26px;            /* wider spacing between cards */
+  padding: 10px;
   background-color: transparent;
-  text-color: rgba(170, 178, 189, 1.0);
 }
 
-entry {
-  background-color: transparent;
-  text-color: rgba(216, 222, 233, 1.0);
-  placeholder-color: rgba(170, 178, 189, 1.0);
-}
+inputbar { enabled: false; }
 
-button {
-  background-color: rgba(27, 29, 32, 1.0);
-  text-color: rgba(170, 178, 189, 1.0);
-  border-radius: 8px;
-  padding: 6px 10px;
-}
-
-button selected,
-button active {
-  background-color: rgba(45, 50, 55, 1.0);
-  text-color: rgba(216, 222, 233, 1.0);
-}
-
-/* Grid; script will override columns/spacing via -theme-str */
 listview {
   background-color: transparent;
+  lines: 1;
   cycle: false;
-  dynamic: true;
-  spacing: 24px;
-  columns: 5;
-  layout: vertical;
+  dynamic: false;
+  border: 0;
+  outline: 0;
+  spacing: 26px;            /* ensures consistent horizontal gap */
 }
 
-/* Card; script can still override padding/margins */
-element {
+/* --- Card base ------------------------------------------------------------- */
+element,
+element alternate,
+element active,
+element urgent {
   orientation: vertical;
-  background-color: rgba(27, 29, 32, 1.0);
-  border-radius: 12px;
-  padding: 10px 12px;
-  margin: 6px 10px;
-  border: 1px solid rgba(31, 35, 39, 1.0);
+  background-color: @card-bg;
+  border: 2px;
+  border-color: @frame-outer;
+  border-radius: 18px;
+  outline: 0;
+  padding: 14px 16px;       /* narrower top/bottom, slightly wider sides */
+  margin: 8px 14px;
 }
 
+/* --- Selected card --------------------------------------------------------- */
 element selected {
-  background-color: rgba(45, 50, 55, 1.0);
-  border: 1px solid rgba(106, 166, 255, 1.0);
+  background-color: @card-bg;
+  border: 2px;
+  border-color: @accent;
+  border-radius: 18px;
+  outline: 0;
 }
 
-/* Thumbnail — script overrides size via -theme-str element-icon { size: … } */
+/* --- Image area ------------------------------------------------------------ */
 element-icon {
-  size: 480px;
-  /* fallback */
+  border: 2px;
+  border-color: @frame-inner;
   border-radius: 12px;
   horizontal-align: 0.5;
   vertical-align: 0.0;
+
+  /* make image a bit wider while keeping tall aspect */
+  size: 96%;
+  width: 115%;              /* widen image slightly */
 }
 
-/* Hide filename text */
+/* highlight for selected image */
+element selected element-icon {
+  border: 2px;
+  border-color: @accent-soft;
+}
+
+/* --- Label --------------------------------------------------------------- */
 element-text {
-  width: 0px;
-  font-size: 0px;
-  padding: 0px;
-  margin: 0px;
-  text-color: transparent;
+  font-size: 10px;
+  width: 100%;
+  color: @foreground-alt;
+  background-color: transparent;
+  horizontal-align: 0.5;
+  vertical-align: 1.0;
+  margin: 6px 0 0 0;
 }
 
-/* No scrollbar */
-scrollbar {
-  handle-width: 0px;
-  background-color: transparent;
-}

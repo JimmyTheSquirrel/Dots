@@ -1,15 +1,19 @@
-{ config, pkgs, inputs, ... }:
-
 {
+  config,
+  pkgs,
+  inputs,
+  ...
+}: {
   imports = [
     ./hardware-configuration.nix
     ../../Modules/Config-Manager-Modules/Polkit.nix
     ../../Modules/Config-Manager-Modules/Grub.nix
     ../../Modules/Config-Manager-Modules/Steam.nix
     ../../Modules/Config-Manager-Modules/Thunar.nix
+    ../../Modules/Config-Manager-Modules/Sddm.nix
   ];
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.experimental-features = ["nix-command" "flakes"];
   nixpkgs.config.allowUnfree = true;
 
   networking.hostName = "Sisyphus";
@@ -33,12 +37,12 @@
   # ---- Graphics (AMD) ----
   hardware.graphics = {
     enable = true;
-    enable32Bit = true;   # for 32-bit Vulkan/Steam etc.
+    enable32Bit = true; # for 32-bit Vulkan/Steam etc.
   };
 
   # Display stack: SDDM on X (stable), Hyprland Wayland session
   services.xserver.enable = true;
-  services.xserver.videoDrivers = [ "amdgpu" ];
+  services.xserver.videoDrivers = ["amdgpu"];
 
   services.displayManager.sddm.enable = true;
   # services.displayManager.sddm.wayland.enable = true;
@@ -63,13 +67,13 @@
     mime = {
       enable = true;
       defaultApplications = {
-        "text/plain"         = [ "codium.desktop" ];
-        "text/x-nix"         = [ "codium.desktop" ];
-        "text/markdown"      = [ "codium.desktop" ];
-        "application/json"   = [ "codium.desktop" ];
-        "application/x-yaml" = [ "codium.desktop" ];
-        "application/toml"   = [ "codium.desktop" ];
-        "text/yaml"          = [ "codium.desktop" ];
+        "text/plain" = ["codium.desktop"];
+        "text/x-nix" = ["codium.desktop"];
+        "text/markdown" = ["codium.desktop"];
+        "application/json" = ["codium.desktop"];
+        "application/x-yaml" = ["codium.desktop"];
+        "application/toml" = ["codium.desktop"];
+        "text/yaml" = ["codium.desktop"];
       };
     };
   };
@@ -104,9 +108,9 @@
   users.users.rock = {
     isNormalUser = true;
     description = "Rock";
-    extraGroups = [ "networkmanager" "wheel" ];
+    extraGroups = ["networkmanager" "wheel"];
     shell = pkgs.zsh;
-    packages = with pkgs; [ ];
+    packages = with pkgs; [];
   };
 
   # ---- Packages (system-wide) ----
@@ -115,13 +119,16 @@
     home-manager
     hyprpaper
     rofi
-    grim slurp wl-clipboard
+    grim
+    slurp
+    wl-clipboard
     mesa-demos
     vulkan-tools
     adw-gtk3
     swww
     btop
     discord
+    teamspeak3
   ];
 
   # SSH agent convenience
