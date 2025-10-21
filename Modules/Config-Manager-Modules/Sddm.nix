@@ -1,58 +1,67 @@
+# modules/sddm.nix
 {
   lib,
   pkgs,
   ...
 }: let
-  # ────────────────────────────────────────────────────────────────────────────
-  # Edit these to change your theme selection and pin
-  # ────────────────────────────────────────────────────────────────────────────
-  themeVariant = "rei"; # e.g. "rei", "rei-alt", etc.
+  themeVariant = "rei"; # "rei", "rei-alt", etc.
+
+  rev = "v1.3.0"; # tag or commit from https://github.com/uiriansan/SilentSDDM
   src = pkgs.fetchFromGitHub {
     owner = "uiriansan";
     repo = "SilentSDDM";
-    rev = "v1.3.0"; # tag or commit; change here when updating
-    sha256 = "sha256-REPLACE_ME"; # put a fake value first; build once to get the real one from the error
+    inherit rev;
+    sha256 = "sha256-B/vh3n5ZDwd9Lx/35XAx4o/37g4V/oa3aFSe6b8+DfM=";
   };
 
-  # Where the theme will live under $out/share/sddm/themes/
   themeDir = themeVariant;
 
   themePkg = pkgs.stdenvNoCC.mkDerivation {
     pname = "silent-sddm-${themeVariant}";
-    version = "${builtins.substring 0 7 (src.rev or "dev")}";
-    src = src;
+    version = rev;
+    inherit src;
+    dontWrapQtApps = true;
     installPhase = ''
       set -euo pipefail
       mkdir -p "$out/share/sddm/themes/${themeDir}"
       cp -r . "$out/share/sddm/themes/${themeDir}"
     '';
-    # Provide virtual keyboard at login; add more Qt modules here if needed
-    propagatedBuildInputs = [pkgs.qt6.qtvirtualkeyboard];
   };
 
-  baseSettings = {
-    General = {
-      # Make QML components visible and enable the Qt virtual keyboard
-      GreeterEnvironment = "QML2_IMPORT_PATH=${themePkg}/share/sddm/themes/${themeDir}/components/,QT_IM_MODULE=qtvirtualkeyboard";
-      InputMethod = "qtvirtualkeyboard";
-    };
-  };
+  # QML import paths
+  qmlPaths = lib.concatStringsSep ":" [
+    "${themePkg}/share/sddm/themes/${themeDir}/components/"
+    "${pkgs.qt6.qtmultimedia}/lib/qt6/qml"
+    "${pkgs.qt6.qtvirtualkeyboard}/lib/qt6/qml"
+    "${pkgs.qt6.qtsvg}/lib/qt6/qml"
+    "${pkgs.qt6.qtquickcontrols2}/lib/qt6/qml"
+    "${pkgs.qt6.qtdeclarative}/lib/qt6/qml"
+  ];
 in {
-  # No options exposed — this module directly declares the system settings.
+  services.xserver.enable = true;
+  qt.enable = true;
 
-  # Ensure the display stack pieces are on
-  services.xserver.enable = true; # needed for SDDM module wiring
-  qt.enable = true; # Qt bits for SDDM greeter
-
-  # Install the theme package so SDDM can see it
   environment.systemPackages = [themePkg];
 
   services.displayManager.sddm = {
     enable = true;
-    package = pkgs.kdePackages.sddm; # Qt6 SDDM (recommended for Plasma 6)
-    theme = themeDir; # must match the directory we installed
-    extraPackages = themePkg.propagatedBuildInputs;
-    settings = baseSettings; # merge more keys here if desired
-    # wayland.enable = true; # uncomment if you want Wayland greeter
+    package = pkgs.kdePackages.sddm; # Qt6 SDDM
+    theme = themeDir;
+
+    # Required Qt6 modules for SilentSDDM
+    extraPackages = with pkgs.qt6; [
+      qtvirtualkeyboard
+      qtmultimedia
+      qtsvg
+      qtquickcontrols2
+      qtdeclarative
+    ];
+
+    settings = {
+      General = {
+        GreeterEnvironment = "QML2_IMPORT_PATH=${qmlPaths},QT_IM_MODULE=qtvirtualkeyboard";
+        InputMethod = "qtvirtualkeyboard";
+      };
+    };
   };
 }

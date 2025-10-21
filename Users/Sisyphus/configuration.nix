@@ -10,7 +10,7 @@
     ../../Modules/Config-Manager-Modules/Grub.nix
     ../../Modules/Config-Manager-Modules/Steam.nix
     ../../Modules/Config-Manager-Modules/Thunar.nix
-    ../../Modules/Config-Manager-Modules/Sddm.nix
+    #../../Modules/Config-Manager-Modules/Sddm.nix
   ];
 
   nix.settings.experimental-features = ["nix-command" "flakes"];
@@ -128,7 +128,8 @@
     swww
     btop
     discord
-    teamspeak3
+    #teamspeak3
+    #wlogout
   ];
 
   # SSH agent convenience
