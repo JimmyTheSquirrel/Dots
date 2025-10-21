@@ -4,9 +4,9 @@
   pkgs,
   ...
 }: let
-  themeVariant = "rei"; # "rei", "rei-alt", etc.
+  themeVariant = "rei"; # choose "rei", "rei-alt", etc.
 
-  rev = "v1.3.0"; # tag or commit from https://github.com/uiriansan/SilentSDDM
+  rev = "v1.3.0";
   src = pkgs.fetchFromGitHub {
     owner = "uiriansan";
     repo = "SilentSDDM";
@@ -28,15 +28,22 @@
     '';
   };
 
-  # QML import paths
-  qmlPaths = lib.concatStringsSep ":" [
-    "${themePkg}/share/sddm/themes/${themeDir}/components/"
-    "${pkgs.qt6.qtmultimedia}/lib/qt6/qml"
-    "${pkgs.qt6.qtvirtualkeyboard}/lib/qt6/qml"
-    "${pkgs.qt6.qtsvg}/lib/qt6/qml"
-    "${pkgs.qt6.qtquickcontrols2}/lib/qt6/qml"
-    "${pkgs.qt6.qtdeclarative}/lib/qt6/qml"
+  qt6 = pkgs.qt6;
+
+  # Gracefully detect which Qt modules exist in this nixpkgs
+  availableQtPkgs = lib.filter (x: x != null) [
+    (qt6.qtvirtualkeyboard or null)
+    (qt6.qtmultimedia or null)
+    (qt6.qtsvg or null)
+    (qt6.qtquickcontrols2 or qt6.qtquickcontrols or null)
+    (qt6.qtdeclarative or null)
   ];
+
+  qmlDirs =
+    (map (p: "${p}/lib/qt6/qml") availableQtPkgs)
+    ++ ["${themePkg}/share/sddm/themes/${themeDir}/components/"];
+
+  qmlPaths = lib.concatStringsSep ":" qmlDirs;
 in {
   services.xserver.enable = true;
   qt.enable = true;
@@ -47,16 +54,7 @@ in {
     enable = true;
     package = pkgs.kdePackages.sddm; # Qt6 SDDM
     theme = themeDir;
-
-    # Required Qt6 modules for SilentSDDM
-    extraPackages = with pkgs.qt6; [
-      qtvirtualkeyboard
-      qtmultimedia
-      qtsvg
-      qtquickcontrols2
-      qtdeclarative
-    ];
-
+    extraPackages = availableQtPkgs;
     settings = {
       General = {
         GreeterEnvironment = "QML2_IMPORT_PATH=${qmlPaths},QT_IM_MODULE=qtvirtualkeyboard";

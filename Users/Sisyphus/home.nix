@@ -18,6 +18,7 @@
     ../../Modules/Home-Manager-Modules/Fastfetch.nix
     ../../Modules/Home-Manager-Modules/Brave.nix
     ../../Modules/Home-Manager-Modules/Screenshot.nix
+    ../../Modules/Home-Manager-Modules/Wlogout.nix
     ../../Modules/Home-Manager-Modules/Wallpaper_Picker/WallpaperCarousel.nix
   ];
 

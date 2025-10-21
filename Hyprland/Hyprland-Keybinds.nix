@@ -15,7 +15,7 @@ in {
     "${mainMod}, F, exec, brave"
     "${mainMod}, W, exec, /home/rock/.local/bin/wallpaper_selector.sh"
     "${mainMod} SHIFT, F, fullscreen"
-    "${mainMod} SHIFT, DELETE, exec, wlogout-menu"
+    "${mainMod} SHIFT, DELETE, exec, wlogout-row"
 
     # Move focus
     "${mainMod}, left, movefocus, l"

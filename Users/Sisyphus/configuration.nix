@@ -10,7 +10,7 @@
     ../../Modules/Config-Manager-Modules/Grub.nix
     ../../Modules/Config-Manager-Modules/Steam.nix
     ../../Modules/Config-Manager-Modules/Thunar.nix
-    #../../Modules/Config-Manager-Modules/Sddm.nix
+    ../../Modules/Config-Manager-Modules/Sddm.nix
   ];
 
   nix.settings.experimental-features = ["nix-command" "flakes"];
@@ -48,6 +48,14 @@
   # services.displayManager.sddm.wayland.enable = true;
   services.displayManager.defaultSession = "hyprland";
 
+  # Use the same cursor in SDDM greeter
+  services.displayManager.sddm.settings = {
+    General = {
+      CursorTheme = "Bibata-Modern-Classic";
+      CursorSize = 24;
+    };
+  };
+
   # Hyprland compositor available & default
   programs.hyprland.enable = true;
   programs.xwayland.enable = true;
@@ -81,6 +89,11 @@
   # Wayland-friendly env (keep minimal)
   environment.sessionVariables = {
     NIXOS_OZONE_WL = "1";
+    # Cursor (Wayland/Hyprland & XWayland)
+    XCURSOR_THEME = "Bibata-Modern-Classic";
+    XCURSOR_SIZE = "24";
+    HYPRCURSOR_THEME = "Bibata-Modern-Classic";
+    HYPRCURSOR_SIZE = "24";
   };
 
   # Keymap (affects SDDM/X)
@@ -129,8 +142,18 @@
     btop
     discord
     #teamspeak3
-    #wlogout
+    bibata-cursors
+    r2modman
   ];
+
+  fonts = {
+    fontconfig.enable = true;
+    packages = with pkgs; [
+      nerd-fonts.jetbrains-mono
+      nerd-fonts.fira-code
+      nerd-fonts.iosevka
+    ];
+  };
 
   # SSH agent convenience
   programs.ssh.startAgent = true;
