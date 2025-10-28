@@ -144,6 +144,8 @@
     #teamspeak3
     bibata-cursors
     r2modman
+    gparted
+    heroic
   ];
 
   fonts = {
