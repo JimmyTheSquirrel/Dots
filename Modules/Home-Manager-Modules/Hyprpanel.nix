@@ -1,12 +1,13 @@
-{inputs, ...}: {
+{
+  pkgs,
+  inputs,
+  ...
+}: {
   programs.hyprpanel = {
-    # Configure and theme almost all options from the GUI.
-    # See 'https://hyprpanel.com/configuration/settings.html'.
-    # Default: <same as gui>
+    enable = true;
+    package = pkgs.hyprpanel;
+
     settings = {
-      # Configure bar layouts for monitors.
-      # See 'https://hyprpanel.com/configuration/panel.html'.
-      # Default: null
       layout = {
         bar.layouts = {
           "0" = {
@@ -31,12 +32,31 @@
       menus.dashboard.directories.enabled = false;
       menus.dashboard.stats.enable_gpu = true;
 
-      theme.bar.transparent = true;
+      theme = {
+        bar.transparent = true;
 
-      theme.font = {
-        name = "CaskaydiaCove NF";
-        size = "16px";
+        font = {
+          name = "CaskaydiaCove Nerd Font";
+          size = "16px";
+        };
+
+        # ⇣ Matugen integration (matches the GUI fields)
+        matugen = {
+          enable = true; # "Enable Matugen" toggle
+          theme = "dark"; # dark | light | system
+          scheme = "tonal-spot"; # e.g. vibrant, expressive, content, tonal-spot...
+          variation = "standard_1"; # matches the dropdown in the screenshot
+          contrast = 0; # -1 .. 1 (0 is default)
+        };
       };
     };
   };
+
+  # ensure the binaries/fonts exist
+  fonts.fontconfig.enable = true;
+  home.packages = with pkgs; [
+    nerd-fonts.caskaydia-cove
+    python312Packages.pywal # optional, if you also use pywal
+    matugen # <-- required so the GUI toggle becomes clickable
+  ];
 }
