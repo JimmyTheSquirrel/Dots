@@ -21,6 +21,7 @@
     ../../Modules/Home-Manager-Modules/Wlogout.nix
     ../../Modules/Home-Manager-Modules/Wallpaper_Picker/WallpaperCarousel.nix
     ../../Modules/Home-Manager-Modules/Hyprpanel.nix
+    ../../Modules/Home-Manager-Modules/App_Menu.nix
   ];
 
   programs.git.enable = true;
