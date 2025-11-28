@@ -8,13 +8,20 @@
       url = "github:nix-community/home-manager/release-25.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # NEW: spicetify-nix for Spotify theming
+    spicetify-nix.url = "github:Gerg-L/spicetify-nix";
   };
 
-  outputs = { self, nixpkgs, home-manager, ... }@inputs:
-  let
+  outputs = {
+    self,
+    nixpkgs,
+    home-manager,
+    spicetify-nix,
+    ...
+  } @ inputs: let
     system = "x86_64-linux";
-  in
-  {
+  in {
     ########################################
     # 🖥️ System configuration (no HM here)
     ########################################
@@ -32,13 +39,18 @@
     homeConfigurations.Sisyphus = home-manager.lib.homeManagerConfiguration {
       pkgs = import nixpkgs {
         inherit system;
+        # You already had this – keep it for Spotify (unfree)
         config.allowUnfree = true;
       };
 
-      modules = [ ./Users/Sisyphus/home.nix ];
+      # Your main HM config + the Spicetify/Hazy module
+      modules = [
+        ./Users/Sisyphus/home.nix
+        ./Users/Sisyphus/spicetify.nix
+      ];
 
-      # Make flake inputs available inside HM modules if needed
-      extraSpecialArgs = { inherit inputs; };
+      # Make flake inputs (incl. spicetify-nix) available inside HM modules
+      extraSpecialArgs = {inherit inputs;};
     };
   };
 }

@@ -4,89 +4,72 @@
   lib,
   ...
 }: let
-  inherit (lib) mkIf mkMerge;
+  inherit (lib) mkIf;
+
+  # Handle Nerd Fonts for both old/new nixpkgs layouts
+  jetbrainsNerd =
+    if pkgs ? nerd-fonts
+    then pkgs.nerd-fonts.jetbrains-mono
+    else (pkgs.nerdfonts.override {fonts = ["JetBrainsMono"];});
 in {
-  # Fonts + icon theme so app icons show up nicely
+  ###### Basic dependencies ######
   home.packages = with pkgs; [
     papirus-icon-theme
-    (nerdfonts.override {fonts = ["JetBrainsMono"];})
+    jetbrainsNerd
   ];
 
   fonts.fontconfig.enable = true;
 
-  programs.rofi = {
+  ###### App Launcher: Fuzzel ######
+  programs.fuzzel = {
     enable = true;
-    package = pkgs.rofi-wayland; # change to pkgs.rofi if you're on X11
-    extraConfig = {
-      modi = "drun,run";
-      show-icons = true;
-      drun-display-format = "{icon}  {name}";
-      icon-theme = "Papirus-Dark";
-      font = "JetBrainsMono Nerd Font 12";
-      lines = 8;
-    };
-    theme = "~/.config/rofi/minimal-dark-icons.rasi";
-  };
-
-  # Write the minimal, centered dark theme
-  home.file.".config/rofi/minimal-dark-icons.rasi".text = ''
-    * {
-      bg: #0f1115;
-      fg: #e5e7eb;
-      sel: #1f2937;
-      font: "JetBrainsMono Nerd Font 12";
-    }
-
-    configuration {
-      location: 0;
-      anchor: "center";
-      fullscreen: false;
-      show-icons: true;
-      drun-display-format: "{icon}  {name}";
-      lines: 8;
-    }
-
-    window {
-      width: 520px;
-      border: 0px;
-      border-radius: 14px;
-      padding: 10px;
-      background-color: @bg;
-    }
-
-    mainbox { spacing: 8px; padding: 8px; }
-
-    inputbar {
-      background-color: @bg;
-      text-color: @fg;
-      padding: 8px 10px;
-      children: [ entry ];
-    }
-
-    prompt { enabled: false; }  /* hides “drun:” */
-
-    listview {
-      background-color: @bg;
-      spacing: 4px;
-      dynamic: true;
-    }
-
-    element {
-      padding: 6px 8px;
-      background-color: transparent;
-      text-color: @fg;
-    }
-
-    element-icon { size: 18; margin: 0 8px 0 2px; }
-    element selected { background-color: @sel; text-color: @fg; }
-  '';
-
-  # Optional: Hyprland keybinding ($mod + SPACE) to open the menu
-  wayland.windowManager.hyprland = mkIf (config.wayland.windowManager.hyprland.enable or false) {
     settings = {
-      bind = [
-        "$mod, SPACE, exec, rofi -show drun -theme ~/.config/rofi/minimal-dark-icons.rasi"
-      ];
+      main = {
+        # Font & appearance
+        font = "JetBrainsMono Nerd Font:size=14";
+        prompt = ""; # hide "drun:"
+        icons-enabled = true;
+        icon-theme = "Papirus-Dark";
+
+        # Layout & placement
+        width = 50; # 50% of screen width
+        lines = 12; # visible app rows
+        layer = "overlay";
+        anchor = "center";
+        inner-pad = 12;
+        horizontal-pad = 20;
+        vertical-pad = 20;
+
+        # Behavior
+        fuzzy = true;
+        dpi-aware = true;
+        terminal = "foot"; # change to your terminal if needed
+      };
+
+      colors = {
+        background = "1a1c21cc"; # dark, slightly transparent
+        text = "e5e7ebff"; # light text
+        selection = "3d4452ff"; # highlight
+        selection-text = "e5e7ebff";
+        border = "8aadf4ff"; # accent blue border
+      };
+
+      border = {
+        width = 2;
+        radius = 16;
+      };
     };
   };
+
+  ###### Hyprland binding ######
+  wayland.windowManager.hyprland = mkIf (config.wayland.windowManager.hyprland.enable or false) {
+    settings.bind = [
+      # App launcher
+      "SUPER, SPACE, exec, fuzzel --log-level none"
+    ];
+  };
+
+  ###### Optional notes ######
+  # You can theme further by editing ~/.config/fuzzel/fuzzel.ini
+  # or use environment variables like FUZZEL_STYLE if needed.
 }

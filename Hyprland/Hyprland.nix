@@ -20,7 +20,7 @@ in {
       # --- PROGRAM VARS ---
       "$terminal" = "kitty";
       "$fileManager" = "nemo";
-      "$menu" = "rofi -show drun"; # launcher unchanged
+      "$menu" = "fuzzel"; # launcher unchanged
 
       # --- ENV ---
       env = [
