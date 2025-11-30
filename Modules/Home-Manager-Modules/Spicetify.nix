@@ -6,20 +6,26 @@
   ...
 }: let
   # Spicetify packages (extensions, apps, snippets)
-  spicePkgs = inputs.spicetify-nix.legacyPackages.${pkgs.system};
+  spicePkgs =
+    inputs.spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
+
+  # Glassify theme source
+  glassifySrc = pkgs.fetchFromGitHub {
+    owner = "sanoojes";
+    repo = "spicetify-glassify";
+    rev = "main";
+
+    # TEMP hash – let Nix tell you the real one:
+    # first use this dummy value, then copy the "got:" value from the error
+    hash = "sha256-6O2ZjI87Yr9cqUcEzUXWXv1XxOmOjx0IYBfpg3rlw18=";
+  };
 in {
   ########################################
-  # Install Spotify + allow unfree
+  # Allow Spotify (unfree)
   ########################################
 
-  # Required for Spotify
   nixpkgs.config.allowUnfreePredicate = pkg:
     builtins.elem (lib.getName pkg) ["spotify"];
-
-  # Install Spotify itself (Home Manager will put it in your PATH)
-  home.packages = [
-    pkgs.spotify
-  ];
 
   ########################################
   # Import spicetify-nix Home Manager module
@@ -30,51 +36,38 @@ in {
   ];
 
   ########################################
-  # Spicetify configuration – Hazy theme
+  # Spicetify configuration – Glassify theme
   ########################################
 
   programs.spicetify = {
     enable = true;
 
     theme = {
-      name = "Hazy";
+      name = "Glassify";
+      src = glassifySrc;
 
-      src = pkgs.fetchFromGitHub {
-        owner = "Astromations";
-        repo = "Hazy";
-
-        # Get commit:
-        #   git ls-remote https://github.com/Astromations/Hazy main
-        rev = "<COMMIT-HASH-HERE>";
-
-        # First build with fake hash, Nix prints the real one:
-        #   hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-        hash = "<SHA256-HERE>";
-      };
-
-      # Required for Hazy according to README:
+      # Glassify is a full theme with JS + CSS, so we enable all the usual flags
       injectCss = true;
       injectThemeJs = true;
       replaceColors = true;
       overwriteAssets = true;
 
-      # Nice defaults from spicetify-nix ecosystem:
       sidebarConfig = true;
       homeConfig = true;
 
       additonalCss = "";
+      requiredExtensions = []; # Glassify uses a manifest, so no extra JS file to register here
     };
 
-    # Optional: extensions you may want
+    # Marketplace in sidebar (optional, but handy)
+    enabledCustomApps = with spicePkgs.apps; [
+      marketplace
+    ];
+
     enabledExtensions = with spicePkgs.extensions; [
-      # fullAppDisplay
       # adblock
       # shuffle
       # hidePodcasts
     ];
-
-    # Optional additional apps/snippets:
-    # enabledCustomApps = with spicePkgs.apps; [ newReleases ];
-    # enabledSnippets   = with spicePkgs.snippets; [ rotatingCoverart ];
   };
 }
