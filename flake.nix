@@ -17,7 +17,7 @@
     self,
     nixpkgs,
     home-manager,
-    spicetify-nix,
+    # spicetify-nix,
     ...
   } @ inputs: let
     system = "x86_64-linux";
@@ -46,7 +46,7 @@
       # Your main HM config + the Spicetify/Hazy module
       modules = [
         ./Users/Sisyphus/home.nix
-        ./Users/Sisyphus/spicetify.nix
+        # ./Users/Sisyphus/spicetify.nix
       ];
 
       # Make flake inputs (incl. spicetify-nix) available inside HM modules

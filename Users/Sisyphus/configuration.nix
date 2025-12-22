@@ -34,6 +34,17 @@
     LC_TIME = "en_AU.UTF-8";
   };
 
+  programs.nix-ld = {
+    enable = true;
+    libraries = with pkgs; [
+      stdenv.cc.cc
+      zlib
+      openssl
+      curl
+      icu
+    ];
+  };
+
   # ---- Graphics (AMD) ----
   hardware.graphics = {
     enable = true;
@@ -146,6 +157,8 @@
     r2modman
     gparted
     heroic
+    lutris
+    prismlauncher
   ];
 
   fonts = {

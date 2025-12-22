@@ -1,5 +1,9 @@
-{ config, pkgs, lib, ... }:
 {
+  config,
+  pkgs,
+  lib,
+  ...
+}: {
   #### Apps & helpers (system-wide)
   environment.systemPackages = with pkgs; [
     xfce.thunar
@@ -8,6 +12,9 @@
     ffmpegthumbnailer
     file-roller
 
+    # Needed so “Open in Terminal” (xdg-terminal-exec) works
+    xdg-utils
+
     # themes/icons so Thunar has proper icons out of the box
     adwaita-icon-theme
     hicolor-icon-theme
@@ -15,8 +22,8 @@
   ];
 
   #### Services needed by Thunar
-  services.gvfs.enable   = true;  # mounts, trash, file chooser helpers
-  programs.xfconf.enable = true;  # Xfce/Thunar settings backend
+  services.gvfs.enable = true; # mounts, trash, file chooser helpers
+  programs.xfconf.enable = true; # Xfce/Thunar settings backend
 
   #### Portals (Wayland-friendly file dialogs / xdg-open)
   xdg.portal.enable = true;
@@ -29,7 +36,11 @@
   xdg.mime = {
     enable = true;
     defaultApplications = {
-      "inode/directory" = [ "thunar.desktop" ];
+      "inode/directory" = ["thunar.desktop"];
+
+      # Register kitty as the default terminal emulator handler
+      # Fixes: “Failed to launch preferred application for category TerminalEmulator”
+      "x-scheme-handler/terminal" = ["kitty.desktop"];
     };
   };
 
