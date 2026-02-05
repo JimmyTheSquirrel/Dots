@@ -19,6 +19,7 @@
       ll = "ls -lh";
       la = "ls -lha";
       gs = "git status";
+      c = "navi";
     };
 
     plugins = [

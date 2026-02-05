@@ -19,8 +19,8 @@ in {
 
       # --- PROGRAM VARS ---
       "$terminal" = "kitty";
-      "$fileManager" = "nemo";
-      "$menu" = "fuzzel"; # launcher unchanged
+      "$fileManager" = "thunar";
+      "$menu" = "noctalia-shell ipc call sessionMenu toggle"; # launcher unchanged
 
       # --- ENV ---
       env = [
