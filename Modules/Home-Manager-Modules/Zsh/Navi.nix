@@ -228,5 +228,9 @@ in {
     % Git Sync
     # Same as git-sync, but include a commit message
     git-sync "chore: sync"
+
+    % Git Cleanup (Nuke)
+    # Wipe commit history on main and keep only current snapshot (FORCE PUSH)
+    cd "$HOME/Dots" && git checkout main && git pull --rebase origin main && git checkout --orphan _fresh_main && git add -A && git commit -m "chore: fresh start" && git branch -M main && git push -f origin main
   '';
 }
