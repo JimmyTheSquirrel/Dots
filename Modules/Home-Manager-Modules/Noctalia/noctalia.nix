@@ -13,6 +13,101 @@
     sha256 = "sha256-wierciZBGmkcOSCMoQkZFtIQuR7P9NNtDq3p+K114M4=";
   };
 
+  # DateTime widget plugin
+  datetime-widget-plugin = pkgs.stdenv.mkDerivation {
+    name = "noctalia-datetime-widget";
+    src = pkgs.writeTextFile {
+      name = "widget.qml";
+      text = ''
+        import QtQuick
+        import QtQuick.Layouts
+        import Quickshell
+        import Quickshell.Wayland
+
+        FloatingWindow {
+          id: dateTimeWidget
+
+          width: 400
+          height: 200
+          color: "transparent"
+
+          Rectangle {
+            anchors.fill: parent
+            color: "#40000000"
+            opacity: 0.3
+            radius: 0
+
+            ColumnLayout {
+              anchors.centerIn: parent
+              spacing: 8
+
+              Text {
+                id: dayText
+                Layout.alignment: Qt.AlignHCenter
+                color: "#E8E3D3"
+                font.pixelSize: 48
+                font.family: "JetBrains Mono"
+                font.letterSpacing: 8
+                font.weight: Font.Light
+              }
+
+              Text {
+                id: dateText
+                Layout.alignment: Qt.AlignHCenter
+                color: "#A89F8F"
+                font.pixelSize: 16
+                font.family: "JetBrains Mono"
+                font.letterSpacing: 2
+              }
+
+              Text {
+                id: timeText
+                Layout.alignment: Qt.AlignHCenter
+                color: "#A89F8F"
+                font.pixelSize: 16
+                font.family: "JetBrains Mono"
+                font.letterSpacing: 2
+              }
+            }
+          }
+
+          Timer {
+            interval: 1000
+            running: true
+            repeat: true
+            onTriggered: updateDateTime()
+          }
+
+          Component.onCompleted: updateDateTime()
+
+          function updateDateTime() {
+            var now = new Date();
+            dayText.text = Qt.formatDate(now, "dddd").toUpperCase();
+            dateText.text = Qt.formatDate(now, "dd MMM yyyy").toUpperCase();
+            timeText.text = "- " + Qt.formatTime(now, "hh:mm AP").toUpperCase() + " -";
+          }
+        }
+      '';
+    };
+
+    dontUnpack = true;
+    installPhase = ''
+      mkdir -p $out
+      cp $src $out/widget.qml
+
+      cat > $out/manifest.json << EOF
+      {
+        "id": "datetime-widget",
+        "name": "DateTime Widget",
+        "description": "Retro-styled date and time display",
+        "version": "1.0.0",
+        "author": "rock",
+        "entry": "widget.qml"
+      }
+      EOF
+    '';
+  };
+
   # Python env for Noctalia calendar integration:
   # - pygobject3 provides `gi`
   # - (optional) you can add other python deps here if Noctalia needs them
@@ -41,6 +136,7 @@ in {
 
   home.packages = [
     pkgs.playerctl
+    pkgs.jetbrains-mono
     noctaliaPython
 
     # Useful to debug interactively:
@@ -50,8 +146,9 @@ in {
     pkgs.libical
   ];
 
-  # Ensure plugin exists declaratively
+  # Ensure plugins exist declaratively
   home.file.".config/noctalia/plugins/weekly-calendar".source = "${weekly-calendar-plugin}/weekly-calendar";
+  home.file.".config/noctalia/plugins/datetime-widget".source = datetime-widget-plugin;
 
   programs.noctalia-shell = {
     enable = true;
@@ -531,7 +628,7 @@ in {
         session = "";
       };
 
-      # Optional: if you still want it as a desktop widget too
+      # Desktop widgets with datetime widget added
       desktopWidgets = {
         enabled = true;
         gridSnap = true;
@@ -544,6 +641,11 @@ in {
                 x = 50;
                 y = 100;
               }
+              {
+                plugin = "datetime-widget";
+                x = 760; # Adjust to center on your screen (1920/2 - 400/2 = 760)
+                y = 440; # Adjust to center on your screen (1080/2 - 200/2 = 440)
+              }
             ];
           }
         ];
@@ -551,7 +653,7 @@ in {
     };
   };
 
-  # ✅ Make Noctalia’s systemd service able to see python + typelibs + shared libs
+  # ✅ Make Noctalia's systemd service able to see python + typelibs + shared libs
   systemd.user.services.noctalia-shell.Service = {
     Environment = [
       "PATH=${noctaliaPython}/bin:${config.home.profileDirectory}/bin:/run/current-system/sw/bin:/run/current-system/sw/sbin"

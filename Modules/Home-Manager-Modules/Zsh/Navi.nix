@@ -220,6 +220,10 @@ in {
     # Rebuild NixOS + Home Manager for Sisyphus
     system-rebuild Sisyphus
 
+    % Remove mimeapps.list (fix Home Manager conflict)
+    # Delete the file Home Manager complains about
+    rm -f "$HOME/.config/mimeapps.list"
+
     % Git Sync
     # Same as git-sync, but include a commit message
     git-sync "chore: sync"
