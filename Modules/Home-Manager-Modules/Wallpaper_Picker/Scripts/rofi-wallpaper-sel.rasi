@@ -1,0 +1,92 @@
+* {
+  background:        #00000000;
+  foreground:        #E6EAF0FF;
+  foreground-alt:    #AAB2BDFF;
+
+  card-bg:           #0F1116E6;
+  frame-outer:       #232832FF;
+  frame-inner:       #343A46FF;
+
+  accent:            #6AA6FFFF;
+  accent-soft:       #A9C4FFFF;
+}
+
+window {
+  border: 0;
+  border-radius: 18px;
+  background-color: transparent;
+  padding: 32px;            /* slightly larger gap around content */
+}
+
+mainbox {
+  spacing: 26px;            /* wider spacing between cards */
+  padding: 10px;
+  background-color: transparent;
+}
+
+inputbar { enabled: false; }
+
+listview {
+  background-color: transparent;
+  lines: 1;
+  cycle: false;
+  dynamic: false;
+  border: 0;
+  outline: 0;
+  spacing: 26px;            /* ensures consistent horizontal gap */
+}
+
+/* --- Card base ------------------------------------------------------------- */
+element,
+element alternate,
+element active,
+element urgent {
+  orientation: vertical;
+  background-color: @card-bg;
+  border: 2px;
+  border-color: @frame-outer;
+  border-radius: 18px;
+  outline: 0;
+  padding: 14px 16px;       /* narrower top/bottom, slightly wider sides */
+  margin: 8px 14px;
+}
+
+/* --- Selected card --------------------------------------------------------- */
+element selected {
+  background-color: @card-bg;
+  border: 2px;
+  border-color: @accent;
+  border-radius: 18px;
+  outline: 0;
+}
+
+/* --- Image area ------------------------------------------------------------ */
+element-icon {
+  border: 2px;
+  border-color: @frame-inner;
+  border-radius: 12px;
+  horizontal-align: 0.5;
+  vertical-align: 0.0;
+
+  /* make image a bit wider while keeping tall aspect */
+  size: 96%;
+  width: 115%;              /* widen image slightly */
+}
+
+/* highlight for selected image */
+element selected element-icon {
+  border: 2px;
+  border-color: @accent-soft;
+}
+
+/* --- Label --------------------------------------------------------------- */
+element-text {
+  font-size: 10px;
+  width: 100%;
+  color: @foreground-alt;
+  background-color: transparent;
+  horizontal-align: 0.5;
+  vertical-align: 1.0;
+  margin: 6px 0 0 0;
+}
+

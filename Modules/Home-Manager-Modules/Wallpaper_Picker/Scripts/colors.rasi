@@ -1,0 +1,7 @@
+* {
+  background: #0e1116;   /* dark background */
+  foreground: #dfe7ef;   /* light text */
+  frame:      #3b4450;   /* subtle gray border */
+  accent:     #7ed7a0;   /* green highlight */
+  pill:       #1a2028;   /* chip background */
+}
