@@ -178,9 +178,6 @@
     prismlauncher
     ckb-next
     opencode
-    docker
-    docui
-    wget
   ];
 
   fonts = {

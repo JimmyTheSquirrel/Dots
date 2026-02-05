@@ -67,14 +67,32 @@
       # Build the prompt - single line with separators
       PROMPT='%F{#d65d0e}%n%f%F{#665c54}@%f%F{#d79921}%m%f %F{#665c54}│%f %F{#3e9c3e}%~%f$(git_branch) %(?.%F{#8ec07c}.%F{#fb4934})❯%f '
 
-      # fzf-tab configuration - orange selected file, blue info/counter
+      # ----------------------------
+      # fzf-tab configuration
+      # ----------------------------
+
+      # Use LS_COLORS for completion list coloring
       zstyle ':completion:*' list-colors ''${(s.:.)LS_COLORS}
+
+      # Preview for cd completion (restores the nice preview pane)
       zstyle ':fzf-tab:complete:cd:*' fzf-preview 'ls -1 --color=always $realpath'
-      zstyle ':fzf-tab:*' fzf-flags --color=fg:#ebdbb2,hl:#d79921 --color=fg+:#d79921,bg+:-1,hl+:#d65d0e --color=info:#83a598,prompt:#bdae93,pointer:#d65d0e --color=marker:#d65d0e,spinner:#fabd2f,header:#665c54 --color=border:#ebdbb2
+
+      # Keep fzf-tab as a popup under the prompt (not fullscreen)
+      # Remove the extra border so it doesn't look double-wrapped
+      # Add preview window layout so the pane is visible again
+      zstyle ':fzf-tab:*' fzf-flags \
+        --height=40% \
+        --border=none \
+        --preview-window=right:55%:wrap \
+        --color=fg:#ebdbb2,hl:#d79921 \
+        --color=fg+:#d79921,bg+:-1,hl+:#d65d0e \
+        --color=info:#83a598,prompt:#bdae93,pointer:#d65d0e \
+        --color=marker:#d65d0e,spinner:#fabd2f,header:#665c54 \
+        --color=border:#ebdbb2
     '';
   };
 
-  # Add fzf integration
+  # Global fzf integration (affects normal fzf usage, not just fzf-tab)
   programs.fzf = {
     enable = true;
     enableZshIntegration = true;

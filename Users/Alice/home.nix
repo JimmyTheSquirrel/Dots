@@ -19,7 +19,7 @@
     ../../Modules/Home-Manager-Modules/Brave.nix
     ../../Modules/Home-Manager-Modules/Screenshot.nix
     ../../Modules/Home-Manager-Modules/Wlogout.nix
-    ../../Modules/Home-Manager-Modules/Wallpaper_Picker/WallpaperCarousel.nix
+    #../../Modules/Home-Manager-Modules/Wallpaper_Picker/WallpaperCarousel.nix
     ../../Modules/Home-Manager-Modules/App_Menu.nix
     #../../Modules/Home-Manager-Modules/Topbar.nix
     #../../Modules/Home-Manager-Modules/Hyprpanel.nix
