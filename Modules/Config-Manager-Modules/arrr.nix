@@ -7,7 +7,7 @@
   users.groups.arrr = {
     gid = 995;
   };
-  users.users."ak".extraGroups = ["arrr"];
+  users.users."rock".extraGroups = ["arrr"];
 
   hardware.graphics.enable = true;
   hardware.graphics.extraPackages = with pkgs; [
@@ -76,7 +76,7 @@
     };
 
     jellyseerr = {
-      image = "ghcr.io/hotio/jellyseerr";
+      image = "ghcr.io/fallenbagel/jellyseerr:latest";
       extraOptions = [
       ];
       ports = [
@@ -250,10 +250,36 @@
       ];
       autoStart = true;
     };
+
+    qbittorrent = {
+      image = "lscr.io/linuxserver/qbittorrent:latest";
+      environment = {
+        PUID = "1000";
+        PGID = "1000";
+        TZ = "Etc/UTC";
+        WEBUI_PORT = "8080";
+        TORRENTING_PORT = "6881";
+      };
+      volumes = [
+        "/path/to/qbittorrent/appdata:/config"
+        "/path/to/downloads:/downloads" # optional
+      ];
+      ports = [
+        "8080:8080"
+        "6881:6881"
+        "6881:6881/udp"
+      ];
+      autoStart = true;
+    };
   };
 
-  oci-containers.backend = "docker";
-  containers.enable = true;
+  virtualisation = {
+    docker = {
+      enable = true;
+    };
+    oci-containers.backend = "docker";
+    containers.enable = true;
+  };
 
   networking.firewall.allowedTCPPorts = [9696 8191 8989];
   networking.firewall.allowedUDPPorts = [9696 8191 8989];
