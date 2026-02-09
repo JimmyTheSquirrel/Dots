@@ -20,6 +20,8 @@
       la = "ls -lha";
       gs = "git status";
       c = "navi";
+      # Add brrtfetch aliases (the binary is called 'gofetch')
+      brrt = "gofetch ~/Pictures/brrtfetch/gifs/defaults/brrt.gif";
     };
 
     plugins = [
@@ -40,16 +42,16 @@
         source "${config.home.homeDirectory}/.config/zsh/zsh-helpers.sh"
       fi
 
-      # Brrtfetch on new Kitty tabs (replaces fastfetch)
+      # Fastfetch on new Kitty tabs (keeping your original setup)
       if [[ $- == *i* ]] && [[ -n "$KITTY_WINDOW_ID" ]]; then
-        command -v brrtfetch >/dev/null && brrtfetch
+        command -v fastfetch >/dev/null && fastfetch
       fi
 
-      # Custom clear: re-run brrtfetch
+      # Custom clear: re-run fastfetch
       clear() {
         command clear "$@"
         if [[ $- == *i* ]] && [[ -n "$KITTY_WINDOW_ID" ]]; then
-          command -v brrtfetch >/dev/null && brrtfetch && echo ""
+          command -v fastfetch >/dev/null && fastfetch && echo ""
         fi
       }
 
