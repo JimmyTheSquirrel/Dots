@@ -14,6 +14,7 @@
     ../../Hyprland/Hyprland.nix
     ../../Modules/Home-Manager-Modules/Zsh/Zsh.nix
     ../../Modules/Home-Manager-Modules/Zsh/Navi.nix
+    ../../Modules/Home-Manager-Modules/Zsh/Brrtfetch.nix
     ../../Modules/Home-Manager-Modules/Vscodium.nix
     ../../Modules/Home-Manager-Modules/Kitty.nix
     ../../Modules/Home-Manager-Modules/Fastfetch.nix

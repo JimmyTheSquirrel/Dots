@@ -4,94 +4,104 @@
   ...
 }: let
   # Create the datetime widget plugin following Noctalia's structure
-  datetime-widget = pkgs.stdenv.mkDerivation {
+  # DateTime widget plugin
+  # DateTime widget plugin
+  # DateTime widget plugin
+  # DateTime widget plugin
+  datetime-widget-plugin = pkgs.stdenv.mkDerivation {
     name = "noctalia-datetime-widget";
-    src = pkgs.writeTextFile {
-      name = "widget.qml";
-      text = ''
-        import QtQuick
-        import Quickshell
-        import Quickshell.Wayland
-
-        FloatingWindow {
-          id: dateTimeWidget
-
-          width: 400
-          height: 200
-          color: "transparent"
-
-          Rectangle {
-            anchors.fill: parent
-            color: "#40000000"
-            opacity: 0.3
-            radius: 0
-
-            ColumnLayout {
-              anchors.centerIn: parent
-              spacing: 8
-
-              Text {
-                id: dayText
-                Layout.alignment: Qt.AlignHCenter
-                color: "#E8E3D3"
-                font.pixelSize: 48
-                font.family: "JetBrains Mono"
-                font.letterSpacing: 8
-                font.weight: Font.Light
-              }
-
-              Text {
-                id: dateText
-                Layout.alignment: Qt.AlignHCenter
-                color: "#A89F8F"
-                font.pixelSize: 16
-                font.family: "JetBrains Mono"
-                font.letterSpacing: 2
-              }
-
-              Text {
-                id: timeText
-                Layout.alignment: Qt.AlignHCenter
-                color: "#A89F8F"
-                font.pixelSize: 16
-                font.family: "JetBrains Mono"
-                font.letterSpacing: 2
-              }
-            }
-          }
-
-          Timer {
-            interval: 1000
-            running: true
-            repeat: true
-            onTriggered: updateDateTime()
-          }
-
-          Component.onCompleted: updateDateTime()
-
-          function updateDateTime() {
-            var now = new Date();
-            dayText.text = Qt.formatDate(now, "dddd").toUpperCase();
-            dateText.text = Qt.formatDate(now, "dd MMM yyyy").toUpperCase();
-            timeText.text = "- " + Qt.formatTime(now, "hh:mm AP").toUpperCase() + " -";
-          }
-        }
-      '';
-    };
 
     dontUnpack = true;
     installPhase = ''
-      mkdir -p $out
-      cp $src $out/widget.qml
+            mkdir -p $out
 
-      cat > $out/manifest.json << EOF
+            # Create DesktopWidget.qml following Noctalia's structure
+            cat > $out/DesktopWidget.qml << 'EOF'
+      import QtQuick
+      import QtQuick.Layouts
+      import qs.Commons
+      import qs.Modules.DesktopWidgets
+      import qs.Widgets
+
+      DraggableDesktopWidget {
+        id: root
+
+        // Required by Noctalia
+        property var pluginApi: null
+
+        // Scaled dimensions
+        implicitWidth: Math.round(500 * widgetScale)
+        implicitHeight: Math.round(220 * widgetScale)
+        width: implicitWidth
+        height: implicitHeight
+
+        // No default background
+        showBackground: false
+
+        ColumnLayout {
+          anchors.centerIn: parent
+          spacing: Math.round(12 * widgetScale)
+
+          // Day of week - HUGE RED TEXT FOR TESTING
+          NText {
+            id: dayText
+            Layout.alignment: Qt.AlignHCenter
+            color: "#FF0000"  // BRIGHT RED
+            pointSize: Math.round(100 * widgetScale)  // HUGE
+            font.family: "JetBrains Mono"
+            font.letterSpacing: Math.round(12 * widgetScale)
+            font.weight: Font.Bold  // BOLD
+          }
+
+          // Date only - no time
+          NText {
+            id: dateText
+            Layout.alignment: Qt.AlignHCenter
+            color: "#00FF00"  // BRIGHT GREEN
+            pointSize: Math.round(30 * widgetScale)  // BIGGER
+            font.family: "JetBrains Mono"
+            font.letterSpacing: Math.round(3 * widgetScale)
+            font.weight: Font.Bold
+          }
+
+          // TIME REMOVED - SHOULD BE GONE
+        }
+
+        Timer {
+          interval: 1000
+          running: true
+          repeat: true
+          onTriggered: updateDateTime()
+        }
+
+        Component.onCompleted: updateDateTime()
+
+        function updateDateTime() {
+          var now = new Date();
+          dayText.text = Qt.formatDate(now, "dddd").toUpperCase();
+          dateText.text = Qt.formatDate(now, "dd MMM yyyy").toUpperCase();
+          // NO TIME UPDATE
+        }
+      }
+      EOF
+
+            # Create manifest.json with proper structure
+            cat > $out/manifest.json << EOF
       {
         "id": "datetime-widget",
         "name": "DateTime Widget",
         "description": "Retro-styled date and time display",
         "version": "1.0.0",
+        "minNoctaliaVersion": "3.6.0",
         "author": "rock",
-        "entry": "widget.qml"
+        "license": "MIT",
+        "tags": ["Desktop"],
+        "entryPoints": {
+          "desktopWidget": "DesktopWidget.qml"
+        },
+        "metadata": {
+          "defaultSettings": {}
+        }
       }
       EOF
     '';

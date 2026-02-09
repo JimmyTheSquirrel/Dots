@@ -40,16 +40,16 @@
         source "${config.home.homeDirectory}/.config/zsh/zsh-helpers.sh"
       fi
 
-      # Fastfetch on new Kitty tabs
+      # Brrtfetch on new Kitty tabs (replaces fastfetch)
       if [[ $- == *i* ]] && [[ -n "$KITTY_WINDOW_ID" ]]; then
-        command -v fastfetch >/dev/null && fastfetch
+        command -v brrtfetch >/dev/null && brrtfetch
       fi
 
-      # Custom clear: re-run fastfetch
+      # Custom clear: re-run brrtfetch
       clear() {
         command clear "$@"
         if [[ $- == *i* ]] && [[ -n "$KITTY_WINDOW_ID" ]]; then
-          command -v fastfetch >/dev/null && fastfetch && echo ""
+          command -v brrtfetch >/dev/null && brrtfetch && echo ""
         fi
       }
 

@@ -154,6 +154,9 @@
     packages = with pkgs; [];
   };
 
+  programs.localsend.enable = true;
+  programs.localsend.openFirewall = true;
+
   # ---- Packages (system-wide) ----
   environment.systemPackages = with pkgs; [
     git
