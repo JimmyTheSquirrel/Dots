@@ -20,6 +20,7 @@
     ../../Modules/Home-Manager-Modules/Fastfetch.nix
     ../../Modules/Home-Manager-Modules/Brave.nix
     ../../Modules/Home-Manager-Modules/Screenshot.nix
+    ../../Modules/Home-Manager-Modules/Rimsort.nix
     #../../Modules/Home-Manager-Modules/Wallpaper_Picker/WallpaperCarousel.nix
     ../../Modules/Home-Manager-Modules/Noctalia/noctalia.nix
     #../../Modules/Home-Manager-Modules/spicetify.nix

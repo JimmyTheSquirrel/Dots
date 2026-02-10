@@ -1,11 +1,8 @@
 {pkgs, ...}: let
-  # Replace this with your server's IP address
   serverIP = "192.168.5.14";
 
-  # Homepage configuration files
   homepageServices = pkgs.writeText "services.yaml" ''
     ---
-    # Media Management
     - Media:
         - Jellyfin:
             icon: jellyfin.png
@@ -25,7 +22,6 @@
               url: http://jellyseerr:5055
               key: {{HOMEPAGE_VAR_JELLYSEERR_API_KEY}}
 
-    # Download Clients
     - Downloads:
         - SABnzbd:
             icon: sabnzbd.png
@@ -46,7 +42,6 @@
               username: {{HOMEPAGE_VAR_QBITTORRENT_USERNAME}}
               password: {{HOMEPAGE_VAR_QBITTORRENT_PASSWORD}}
 
-    # Media Management
     - Automation:
         - Sonarr:
             icon: sonarr.png
@@ -84,7 +79,6 @@
               url: http://prowlarr:9696
               key: {{HOMEPAGE_VAR_PROWLARR_API_KEY}}
 
-    # Utilities
     - Management:
         - Portainer:
             icon: portainer.png
@@ -101,10 +95,8 @@
     ---
     title: Media Server
     favicon: https://raw.githubusercontent.com/gethomepage/homepage/main/public/android-chrome-192x192.png
-
     theme: dark
     color: slate
-
     layout:
       Media:
         style: row
@@ -175,13 +167,17 @@ in {
     "d /config/portainer 0775 - arrr - -"
     "d /config/qbittorrent 0775 - arrr - -"
 
-    "d /data/torrents/movies 0775 - arrr - -"
-    "d /data/torrents/tv 0775 - arrr - -"
+    # Data directories
+    "d /data/torrents 0775 - arrr - -"
+
+    # IMPORTANT: directories you were actually using in practice
+    "d /data/torrents/complete 0775 - arrr - -"
+
+    "d /data/media 0775 - arrr - -"
     "d /data/media/movies 0775 - arrr - -"
     "d /data/media/tv 0775 - arrr - -"
   ];
 
-  # Setup homepage config files BEFORE the container starts
   systemd.services.setup-homepage-config = {
     description = "Setup Homepage configuration files";
     wantedBy = ["multi-user.target"];
@@ -198,7 +194,6 @@ in {
       cp ${homepageWidgets} /config/homepage/widgets.yaml
       cp ${homepageBookmarks} /config/homepage/bookmarks.yaml
 
-      # Copy API keys from your Downloads folder if it exists
       if [ -f /home/rock/Downloads/Docker/homepage.env ]; then
         cp /home/rock/Downloads/Docker/homepage.env /config/homepage/.env
         chown 1000:995 /config/homepage/.env
@@ -210,7 +205,6 @@ in {
     '';
   };
 
-  # Create the Docker network before containers start
   systemd.services.init-arrr-network = {
     description = "Create the arrr Docker network";
     after = ["docker.service"];
@@ -230,9 +224,7 @@ in {
         "--group-add=video"
         "--network=arrr-network"
       ];
-      ports = [
-        "8096:8096"
-      ];
+      ports = ["8096:8096"];
       environment = {
         PUID = "1000";
         PGID = "995";
@@ -245,42 +237,16 @@ in {
       autoStart = true;
     };
 
-    plex = {
-      image = "ghcr.io/hotio/plex";
-      extraOptions = [
-        "--network=arrr-network"
-      ];
-      ports = [
-        "32400:32400"
-      ];
-      environment = {
-        PUID = "1000";
-        PGID = "995";
-        UMASK = "002";
-      };
-      volumes = [
-        "/config/plex:/config"
-        "/config/plexTranscode:/transcode"
-        "/data/media:/data"
-      ];
-    };
-
     jellyseerr = {
       image = "ghcr.io/fallenbagel/jellyseerr:latest";
-      extraOptions = [
-        "--network=arrr-network"
-      ];
-      ports = [
-        "5055:5055"
-      ];
+      extraOptions = ["--network=arrr-network"];
+      ports = ["5055:5055"];
       environment = {
         PUID = "1000";
         PGID = "995";
         UMASK = "002";
       };
-      volumes = [
-        "/config/jellyseerr:/config"
-      ];
+      volumes = ["/config/jellyseerr:/config"];
       autoStart = true;
     };
 
@@ -291,9 +257,7 @@ in {
         "--privileged=true"
         "--network=arrr-network"
       ];
-      ports = [
-        "8080:8080"
-      ];
+      ports = ["8080:8080"];
       environment = {
         PUID = "1000";
         PGID = "995";
@@ -315,48 +279,33 @@ in {
 
     prowlarr = {
       image = "ghcr.io/hotio/prowlarr";
-      extraOptions = [
-        "--network=arrr-network"
-      ];
-      ports = [
-        "9696:9696"
-      ];
+      extraOptions = ["--network=arrr-network"];
+      ports = ["9696:9696"];
       environment = {
         PUID = "1000";
         PGID = "995";
         UMASK = "002";
         RUN_OPTS = "--ProxyConnection=10.11.12.201:8118";
       };
-      volumes = [
-        "/config/prowlarr:/config"
-      ];
+      volumes = ["/config/prowlarr:/config"];
       autoStart = true;
     };
 
     flaresolverr = {
       image = "ghcr.io/flaresolverr/flaresolverr:latest";
-      extraOptions = [
-        "--network=arrr-network"
-      ];
-      ports = [
-        "8191:8191"
-      ];
-      environment = {};
-      volumes = [];
+      extraOptions = ["--network=arrr-network"];
+      ports = ["8191:8191"];
       autoStart = true;
     };
 
     radarr = {
       image = "ghcr.io/hotio/radarr";
-      extraOptions = [
-        "--network=arrr-network"
-      ];
-      ports = [
-        "7878:7878"
-      ];
+      extraOptions = ["--network=arrr-network"];
+      ports = ["7878:7878"];
       environment = {
         PUID = "1000";
         PGID = "995";
+        UMASK = "002";
         RUN_OPTS = "--ProxyConnection=10.11.12.201:8118";
       };
       volumes = [
@@ -368,15 +317,12 @@ in {
 
     sonarr = {
       image = "ghcr.io/hotio/sonarr";
-      extraOptions = [
-        "--network=arrr-network"
-      ];
-      ports = [
-        "8989:8989"
-      ];
+      extraOptions = ["--network=arrr-network"];
+      ports = ["8989:8989"];
       environment = {
         PUID = "1000";
         PGID = "995";
+        UMASK = "002";
         RUN_OPTS = "--ProxyConnection=10.11.12.201:8118";
       };
       volumes = [
@@ -388,15 +334,12 @@ in {
 
     bazarr = {
       image = "ghcr.io/hotio/bazarr";
-      extraOptions = [
-        "--network=arrr-network"
-      ];
-      ports = [
-        "6767:6767"
-      ];
+      extraOptions = ["--network=arrr-network"];
+      ports = ["6767:6767"];
       environment = {
         PUID = "1000";
         PGID = "995";
+        UMASK = "002";
       };
       volumes = [
         "/config/bazarr:/config"
@@ -407,19 +350,19 @@ in {
 
     qbittorrent = {
       image = "lscr.io/linuxserver/qbittorrent:latest";
-      extraOptions = [
-        "--network=arrr-network"
-      ];
+      extraOptions = ["--network=arrr-network"];
       environment = {
         PUID = "1000";
         PGID = "995";
+        UMASK = "002";
         TZ = "Etc/UTC";
         WEBUI_PORT = "8082";
         TORRENTING_PORT = "6881";
       };
       volumes = [
         "/config/qbittorrent:/config"
-        "/data/torrents:/downloads"
+        # FIX: match internal paths with Radarr/Sonarr
+        "/data:/data"
       ];
       ports = [
         "8082:8082"
@@ -431,12 +374,8 @@ in {
 
     homepage = {
       image = "ghcr.io/gethomepage/homepage:latest";
-      extraOptions = [
-        "--network=arrr-network"
-      ];
-      ports = [
-        "3000:3000"
-      ];
+      extraOptions = ["--network=arrr-network"];
+      ports = ["3000:3000"];
       environment = {
         PUID = "1000";
         PGID = "995";
@@ -450,9 +389,7 @@ in {
 
     portainer = {
       image = "portainer/portainer-ce:latest";
-      extraOptions = [
-        "--network=arrr-network"
-      ];
+      extraOptions = ["--network=arrr-network"];
       ports = [
         "9000:9000"
         "9443:9443"
@@ -465,20 +402,31 @@ in {
     };
   };
 
-  # Make homepage service depend on the setup service
   systemd.services.docker-homepage = {
     after = ["setup-homepage-config.service"];
     requires = ["setup-homepage-config.service"];
   };
 
   virtualisation = {
-    docker = {
-      enable = true;
-    };
+    docker.enable = true;
     oci-containers.backend = "docker";
     containers.enable = true;
   };
 
-  networking.firewall.allowedTCPPorts = [9696 8191 8989 7878 6767 8096 5055 8080 8082 3000 9000 9443 32400];
+  networking.firewall.allowedTCPPorts = [
+    9696
+    8191
+    8989
+    7878
+    6767
+    8096
+    5055
+    8080
+    8082
+    3000
+    9000
+    9443
+    32400
+  ];
   networking.firewall.allowedUDPPorts = [9696 8191 8989 6881];
 }
