@@ -182,6 +182,7 @@
     prismlauncher
     ckb-next
     opencode
+    rimsort
   ];
 
   fonts = {
