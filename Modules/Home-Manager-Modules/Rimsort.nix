@@ -4,72 +4,83 @@
   lib,
   ...
 }: let
-  cfg = config.programs.rimsort;
+  version = "v1.0.69";
+  sha256 = "sha256-rr/ZbqQpp6M3E4qFuL+rPtDGnR0NrAib8DXqH+uzt6k=";
 
-  rimsortPkg = pkgs.stdenvNoCC.mkDerivation rec {
+  runtimeLibs = [
+    # For libsmime3.so (NSS)
+    pkgs.nss
+    pkgs.nspr
+
+    # X/GL libs commonly needed
+    pkgs.xorg.libxshmfence
+    pkgs.xorg.libxkbfile
+    pkgs.xorg.libX11
+    pkgs.xorg.libXext
+    pkgs.xorg.libXrender
+    pkgs.xorg.libXrandr
+    pkgs.xorg.libXi
+    pkgs.xorg.libXcursor
+    pkgs.xorg.libxcb
+    pkgs.mesa
+    pkgs.libGL
+  ];
+
+  runtimeLibPath = lib.makeLibraryPath runtimeLibs;
+
+  rimsortPkg = pkgs.stdenvNoCC.mkDerivation {
     pname = "rimsort";
-    version = cfg.version;
+    inherit version;
 
     src = pkgs.fetchzip {
-      url = "https://github.com/RimSort/RimSort/releases/download/v${version}/RimSort-linux-x64.zip";
-      hash = cfg.sha256; # must be SRI form: "sha256-...."
+      url = "https://github.com/oceancabbage/RimSort/releases/download/${version}/RimSort-${version}-Ubuntu-24.04_x86_64.zip";
+      hash = sha256;
       stripRoot = false;
     };
 
     nativeBuildInputs = [pkgs.makeWrapper];
 
-    desktopItem = pkgs.makeDesktopItem {
-      name = "rimsort";
-      desktopName = "RimSort";
-      exec = "RimSort";
-      terminal = false;
-      categories = ["Game" "Utility"];
-    };
-
     installPhase = ''
       runHook preInstall
 
-      mkdir -p $out/opt/RimSort
-      cp -r ./* $out/opt/RimSort/
+      mkdir -p $out/opt/rimsort
+      if [ -d "./RimSort" ]; then
+        cp -r ./RimSort/* $out/opt/rimsort/
+      else
+        cp -r ./* $out/opt/rimsort/
+      fi
 
-      # Expected upstream binary name:
-      chmod +x $out/opt/RimSort/RimSort || true
+      chmod +x $out/opt/rimsort/RimSort || true
 
       mkdir -p $out/bin
       makeWrapper ${pkgs.steam-run}/bin/steam-run $out/bin/RimSort \
-        --add-flags "$out/opt/RimSort/RimSort"
+        --prefix LD_LIBRARY_PATH : "${runtimeLibPath}" \
+        --add-flags "$out/opt/rimsort/RimSort"
+
+      ln -s $out/bin/RimSort $out/bin/rimsort
 
       mkdir -p $out/share/applications
-      ln -s ${desktopItem}/share/applications/* $out/share/applications/
+      cat > $out/share/applications/RimSort.desktop <<'EOF'
+      [Desktop Entry]
+      Type=Application
+      Name=RimSort
+      Exec=RimSort
+      Terminal=false
+      Categories=Game;Utility;
+      EOF
 
       runHook postInstall
     '';
 
     meta = with lib; {
-      description = "RimSort mod manager (wrapped to run on NixOS via steam-run)";
-      homepage = "https://github.com/RimSort/RimSort";
+      description = "RimSort mod manager wrapped for NixOS (steam-run + runtime libs)";
+      homepage = "https://github.com/oceancabbage/RimSort";
       platforms = ["x86_64-linux"];
       mainProgram = "RimSort";
     };
   };
 in {
-  options.programs.rimsort = {
-    enable = lib.mkEnableOption "RimSort";
-
-    version = lib.mkOption {
-      type = lib.types.str;
-      default = "1.0.0";
-      description = "RimSort release version tag (without leading 'v').";
-    };
-
-    sha256 = lib.mkOption {
-      type = lib.types.str;
-      default = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-      description = "SRI sha256 for the RimSort Linux zip (use nix-prefetch-url --unpack to get it).";
-    };
-  };
-
-  config = lib.mkIf cfg.enable {
+  config = {
     home.packages = [rimsortPkg];
   };
 }

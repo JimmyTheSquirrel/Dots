@@ -11,32 +11,27 @@
     xfce.tumbler
     ffmpegthumbnailer
     file-roller
-
-    # Needed so “Open in Terminal” (xdg-terminal-exec) works
     xdg-utils
-
-    # themes/icons so Thunar has proper icons out of the box
     adwaita-icon-theme
     hicolor-icon-theme
     papirus-icon-theme
   ];
 
   #### Services needed by Thunar
-  services.gvfs.enable = true; # mounts, trash, file chooser helpers
-  programs.xfconf.enable = true; # Xfce/Thunar settings backend
+  services.gvfs.enable = true;
+  programs.xfconf.enable = true;
 
-  #### Portals (Wayland-friendly file dialogs / xdg-open)
+  #### Portals
   xdg.portal.enable = true;
   xdg.portal.extraPortals = [
     pkgs.xdg-desktop-portal-gtk
-    pkgs.xdg-desktop-portal-hyprland # keep if you use Hyprland
+    pkgs.xdg-desktop-portal-hyprland
   ];
 
-  #### Make Thunar the default file manager (and ensure Steam/xdg-open uses it)
+  #### Make Thunar the default file manager
   xdg.mime = {
     enable = true;
     defaultApplications = {
-      # Directory handling (covers Steam "Browse local files" in most setups)
       "inode/directory" = ["thunar.desktop"];
       "application/x-directory" = ["thunar.desktop"];
     };
@@ -55,5 +50,19 @@
     gtk-icon-theme-name=Papirus-Dark
     gtk-application-prefer-dark-theme=1
   '';
-}
 
+  #### Set Thunar xfconf settings (shows free space in sidebar)
+  system.activationScripts.thunarSettings = {
+    deps = [];
+    text = ''
+      export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/1000/bus"
+      ${pkgs.xfce.xfconf}/bin/xfconf-query \
+        -c thunar \
+        -p /misc-show-free-space \
+        -s true \
+        --create \
+        -t bool \
+      || true
+    '';
+  };
+}

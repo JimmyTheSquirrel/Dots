@@ -14,6 +14,11 @@
     ../../Modules/Config-Manager-Modules/arrr.nix
   ];
 
+  fileSystems."/mnt/media" = {
+    device = "/dev/disk/by-uuid/561f2c0c-04d7-423d-a372-6246a7e4d387";
+    fsType = "ext4";
+  };
+
   nix.settings.experimental-features = ["nix-command" "flakes"];
   nixpkgs.config.allowUnfree = true;
 
@@ -49,8 +54,6 @@
     LC_TELEPHONE = "en_AU.UTF-8";
     LC_TIME = "en_AU.UTF-8";
   };
-
-  virtualisation.docker.enable = true; ###
 
   programs.nix-ld = {
     enable = true;

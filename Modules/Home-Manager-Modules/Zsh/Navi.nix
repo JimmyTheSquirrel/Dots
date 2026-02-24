@@ -17,7 +17,7 @@ in {
     # Wrap ONLY navi so it ignores FZF_DEFAULT_OPTS (e.g. --height 60%)
     navi() {
       unset FZF_DEFAULT_OPTS
-      exec ${pkgs.navi}/bin/navi "$@"
+      ${pkgs.navi}/bin/navi "$@"
     }
   '';
 
@@ -231,5 +231,9 @@ in {
     % Git Cleanup (Nuke)
     # Wipe commit history on main and keep only current snapshot (FORCE PUSH)
     cd "$HOME/Dots" && git checkout main && git pull --rebase origin main && git checkout --orphan _fresh_main && git add -A && git commit -m "chore: fresh start" && git branch -M main && git push -f origin main
+
+    % Restart Podman Containers
+    # Restart all running podman containers
+    podman restart $(podman ps -q)
   '';
 }
