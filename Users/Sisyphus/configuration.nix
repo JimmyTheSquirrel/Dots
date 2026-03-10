@@ -182,7 +182,7 @@
     gparted
     heroic
     lutris
-    prismlauncher
+    (prismlauncher.override {jdks = [pkgs.jdk21];})
     ckb-next
     opencode
   ];
