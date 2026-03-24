@@ -29,13 +29,6 @@
   # --- Calendar sync for Noctalia (Google Calendar via EDS) ---
   programs.dconf.enable = true;
 
-  services.gnome.evolution-data-server.enable = true;
-  services.gnome.gnome-online-accounts.enable = true;
-  services.gnome.gnome-keyring.enable = true;
-
-  security.pam.services.login.enableGnomeKeyring = true;
-  security.pam.services.sddm.enableGnomeKeyring = true;
-
   time.timeZone = "Australia/Sydney";
 
   i18n.defaultLocale = "en_AU.UTF-8";
@@ -179,7 +172,6 @@
     heroic
     lutris
     (prismlauncher.override {jdks = [pkgs.jdk21];})
-    ckb-next
     opencode
   ];
 
@@ -191,11 +183,6 @@
       nerd-fonts.iosevka
     ];
   };
-
-  hardware.ckb-next.enable = true;
-
-  # Required so devices are accessible
-  services.udev.packages = [pkgs.ckb-next];
 
   # SSH agent convenience
   programs.ssh.startAgent = true;
