@@ -11,13 +11,9 @@
     ../../Modules/Config-Manager-Modules/Steam.nix
     ../../Modules/Config-Manager-Modules/Thunar.nix
     ../../Modules/Config-Manager-Modules/Sddm.nix
-    ../../Modules/Config-Manager-Modules/arrr.nix
+    #../../Modules/Config-Manager-Modules/arrr.nix
   ];
 
-  fileSystems."/mnt/media" = {
-    device = "/dev/disk/by-uuid/561f2c0c-04d7-423d-a372-6246a7e4d387";
-    fsType = "ext4";
-  };
 
   nix.settings.experimental-features = ["nix-command" "flakes"];
   nixpkgs.config.allowUnfree = true;
