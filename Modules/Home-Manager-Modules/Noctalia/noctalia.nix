@@ -1,30 +1,8 @@
 {
-  config,
   pkgs,
   inputs,
-  lib,
   ...
-}: let
-  # Python env for Noctalia calendar integration
-  noctaliaPython = pkgs.python3.withPackages (ps: [
-    ps.pygobject3
-  ]);
-
-  # Runtime deps for EDS + GI typelibs it pulls in
-  edsPkgs = with pkgs; [
-    evolution-data-server
-    libsoup_3
-    pkgs.libical
-    glib
-    gobject-introspection
-  ];
-
-  # Where GI looks for *.typelib
-  giTypelibPath = lib.makeSearchPath "lib/girepository-1.0" edsPkgs;
-
-  # Some GI modules dlopen shared libs; on Nix we often need this too
-  ldLibraryPath = lib.makeLibraryPath edsPkgs;
-in {
+}: {
   imports = [
     inputs.noctalia.homeModules.default
   ];
@@ -32,13 +10,6 @@ in {
   home.packages = [
     pkgs.playerctl
     pkgs.jetbrains-mono
-    noctaliaPython
-
-    # Useful to debug interactively:
-    pkgs.gobject-introspection
-    pkgs.evolution-data-server
-    pkgs.libsoup_3
-    pkgs.libical
   ];
 
   programs.noctalia-shell = {
@@ -105,12 +76,12 @@ in {
             {
               id = "Network";
               displayMode = "onhover";
+              icon = "plug-connected";
             }
             {
               id = "Bluetooth";
               displayMode = "onhover";
             }
-            {id = "plugin:weekly-calendar";}
             {
               id = "Clock";
               formatHorizontal = "hh:mm a";
@@ -118,6 +89,10 @@ in {
               usePrimaryColor = true;
             }
             {id = "NotificationHistory";}
+            {
+              id = "Tray";
+              displayMode = "onhover";
+            }
           ];
         };
 
@@ -154,13 +129,10 @@ in {
                 {
                   id = "Network";
                   displayMode = "onhover";
+                  icon = "plug-connected";
                 }
                 {
                   id = "Bluetooth";
-                  displayMode = "onhover";
-                }
-                {
-                  id = "Tray";
                   displayMode = "onhover";
                 }
                 {
@@ -170,6 +142,10 @@ in {
                   usePrimaryColor = true;
                 }
                 {id = "NotificationHistory";}
+                {
+                  id = "Tray";
+                  displayMode = "onhover";
+                }
               ];
             };
           }
@@ -217,27 +193,10 @@ in {
         hideWeatherCityName = false;
       };
 
-      calendar = {
-        cards = [
-          {
-            enabled = true;
-            id = "calendar-header-card";
-          }
-          {
-            enabled = true;
-            id = "calendar-month-card";
-          }
-          {
-            enabled = true;
-            id = "weather-card";
-          }
-        ];
-      };
-
       wallpaper = {
         enabled = true;
         overviewEnabled = false;
-        directory = "/home/loki/Pictures/Wallpapers";
+        directory = "/home/rock/Pictures/Wallpapers";
         monitorDirectories = [];
         enableMultiMonitorDirectories = false;
         showHiddenFiles = false;
@@ -515,38 +474,6 @@ in {
         startup = "";
         session = "";
       };
-
-      desktopWidgets = {
-        enabled = true;
-        gridSnap = true;
-        monitorWidgets = [
-          {
-            monitor = "DP-2";
-            widgets = [
-              {
-                plugin = "weekly-calendar";
-                x = 50;
-                y = 100;
-              }
-              {
-                plugin = "datetime-widget";
-                x = 760;
-                y = 440;
-              }
-            ];
-          }
-        ];
-      };
     };
-  };
-
-  systemd.user.services.noctalia-shell.Service = {
-    Environment = [
-      "PATH=${noctaliaPython}/bin:${config.home.profileDirectory}/bin:/run/current-system/sw/bin:/run/current-system/sw/sbin"
-      "PYTHON=${noctaliaPython}/bin/python3"
-      "GI_TYPELIB_PATH=${giTypelibPath}"
-      "LD_LIBRARY_PATH=${ldLibraryPath}"
-      "XDG_DATA_DIRS=${lib.makeSearchPath "share" [pkgs.gsettings-desktop-schemas pkgs.glib]}:${config.home.profileDirectory}/share:/run/current-system/sw/share"
-    ];
   };
 }
