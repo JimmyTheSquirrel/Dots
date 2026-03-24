@@ -16,11 +16,10 @@
 
     spicetify-nix.url = "github:Gerg-L/spicetify-nix";
 
-    # Noctalia follows unstable nixpkgs internally
-    noctalia = {
-      url = "github:noctalia-dev/noctalia-shell";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
-    };
+noctalia = {
+  url = "github:noctalia-dev/noctalia-shell/v4.7.1";
+  inputs.nixpkgs.follows = "nixpkgs-unstable";
+};
   };
 
   outputs = {

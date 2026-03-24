@@ -5,128 +5,7 @@
   lib,
   ...
 }: let
-  # Weekly Calendar plugin
-  weekly-calendar-plugin = pkgs.fetchFromGitHub {
-    owner = "noctalia-dev";
-    repo = "noctalia-plugins";
-    rev = "main";
-    sha256 = "sha256-wierciZBGmkcOSCMoQkZFtIQuR7P9NNtDq3p+K114M4=";
-  };
-
-  # DateTime widget plugin
-  datetime-widget-plugin = pkgs.stdenv.mkDerivation {
-    name = "noctalia-datetime-widget";
-
-    dontUnpack = true;
-    installPhase = ''
-            mkdir -p $out
-
-            # Create DesktopWidget.qml following Noctalia's structure
-            cat > $out/DesktopWidget.qml << 'EOF'
-      import QtQuick
-      import QtQuick.Layouts
-      import qs.Commons
-      import qs.Modules.DesktopWidgets
-      import qs.Widgets
-
-      DraggableDesktopWidget {
-        id: root
-
-        // Required by Noctalia
-        property var pluginApi: null
-
-        // Scaled dimensions
-        implicitWidth: Math.round(400 * widgetScale)
-        implicitHeight: Math.round(200 * widgetScale)
-        width: implicitWidth
-        height: implicitHeight
-
-        // Custom background since we want specific styling
-        showBackground: false
-
-        Rectangle {
-          anchors.fill: parent
-          color: "#40000000"
-          opacity: 0.3
-          radius: 0
-
-          ColumnLayout {
-            anchors.centerIn: parent
-            spacing: Math.round(8 * widgetScale)
-
-            NText {
-              id: dayText
-              Layout.alignment: Qt.AlignHCenter
-              color: "#E8E3D3"
-              pointSize: Math.round(48 * widgetScale)
-              font.family: "JetBrains Mono"
-              font.letterSpacing: Math.round(8 * widgetScale)
-              font.weight: Font.Light
-            }
-
-            NText {
-              id: dateText
-              Layout.alignment: Qt.AlignHCenter
-              color: "#A89F8F"
-              pointSize: Math.round(16 * widgetScale)
-              font.family: "JetBrains Mono"
-              font.letterSpacing: Math.round(2 * widgetScale)
-            }
-
-            NText {
-              id: timeText
-              Layout.alignment: Qt.AlignHCenter
-              color: "#A89F8F"
-              pointSize: Math.round(16 * widgetScale)
-              font.family: "JetBrains Mono"
-              font.letterSpacing: Math.round(2 * widgetScale)
-            }
-          }
-        }
-
-        Timer {
-          interval: 1000
-          running: true
-          repeat: true
-          onTriggered: updateDateTime()
-        }
-
-        Component.onCompleted: updateDateTime()
-
-        function updateDateTime() {
-          var now = new Date();
-          dayText.text = Qt.formatDate(now, "dddd").toUpperCase();
-          dateText.text = Qt.formatDate(now, "dd MMM yyyy").toUpperCase();
-          timeText.text = "- " + Qt.formatTime(now, "hh:mm AP").toUpperCase() + " -";
-        }
-      }
-      EOF
-
-            # Create manifest.json with proper structure
-            cat > $out/manifest.json << EOF
-      {
-        "id": "datetime-widget",
-        "name": "DateTime Widget",
-        "description": "Retro-styled date and time display",
-        "version": "1.0.0",
-        "minNoctaliaVersion": "3.6.0",
-        "author": "rock",
-        "license": "MIT",
-        "tags": ["Desktop"],
-        "entryPoints": {
-          "desktopWidget": "DesktopWidget.qml"
-        },
-        "metadata": {
-          "defaultSettings": {}
-        }
-      }
-      EOF
-    '';
-  };
-
-  # Python env for Noctalia calendar integration:
-  # - pygobject3 provides `gi`
-  # - (optional) you can add other python deps here if Noctalia needs them
+  # Python env for Noctalia calendar integration
   noctaliaPython = pkgs.python3.withPackages (ps: [
     ps.pygobject3
   ]);
@@ -161,10 +40,6 @@ in {
     pkgs.libsoup_3
     pkgs.libical
   ];
-
-  # Ensure plugins exist declaratively
-  home.file.".config/noctalia/plugins/weekly-calendar".source = "${weekly-calendar-plugin}/weekly-calendar";
-  home.file.".config/noctalia/plugins/datetime-widget".source = datetime-widget-plugin;
 
   programs.noctalia-shell = {
     enable = true;
@@ -235,10 +110,7 @@ in {
               id = "Bluetooth";
               displayMode = "onhover";
             }
-
-            # ✅ plugin bar widget – this is what your settings.json shows
             {id = "plugin:weekly-calendar";}
-
             {
               id = "Clock";
               formatHorizontal = "hh:mm a";
@@ -285,6 +157,10 @@ in {
                 }
                 {
                   id = "Bluetooth";
+                  displayMode = "onhover";
+                }
+                {
+                  id = "Tray";
                   displayMode = "onhover";
                 }
                 {
@@ -358,11 +234,10 @@ in {
         ];
       };
 
-      # ---- Wallpaper (match your JSON) ----
       wallpaper = {
         enabled = true;
         overviewEnabled = false;
-        directory = "/home/rock/Pictures/Wallpapers";
+        directory = "/home/loki/Pictures/Wallpapers";
         monitorDirectories = [];
         enableMultiMonitorDirectories = false;
         showHiddenFiles = false;
@@ -380,7 +255,6 @@ in {
         transitionEdgeSmoothness = 0.05;
         panelPosition = "follow_bar";
         hideWallpaperFilenames = false;
-
         useWallhaven = false;
         wallhavenQuery = "";
         wallhavenSorting = "relevance";
@@ -392,7 +266,6 @@ in {
         wallhavenResolutionMode = "atleast";
         wallhavenResolutionWidth = "";
         wallhavenResolutionHeight = "";
-
         sortOrder = "name";
       };
 
@@ -605,7 +478,6 @@ in {
         enableDdcSupport = false;
       };
 
-      # ---- Auto colours (match your JSON) ----
       colorSchemes = {
         useWallpaperColors = true;
         predefinedScheme = "Gruvbox";
@@ -644,7 +516,6 @@ in {
         session = "";
       };
 
-      # Desktop widgets with datetime widget added
       desktopWidgets = {
         enabled = true;
         gridSnap = true;
@@ -669,15 +540,12 @@ in {
     };
   };
 
-  # ✅ Make Noctalia's systemd service able to see python + typelibs + shared libs
   systemd.user.services.noctalia-shell.Service = {
     Environment = [
       "PATH=${noctaliaPython}/bin:${config.home.profileDirectory}/bin:/run/current-system/sw/bin:/run/current-system/sw/sbin"
       "PYTHON=${noctaliaPython}/bin/python3"
       "GI_TYPELIB_PATH=${giTypelibPath}"
       "LD_LIBRARY_PATH=${ldLibraryPath}"
-
-      # Helps a lot of GNOME/GSettings lookups on Nix
       "XDG_DATA_DIRS=${lib.makeSearchPath "share" [pkgs.gsettings-desktop-schemas pkgs.glib]}:${config.home.profileDirectory}/share:/run/current-system/sw/share"
     ];
   };
