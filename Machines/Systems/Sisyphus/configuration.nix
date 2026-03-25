@@ -5,12 +5,12 @@
   ...
 }: {
   imports = [
-    ../../Modules/Config-Manager-Modules/Polkit.nix
-    ../../Modules/Config-Manager-Modules/Grub.nix
-    ../../Modules/Config-Manager-Modules/Steam.nix
-    ../../Modules/Config-Manager-Modules/Thunar.nix
-    ../../Modules/Config-Manager-Modules/Sddm.nix
-    #../../Modules/Config-Manager-Modules/arrr.nix
+    ../../../Modules/Config-Manager-Modules/Polkit.nix
+    ../../../Modules/Config-Manager-Modules/Grub.nix
+    ../../../Modules/Config-Manager-Modules/Steam.nix
+    ../../../Modules/Config-Manager-Modules/Thunar.nix
+    ../../../Modules/Config-Manager-Modules/Sddm.nix
+    #../../../Modules/Config-Manager-Modules/arrr.nix
   ];
 
   nix.settings.experimental-features = ["nix-command" "flakes"];
