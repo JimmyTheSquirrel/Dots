@@ -1,25 +1,25 @@
 {
-  description = "NixOS system + separate Home Manager (per-user structure)";
+  description = "NixOS system + Home Manager (unified)";
 
+  # ============================================================
+  # INPUTS
+  # ============================================================
   inputs = {
-    # System + HM stay on stable 25.05
+    # --- Nixpkgs ---
     nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
-
-    # Unstable only for Noctalia (Quickshell freshness)
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
 
-    # Home Manager release matching 25.05, follows stable nixpkgs
+    # --- Home Manager ---
     home-manager = {
       url = "github:nix-community/home-manager/release-25.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    spicetify-nix.url = "github:Gerg-L/spicetify-nix";
-
-noctalia = {
-  url = "github:noctalia-dev/noctalia-shell/v4.7.1";
-  inputs.nixpkgs.follows = "nixpkgs-unstable";
-};
+    # --- Desktop Shell ---
+    noctalia = {
+      url = "github:noctalia-dev/noctalia-shell/v4.7.1";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
   };
 
   outputs = {
@@ -31,27 +31,50 @@ noctalia = {
     ...
   } @ inputs: let
     system = "x86_64-linux";
-  in {
-    nixosConfigurations.Sisyphus = nixpkgs.lib.nixosSystem {
-      inherit system;
-      modules = [
-        ./Users/Sisyphus/configuration.nix
-        ./Users/Sisyphus/hardware-configuration.nix
-      ];
-    };
 
-    homeConfigurations.Sisyphus = home-manager.lib.homeManagerConfiguration {
-      # ✅ HM packages back to stable (fixes rofi-wayland merge issues)
-      pkgs = import nixpkgs {
+    # ============================================================
+    # HELPER — wraps home-manager into a nixosSystem cleanly
+    # ============================================================
+    mkSystem = {
+      systemName,
+      activeUser,
+      extraModules ? [],
+    }:
+      nixpkgs.lib.nixosSystem {
         inherit system;
-        config.allowUnfree = true;
+        specialArgs = {inherit inputs activeUser;};
+        modules =
+          [
+            ./Machines/Systems/${systemName}/configuration.nix
+            ./Machines/Users/${activeUser}/hardware-configuration.nix
+
+            home-manager.nixosModules.home-manager
+            {
+              home-manager.useGlobalPkgs = true;
+              home-manager.useUserPackages = true;
+              home-manager.extraSpecialArgs = {inherit inputs activeUser;};
+              home-manager.users.${activeUser} = import ./Machines/Systems/${systemName}/home.nix;
+            }
+          ]
+          ++ extraModules;
+      };
+  in {
+    # ============================================================
+    # SYSTEMS
+    # ============================================================
+
+    nixosConfigurations = {
+      # --- Sisyphus | Hyprland ---
+      "rock-Sisyphus" = mkSystem {
+        systemName = "Sisyphus";
+        activeUser = "rock";
       };
 
-      modules = [
-        ./Users/Sisyphus/home.nix
-      ];
-
-      extraSpecialArgs = {inherit inputs;};
+      # --- Elektra | KDE Plasma ---
+      "rock-Elektra" = mkSystem {
+        systemName = "Elektra";
+        activeUser = "rock";
+      };
     };
   };
 }

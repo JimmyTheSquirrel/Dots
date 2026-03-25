@@ -11,7 +11,7 @@
   home.stateVersion = "25.05";
 
   imports = [
-    ../../Hyprland/Hyprland.nix
+    ../../Environments/Hyprland/Hyprland.nix
     ../../Modules/Home-Manager-Modules/Zsh/Zsh.nix
     ../../Modules/Home-Manager-Modules/Zsh/Navi.nix
     ../../Modules/Home-Manager-Modules/Zsh/Brrtfetch.nix
@@ -23,8 +23,6 @@
     ../../Modules/Home-Manager-Modules/Rimsort.nix
     #../../Modules/Home-Manager-Modules/Wallpaper_Picker/WallpaperCarousel.nix
     ../../Modules/Home-Manager-Modules/Noctalia/noctalia.nix
-    #../../Modules/Home-Manager-Modules/spicetify.nix
+    ../../Modules/Home-Manager-Modules/git.nix
   ];
-
-  programs.git.enable = true;
 }

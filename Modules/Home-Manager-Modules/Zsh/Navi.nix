@@ -12,8 +12,7 @@ in {
     enableZshIntegration = true;
   };
 
-  # ✅ Option A: wrap ONLY navi via zsh (does not affect system fzf)
-  programs.zsh.initExtra = lib.mkAfter ''
+  programs.zsh.initContent = lib.mkAfter ''
     # Wrap ONLY navi so it ignores FZF_DEFAULT_OPTS (e.g. --height 60%)
     navi() {
       unset FZF_DEFAULT_OPTS
@@ -21,7 +20,6 @@ in {
     }
   '';
 
-  # Your helper commands (unchanged)
   home.packages = [
     (pkgs.writeShellScriptBin "system-rebuild" ''
       #!/usr/bin/env bash
@@ -39,11 +37,8 @@ in {
 
       sys="''${sys#\#}"
 
-      echo -e "\n\033[1;34m==> Rebuilding NixOS system (#''${sys})...\033[0m"
+      echo -e "\n\033[1;34m==> Rebuilding NixOS + Home Manager (#''${sys})...\033[0m"
       sudo nixos-rebuild switch --flake ".#''${sys}"
-
-      echo -e "\n\033[1;34m==> Rebuilding Home Manager (#''${sys})...\033[0m"
-      home-manager switch --flake ".#''${sys}"
 
       echo -e "\n\033[1;32m==> All done!\033[0m"
     '')
@@ -212,28 +207,36 @@ in {
   '';
 
   home.file.".config/navi/cheats/rhys.cheat".text = ''
-    % System Cleanup
-    # Delete old generations and optimise store (free space)
-    sudo nix-collect-garbage -d && sudo nix-store --optimise
+        % System Cleanup
+        # Delete old generations and optimise store (free space)
+        sudo nix-collect-garbage -d && sudo nix-store --optimise
 
     % System Rebuild
-    # Rebuild NixOS + Home Manager for Sisyphus
-    system-rebuild Sisyphus
+    # Rebuild Sisyphus (Hyprland)
+    sudo nixos-rebuild switch --flake "$HOME/Dots#Sisyphus"
 
-    % Remove mimeapps.list (fix Home Manager conflict)
-    # Delete the file Home Manager complains about
-    rm -f "$HOME/.config/mimeapps.list"
+    % System Rebuild
+    # Rebuild LookingGlass (Niri)
+    sudo nixos-rebuild switch --flake "$HOME/Dots#LookingGlass"
 
-    % Git Sync
-    # Same as git-sync, but include a commit message
-    git-sync "chore: sync"
+    % System Rebuild
+    # Rebuild Aphrodite (KDE)
+    sudo nixos-rebuild switch --flake "$HOME/Dots#Elektra"
 
-    % Git Cleanup (Nuke)
-    # Wipe commit history on main and keep only current snapshot (FORCE PUSH)
-    cd "$HOME/Dots" && git checkout main && git pull --rebase origin main && git checkout --orphan _fresh_main && git add -A && git commit -m "chore: fresh start" && git branch -M main && git push -f origin main
+        % Remove mimeapps.list (fix Home Manager conflict)
+        # Delete the file Home Manager complains about
+        rm -f "$HOME/.config/mimeapps.list"
 
-    % Restart Podman Containers
-    # Restart all running podman containers
-    podman restart $(podman ps -q)
+        % Git Sync
+        # Same as git-sync, but include a commit message
+        git-sync "chore: sync"
+
+        % Git Cleanup (Nuke)
+        # Wipe commit history on main and keep only current snapshot (FORCE PUSH)
+        cd "$HOME/Dots" && git checkout main && git pull --rebase origin main && git checkout --orphan _fresh_main && git add -A && git commit -m "chore: fresh start" && git branch -M main && git push -f origin main
+
+        % Restart Podman Containers
+        # Restart all running podman containers
+        podman restart $(podman ps -q)
   '';
 }

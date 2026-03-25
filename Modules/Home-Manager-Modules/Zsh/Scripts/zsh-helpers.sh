@@ -8,7 +8,6 @@ system-rebuild() {
     set -euo pipefail
     cd ~/Dots || { echo "❌ ~/Dots not found"; exit 1; }
 
-    # Require an explicit key to avoid falling back to hostname ("nixos")
     local sys="${1:-}"
     if [[ -z "$sys" ]]; then
       echo "Usage: system-rebuild <flake-key>   e.g.  system-rebuild Sisyphus"
@@ -17,18 +16,16 @@ system-rebuild() {
       exit 2
     fi
 
-    # Allow '#Sisyphus' muscle memory
     sys="${sys#\#}"
 
-    echo -e "\n\033[1;34m==> Rebuilding NixOS system (#${sys})...\033[0m"
+    echo -e "\n\033[1;34m==> Rebuilding NixOS + Home Manager (#${sys})...\033[0m"
     echo "+ sudo nixos-rebuild switch --flake .#${sys}"
-    sudo nixos-rebuild switch --flake ".#${sys}"
-
-    echo -e "\n\033[1;34m==> Rebuilding Home Manager (#${sys})...\033[0m"
-    echo "+ home-manager switch --flake .#${sys}"
-    home-manager switch --flake ".#${sys}"
-
-    echo -e "\n\033[1;32m==> All done!\033[0m"
+    if sudo nixos-rebuild switch --flake ".#${sys}"; then
+      echo -e "\n\033[1;32m==> All done!\033[0m"
+    else
+      echo -e "\n\033[1;31m==> Build failed. Check the output above — if it mentions 'rock profile' or 'home-manager' it's a HM issue, otherwise it's a NixOS config issue.\033[0m"
+      exit 1
+    fi
   )
 }
 

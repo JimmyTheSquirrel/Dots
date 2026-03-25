@@ -5,7 +5,6 @@
   ...
 }: {
   imports = [
-    ./hardware-configuration.nix
     ../../Modules/Config-Manager-Modules/Polkit.nix
     ../../Modules/Config-Manager-Modules/Grub.nix
     ../../Modules/Config-Manager-Modules/Steam.nix
@@ -13,7 +12,6 @@
     ../../Modules/Config-Manager-Modules/Sddm.nix
     #../../Modules/Config-Manager-Modules/arrr.nix
   ];
-
 
   nix.settings.experimental-features = ["nix-command" "flakes"];
   nixpkgs.config.allowUnfree = true;
@@ -173,6 +171,7 @@
     lutris
     (prismlauncher.override {jdks = [pkgs.jdk21];})
     opencode
+    feh
   ];
 
   fonts = {
