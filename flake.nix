@@ -20,6 +20,13 @@
       url = "github:noctalia-dev/noctalia-shell/v4.7.1";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
+
+    # --- KDE Plasma Manager ---
+    plasma-manager = {
+      url = "github:nix-community/plasma-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
   };
 
   outputs = {
@@ -28,6 +35,7 @@
     nixpkgs-unstable,
     home-manager,
     noctalia,
+    plasma-manager,
     ...
   } @ inputs: let
     system = "x86_64-linux";
@@ -54,6 +62,11 @@
               home-manager.useUserPackages = true;
               home-manager.extraSpecialArgs = {inherit inputs activeUser;};
               home-manager.users.${activeUser} = import ./Machines/Systems/${systemName}/home.nix;
+
+              # --- Shared Home Manager modules ---
+              home-manager.sharedModules = [
+                inputs.plasma-manager.homeManagerModules.plasma-manager
+              ];
             }
           ]
           ++ extraModules;
