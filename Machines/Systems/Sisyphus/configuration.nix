@@ -13,7 +13,15 @@
     #../../../Modules/Config-Manager-Modules/arrr.nix
   ];
 
-  nix.settings.experimental-features = ["nix-command" "flakes"];
+  nix.settings = {
+    experimental-features = ["nix-command" "flakes"];
+    # --- Star Citizen cachix ---
+    substituters = ["https://nix-citizen.cachix.org"];
+    trusted-public-keys = [
+      "nix-citizen.cachix.org-1:lPMkWc2X8XD4/7YPEEwXKKBg+SVbYTVrAaLA2wQTKCo="
+    ];
+  };
+
   nixpkgs.config.allowUnfree = true;
 
   networking.hostName = "Sisyphus";
@@ -21,7 +29,7 @@
 
   # ✅ Noctalia requirements (widgets: wifi/bluetooth/power/battery)
   hardware.bluetooth.enable = true;
-  services.power-profiles-daemon.enable = true; # or: services.tuned.enable = true;
+  services.power-profiles-daemon.enable = true;
   services.upower.enable = true;
 
   # --- Calendar sync for Noctalia (Google Calendar via EDS) ---
@@ -56,7 +64,7 @@
   # ---- Graphics (AMD) ----
   hardware.graphics = {
     enable = true;
-    enable32Bit = true; # for 32-bit Vulkan/Steam etc.
+    enable32Bit = true;
   };
 
   # Display stack: SDDM on X (stable), Hyprland Wayland session
@@ -64,10 +72,8 @@
   services.xserver.videoDrivers = ["amdgpu"];
 
   services.displayManager.sddm.enable = true;
-  # services.displayManager.sddm.wayland.enable = true;
   services.displayManager.defaultSession = "hyprland";
 
-  # Use the same cursor in SDDM greeter
   services.displayManager.sddm.settings = {
     General = {
       CursorTheme = "Bibata-Modern-Classic";
@@ -75,11 +81,9 @@
     };
   };
 
-  # Hyprland compositor available & default
   programs.hyprland.enable = true;
   programs.xwayland.enable = true;
 
-  # Portals + system-level MIME defaults
   xdg = {
     portal = {
       enable = true;
@@ -87,10 +91,8 @@
         pkgs.xdg-desktop-portal-gtk
         pkgs.xdg-desktop-portal-hyprland
       ];
-      # xdgOpenUsePortal = true; # optional
     };
 
-    # Make Codium the default for text files system-wide
     mime = {
       enable = true;
       defaultApplications = {
@@ -105,26 +107,21 @@
     };
   };
 
-  # Wayland-friendly env (keep minimal)
   environment.sessionVariables = {
     NIXOS_OZONE_WL = "1";
-    # Cursor (Wayland/Hyprland & XWayland)
     XCURSOR_THEME = "Bibata-Modern-Classic";
     XCURSOR_SIZE = "24";
     HYPRCURSOR_THEME = "Bibata-Modern-Classic";
     HYPRCURSOR_SIZE = "24";
   };
 
-  # Keymap (affects SDDM/X)
   services.xserver.xkb = {
     layout = "au";
     variant = "";
   };
 
-  # Printing
   services.printing.enable = true;
 
-  # Audio: PipeWire
   services.pulseaudio.enable = false;
   security.rtkit.enable = true;
   services.pipewire = {
@@ -134,7 +131,6 @@
     pulse.enable = true;
   };
 
-  # Shell: Zsh
   programs.zsh.enable = true;
 
   users.users.rock = {
@@ -147,6 +143,18 @@
 
   programs.localsend.enable = true;
   programs.localsend.openFirewall = true;
+
+  # --- Star Citizen kernel tunables ---
+  boot.kernel.sysctl = {
+    "vm.max_map_count" = 16777216;
+    "fs.file-max" = 524288;
+  };
+
+  # --- Star Citizen swap (32GB RAM, no extra swapDevices needed) ---
+  zramSwap = {
+    enable = true;
+    memoryMax = 32 * 1024 * 1024 * 1024;
+  };
 
   # ---- Packages (system-wide) ----
   environment.systemPackages = with pkgs; [
@@ -172,6 +180,8 @@
     (prismlauncher.override {jdks = [pkgs.jdk21];})
     opencode
     feh
+    # --- Star Citizen ---
+    inputs.nix-citizen.packages.${pkgs.system}.rsi-launcher
   ];
 
   fonts = {
@@ -183,7 +193,6 @@
     ];
   };
 
-  # SSH agent convenience
   programs.ssh.startAgent = true;
 
   system.stateVersion = "25.05";

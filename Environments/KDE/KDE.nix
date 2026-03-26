@@ -45,9 +45,7 @@
   programs.plasma = {
     enable = true;
 
-    # --- Global theme / colours ---
-    colorScheme = "BreezeDark";
-
+    # --- Workspace / Theme ---
     workspace = {
       lookAndFeel = "org.kde.breezedark.desktop";
       colorScheme = "BreezeDark";
@@ -57,13 +55,17 @@
       wallpaper = "/home/${activeUser}/Pictures/Wallpapers";
     };
 
-    # --- Blur + transparency ---
+    # --- KWin effects + virtual desktops ---
     kwin = {
       effects = {
         blur.enable = true;
         translucency.enable = true;
-        desktopSwitching = "thumbnail";
-        minimization = "magiclamp";
+        desktopSwitching = {
+          effect = "thumbnail";
+        };
+        minimization = {
+          effect = "magiclamp";
+        };
       };
       virtualDesktops = {
         number = 4;
@@ -78,14 +80,11 @@
         floating = false;
         height = 32;
         widgets = [
-          # Left
           {
             name = "org.kde.plasma.kickoff";
             config.General.icon = "nix-snowflake";
           }
-          {
-            name = "org.kde.plasma.pager";
-          }
+          {name = "org.kde.plasma.pager";}
           {
             name = "org.kde.plasma.taskmanager";
             config.General = {
@@ -94,7 +93,6 @@
               showOnlyCurrentScreen = false;
             };
           }
-          # Centre
           "org.kde.plasma.panelspacer"
           {
             name = "org.kde.plasma.digitalclock";
@@ -105,10 +103,7 @@
             };
           }
           "org.kde.plasma.panelspacer"
-          # Right
-          {
-            name = "org.kde.plasma.systemtray";
-          }
+          {name = "org.kde.plasma.systemtray";}
         ];
       }
     ];
@@ -121,13 +116,13 @@
       "kwin"."Window Fullscreen" = "Meta+Shift+F";
       "kwin"."Toggle Window Floating" = "Meta+V";
 
-      # --- Focus (arrow keys) ---
+      # --- Focus ---
       "kwin"."Switch Window Left" = "Meta+Left";
       "kwin"."Switch Window Right" = "Meta+Right";
       "kwin"."Switch Window Up" = "Meta+Up";
       "kwin"."Switch Window Down" = "Meta+Down";
 
-      # --- Virtual Desktops (replaces your numbered workspaces) ---
+      # --- Virtual Desktops ---
       "kwin"."Switch to Desktop 1" = "Meta+1";
       "kwin"."Switch to Desktop 2" = "Meta+2";
       "kwin"."Switch to Desktop 3" = "Meta+3";
@@ -151,7 +146,7 @@
       "kwin"."Window to Desktop 9" = "Meta+Shift+9";
       "kwin"."Window to Desktop 10" = "Meta+Shift+0";
 
-      # --- Mouse scroll workspace switching ---
+      # --- Scroll Desktops ---
       "kwin"."Switch to Next Desktop" = "Meta+Mouse Wheel Down";
       "kwin"."Switch to Previous Desktop" = "Meta+Mouse Wheel Up";
 

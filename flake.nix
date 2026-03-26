@@ -27,6 +27,13 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.home-manager.follows = "home-manager";
     };
+
+    # --- Star Citizen ---
+    nix-citizen = {
+      url = "github:LovingMelody/nix-citizen";
+      inputs.nix-gaming.follows = "nix-gaming";
+    };
+    nix-gaming.url = "github:fufexan/nix-gaming";
   };
 
   outputs = {
@@ -36,6 +43,8 @@
     home-manager,
     noctalia,
     plasma-manager,
+    nix-citizen,
+    nix-gaming,
     ...
   } @ inputs: let
     system = "x86_64-linux";
@@ -65,7 +74,7 @@
 
               # --- Shared Home Manager modules ---
               home-manager.sharedModules = [
-                inputs.plasma-manager.homeManagerModules.plasma-manager
+                inputs.plasma-manager.homeModules.plasma-manager
               ];
             }
           ]

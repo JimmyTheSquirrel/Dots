@@ -1,4 +1,3 @@
-# $HOME/.config/home-manager/Hyprland.nix  (import this from your home.nix)
 {
   pkgs,
   lib,
@@ -20,12 +19,14 @@ in {
       # --- PROGRAM VARS ---
       "$terminal" = "kitty";
       "$fileManager" = "thunar";
-      "$menu" = "noctalia-shell ipc call sessionMenu toggle"; # launcher unchanged
+      "$menu" = "noctalia-shell ipc call sessionMenu toggle";
 
       # --- ENV ---
       env = [
         "XCURSOR_SIZE,24"
         "HYPRCURSOR_SIZE,24"
+        "WINE_FULLSCREEN_FSR,1"
+        "DXVK_ASYNC,1"
       ];
 
       # --- LOOK & FEEL ---
@@ -51,7 +52,6 @@ in {
           render_power = 3;
           color = "rgba(1a1a1aee)";
         };
-        # keep your blur settings; compositor does the blur
         blur = {
           enabled = true;
           size = 3;
@@ -119,32 +119,55 @@ in {
       ];
 
       inherit (kb) bind bindm bindel bindl;
-      inherit (ws) workspace windowrule;
+      inherit (ws) workspace;
+
+      windowrule =
+        ws.windowrule
+        ++ [
+          # XWayland fixes
+          "nofocus,class:^$,title:^$,xwayland:1,floating:1,fullscreen:0,pinned:0"
+        ];
 
       windowrulev2 = [
+        # --- App opacity ---
         "opacity 0.75 0.75, class:^(thunar)$"
         "opacity 0.60 0.60, class:^(brave)$"
         "opacity 0.75 0.75, class:^(codium)$"
         "opacity 0.60 0.60, class:^(discord)$"
         "opacity 0.60 0.60, class:^(spotify)$"
+
+        # --- Star Citizen: RSI Launcher ---
+        "tile, class:^(rsi-launcher)$"
+        "workspace 5 silent, class:^(rsi-launcher)$"
+
+        # --- Star Citizen: Game window ---
+        "fullscreen, class:^(StarCitizen)$"
+        "monitor DP-2, class:^(StarCitizen)$"
+        "immediate, class:^(StarCitizen)$"
+        "noborder, class:^(StarCitizen)$"
+
+        # --- Wine/DXVK popups ---
+        "nofocus, class:^(wine)$, floating:1"
+        "nofocus, class:^(wineserver)$"
       ];
 
-      # --- LAYER RULES: blur/dim ONLY for the wallpaper picker ---------------
-      # The script must launch rofi with:  -name "rofi-wal"
+      # --- LAYER RULES ---
       layerrule = [
         "blur, ^rofi-wal$"
         "blurpopups, ^rofi-wal$"
-        "dimaround, ^rofi-wal$" # soften the backdrop around the carousel
+        "dimaround, ^rofi-wal$"
         "ignorezero, ^rofi-wal$"
       ];
 
-      exec-once = [
-        "dbus-update-activation-environment --systemd --all"
-        "systemctl --user import-environment --all"
-        "gnome-keyring-daemon --start --components=secrets,ssh,pkcs11"
-        "polkit-gnome-authentication-agent-1"
-        "swww-daemon"
-      ];
+      exec-once =
+        ws.exec-once
+        ++ [
+          "dbus-update-activation-environment --systemd --all"
+          "systemctl --user import-environment --all"
+          "gnome-keyring-daemon --start --components=secrets,ssh,pkcs11"
+          "polkit-gnome-authentication-agent-1"
+          "swww-daemon"
+        ];
     };
   };
 }
