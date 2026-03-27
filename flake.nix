@@ -21,6 +21,12 @@
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
 
+    # --- Quickshell (for skwd) ---
+    quickshell = {
+      url = "github:outfoxxed/quickshell";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+
     # --- KDE Plasma Manager ---
     plasma-manager = {
       url = "github:nix-community/plasma-manager";
@@ -45,6 +51,7 @@
     plasma-manager,
     nix-citizen,
     nix-gaming,
+    quickshell,
     ...
   } @ inputs: let
     system = "x86_64-linux";
@@ -75,6 +82,7 @@
               # --- Shared Home Manager modules ---
               home-manager.sharedModules = [
                 inputs.plasma-manager.homeModules.plasma-manager
+                (import ./Skewd.nix)
               ];
             }
           ]
