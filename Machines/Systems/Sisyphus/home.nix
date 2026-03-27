@@ -2,11 +2,14 @@
 {
   config,
   pkgs,
+  pkgs-unstable,
   lib,
   inputs,
   activeUser,
   ...
-}: {
+}:
+# ← add pkgs-unstable
+{
   home.username = activeUser;
   home.homeDirectory = "/home/${activeUser}";
   home.stateVersion = "25.05";

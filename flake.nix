@@ -82,7 +82,6 @@
               # --- Shared Home Manager modules ---
               home-manager.sharedModules = [
                 inputs.plasma-manager.homeModules.plasma-manager
-                (import ./Skewd.nix)
               ];
             }
           ]
