@@ -7,9 +7,7 @@
   inputs,
   activeUser,
   ...
-}:
-# ← add pkgs-unstable
-{
+}: {
   home.username = activeUser;
   home.homeDirectory = "/home/${activeUser}";
   home.stateVersion = "25.05";
@@ -26,8 +24,19 @@
     ../../../Modules/Home-Manager-Modules/Rimsort.nix
     ../../../Modules/Home-Manager-Modules/Noctalia/noctalia.nix
     ../../../Modules/Home-Manager-Modules/git.nix
-    ../../../Modules/Home-Manager-Modules/Skwd.nix
+    #../../../Modules/Home-Manager-Modules/Skwd.nix
   ];
+
+  # --- skwd ---
+  # programs.skwd = {
+  #   enable = true;
+  #   compositor = "hyprland";
+  #  weatherCity = "Sydney";
+  #  wifiInterface = "wlan0";
+  #   enableOllama = true;
+  #   enableWallpaperEngine = true;
+  #   enableGrim = true;
+  #  };
 
   # --- Fixes ---
   home.activation.removeMimeAppsList = lib.mkBefore ''

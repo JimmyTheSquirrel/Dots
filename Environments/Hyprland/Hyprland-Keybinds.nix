@@ -13,14 +13,13 @@ in {
     # NOCTALIA: Session/Power Menu
     "${mainMod}, M, exec, noctalia-shell ipc call sessionMenu toggle"
 
-    "${mainMod}, W, exec, noctalia-shell ipc call wallpaper toggle"
+    #"${mainMod}, W, exec, noctalia-shell ipc call wallpaper toggle"
 
     "${mainMod}, E, exec, thunar"
     "${mainMod}, V, togglefloating,"
     "${mainMod}, P, pseudo,"
     "${mainMod}, J, togglesplit,"
     "${mainMod}, F, exec, brave"
-    #"${mainMod}, W, exec, /home/rock/.local/bin/wallpaper_selector.sh"
     "${mainMod} SHIFT, F, fullscreen"
 
     # NOCTALIA: Session menu (replaces wlogout)

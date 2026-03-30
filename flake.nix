@@ -76,7 +76,14 @@
             {
               home-manager.useGlobalPkgs = true;
               home-manager.useUserPackages = true;
-              home-manager.extraSpecialArgs = {inherit inputs activeUser;};
+              home-manager.backupFileExtension = "backup";
+              home-manager.extraSpecialArgs = {
+                inherit inputs activeUser;
+                pkgs-unstable = import nixpkgs-unstable {
+                  inherit system;
+                  config.allowUnfree = true;
+                };
+              };
               home-manager.users.${activeUser} = import ./Machines/Systems/${systemName}/home.nix;
 
               # --- Shared Home Manager modules ---

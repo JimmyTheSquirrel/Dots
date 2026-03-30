@@ -4,61 +4,48 @@
   pkgs,
   ...
 }: let
-  themeVariant = "rei"; # choose "rei", "rei-alt", etc.
+  themeName = "pixel-emerald";
 
-  rev = "v1.3.0";
   src = pkgs.fetchFromGitHub {
-    owner = "uiriansan";
-    repo = "SilentSDDM";
-    inherit rev;
-    sha256 = "sha256-B/vh3n5ZDwd9Lx/35XAx4o/37g4V/oa3aFSe6b8+DfM=";
+    owner = "Darkkal44";
+    repo = "qylock";
+    rev = "bf917857b07b311f9c7f3cbe954d36d2fe08f254";
+    sha256 = "sha256-BHXhRGZsTI2wJHtmaKYM8slQ7dbQKB0mKfE+MyUNIyk=";
   };
 
-  themeDir = themeVariant;
-
   themePkg = pkgs.stdenvNoCC.mkDerivation {
-    pname = "silent-sddm-${themeVariant}";
-    version = rev;
+    pname = "qylock-${themeName}";
+    version = "bf917857b07b311f9c7f3cbe954d36d2fe08f254";
     inherit src;
     dontWrapQtApps = true;
     installPhase = ''
       set -euo pipefail
-      mkdir -p "$out/share/sddm/themes/${themeDir}"
-      cp -r . "$out/share/sddm/themes/${themeDir}"
+      mkdir -p "$out/share/sddm/themes/${themeName}"
+      cp -r themes/${themeName}/. "$out/share/sddm/themes/${themeName}"
     '';
   };
 
-  qt6 = pkgs.qt6;
-
-  # Gracefully detect which Qt modules exist in this nixpkgs
-  availableQtPkgs = lib.filter (x: x != null) [
-    (qt6.qtvirtualkeyboard or null)
-    (qt6.qtmultimedia or null)
-    (qt6.qtsvg or null)
-    (qt6.qtquickcontrols2 or qt6.qtquickcontrols or null)
-    (qt6.qtdeclarative or null)
+  qtDeps = with pkgs.kdePackages; [
+    qtmultimedia
+    qtsvg
+    qtdeclarative
+    qt5compat
   ];
 
-  qmlDirs =
-    (map (p: "${p}/lib/qt6/qml") availableQtPkgs)
-    ++ ["${themePkg}/share/sddm/themes/${themeDir}/components/"];
-
+  qmlDirs = map (p: "${p}/lib/qt6/qml") qtDeps;
   qmlPaths = lib.concatStringsSep ":" qmlDirs;
 in {
   services.xserver.enable = true;
-  qt.enable = true;
 
   environment.systemPackages = [themePkg];
 
   services.displayManager.sddm = {
     enable = true;
-    package = pkgs.kdePackages.sddm; # Qt6 SDDM
-    theme = themeDir;
-    extraPackages = availableQtPkgs;
+    theme = themeName;
+    extraPackages = qtDeps;
     settings = {
       General = {
-        GreeterEnvironment = "QML2_IMPORT_PATH=${qmlPaths},QT_IM_MODULE=qtvirtualkeyboard";
-        InputMethod = "qtvirtualkeyboard";
+        GreeterEnvironment = "QML2_IMPORT_PATH=${qmlPaths}";
       };
     };
   };
