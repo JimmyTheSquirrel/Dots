@@ -117,6 +117,11 @@
         systemName = "Elektra";
         activeUser = "rock";
       };
+
+      "rock-Odysseus" = mkSystem {
+        systemName = "Odysseus";
+        activeUser = "rock";
+      };
     };
   };
 }

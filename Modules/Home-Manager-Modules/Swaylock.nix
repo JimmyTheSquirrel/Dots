@@ -10,21 +10,23 @@
       ignore-empty-password = true;
       show-failed-attempts = true;
       daemonize = true;
+      screenshots = true;
 
       # ── effect — blur your current screen ────────────────────
       effect-blur = "7x5";
       effect-vignette = "0.5:0.5";
 
-      # ── clock ─────────────────────────────────────────────────
+      # ── no clock, just date/time as text ─────────────────────
       clock = true;
       timestr = "%I:%M %p";
       datestr = "%A, %B %d";
+      indicator = false;
 
       # ── colors — emerald theme ────────────────────────────────
-      inside-color = "0d1f0d00";
-      inside-clear-color = "0d1f0d00";
-      inside-ver-color = "0d1f0d00";
-      inside-wrong-color = "0d1f0d00";
+      inside-color = "0d1f0dee";
+      inside-clear-color = "0d1f0dee";
+      inside-ver-color = "0d1f0dee";
+      inside-wrong-color = "0d1f0dee";
 
       ring-color = "4a7c4a";
       ring-clear-color = "4a7c4a";

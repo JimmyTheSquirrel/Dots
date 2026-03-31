@@ -2,18 +2,15 @@
   config,
   pkgs,
   inputs,
+  activeUser,
   ...
 }: {
-  # ============================================================
-  # IMPORTS
-  # ============================================================
   imports = [
     ../../../Modules/Config-Manager-Modules/Polkit.nix
     ../../../Modules/Config-Manager-Modules/Grub.nix
     ../../../Modules/Config-Manager-Modules/Steam.nix
     ../../../Modules/Config-Manager-Modules/Thunar.nix
     ../../../Modules/Config-Manager-Modules/SDDM/Sddm.nix
-    #../../../Modules/Config-Manager-Modules/arrr.nix
   ];
 
   # ============================================================
@@ -21,7 +18,6 @@
   # ============================================================
   nix.settings = {
     experimental-features = ["nix-command" "flakes"];
-    # --- Star Citizen cachix ---
     substituters = ["https://nix-citizen.cachix.org"];
     trusted-public-keys = [
       "nix-citizen.cachix.org-1:lPMkWc2X8XD4/7YPEEwXKKBg+SVbYTVrAaLA2wQTKCo="
@@ -35,7 +31,7 @@
   # ============================================================
   system.stateVersion = "25.05";
 
-  networking.hostName = "Sisyphus";
+  networking.hostName = "Odysseus";
   networking.networkmanager.enable = true;
 
   time.timeZone = "Australia/Sydney";
@@ -63,6 +59,9 @@
     enable32Bit = true;
   };
 
+  hardware.ckb-next.enable = true;
+  services.udev.packages = [pkgs.ckb-next];
+
   # ============================================================
   # DISPLAY & SESSION
   # ============================================================
@@ -74,21 +73,22 @@
   };
 
   services.displayManager.sddm.enable = true;
-  services.displayManager.defaultSession = "hyprland";
+  services.displayManager.defaultSession = "niri";
   services.displayManager.sddm.settings.General = {
     CursorTheme = "Bibata-Modern-Classic";
     CursorSize = 24;
   };
 
-  programs.hyprland.enable = true;
+  programs.niri.enable = true;
   programs.xwayland.enable = true;
 
   xdg.portal = {
     enable = true;
     extraPortals = [
+      pkgs.xdg-desktop-portal-gnome
       pkgs.xdg-desktop-portal-gtk
-      pkgs.xdg-desktop-portal-hyprland
     ];
+    config.common.default = "gtk";
   };
 
   xdg.mime = {
@@ -108,8 +108,7 @@
     NIXOS_OZONE_WL = "1";
     XCURSOR_THEME = "Bibata-Modern-Classic";
     XCURSOR_SIZE = "24";
-    HYPRCURSOR_THEME = "Bibata-Modern-Classic";
-    HYPRCURSOR_SIZE = "24";
+    GTK_USE_PORTAL = "1";
   };
 
   # ============================================================
@@ -131,8 +130,10 @@
   services.power-profiles-daemon.enable = true;
   services.upower.enable = true;
 
-  # Calendar sync for Noctalia (Google Calendar via EDS)
   programs.dconf.enable = true;
+  services.gnome.gnome-keyring.enable = true;
+  security.pam.services.login.enableGnomeKeyring = true;
+  security.pam.services.sddm.enableGnomeKeyring = true;
 
   programs.localsend.enable = true;
   programs.localsend.openFirewall = true;
@@ -145,7 +146,14 @@
   users.users.${activeUser} = {
     isNormalUser = true;
     description = activeUser;
-    extraGroups = ["networkmanager" "wheel" "video" "render" "input"];
+    extraGroups = [
+      "networkmanager"
+      "wheel"
+      "audio"
+      "video"
+      "render"
+      "input"
+    ];
     shell = pkgs.zsh;
     packages = [];
   };
@@ -156,21 +164,24 @@
   # PACKAGES
   # ============================================================
   environment.systemPackages = with pkgs; [
-    # --- Core tools ---
+    # --- Core ---
     git
     home-manager
     btop
-    feh
 
-    # --- Desktop ---
-    hyprpaper
-    rofi
+    # --- Niri / Wayland ---
+    xwayland-satellite
+    swww
     grim
     slurp
     wl-clipboard
-    swww
+    playerctl
+
+    # --- Desktop ---
     adw-gtk3
     bibata-cursors
+    xdg-user-dirs
+    ckb-next
 
     # --- Graphics debugging ---
     mesa-demos
@@ -179,7 +190,6 @@
     # --- Apps ---
     discord
     spotify
-    r2modman
     gparted
     heroic
     lutris
@@ -216,7 +226,6 @@
     ];
   };
 
-  # Star Citizen kernel tunables
   boot.kernel.sysctl = {
     "vm.max_map_count" = 16777216;
     "fs.file-max" = 524288;

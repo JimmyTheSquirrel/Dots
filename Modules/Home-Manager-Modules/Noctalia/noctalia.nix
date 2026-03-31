@@ -467,7 +467,7 @@
         enabled = false;
         wallpaperChange = "";
         darkModeChange = "";
-        screenLock = "swaylock";
+        screenLock = "";
         screenUnlock = "";
         performanceModeEnabled = "";
         performanceModeDisabled = "";
