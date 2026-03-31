@@ -78,9 +78,6 @@
   services.displayManager.sddm.settings.General = {
     CursorTheme = "Bibata-Modern-Classic";
     CursorSize = 24;
-    DisplayCommand = "${pkgs.writeShellScript "sddm-display" ''
-      xrandr --output HDMI-A-0 --off 2>/dev/null || true
-    ''}";
   };
 
   programs.hyprland.enable = true;
