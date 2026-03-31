@@ -22,7 +22,6 @@
     ../../../Modules/Home-Manager-Modules/Rimsort.nix
     ../../../Modules/Home-Manager-Modules/Noctalia/noctalia.nix
     ../../../Modules/Home-Manager-Modules/GTK.nix
-    ../../../Modules/Home-Manager-Modules/Thunar-Home.nix
     ../../../Modules/Home-Manager-Modules/git.nix
     # Screenshots handled inside Niri.nix keybinds
   ];
