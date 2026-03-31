@@ -79,9 +79,6 @@
     CursorSize = 24;
   };
 
-  programs.niri.enable = true;
-  programs.xwayland.enable = true;
-
   xdg.portal = {
     enable = true;
     extraPortals = [

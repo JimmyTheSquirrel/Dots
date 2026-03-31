@@ -34,6 +34,9 @@
       inputs.home-manager.follows = "home-manager";
     };
 
+    # --- Niri ---
+    niri.url = "github:sodiboo/niri-flake";
+
     # --- Star Citizen ---
     nix-citizen = {
       url = "github:LovingMelody/nix-citizen";
@@ -41,7 +44,7 @@
     };
     nix-gaming.url = "github:fufexan/nix-gaming";
 
-    #--- SDDM Theme ---
+    # --- SDDM Theme ---
     silentSDDM = {
       url = "github:uiriansan/SilentSDDM";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -58,6 +61,7 @@
     nix-citizen,
     nix-gaming,
     quickshell,
+    niri,
     ...
   } @ inputs: let
     system = "x86_64-linux";
@@ -93,6 +97,7 @@
               home-manager.users.${activeUser} = import ./Machines/Systems/${systemName}/home.nix;
 
               # --- Shared Home Manager modules ---
+              # Note: niri HM module is added per-system via niriModules below
               home-manager.sharedModules = [
                 inputs.plasma-manager.homeModules.plasma-manager
               ];
@@ -100,11 +105,24 @@
           ]
           ++ extraModules;
       };
+
+    # ============================================================
+    # NIRI MODULE BUNDLE
+    # Includes both the NixOS module and the HM module so any
+    # niri system just passes extraModules = niriModules
+    # ============================================================
+    niriModules = [
+      inputs.niri.nixosModules.niri
+      {
+        home-manager.sharedModules = [
+          inputs.niri.homeModules.niri
+        ];
+      }
+    ];
   in {
     # ============================================================
     # SYSTEMS
     # ============================================================
-
     nixosConfigurations = {
       # --- Sisyphus | Hyprland ---
       "rock-Sisyphus" = mkSystem {
@@ -118,9 +136,11 @@
         activeUser = "rock";
       };
 
+      # --- Odysseus | Niri ---
       "rock-Odysseus" = mkSystem {
         systemName = "Odysseus";
         activeUser = "rock";
+        extraModules = niriModules;
       };
     };
   };

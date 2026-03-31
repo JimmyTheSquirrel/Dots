@@ -119,65 +119,53 @@
       ];
 
       # ── Keybinds ──────────────────────────────────────────────────────────
-      binds = with config.lib.niri.actions; {
-        # ── Apps ──────────────────────────────────────────────────────────
-        "Super+Return".action = spawn "kitty";
-        "Super+E".action = spawn "thunar";
-        "Super+F".action = spawn "brave";
+      binds = {
+        "Super+Return".action.spawn = ["kitty"];
+        "Super+E".action.spawn = ["thunar"];
+        "Super+F".action.spawn = ["brave"];
 
-        "Super+D".action = spawn "noctalia-shell" "ipc" "call" "launcher" "toggle";
-        "Super+M".action = spawn "noctalia-shell" "ipc" "call" "sessionMenu" "toggle";
-        "Super+W".action = spawn "noctalia-shell" "ipc" "call" "wallpaper" "toggle";
-        "Super+Shift+Delete".action = spawn "noctalia-shell" "ipc" "call" "sessionMenu" "toggle";
+        "Super+D".action.spawn = ["noctalia-shell" "ipc" "call" "launcher" "toggle"];
+        "Super+M".action.spawn = ["noctalia-shell" "ipc" "call" "sessionMenu" "toggle"];
+        "Super+W".action.spawn = ["noctalia-shell" "ipc" "call" "wallpaper" "toggle"];
+        "Super+Shift+Delete".action.spawn = ["noctalia-shell" "ipc" "call" "sessionMenu" "toggle"];
 
-        # ── Window management ──────────────────────────────────────────────
-        "Super+Q".action = close-window;
-        "Super+V".action = toggle-window-floating;
-        "Super+Shift+F".action = fullscreen-window;
-        "Super+F11".action = fullscreen-window;
-        "Super+J".action = switch-preset-column-width;
-        "Super+R".action = reset-window-height;
+        "Super+Q".action.close-window = {};
+        "Super+V".action.toggle-window-floating = {};
+        "Super+Shift+F".action.fullscreen-window = {};
+        "Super+F11".action.fullscreen-window = {};
+        "Super+J".action.switch-preset-column-width = {};
+        "Super+R".action.reset-window-height = {};
+        "Super+A".action.toggle-overview = {};
+        "Super+Shift+Slash".action.show-hotkey-overlay = {};
 
-        # ── Focus ─────────────────────────────────────────────────────────
-        "Super+Left".action = focus-column-left;
-        "Super+Right".action = focus-column-right;
+        "Super+Left".action.focus-column-left = {};
+        "Super+Right".action.focus-column-right = {};
+        "Super+Up".action.focus-workspace-up = {};
+        "Super+Down".action.focus-workspace-down = {};
+        "Super+1".action.focus-workspace-up = {};
+        "Super+2".action.focus-workspace-down = {};
 
-        # ── Workspaces ────────────────────────────────────────────────────
-        "Super+1".action = focus-workspace-up;
-        "Super+2".action = focus-workspace-down;
-        "Super+Up".action = focus-workspace-up;
-        "Super+Down".action = focus-workspace-down;
+        "Super+Shift+Left".action.move-column-left = {};
+        "Super+Shift+Right".action.move-column-right = {};
+        "Super+Shift+Up".action.move-window-up = {};
+        "Super+Shift+Down".action.move-window-down = {};
 
-        # ── Move windows ──────────────────────────────────────────────────
-        "Super+Shift+Left".action = move-column-left;
-        "Super+Shift+Right".action = move-column-right;
-        "Super+Shift+Up".action = move-window-up;
-        "Super+Shift+Down".action = move-window-down;
+        "Super+WheelScrollDown".action.focus-column-right = {};
+        "Super+WheelScrollUp".action.focus-column-left = {};
 
-        # ── Scroll columns ────────────────────────────────────────────────
-        "Super+WheelScrollDown".action = focus-column-right;
-        "Super+WheelScrollUp".action = focus-column-left;
+        "Super+Shift+S".action.spawn = ["bash" "-c" "grim -g \"$(slurp)\" - | wl-copy"];
+        "Super+S".action.spawn = ["bash" "-c" "grim - | wl-copy"];
 
-        # ── Overview ──────────────────────────────────────────────────────
-        "Super+A".action = toggle-overview;
-
-        # ── Screenshots ───────────────────────────────────────────────────
-        "Super+Shift+S".action = spawn "bash" "-c" "grim -g \"$(slurp)\" - | wl-copy";
-        "Super+S".action = spawn "bash" "-c" "grim - | wl-copy";
-
-        "Super+Shift+Slash".action = show-hotkey-overlay;
-
-        # ── Media ─────────────────────────────────────────────────────────
-        "XF86AudioRaiseVolume".action = spawn "wpctl" "set-volume" "-l" "1" "@DEFAULT_AUDIO_SINK@" "5%+";
-        "XF86AudioLowerVolume".action = spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "5%-";
-        "XF86AudioMute".action = spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle";
-        "XF86AudioMicMute".action = spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SOURCE@" "toggle";
-        "XF86AudioNext".action = spawn "playerctl" "next";
-        "XF86AudioPrev".action = spawn "playerctl" "previous";
-        "XF86AudioPlay".action = spawn "playerctl" "play-pause";
-        "XF86AudioPause".action = spawn "playerctl" "play-pause";
-        "XF86MonBrightnessUp".action = spawn "brightnessctl" "-e4" "-n2" "set" "5%+";
-        "XF86MonBrightnessDown".action = spawn "brightnessctl" "-e4" "-n2" "set" "5%-";
+        "XF86AudioRaiseVolume".action.spawn = ["wpctl" "set-volume" "-l" "1" "@DEFAULT_AUDIO_SINK@" "5%+"];
+        "XF86AudioLowerVolume".action.spawn = ["wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "5%-"];
+        "XF86AudioMute".action.spawn = ["wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"];
+        "XF86AudioMicMute".action.spawn = ["wpctl" "set-mute" "@DEFAULT_AUDIO_SOURCE@" "toggle"];
+        "XF86AudioNext".action.spawn = ["playerctl" "next"];
+        "XF86AudioPrev".action.spawn = ["playerctl" "previous"];
+        "XF86AudioPlay".action.spawn = ["playerctl" "play-pause"];
+        "XF86AudioPause".action.spawn = ["playerctl" "play-pause"];
+        "XF86MonBrightnessUp".action.spawn = ["brightnessctl" "-e4" "-n2" "set" "5%+"];
+        "XF86MonBrightnessDown".action.spawn = ["brightnessctl" "-e4" "-n2" "set" "5%-"];
       };
     };
   };
