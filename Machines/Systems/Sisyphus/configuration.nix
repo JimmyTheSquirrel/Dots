@@ -4,6 +4,9 @@
   inputs,
   ...
 }: {
+  # ============================================================
+  # IMPORTS
+  # ============================================================
   imports = [
     ../../../Modules/Config-Manager-Modules/Polkit.nix
     ../../../Modules/Config-Manager-Modules/Grub.nix
@@ -13,6 +16,9 @@
     #../../../Modules/Config-Manager-Modules/arrr.nix
   ];
 
+  # ============================================================
+  # NIX SETTINGS
+  # ============================================================
   nix.settings = {
     experimental-features = ["nix-command" "flakes"];
     # --- Star Citizen cachix ---
@@ -24,16 +30,13 @@
 
   nixpkgs.config.allowUnfree = true;
 
+  # ============================================================
+  # SYSTEM
+  # ============================================================
+  system.stateVersion = "25.05";
+
   networking.hostName = "Sisyphus";
   networking.networkmanager.enable = true;
-
-  # ✅ Noctalia requirements (widgets: wifi/bluetooth/power/battery)
-  hardware.bluetooth.enable = true;
-  services.power-profiles-daemon.enable = true;
-  services.upower.enable = true;
-
-  # --- Calendar sync for Noctalia (Google Calendar via EDS) ---
-  programs.dconf.enable = true;
 
   time.timeZone = "Australia/Sydney";
 
@@ -50,60 +53,57 @@
     LC_TIME = "en_AU.UTF-8";
   };
 
-  programs.nix-ld = {
-    enable = true;
-    libraries = with pkgs; [
-      stdenv.cc.cc
-      zlib
-      openssl
-      curl
-      icu
-    ];
-  };
+  # ============================================================
+  # HARDWARE
+  # ============================================================
+  hardware.bluetooth.enable = true;
 
-  # ---- Graphics (AMD) ----
   hardware.graphics = {
     enable = true;
     enable32Bit = true;
   };
 
-  # Display stack: SDDM on X (stable), Hyprland Wayland session
+  # ============================================================
+  # DISPLAY & SESSION
+  # ============================================================
   services.xserver.enable = true;
   services.xserver.videoDrivers = ["amdgpu"];
+  services.xserver.xkb = {
+    layout = "au";
+    variant = "";
+  };
 
   services.displayManager.sddm.enable = true;
   services.displayManager.defaultSession = "hyprland";
-
-  services.displayManager.sddm.settings = {
-    General = {
-      CursorTheme = "Bibata-Modern-Classic";
-      CursorSize = 24;
-    };
+  services.displayManager.sddm.settings.General = {
+    CursorTheme = "Bibata-Modern-Classic";
+    CursorSize = 24;
+    DisplayCommand = "${pkgs.writeShellScript "sddm-display" ''
+      xrandr --output HDMI-A-0 --off 2>/dev/null || true
+    ''}";
   };
 
   programs.hyprland.enable = true;
   programs.xwayland.enable = true;
 
-  xdg = {
-    portal = {
-      enable = true;
-      extraPortals = [
-        pkgs.xdg-desktop-portal-gtk
-        pkgs.xdg-desktop-portal-hyprland
-      ];
-    };
+  xdg.portal = {
+    enable = true;
+    extraPortals = [
+      pkgs.xdg-desktop-portal-gtk
+      pkgs.xdg-desktop-portal-hyprland
+    ];
+  };
 
-    mime = {
-      enable = true;
-      defaultApplications = {
-        "text/plain" = ["codium.desktop"];
-        "text/x-nix" = ["codium.desktop"];
-        "text/markdown" = ["codium.desktop"];
-        "application/json" = ["codium.desktop"];
-        "application/x-yaml" = ["codium.desktop"];
-        "application/toml" = ["codium.desktop"];
-        "text/yaml" = ["codium.desktop"];
-      };
+  xdg.mime = {
+    enable = true;
+    defaultApplications = {
+      "text/plain" = ["codium.desktop"];
+      "text/x-nix" = ["codium.desktop"];
+      "text/markdown" = ["codium.desktop"];
+      "application/json" = ["codium.desktop"];
+      "application/x-yaml" = ["codium.desktop"];
+      "application/toml" = ["codium.desktop"];
+      "text/yaml" = ["codium.desktop"];
     };
   };
 
@@ -115,13 +115,9 @@
     HYPRCURSOR_SIZE = "24";
   };
 
-  services.xserver.xkb = {
-    layout = "au";
-    variant = "";
-  };
-
-  services.printing.enable = true;
-
+  # ============================================================
+  # AUDIO
+  # ============================================================
   services.pulseaudio.enable = false;
   security.rtkit.enable = true;
   services.pipewire = {
@@ -131,8 +127,24 @@
     pulse.enable = true;
   };
 
-  programs.zsh.enable = true;
+  # ============================================================
+  # SERVICES
+  # ============================================================
+  services.printing.enable = true;
+  services.power-profiles-daemon.enable = true;
+  services.upower.enable = true;
 
+  # Calendar sync for Noctalia (Google Calendar via EDS)
+  programs.dconf.enable = true;
+
+  programs.localsend.enable = true;
+  programs.localsend.openFirewall = true;
+
+  programs.ssh.startAgent = true;
+
+  # ============================================================
+  # USERS
+  # ============================================================
   users.users.rock = {
     isNormalUser = true;
     description = "Rock";
@@ -141,49 +153,49 @@
     packages = with pkgs; [];
   };
 
-  programs.localsend.enable = true;
-  programs.localsend.openFirewall = true;
+  programs.zsh.enable = true;
 
-  # --- Star Citizen kernel tunables ---
-  boot.kernel.sysctl = {
-    "vm.max_map_count" = 16777216;
-    "fs.file-max" = 524288;
-  };
-
-  # --- Star Citizen swap (32GB RAM, no extra swapDevices needed) ---
-  zramSwap = {
-    enable = true;
-    memoryMax = 32 * 1024 * 1024 * 1024;
-  };
-
-  # ---- Packages (system-wide) ----
+  # ============================================================
+  # PACKAGES
+  # ============================================================
   environment.systemPackages = with pkgs; [
+    # --- Core tools ---
     git
     home-manager
+    btop
+    feh
+
+    # --- Desktop ---
     hyprpaper
     rofi
     grim
     slurp
     wl-clipboard
+    swww
+    adw-gtk3
+    bibata-cursors
+
+    # --- Graphics debugging ---
     mesa-demos
     vulkan-tools
-    adw-gtk3
-    swww
-    btop
+
+    # --- Apps ---
     discord
     spotify
-    bibata-cursors
     r2modman
     gparted
     heroic
     lutris
-    (prismlauncher.override {jdks = [pkgs.jdk21];})
     opencode
-    feh
+    (prismlauncher.override {jdks = [pkgs.jdk21];})
+
     # --- Star Citizen ---
     inputs.nix-citizen.packages.${pkgs.system}.rsi-launcher
   ];
 
+  # ============================================================
+  # FONTS
+  # ============================================================
   fonts = {
     fontconfig.enable = true;
     packages = with pkgs; [
@@ -193,7 +205,28 @@
     ];
   };
 
-  programs.ssh.startAgent = true;
+  # ============================================================
+  # KERNEL / PERFORMANCE
+  # ============================================================
+  programs.nix-ld = {
+    enable = true;
+    libraries = with pkgs; [
+      stdenv.cc.cc
+      zlib
+      openssl
+      curl
+      icu
+    ];
+  };
 
-  system.stateVersion = "25.05";
+  # Star Citizen kernel tunables
+  boot.kernel.sysctl = {
+    "vm.max_map_count" = 16777216;
+    "fs.file-max" = 524288;
+  };
+
+  zramSwap = {
+    enable = true;
+    memoryMax = 32 * 1024 * 1024 * 1024;
+  };
 }

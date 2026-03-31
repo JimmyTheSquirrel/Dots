@@ -40,6 +40,12 @@
       inputs.nix-gaming.follows = "nix-gaming";
     };
     nix-gaming.url = "github:fufexan/nix-gaming";
+
+    #--- SDDM Theme ---
+    silentSDDM = {
+      url = "github:uiriansan/SilentSDDM";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
