@@ -1,52 +1,97 @@
 # Modules/Fastfetch.nix
-{ pkgs, ... }:
+{pkgs, ...}: let
+  rawConfig = ''
+    {
+      "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+      "logo": {
+        "type": "kitty",
+        "source": "/path/to/your/image.png",
+        "height": 18
+      },
+      "display": {
+        "color": "cyan",
+        "separator": ": "
+      },
+      "modules": [
 
-let
-  jsonConfig = builtins.toJSON {
-    logo = {
-      # Medium logo via Kitty graphics (works great in kitty)
-      type = "kitty";
-      source = "${pkgs.nixos-icons}/share/pixmaps/nix-snowflake.png";
-      height = 9;                 # tweak 10–14 to taste
-      padding = { top = 1; left = 1; };
-    };
+        {
+          "type": "custom",
+          "format": "\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Hardware \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e"
+        },
+        { "type": "host",     "key": "\uf878 Motherboard", "keyColor": "red",    "format": "{name}", "color": "white" },
+        { "type": "cpu",      "key": "\uf4bc CPU",         "keyColor": "red",    "color": "white" },
+        { "type": "memory",   "key": "\uf538 Memory",      "keyColor": "red",    "color": "white" },
+        { "type": "disk",     "key": "\uf0a0 Disk",        "keyColor": "red",    "color": "white" },
+        {
+          "type": "custom",
+          "format": "\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f"
+        },
 
-    display = { separator = " 󰑃  "; };
+        { "type": "custom", "format": "" },
 
-    modules = [
-      "break"
+        {
+          "type": "custom",
+          "format": "\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Graphics \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e"
+        },
+        { "type": "gpu",    "key": "\uf200 GPU",     "keyColor": "green", "gpuType": "discrete", "format": "{name}", "color": "white" },
+        { "type": "vulkan", "key": "\uf0e7 Driver",  "keyColor": "green", "color": "white" },
+        {
+          "type": "display",
+          "key": "\uf878 Display",
+          "keyColor": "green",
+          "compactType": "multiline",
+          "format": "{width}x{height} @ {refresh-rate}Hz",
+          "color": "white"
+        },
+        {
+          "type": "custom",
+          "format": "\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f"
+        },
 
-      # --- OS / Kernel / Packages / Shell ---
-      { type = "os";       key = " DISTRO"; keyColor = "yellow"; }
-      { type = "kernel";   key = "│ ├";     keyColor = "yellow"; }
-      { type = "packages"; key = "│ ├󰏖";    keyColor = "yellow"; }
-      { type = "shell";    key = "│ └";    keyColor = "yellow"; }
+        { "type": "custom", "format": "" },
 
-      # --- Desktop / Theming ---
-      { type = "wm";           key = " DE/WM";   keyColor = "blue"; }
-      { type = "wmtheme";      key = "│ ├󰉼";     keyColor = "blue"; }
-      { type = "icons";        key = "│ ├󰀻";     keyColor = "blue"; }
-      { type = "cursor";       key = "│ ├";     keyColor = "blue"; }
-      { type = "terminalfont"; key = "│ ├";     keyColor = "blue"; }
-      { type = "terminal";     key = "│ └";     keyColor = "blue"; }
+        {
+          "type": "custom",
+          "format": "\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Software \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e"
+        },
+        { "type": "os",       "key": "\uf17c OS",       "keyColor": "yellow", "format": "{name} {version} {arch}", "color": "white" },
+        { "type": "kernel",   "key": "\uebc6 Kernel",   "keyColor": "yellow", "color": "white" },
+        { "type": "packages", "key": "\uf487 Packages", "keyColor": "yellow", "separate": false, "color": "white" },
+        { "type": "shell",    "key": "\uf120 Shell",    "keyColor": "yellow", "color": "white" },
+        {
+          "type": "custom",
+          "format": "\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f"
+        },
 
-      # --- System Info ---
-      { type = "host";    key = "󰌢 SYSTEM"; keyColor = "green"; }
-      { type = "cpu";     key = "│ ├󰻠";    keyColor = "green"; }
-      { type = "gpu";     key = "│ ├󰻑";    keyColor = "green"; format = "{2}"; }
-      { type = "display"; key = "│ ├󰍹";    keyColor = "green"; compactType = "original-with-refresh-rate"; }
-      { type = "memory";  key = "│ ├󰾆";    keyColor = "green"; }
-      { type = "swap";    key = "│ ├󰓡";    keyColor = "green"; }
-      { type = "uptime";  key = "│ └󰅐";    keyColor = "green"; }
+        { "type": "custom", "format": "" },
 
-      # (Removed sound/player/media and the rainbow custom line)
-      "break"
-    ];
-  };
-in
-{
-  home.packages = [ pkgs.fastfetch ];
+        {
+          "type": "custom",
+          "format": "\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Session \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e"
+        },
+        { "type": "wm",       "key": "\uf5fc WM",       "keyColor": "cyan", "color": "white" },
+        { "type": "terminal", "key": "\uf489 Terminal", "keyColor": "cyan", "color": "white" },
+        { "type": "uptime",   "key": "\uf017 Uptime",   "keyColor": "cyan", "color": "white" },
+        {
+          "type": "custom",
+          "format": "\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f"
+        },
 
-  xdg.configFile."fastfetch/config.jsonc".text = jsonConfig;
+        { "type": "custom", "format": "" },
 
+        {
+          "type": "colors",
+          "symbol": "circle",
+          "paddingLeft": 2,
+          "colors": ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
+        },
+
+        "break"
+      ]
+    }
+  '';
+in {
+  home.packages = [pkgs.fastfetch];
+
+  xdg.configFile."fastfetch/config.jsonc".text = rawConfig;
 }

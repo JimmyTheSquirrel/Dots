@@ -135,6 +135,7 @@ in {
         "opacity 0.75 0.75, class:^(codium)$"
         "opacity 0.60 0.60, class:^(discord)$"
         "opacity 0.60 0.60, class:^(spotify)$"
+        "opacity 0.60 0.60, class:^(Steam)$"
 
         # --- Star Citizen: RSI Launcher ---
         "tile, class:^(rsi-launcher)$"
@@ -166,7 +167,9 @@ in {
           "systemctl --user import-environment --all"
           "gnome-keyring-daemon --start --components=secrets,ssh,pkcs11"
           "polkit-gnome-authentication-agent-1"
-          "swww-daemon"
+
+          #SKWD - Wall
+          "QT_PLUGIN_PATH=/nix/store/qhsikrhvhhv39cm0lcwmgd5fimf58vkb-qtmultimedia-6.10.2/lib/qt-6/plugins:$QT_PLUGIN_PATH quickshell -p /home/rock/.config/skwd-wall/daemon.qml"
         ];
     };
   };

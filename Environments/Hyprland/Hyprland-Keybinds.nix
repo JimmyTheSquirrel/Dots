@@ -10,6 +10,9 @@ in {
     # NOCTALIA: App Launcher
     "${mainMod}, D, exec, noctalia-shell ipc call launcher toggle"
 
+    # was: #"${mainMod}, W, exec, noctalia-shell ipc call wallpaper toggle"
+    "${mainMod}, W, exec, quickshell ipc -p /home/rock/.config/skwd-wall/daemon.qml call wallpaper toggle"
+
     # NOCTALIA: Session/Power Menu
     "${mainMod}, M, exec, noctalia-shell ipc call sessionMenu toggle"
 

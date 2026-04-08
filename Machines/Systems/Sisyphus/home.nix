@@ -25,19 +25,8 @@
     ../../../Modules/Home-Manager-Modules/Noctalia/noctalia.nix
     ../../../Modules/Home-Manager-Modules/git.nix
     #../../../Modules/Home-Manager-Modules/Swaylock.nix
-    #../../../Modules/Home-Manager-Modules/Skwd.nix
+    ../../../Modules/Home-Manager-Modules/Skwd.nix
   ];
-
-  # --- skwd ---
-  # programs.skwd = {
-  #   enable = true;
-  #   compositor = "hyprland";
-  #  weatherCity = "Sydney";
-  #  wifiInterface = "wlan0";
-  #   enableOllama = true;
-  #   enableWallpaperEngine = true;
-  #   enableGrim = true;
-  #  };
 
   # --- Fixes ---
   home.activation.removeMimeAppsList = lib.mkBefore ''

@@ -83,6 +83,26 @@ in {
       echo "↪ pushing…"
       git push
     '')
+
+    (pkgs.writeShellScriptBin "nix-gc" ''
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      echo -e "\n\033[1;34m==> [1/4] Removing generations older than 7 days...\033[0m"
+      sudo nix-collect-garbage --delete-older-than 7d
+
+      echo -e "\n\033[1;34m==> [2/4] Optimising nix store (deduplicating)...\033[0m"
+      sudo nix-store --optimise
+
+      echo -e "\n\033[1;34m==> [3/4] Vacuuming systemd journal (keeping last 7 days)...\033[0m"
+      journalctl --vacuum-time=7d
+
+      echo -e "\n\033[1;34m==> [4/4] Pruning unused podman images/containers/volumes...\033[0m"
+      podman system prune -f
+
+      echo -e "\n\033[1;32m==> All done! Nix store size:\033[0m"
+      du -sh /nix/store
+    '')
   ];
 
   home.sessionVariables = {
@@ -207,9 +227,9 @@ in {
   '';
 
   home.file.".config/navi/cheats/rhys.cheat".text = ''
-        % System Cleanup
-        # Delete old generations and optimise store (free space)
-        sudo nix-collect-garbage -d && sudo nix-store --optimise
+    % System Cleanup
+    # Full system cleanup (GC, store optimise, journal, podman)
+    nix-gc
 
     % System Rebuild
     # Rebuild Sisyphus (Hyprland)
@@ -223,20 +243,20 @@ in {
     # Rebuild Aphrodite (KDE)
     sudo nixos-rebuild switch --flake "$HOME/Dots#Elektra"
 
-        % Remove mimeapps.list (fix Home Manager conflict)
-        # Delete the file Home Manager complains about
-        rm -f "$HOME/.config/mimeapps.list"
+    % Remove mimeapps.list (fix Home Manager conflict)
+    # Delete the file Home Manager complains about
+    rm -f "$HOME/.config/mimeapps.list"
 
-        % Git Sync
-        # Same as git-sync, but include a commit message
-        git-sync "chore: sync"
+    % Git Sync
+    # Same as git-sync, but include a commit message
+    git-sync "chore: sync"
 
-        % Git Cleanup (Nuke)
-        # Wipe commit history on main and keep only current snapshot (FORCE PUSH)
-        cd "$HOME/Dots" && git checkout main && git pull --rebase origin main && git checkout --orphan _fresh_main && git add -A && git commit -m "chore: fresh start" && git branch -M main && git push -f origin main
+    % Git Cleanup (Nuke)
+    # Wipe commit history on main and keep only current snapshot (FORCE PUSH)
+    cd "$HOME/Dots" && git checkout main && git pull --rebase origin main && git checkout --orphan _fresh_main && git add -A && git commit -m "chore: fresh start" && git branch -M main && git push -f origin main
 
-        % Restart Podman Containers
-        # Restart all running podman containers
-        podman restart $(podman ps -q)
+    % Restart Podman Containers
+    # Restart all running podman containers
+    podman restart $(podman ps -q)
   '';
 }

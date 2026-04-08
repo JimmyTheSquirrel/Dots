@@ -165,12 +165,10 @@
     feh
 
     # --- Desktop ---
-    hyprpaper
     rofi
     grim
     slurp
     wl-clipboard
-    swww
     adw-gtk3
     bibata-cursors
 
@@ -181,11 +179,8 @@
     # --- Apps ---
     discord
     spotify
-    r2modman
     gparted
-    heroic
     lutris
-    opencode
     (prismlauncher.override {jdks = [pkgs.jdk21];})
 
     # --- Star Citizen ---

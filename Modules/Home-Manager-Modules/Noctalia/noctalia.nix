@@ -194,9 +194,9 @@
       };
 
       wallpaper = {
-        enabled = true;
+        enabled = false;
         overviewEnabled = false;
-        directory = "/home/rock/Pictures/Wallpapers";
+        directory = "";
         monitorDirectories = [];
         enableMultiMonitorDirectories = false;
         showHiddenFiles = false;

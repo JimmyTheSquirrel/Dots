@@ -23,8 +23,12 @@
 
     # --- Quickshell (for skwd) ---
     quickshell = {
-      url = "github:outfoxxed/quickshell";
+      url = "github:quickshell-mirror/quickshell";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+
+    awww = {
+      url = "git+https://codeberg.org/LGFae/awww";
     };
 
     # --- KDE Plasma Manager ---
