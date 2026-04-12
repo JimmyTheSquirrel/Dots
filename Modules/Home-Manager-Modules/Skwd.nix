@@ -61,7 +61,7 @@ in {
       "features": {
         "matugen": true,
         "ollama": false,
-        "steam": true,
+        "steam": false,
         "wallhaven": true
       },
       "colorSource": "magick",
@@ -70,8 +70,8 @@ in {
         "model": "gemma3:4b"
       },
       "steam": {
-        "apiKey": "B178602040CA3D9242889895A46A04B8",
-        "username": "JimmyTheSquirrel"
+        "apiKey": "",
+        "username": "JimmyTheSquirrel`"
       },
       "wallhaven": {
         "apiKey": ""
@@ -96,6 +96,8 @@ in {
     EOF
         fi
   '';
+
+  # STEAM API KEY = "apiKey": "B178602040CA3D9242889895A46A04B8",
 
   # ============================================================
   # PATCH MPVPAPER OPTIONS — panscan + target main monitor only
