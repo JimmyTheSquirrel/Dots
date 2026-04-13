@@ -26,6 +26,7 @@
     ../../../Modules/Home-Manager-Modules/git.nix
     #../../../Modules/Home-Manager-Modules/Swaylock.nix
     ../../../Modules/Home-Manager-Modules/Skwd.nix
+    ../../../Modules/Home-Manager-Modules/Steam.nix
   ];
 
   # --- Fixes ---

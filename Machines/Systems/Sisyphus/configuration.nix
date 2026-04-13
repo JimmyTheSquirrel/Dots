@@ -14,7 +14,7 @@
     ../../../Modules/Config-Manager-Modules/Steam.nix
     ../../../Modules/Config-Manager-Modules/Thunar.nix
     ../../../Modules/Config-Manager-Modules/SDDM/Sddm.nix
-    ../../../Modules/Config-Manager-Modules/arrr.nix
+    #../../../Modules/Config-Manager-Modules/arrr.nix
   ];
 
   # ============================================================
