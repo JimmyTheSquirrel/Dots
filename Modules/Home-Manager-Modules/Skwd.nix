@@ -26,7 +26,6 @@ in {
     material-design-icons
     matugen
     pkgs-unstable.qt6.qtmultimedia
-    steamcmd
     mpvpaper
   ];
 
@@ -71,7 +70,7 @@ in {
       },
       "steam": {
         "apiKey": "",
-        "username": "JimmyTheSquirrel`"
+        "username": ""
       },
       "wallhaven": {
         "apiKey": ""

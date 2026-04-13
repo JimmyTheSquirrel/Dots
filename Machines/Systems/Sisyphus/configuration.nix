@@ -14,7 +14,7 @@
     ../../../Modules/Config-Manager-Modules/Steam.nix
     ../../../Modules/Config-Manager-Modules/Thunar.nix
     ../../../Modules/Config-Manager-Modules/SDDM/Sddm.nix
-    #../../../Modules/Config-Manager-Modules/arrr.nix
+    ../../../Modules/Config-Manager-Modules/arrr.nix
   ];
 
   # ============================================================
@@ -165,7 +165,6 @@
     feh
 
     # --- Desktop ---
-    rofi
     grim
     slurp
     wl-clipboard
@@ -180,7 +179,8 @@
     discord
     spotify
     gparted
-    lutris
+    claude-code
+    opencode
     (prismlauncher.override {jdks = [pkgs.jdk21];})
 
     # --- Star Citizen ---

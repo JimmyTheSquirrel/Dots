@@ -15,7 +15,7 @@
 
   hardware.graphics.enable = true;
   hardware.graphics.extraPackages = with pkgs; [
-    vaapiVdpau
+    libva-vdpau-driver
     libvdpau-va-gl
     mesa.drivers
   ];
