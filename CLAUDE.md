@@ -42,10 +42,9 @@ flake.nix                    # Entry point using flake-parts + import-tree
     │   ├── hyprland.nix     # Hyprland WM config (native HM module)
     │   ├── kde.nix          # Plasma config via plasma-manager
     │   ├── noctalia.nix     # Desktop shell/bar (wrapper-modules)
-    │   ├── skwd.nix         # Full SKWD shell (launcher, wallpaper, power menu)
+    │   ├── skwd.nix         # Full SKWD shell (launcher, wallpaper, power menu, matugen)
     │   ├── skwd-wallpaper.nix # SKWD wallpaper-only module (for Hyprland)
-    │   ├── spicetify.nix    # Spotify theming with "text" theme
-    │   ├── spicetify-text-theme/ # Custom monospace theme files
+    │   ├── spicetify.nix    # Spotify theming with matugen dynamic colors
     │   ├── discord.nix      # Vesktop (Discord + Vencord) with transparency
     │   ├── kitty.nix, brave.nix, git.nix, vscodium.nix, etc.
     │   └── screenshot.nix, navi.nix, gtk.nix, fastfetch.nix
@@ -99,17 +98,54 @@ Two variants of SKWD exist for different use cases:
 cd ~/.config/skwd && python3 scripts/python/build-app-cache
 ```
 
+### Matugen Integration
+
+SKWD uses **matugen** to generate Material You color schemes from wallpapers. Colors update dynamically when wallpaper changes.
+
+**How it works:**
+1. When wallpaper changes, `scripts/bash/apply-static-wallpaper` runs matugen
+2. Matugen reads templates from `~/.config/skwd/ext/matugen/templates/`
+3. Generates color files based on `~/.cache/skwd/matugen-config.toml`
+4. SKWD's `Colors.qml` watches `~/.cache/skwd/colors.json` for hot-reload
+
+**Config files:**
+- `~/.config/skwd/data/config.json` - contains `matugen.schemeType` and `integrations` paths
+- `~/.cache/skwd/matugen-config.toml` - generated config mapping templates to output paths
+- `~/.config/skwd/ext/matugen/config.toml.in` - template for matugen config
+
+**NixOS fix** (in `skwd.nix`):
+- Matugen doesn't expand `~` in paths - the `skwdFixMatugen` activation hook patches `config.toml.in` to use absolute paths
+- Also regenerates `matugen-config.toml` with correct paths and removes empty template sections
+
+**Adding integrations:**
+1. Add output path to `config.json` under `integrations` (e.g., `"spicetify": "~/.config/spicetify/Themes/Matugen/color.ini"`)
+2. The `skwdFixMatugen` hook will include it in the generated matugen config
+3. Template must exist in `ext/matugen/templates/`
+
+**Test matugen manually:**
+```bash
+matugen -c ~/.cache/skwd/matugen-config.toml image -t scheme-fidelity ~/Pictures/Wallpapers/some-image.jpg
+```
+
 ### Spicetify Theme
 
-Custom "text" theme with:
+Custom **"text" theme** with dynamic matugen colors:
 - JetBrains Mono font throughout
-- Blue color scheme (customizable in `spicetify.nix`)
-- Always-visible borders (border-inactive = border-active)
+- ASCII art banners and pane border labels ("Nav", "Main", "Playing", etc.)
+- Custom Unicode icons for player controls
 - Transparent background for compositor transparency
 - Hidden right sidebar
+- Dynamic colors from wallpaper via matugen
 - Marketplace app + adblock/shuffle extensions
 
 Theme files in `modules/home/spicetify-text-theme/`.
+
+**Matugen color integration:**
+1. Custom template at `~/.config/skwd/ext/matugen/templates/spicetify-text.ini` maps Material You colors to text theme format
+2. `config.json` has `integrations.spicetify` pointing to `~/.config/spicetify/Themes/text/color.ini`
+3. When wallpaper changes, matugen overwrites the `[Matugen]` section in color.ini
+4. SKWD's apply script runs `spicetify refresh` to apply new colors
+5. Theme uses `colorScheme = "Matugen"` to pick up the dynamic colors
 
 ### Discord Setup
 

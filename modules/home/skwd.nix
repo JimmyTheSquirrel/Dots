@@ -74,6 +74,9 @@
   "matugen": {
     "schemeType": "scheme-fidelity"
   },
+  "integrations": {
+    "spicetify": "~/.config/spicetify/Themes/text/color.ini"
+  },
   "intervals": {
     "weatherPollMs": 600000,
     "wifiPollMs": 10000,

@@ -1,5 +1,5 @@
 { inputs, ... }: {
-  flake.homeModules.spicetify = { pkgs, lib, ... }:
+  flake.homeModules.spicetify = { config, pkgs, lib, ... }:
   let
     spicePkgs = inputs.spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
   in {
@@ -11,6 +11,11 @@
       theme = {
         name = "text";
         src = ./spicetify-text-theme;
+        appendName = false;
+        injectCss = true;
+        replaceColors = true;
+        overwriteAssets = false;
+        sidebarConfig = false;
         additionalCss = ''
           /* Transparent background for compositor transparency */
           body,
@@ -69,24 +74,7 @@
         '';
       };
 
-      colorScheme = "custom";
-
-      # Blue color scheme
-      customColorScheme = {
-        accent = "4a6fa5";
-        accent-active = "5b8cc9";
-        accent-inactive = "09090F";
-        banner = "6b8cae";
-        border-active = "7aa2c7";
-        border-inactive = "7aa2c7";  # Same as active so borders always show
-        header = "7aa2c7";
-        highlight = "3d5a80";
-        main = "09090F";
-        notification = "7aa2c7";
-        notification-error = "5c7a99";
-        subtext = "7aa2c7";
-        text = "a8c5db";
-      };
+      colorScheme = "Matugen";
 
       enabledExtensions = with spicePkgs.extensions; [
         adblock
