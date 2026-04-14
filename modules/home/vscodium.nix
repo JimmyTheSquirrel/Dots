@@ -11,6 +11,7 @@
         wrapProgram $out/bin/codium \
           --add-flags "${dotsDir}"
       '';
+      meta.mainProgram = "codium";
     };
   in {
     programs.vscode = {

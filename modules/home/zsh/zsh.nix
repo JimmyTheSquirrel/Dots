@@ -47,6 +47,10 @@
           fi
         }
 
+        claude() {
+          cd ~/Dots && command claude "$@"
+        }
+
         setopt PROMPT_SUBST
 
         git_branch() {

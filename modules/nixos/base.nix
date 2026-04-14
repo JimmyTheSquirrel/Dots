@@ -53,7 +53,7 @@
       claude-code
       opencode
       (prismlauncher.override { jdks = [ pkgs.jdk21 ]; })
-      inputs.nix-citizen.packages.${pkgs.system}.rsi-launcher
+      inputs.nix-citizen.packages.${pkgs.stdenv.hostPlatform.system}.rsi-launcher
     ];
 
     # Fonts

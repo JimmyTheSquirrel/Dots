@@ -1,9 +1,9 @@
 { self, inputs, ... }:
 let
   activeUser = "rock";
-  hostName = "Sisyphus";
+  hostName = "Elektra";
 
-  # Hardware configuration inline to avoid import-tree issues
+  # Hardware configuration - same hardware as Sisyphus
   hardwareConfig = { config, lib, modulesPath, ... }: {
     imports = [
       (modulesPath + "/installer/scan/not-detected.nix")
@@ -43,10 +43,8 @@ in {
       # NixOS modules
       self.nixosModules.base
       self.nixosModules.grub
-      self.nixosModules.sddm
       self.nixosModules.polkit
-      self.nixosModules.thunar
-      self.nixosModules.hyprland
+      self.nixosModules.kde
       self.nixosModules.steam
       self.nixosModules.audio
       self.nixosModules.locale
@@ -78,20 +76,13 @@ in {
             self.homeModules.git
             self.homeModules.fastfetch
             self.homeModules.vscodium
-            self.homeModules.hyprland
-            self.homeModules.noctalia
-            self.homeModules.skwd
+            self.homeModules.kde
             self.homeModules.screenshot
             self.homeModules.navi
-            self.homeModules.thunar
           ];
           home.username = activeUser;
           home.homeDirectory = "/home/${activeUser}";
           home.stateVersion = "25.05";
-
-          home.activation.removeMimeAppsList = inputs.home-manager.lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
-            rm -f "/home/${activeUser}/.config/mimeapps.list"
-          '';
         };
       }
     ];

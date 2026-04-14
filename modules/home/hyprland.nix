@@ -120,6 +120,7 @@
           "${mainMod}, J, togglesplit,"
           "${mainMod}, F, exec, brave"
           "${mainMod} SHIFT, F, fullscreen"
+          "${mainMod} SHIFT, B, exec, noctalia-shell ipc call bar toggle"
           "${mainMod} SHIFT, DELETE, exec, noctalia-shell ipc call sessionMenu toggle"
           "${mainMod}, left, movefocus, l"
           "${mainMod}, right, movefocus, r"

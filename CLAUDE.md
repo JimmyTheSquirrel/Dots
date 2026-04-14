@@ -22,40 +22,91 @@ nix flake update
 
 ## Architecture
 
-This is a NixOS Flake-based dotfiles repository managing three desktop environment configurations for user `rock` on AMD/Wayland hardware.
+This is a NixOS Flake-based dotfiles repository using **flake-parts** + **import-tree** for automatic module discovery. Manages three desktop environment configurations for user `rock` on AMD/Wayland hardware.
 
-### System Hierarchy
+### Directory Structure
 
 ```
-flake.nix (entry point - defines mkSystem helper and all system configs)
-├── Machines/Systems/{SystemName}/
-│   ├── configuration.nix  # NixOS system config (services, packages, hardware settings)
-│   └── home.nix           # Home Manager imports for this system
-├── Machines/Users/rock/
-│   └── hardware-configuration.nix  # Shared hardware config
-├── Modules/
-│   ├── Config-Manager-Modules/     # NixOS-level modules (Grub, SDDM, Steam, arrr media stack)
-│   └── Home-Manager-Modules/       # User-level modules (Zsh, Kitty, Brave, Noctalia, SKWD)
-└── Environments/
-    ├── Hyprland/  # Hyprland WM config (keybinds, workspaces, animations)
-    ├── KDE/       # Plasma 6 config (panel, shortcuts, themes)
-    └── Niri/      # Niri compositor config (columns, rules, gaps)
+flake.nix                    # Entry point using flake-parts + import-tree
+├── hosts/                   # System configurations (auto-imported)
+│   ├── Sisyphus/            # Hyprland desktop
+│   │   └── system.nix       # NixOS config + Home Manager setup
+│   ├── Elektra/             # KDE Plasma 6
+│   │   └── system.nix
+│   └── Odysseus/            # Niri compositor
+│       └── system.nix
+└── modules/                 # Reusable modules (auto-imported)
+    ├── flake-outputs.nix    # Custom flake option for homeModules
+    ├── home/                # Home Manager modules
+    │   ├── zsh/             # Shell config with helper scripts
+    │   ├── hyprland.nix     # Hyprland WM config (native HM module)
+    │   ├── kde.nix          # Plasma config via plasma-manager
+    │   ├── noctalia.nix     # Desktop shell (wrapper-modules + home packages)
+    │   ├── skwd.nix         # Custom wallpaper manager (Quickshell)
+    │   ├── kitty.nix, brave.nix, git.nix, vscodium.nix, etc.
+    │   └── screenshot.nix, navi.nix, gtk.nix, fastfetch.nix
+    └── nixos/               # NixOS system modules
+        ├── base.nix         # Common packages and settings
+        ├── grub.nix         # GRUB with Yorha theme
+        ├── sddm/            # SDDM with SilentSDDM video theme
+        ├── audio.nix        # Pipewire audio
+        ├── steam.nix        # Gaming (Steam, Proton, gamemode)
+        ├── hyprland.nix     # Hyprland system config (native NixOS)
+        ├── kde.nix          # KDE system config
+        ├── niri.nix         # Niri config (wrapper-modules with perSystem)
+        ├── thunar.nix       # File manager + icon themes
+        ├── locale.nix       # Australia/Sydney, en_AU
+        └── polkit.nix       # Polkit + authentication agent
 ```
 
 ### The Three Systems
 
-| System | Desktop | Entry Points |
-|--------|---------|--------------|
-| **Sisyphus** | Hyprland | `Machines/Systems/Sisyphus/{configuration,home}.nix` + `Environments/Hyprland/` |
-| **Elektra** | KDE Plasma 6 | `Machines/Systems/Elektra/{configuration,home}.nix` + `Environments/KDE/` |
-| **Odysseus** | Niri | `Machines/Systems/Odysseus/{configuration,home}.nix` + `Environments/Niri/` |
+| System | Desktop | Entry Point | Key Modules |
+|--------|---------|-------------|-------------|
+| **Sisyphus** | Hyprland | `hosts/Sisyphus/system.nix` | hyprland (nixos+home), skwd, noctalia, screenshot |
+| **Elektra** | KDE Plasma 6 | `hosts/Elektra/system.nix` | kde (plasma-manager), screenshot |
+| **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia |
 
-### Key Module Patterns
+All systems share: base, grub, sddm, audio, locale, steam, polkit, zsh, kitty, brave, git, navi
 
-- **flake.nix `mkSystem`**: Helper function that wires together system config, hardware config, and Home Manager
-- **Home Manager modules** import environment configs and reusable modules (e.g., `home.nix` imports `../../Environments/Hyprland/Hyprland.nix`)
-- **arrr.nix**: Docker-based media server stack (Jellyfin, Sonarr, Radarr, SABnzbd, etc.) using `virtualisation.oci-containers`
-- **SKWD (Skwd.nix)**: Custom wallpaper manager using Quickshell - auto-clones from GitHub and generates config
+### How import-tree Works
+
+The flake uses `import-tree` for automatic module discovery:
+- `(inputs.import-tree ./hosts)` - auto-imports all `*.nix` files in hosts/
+- `(inputs.import-tree ./modules)` - auto-imports all `*.nix` files in modules/
+
+Each module defines itself as `flake.nixosModules.{name}` or `flake.homeModules.{name}`, and system configs select which modules to enable.
+
+### wrapper-modules Pattern
+
+Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings baked in. This avoids module conflicts and follows the pattern from the noctalia documentation.
+
+**Structure:**
+```nix
+{ self, inputs, ... }: {
+  flake.nixosModules.example = { pkgs, ... }: {
+    programs.example.package = self.packages.${pkgs.stdenv.hostPlatform.system}.wrappedExample;
+  };
+
+  perSystem = { pkgs, lib, self', ... }: {
+    packages.wrappedExample = inputs.wrapper-modules.wrappers.example.wrap {
+      inherit pkgs;
+      settings = { /* config here */ };
+    };
+  };
+}
+```
+
+**Key differences from direct module imports:**
+- Settings use wrapper-modules syntax (e.g., `spawn-sh` instead of `spawn`, `Mod` instead of `Super`)
+- Actions use `_: {}` instead of `null` for empty arguments
+- Package is provided via `package = inputs.flake.packages.${system}.default` if not in nixpkgs
+- Use `extraConfig` for raw KDL that can't be expressed in Nix (e.g., niri window-rules with `match` syntax)
+
+**Niri-specific notes:**
+- Window rules require `extraConfig` with raw KDL because the `match app-id="pattern"` syntax doesn't translate correctly from Nix
+- Monitor/output config is omitted (niri auto-detects); cursor theme set via environment variables
+- Niri config lives entirely in `modules/nixos/niri.nix` (no separate home module)
 
 ### Display Configuration
 
@@ -67,8 +118,11 @@ All systems use dual monitors:
 
 - `nixpkgs@nixos-25.11` (stable) and `nixpkgs-unstable`
 - `home-manager@release-25.11`
+- `flake-parts` + `import-tree` - Modular flake organization
+- `wrapper-modules` - Wraps packages with settings baked in (used for niri, noctalia)
 - `noctalia` - Custom desktop shell with widgets
 - `quickshell` - QML framework for SKWD
 - `plasma-manager` - KDE Plasma declarative config
-- `niri` - Tiling compositor
+- `niri` - Tiling compositor (niri-flake)
+- `silentSDDM` - Login screen theme
 - `nix-citizen` / `nix-gaming` - Gaming packages (Star Citizen, Proton)

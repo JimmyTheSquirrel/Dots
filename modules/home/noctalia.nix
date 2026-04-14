@@ -1,18 +1,16 @@
-{ inputs, ... }: {
+{ self, inputs, ... }: {
+  # Home module just for extra packages needed by noctalia
   flake.homeModules.noctalia = { pkgs, ... }: {
-    imports = [
-      inputs.noctalia.homeModules.default
-    ];
-
     home.packages = [
       pkgs.playerctl
       pkgs.jetbrains-mono
     ];
+  };
 
-    programs.noctalia-shell = {
-      enable = true;
-      systemd.enable = true;
-
+  perSystem = { pkgs, system, ... }: {
+    packages.wrappedNoctalia = inputs.wrapper-modules.wrappers.noctalia-shell.wrap {
+      inherit pkgs;
+      package = inputs.noctalia.packages.${system}.default;
       settings = {
         bar = {
           position = "top";

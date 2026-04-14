@@ -1,4 +1,5 @@
 { ... }: {
+  # NixOS module - system packages and services
   flake.nixosModules.thunar = { pkgs, ... }: {
     environment.systemPackages = with pkgs; [
       xfce.thunar
@@ -32,29 +33,28 @@
       gtk-icon-theme-name=Papirus-Dark
       gtk-application-prefer-dark-theme=1
     '';
+  };
 
-    system.activationScripts.thunarSettings = {
-      deps = [];
+  # Home Manager module - user config
+  flake.homeModules.thunar = { ... }: {
+    home.file.".config/xfce4/xfconf/xfce-perchannel-xml/thunar.xml" = {
+      force = true;
       text = ''
-        export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/1000/bus"
-
-        set_xfconf() {
-          ${pkgs.xfce.xfconf}/bin/xfconf-query \
-            -c thunar -p "$1" -s "$2" --create -t "$3" || true
-        }
-
-        set_xfconf /misc-show-free-space       true  bool
-        set_xfconf /misc-show-thumbnails       true  bool
-        set_xfconf /misc-volume-management     true  bool
-        set_xfconf /misc-single-click          false bool
-        set_xfconf /misc-show-hidden-files     false bool
-        set_xfconf /default-view               ThunarDetailsView string
-        set_xfconf /last-view                  ThunarDetailsView string
-        set_xfconf /shortcuts-icon-size        THUNAR_ICON_SIZE_SMALL string
-        set_xfconf /tree-icon-size             THUNAR_ICON_SIZE_SMALL string
-        set_xfconf /misc-folders-first         true  bool
-        set_xfconf /misc-thumbnail-max-file-size 0 int
-      '';
+      <?xml version="1.0" encoding="UTF-8"?>
+      <channel name="thunar" version="1.0">
+        <property name="default-view" type="string" value="ThunarDetailsView"/>
+        <property name="last-view" type="string" value="ThunarDetailsView"/>
+        <property name="misc-show-free-space" type="bool" value="true"/>
+        <property name="misc-show-thumbnails" type="bool" value="true"/>
+        <property name="misc-volume-management" type="bool" value="true"/>
+        <property name="misc-single-click" type="bool" value="false"/>
+        <property name="misc-show-hidden-files" type="bool" value="false"/>
+        <property name="misc-folders-first" type="bool" value="true"/>
+        <property name="misc-thumbnail-max-file-size" type="uint64" value="0"/>
+        <property name="shortcuts-icon-size" type="string" value="THUNAR_ICON_SIZE_SMALL"/>
+        <property name="tree-icon-size" type="string" value="THUNAR_ICON_SIZE_SMALL"/>
+      </channel>
+    '';
     };
   };
 }

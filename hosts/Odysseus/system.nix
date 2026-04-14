@@ -49,6 +49,7 @@ in {
       self.nixosModules.niri
       self.nixosModules.audio
       self.nixosModules.locale
+      self.nixosModules.steam
 
       # System-specific settings
       {
@@ -63,7 +64,7 @@ in {
         home-manager.useUserPackages = true;
         home-manager.backupFileExtension = "backup";
         home-manager.extraSpecialArgs = {
-          inherit inputs activeUser;
+          inherit inputs activeUser hostName;
           pkgs-unstable = import inputs.nixpkgs-unstable {
             system = "x86_64-linux";
             config.allowUnfree = true;
@@ -77,8 +78,9 @@ in {
             self.homeModules.git
             self.homeModules.fastfetch
             self.homeModules.vscodium
-            self.homeModules.niri
             self.homeModules.noctalia
+            self.homeModules.skwd
+            self.homeModules.navi
           ];
           home.username = activeUser;
           home.homeDirectory = "/home/${activeUser}";
