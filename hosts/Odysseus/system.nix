@@ -81,6 +81,8 @@ in {
             self.homeModules.noctalia
             self.homeModules.skwd
             self.homeModules.navi
+            self.homeModules.spicetify
+            self.homeModules.discord
           ];
           home.username = activeUser;
           home.homeDirectory = "/home/${activeUser}";

@@ -80,10 +80,11 @@ in {
             self.homeModules.vscodium
             self.homeModules.hyprland
             self.homeModules.noctalia
-            self.homeModules.skwd
+            self.homeModules.skwd-wallpaper
             self.homeModules.screenshot
             self.homeModules.navi
             self.homeModules.thunar
+            self.homeModules.spicetify
           ];
           home.username = activeUser;
           home.homeDirectory = "/home/${activeUser}";

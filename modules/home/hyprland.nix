@@ -232,6 +232,7 @@
           "systemctl --user import-environment --all"
           "gnome-keyring-daemon --start --components=secrets,ssh,pkcs11"
           "polkit-gnome-authentication-agent-1"
+          "noctalia-shell"
           "QT_PLUGIN_PATH=/nix/store/qhsikrhvhhv39cm0lcwmgd5fimf58vkb-qtmultimedia-6.10.2/lib/qt-6/plugins:$QT_PLUGIN_PATH quickshell -p /home/rock/.config/skwd-wall/daemon.qml"
         ];
       };

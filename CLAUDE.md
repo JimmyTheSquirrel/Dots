@@ -41,8 +41,12 @@ flake.nix                    # Entry point using flake-parts + import-tree
     │   ├── zsh/             # Shell config with helper scripts
     │   ├── hyprland.nix     # Hyprland WM config (native HM module)
     │   ├── kde.nix          # Plasma config via plasma-manager
-    │   ├── noctalia.nix     # Desktop shell (wrapper-modules + home packages)
-    │   ├── skwd.nix         # Custom wallpaper manager (Quickshell)
+    │   ├── noctalia.nix     # Desktop shell/bar (wrapper-modules)
+    │   ├── skwd.nix         # Full SKWD shell (launcher, wallpaper, power menu)
+    │   ├── skwd-wallpaper.nix # SKWD wallpaper-only module (for Hyprland)
+    │   ├── spicetify.nix    # Spotify theming with "text" theme
+    │   ├── spicetify-text-theme/ # Custom monospace theme files
+    │   ├── discord.nix      # Vesktop (Discord + Vencord) with transparency
     │   ├── kitty.nix, brave.nix, git.nix, vscodium.nix, etc.
     │   └── screenshot.nix, navi.nix, gtk.nix, fastfetch.nix
     └── nixos/               # NixOS system modules
@@ -63,11 +67,58 @@ flake.nix                    # Entry point using flake-parts + import-tree
 
 | System | Desktop | Entry Point | Key Modules |
 |--------|---------|-------------|-------------|
-| **Sisyphus** | Hyprland | `hosts/Sisyphus/system.nix` | hyprland (nixos+home), skwd, noctalia, screenshot |
+| **Sisyphus** | Hyprland | `hosts/Sisyphus/system.nix` | hyprland (nixos+home), skwd-wallpaper, noctalia, screenshot, spicetify |
 | **Elektra** | KDE Plasma 6 | `hosts/Elektra/system.nix` | kde (plasma-manager), screenshot |
-| **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia |
+| **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar only), skwd (full shell), spicetify, discord |
 
 All systems share: base, grub, sddm, audio, locale, steam, polkit, zsh, kitty, brave, git, navi
+
+### SKWD Modules
+
+Two variants of SKWD exist for different use cases:
+
+- **skwd.nix** (full shell): Launcher, wallpaper selector, power menu, window switcher, notifications. Used on Niri with bar disabled (noctalia provides the bar). Clones from `github.com/liixini/skwd` to `~/.config/skwd/`.
+
+- **skwd-wallpaper.nix** (wallpaper only): Just the wallpaper selector component. Used on Hyprland where noctalia handles everything else. Clones from `github.com/liixini/skwd-wall` to `~/.config/skwd-wall/`.
+
+**NixOS compatibility patches** (applied via `home.activation`):
+- SKWD's app launcher searches standard Linux paths (`/usr/share/applications`) which don't exist on NixOS
+- The module patches `scripts/python/build-app-cache` to add NixOS paths:
+  - `/run/current-system/sw/share/applications/` (system packages)
+  - `/etc/profiles/per-user/rock/share/applications/` (home-manager packages)
+  - Corresponding icon paths in `/run/current-system/sw/share/icons/`
+- Also patches `qml/launcher/AppLauncherService.qml` inotifywatcher for live updates
+
+**App customization** (`~/.config/skwd/data/apps.json`):
+- Keys match `.desktop` file `Name` fields (case-insensitive)
+- Optional fields: `background` (image path), `icon` (nerd font glyph), `displayName`, `hidden`, `tags`
+- Steam game thumbnails auto-generated from library cache when `paths.steam` is set in config.json
+
+**Rebuild app cache manually:**
+```bash
+cd ~/.config/skwd && python3 scripts/python/build-app-cache
+```
+
+### Spicetify Theme
+
+Custom "text" theme with:
+- JetBrains Mono font throughout
+- Blue color scheme (customizable in `spicetify.nix`)
+- Always-visible borders (border-inactive = border-active)
+- Transparent background for compositor transparency
+- Hidden right sidebar
+- Marketplace app + adblock/shuffle extensions
+
+Theme files in `modules/home/spicetify-text-theme/`.
+
+### Discord Setup
+
+Uses Vesktop (Discord + Vencord) instead of regular Discord for:
+- Better Wayland/Linux support
+- CSS injection for transparent theme
+- Native transparency support
+
+Config in `modules/home/discord.nix`.
 
 ### How import-tree Works
 
@@ -105,8 +156,13 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 
 **Niri-specific notes:**
 - Window rules require `extraConfig` with raw KDL because the `match app-id="pattern"` syntax doesn't translate correctly from Nix
-- Monitor/output config is omitted (niri auto-detects); cursor theme set via environment variables
+- Monitor/output config uses `extraConfig` for positioning
 - Niri config lives entirely in `modules/nixos/niri.nix` (no separate home module)
+- Hot corners disabled via `gestures { hot-corners { off } }` in extraConfig
+- Rounded corners via `geometry-corner-radius 8` in window-rule
+- Focus ring disabled (`layout.focus-ring.width = 0`) for no active window border
+- Window opacity rules for transparency (spotify 0.90, vesktop 0.85, etc.)
+- `skwd-daemon` wrapper script in systemPackages for spawn-at-startup (niri needs single executable, not command with args)
 
 ### Display Configuration
 
@@ -120,9 +176,11 @@ All systems use dual monitors:
 - `home-manager@release-25.11`
 - `flake-parts` + `import-tree` - Modular flake organization
 - `wrapper-modules` - Wraps packages with settings baked in (used for niri, noctalia)
-- `noctalia` - Custom desktop shell with widgets
+- `noctalia` - Custom desktop shell with widgets/bar
 - `quickshell` - QML framework for SKWD
+- `awww` - Wayland wallpaper daemon (used by SKWD instead of swww)
+- `spicetify-nix` - Declarative Spotify theming
 - `plasma-manager` - KDE Plasma declarative config
-- `niri` - Tiling compositor (niri-flake)
+- `niri` - Scrollable tiling Wayland compositor (niri-flake)
 - `silentSDDM` - Login screen theme
 - `nix-citizen` / `nix-gaming` - Gaming packages (Star Citizen, Proton)

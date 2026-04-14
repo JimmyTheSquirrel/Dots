@@ -1,7 +1,8 @@
 { self, inputs, ... }: {
-  # Home module just for extra packages needed by noctalia
+  # Home module for noctalia - includes the wrapped package and dependencies
   flake.homeModules.noctalia = { pkgs, ... }: {
     home.packages = [
+      self.packages.${pkgs.stdenv.hostPlatform.system}.wrappedNoctalia
       pkgs.playerctl
       pkgs.jetbrains-mono
     ];

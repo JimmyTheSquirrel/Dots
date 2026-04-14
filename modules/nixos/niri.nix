@@ -56,7 +56,6 @@
 
     environment.systemPackages = with pkgs; [
       xwayland-satellite
-      swww
       playerctl
       # Wrapped spotify with GPU workaround for niri
       (lib.hiPrio (writeShellScriptBin "spotify" ''
@@ -66,6 +65,17 @@
       (lib.hiPrio (writeShellScriptBin "steam" ''
         exec ${steam}/bin/steam -no-cef-sandbox "$@"
       ''))
+      # SKWD shell daemon launcher (niri spawn-at-startup needs single executable)
+      (writeShellScriptBin "skwd-daemon" ''
+        exec ${inputs.quickshell.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/quickshell -p /home/rock/.config/skwd/shell.qml "$@"
+      '')
+      # SKWD wallpaper restore (run on startup to restore last wallpaper)
+      (writeShellScriptBin "skwd-wallpaper-restore" ''
+        sleep 2  # Wait for SKWD to fully initialize
+        export SKWD_CACHE="''${XDG_CACHE_HOME:-$HOME/.cache}/skwd"
+        export SKWD_CONFIG="''${XDG_CONFIG_HOME:-$HOME/.config}/skwd"
+        exec /home/rock/.config/skwd/scripts/bash/restore-wallpaper
+      '')
     ];
 
     # Disable GNOME SSH agent to avoid conflict with programs.ssh.startAgent
@@ -85,9 +95,8 @@
         spawn-at-startup = [
           "dbus-update-activation-environment --systemd --all"
           "systemctl --user import-environment --all"
-          "swww-daemon"
           (lib.getExe self'.packages.wrappedNoctalia)
-          "quickshell -p /home/rock/.config/skwd-wall/daemon.qml"
+          "skwd-daemon"
         ];
 
         xwayland-satellite.path = lib.getExe pkgs.xwayland-satellite;
@@ -101,14 +110,21 @@
         # Layout
         layout.gaps = 4;
         layout.center-focused-column = "never";
-        layout.focus-ring.width = 1;
+        layout.focus-ring.width = 0;  # Disable active window border
         layout.border.width = 0;
+
 
         # Default column width (100% = full monitor width)
         layout.default-column-width.proportion = 1.0;
 
         # Window rules as raw KDL (wrapper-modules can't generate the correct match syntax)
         extraConfig = ''
+          gestures {
+            hot-corners {
+              off
+            }
+          }
+
           output "DP-2" {
             position x=0 y=1080
           }
@@ -119,6 +135,7 @@
 
           window-rule {
             draw-border-with-background false
+            geometry-corner-radius 8
           }
           window-rule {
             match app-id="^thunar$"
@@ -137,8 +154,12 @@
             opacity 0.80
           }
           window-rule {
+            match app-id="^vesktop$"
+            opacity 0.85
+          }
+          window-rule {
             match app-id="^spotify$"
-            opacity 0.70
+            opacity 0.90
           }
           window-rule {
             match app-id="^pavucontrol$"
@@ -154,10 +175,9 @@
           "Mod+Return".spawn-sh = lib.getExe pkgs.kitty;
           "Mod+E".spawn-sh = lib.getExe pkgs.xfce.thunar;
           "Mod+F".spawn-sh = lib.getExe pkgs.brave;
-          "Mod+D".spawn-sh = "${lib.getExe self'.packages.wrappedNoctalia} ipc call launcher toggle";
-          "Mod+M".spawn-sh = "${lib.getExe self'.packages.wrappedNoctalia} ipc call sessionMenu toggle";
-          "Mod+W".spawn-sh = "quickshell ipc -p /home/rock/.config/skwd-wall/daemon.qml call wallpaper toggle";
-          "Mod+Shift+Delete".spawn-sh = "${lib.getExe self'.packages.wrappedNoctalia} ipc call sessionMenu toggle";
+          "Mod+D".spawn-sh = "echo applauncher > $XDG_RUNTIME_DIR/skwd/cmd";
+          "Mod+W".spawn-sh = "echo wallpaper > $XDG_RUNTIME_DIR/skwd/cmd";
+          "Mod+Shift+Delete".spawn-sh = "echo powermenu > $XDG_RUNTIME_DIR/skwd/cmd";
           "Mod+Q".close-window = _: {};
           "Mod+V".toggle-window-floating = _: {};
           "Mod+Shift+F".fullscreen-window = _: {};
