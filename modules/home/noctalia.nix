@@ -57,9 +57,8 @@
                   { id = "Volume"; displayMode = "onhover"; }
                   { id = "Network"; displayMode = "onhover"; icon = "plug-connected"; }
                   { id = "Bluetooth"; displayMode = "onhover"; }
-                  { id = "Clock"; formatHorizontal = "HH:mm"; formatVertical = "HH mm"; usePrimaryColor = true; }
+                  { id = "Clock"; formatHorizontal = "hh:mm a"; formatVertical = "hh mm a"; usePrimaryColor = true; }
                   { id = "NotificationHistory"; }
-                  { id = "Tray"; displayMode = "onhover"; }
                 ];
               };
             }

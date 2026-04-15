@@ -91,7 +91,12 @@
       '')
       # SKWD wallpaper restore (run on startup to restore last wallpaper)
       (writeShellScriptBin "skwd-wallpaper-restore" ''
-        sleep 2  # Wait for SKWD to fully initialize
+        # Wait for SKWD FIFO to exist (indicates SKWD is ready)
+        FIFO="$XDG_RUNTIME_DIR/skwd/cmd"
+        for i in $(seq 1 50); do
+          [ -p "$FIFO" ] && break
+          sleep 0.1
+        done
         export SKWD_CACHE="''${XDG_CACHE_HOME:-$HOME/.cache}/skwd"
         export SKWD_CONFIG="''${XDG_CONFIG_HOME:-$HOME/.config}/skwd"
         exec /home/rock/.config/skwd/scripts/bash/restore-wallpaper
@@ -118,11 +123,13 @@
         screenshot-path = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png";
 
         spawn-at-startup = [
-          "dbus-update-activation-environment --systemd --all"
-          "systemctl --user import-environment --all"
+          # Launch shell/bar and wallpaper first for instant visual feedback
           (lib.getExe self'.packages.wrappedNoctalia)
           "skwd-daemon"
           "skwd-wallpaper-restore"
+          # D-Bus environment setup runs in background (& at end)
+          "sh -c 'dbus-update-activation-environment --systemd --all &'"
+          "sh -c 'systemctl --user import-environment --all &'"
           "spotify-startup"
         ];
 
@@ -138,8 +145,8 @@
         layout.gaps = 4;
         layout.center-focused-column = "never";
         layout.focus-ring.width = 0;  # Disable focus ring (using border instead)
-        layout.border.width = 2;
-        layout.border.active-color = "#888888";
+        layout.border.width = 4;
+        layout.border.active-color = "#555555";
         layout.border.inactive-color = "#555555";
 
 
@@ -164,7 +171,7 @@
 
           window-rule {
             draw-border-with-background false
-            geometry-corner-radius 8
+            geometry-corner-radius 14
           }
           window-rule {
             match app-id="^thunar$"
@@ -207,7 +214,7 @@
           "Mod+F".spawn-sh = lib.getExe pkgs.brave;
           "Mod+D".spawn-sh = "echo applauncher > $XDG_RUNTIME_DIR/skwd/cmd";
           "Mod+W".spawn-sh = "echo wallpaper > $XDG_RUNTIME_DIR/skwd/cmd";
-          "Mod+Shift+Delete".spawn-sh = "qdbus6 io.github.noctalia.Shell / io.github.noctalia.Shell.toggleSessionMenu";
+          "Mod+Shift+Delete".spawn-sh = "noctalia-shell ipc call sessionMenu toggle";
           "Mod+Q".close-window = _: {};
           "Mod+V".toggle-window-floating = _: {};
           "Mod+Shift+F".fullscreen-window = _: {};
