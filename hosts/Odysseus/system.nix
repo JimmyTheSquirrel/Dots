@@ -73,6 +73,7 @@ in {
         home-manager.users.${activeUser} = {
           imports = [
             self.homeModules.zsh
+            self.homeModules.starship
             self.homeModules.kitty
             self.homeModules.brave
             self.homeModules.git

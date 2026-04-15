@@ -5,20 +5,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build Commands
 
 ```bash
-# Build and switch to a system configuration
-sudo nixos-rebuild switch --flake .#rock-Sisyphus   # Hyprland desktop
-sudo nixos-rebuild switch --flake .#rock-Elektra    # KDE Plasma 6
-sudo nixos-rebuild switch --flake .#rock-Odysseus   # Niri compositor
+# Build and switch to a system configuration (uses named profiles)
+system-rebuild rock Sisyphus         # Hyprland desktop
+system-rebuild rock Elektra          # KDE Plasma 6
+system-rebuild rock Odysseus         # Niri compositor
 
-# Test a configuration without switching
-sudo nixos-rebuild test --flake .#rock-Sisyphus
-
-# Build without activating (for dry-run validation)
-sudo nixos-rebuild build --flake .#rock-Sisyphus
+# Build without switching (for building other profiles safely)
+system-rebuild rock Sisyphus --boot
 
 # Update flake inputs
 nix flake update
 ```
+
+The `system-rebuild` helper (defined in `modules/home/zsh/scripts/zsh-helpers.sh`) takes USER and SYSTEM as arguments, builds `${USER}-${SYSTEM}` flake, and uses `-p ${system}` for named profiles.
 
 ## Architecture
 
@@ -39,6 +38,8 @@ flake.nix                    # Entry point using flake-parts + import-tree
     ├── flake-outputs.nix    # Custom flake option for homeModules
     ├── home/                # Home Manager modules
     │   ├── zsh/             # Shell config with helper scripts
+    │   ├── starship.nix     # Starship prompt (Gruvbox Rainbow theme, requires Nerd Font)
+    │   ├── fastfetch.nix    # System info display with custom logo
     │   ├── hyprland.nix     # Hyprland WM config (native HM module)
     │   ├── kde.nix          # Plasma config via plasma-manager
     │   ├── noctalia.nix     # Desktop shell/bar (wrapper-modules)
@@ -47,10 +48,10 @@ flake.nix                    # Entry point using flake-parts + import-tree
     │   ├── spicetify.nix    # Spotify theming with static blue color scheme
     │   ├── discord.nix      # Vesktop (Discord + Vencord) with transparency
     │   ├── kitty.nix, brave.nix, git.nix, vscodium.nix, etc.
-    │   └── screenshot.nix, navi.nix, gtk.nix, fastfetch.nix
+    │   └── screenshot.nix, navi.nix, gtk.nix
     └── nixos/               # NixOS system modules
         ├── base.nix         # Common packages and settings
-        ├── grub.nix         # GRUB with Yorha theme
+        ├── grub.nix         # GRUB with Yorha theme + multi-system boot menu
         ├── sddm/            # SDDM with SilentSDDM video theme
         ├── audio.nix        # Pipewire audio
         ├── steam.nix        # Gaming (Steam, Proton, gamemode)
@@ -70,7 +71,42 @@ flake.nix                    # Entry point using flake-parts + import-tree
 | **Elektra** | KDE Plasma 6 | `hosts/Elektra/system.nix` | kde (plasma-manager), screenshot |
 | **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + power menu + notifications), skwd (launcher + wallpaper only), spicetify (static blue theme), discord |
 
-All systems share: base, grub, sddm, audio, locale, steam, polkit, zsh, kitty, brave, git, navi
+All systems share: base, grub, sddm, audio, locale, steam, polkit, zsh, kitty, brave, git, navi, starship, fastfetch
+
+### Multi-Boot System
+
+All three desktop environments are bootable from GRUB without rebuilding. The setup uses **named profiles** stored at `/nix/var/nix/profiles/system-profiles/`:
+
+```
+NixOS - System Select           <- GRUB submenu
+  Sisyphus (Hyprland)
+  Elektra (KDE Plasma 6)
+  Odysseus (Niri)
+Windows                         <- Detected by os-prober
+```
+
+**How it works:**
+- Each system is built to a named profile (e.g., `-p sisyphus`)
+- `grub.nix` has an activation script that generates `/boot/grub/custom-profiles.cfg`
+- The script reads kernel, initrd, and kernel-params from each profile symlink
+- GRUB sources this file via `extraConfig`
+
+**Profile management:**
+- Profiles are GC roots - garbage collection won't delete them
+- Each profile maintains its own generations for rollback
+- `nix-collect-garbage -d` removes old generations but keeps current builds
+- Profiles at `/nix/var/nix/profiles/system-profiles/{sisyphus,elektra,odysseus}`
+
+**Workflow:**
+```bash
+# Update the system you're working on
+system-rebuild rock Odysseus
+
+# Build another system without switching (safe)
+system-rebuild rock Sisyphus --boot
+
+# After rebuilding any system, the GRUB menu auto-updates on next switch
+```
 
 ### SKWD Modules
 
@@ -155,6 +191,26 @@ Uses Vesktop (Discord + Vencord) instead of regular Discord for:
 **Cache clearing:** The module clears Vesktop cache directories (`Cache`, `Code Cache`, `GPUCache`) on each rebuild to prevent EPIPE errors. Login session is preserved.
 
 Config in `modules/home/discord.nix`.
+
+### Starship Prompt
+
+Custom Gruvbox Rainbow theme in `modules/home/starship.nix`:
+- Sharp powerline arrows (`` U+E0B0, `` U+E0B2) for segment separators
+- Format: `user @ hostname` → `directory` → `git` → `language` → `docker/conda`
+- Command prompt uses `➜` arrow (green for success, red for error)
+- Time display disabled
+- Requires a Nerd Font (configured via kitty.nix: `FantasqueSansM Nerd Font Mono`)
+
+**Important:** The powerline glyphs are special Unicode characters that can get stripped during editing. If the prompt renders with plain rectangles instead of arrows, check the hex values in starship.nix:
+- Line 14 should contain `ee 82 b2` (U+E0B2) for start cap
+- Transition lines should contain `ee 82 b0` (U+E0B0) for arrows
+
+### Fastfetch
+
+Custom system info display in `modules/home/fastfetch.nix`:
+- Uses kitty image protocol for logo display (`assets/terminal-logo-small.png`)
+- Grouped sections: Hardware, Graphics, Software, Session
+- Gruvbox color scheme with box-drawing borders
 
 ### How import-tree Works
 

@@ -51,17 +51,6 @@
           cd ~/Dots && command claude "$@"
         }
 
-        setopt PROMPT_SUBST
-
-        git_branch() {
-          local branch=$(git symbolic-ref --short HEAD 2>/dev/null)
-          if [ -n "$branch" ]; then
-            echo "%F{#665c54}│%f%F{#458588}$branch%f"
-          fi
-        }
-
-        PROMPT='%F{#d65d0e}%n%f%F{#665c54}@%f%F{#d79921}%m%f %F{#665c54}│%f %F{#3e9c3e}%~%f$(git_branch) %(?.%F{#8ec07c}.%F{#fb4934})❯%f '
-
         zstyle ':completion:*' list-colors ''${(s.:.)LS_COLORS}
         zstyle ':fzf-tab:complete:cd:*' fzf-preview 'ls -1 --color=always $realpath'
         zstyle ':fzf-tab:*' fzf-flags \
