@@ -85,5 +85,8 @@
         marketplace
       ];
     };
+
+    # Note: spicetify-watch doesn't work with spicetify-nix (themes are baked in at build time)
+    # Colors from matugen will apply after a rebuild, or manually restart Spotify after wallpaper change
   };
 }

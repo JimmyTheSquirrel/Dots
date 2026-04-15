@@ -57,10 +57,7 @@
     environment.systemPackages = with pkgs; [
       xwayland-satellite
       playerctl
-      # Wrapped spotify with GPU workaround for niri
-      (lib.hiPrio (writeShellScriptBin "spotify" ''
-        exec ${spotify}/bin/spotify --disable-gpu-sandbox --use-gl=angle --use-angle=swiftshader "$@"
-      ''))
+      kdePackages.qttools  # Provides qdbus6 for Noctalia D-Bus calls
       # Wrapped steam with GPU workaround for niri
       (lib.hiPrio (writeShellScriptBin "steam" ''
         exec ${steam}/bin/steam -no-cef-sandbox "$@"
@@ -75,6 +72,12 @@
         export SKWD_CACHE="''${XDG_CACHE_HOME:-$HOME/.cache}/skwd"
         export SKWD_CONFIG="''${XDG_CONFIG_HOME:-$HOME/.config}/skwd"
         exec /home/rock/.config/skwd/scripts/bash/restore-wallpaper
+      '')
+      # Spotify startup launcher (uses spicetified spotify from PATH, opens to Liked Songs)
+      (writeShellScriptBin "spotify-startup" ''
+        sleep 3  # Wait for desktop to initialize
+        # Use spotify from PATH (spicetified version) with GPU workaround flags
+        exec spotify --disable-gpu-sandbox --use-gl=angle --use-angle=swiftshader --uri=spotify:collection:tracks
       '')
     ];
 
@@ -97,6 +100,8 @@
           "systemctl --user import-environment --all"
           (lib.getExe self'.packages.wrappedNoctalia)
           "skwd-daemon"
+          "skwd-wallpaper-restore"
+          "spotify-startup"
         ];
 
         xwayland-satellite.path = lib.getExe pkgs.xwayland-satellite;
@@ -160,6 +165,7 @@
           window-rule {
             match app-id="^spotify$"
             opacity 0.90
+            open-on-output "HDMI-A-1"
           }
           window-rule {
             match app-id="^pavucontrol$"
@@ -177,7 +183,7 @@
           "Mod+F".spawn-sh = lib.getExe pkgs.brave;
           "Mod+D".spawn-sh = "echo applauncher > $XDG_RUNTIME_DIR/skwd/cmd";
           "Mod+W".spawn-sh = "echo wallpaper > $XDG_RUNTIME_DIR/skwd/cmd";
-          "Mod+Shift+Delete".spawn-sh = "echo powermenu > $XDG_RUNTIME_DIR/skwd/cmd";
+          "Mod+Shift+Delete".spawn-sh = "qdbus6 io.github.noctalia.Shell / io.github.noctalia.Shell.toggleSessionMenu";
           "Mod+Q".close-window = _: {};
           "Mod+V".toggle-window-floating = _: {};
           "Mod+Shift+F".fullscreen-window = _: {};

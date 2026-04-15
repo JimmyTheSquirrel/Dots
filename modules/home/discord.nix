@@ -2,6 +2,13 @@
   flake.homeModules.discord = { pkgs, config, lib, ... }: {
     home.packages = [ pkgs.vesktop ];
 
+    # Clear Vesktop cache on rebuild to prevent EPIPE errors
+    home.activation.clearVesktopCache = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      rm -rf ~/.config/vesktop/Cache
+      rm -rf ~/.config/vesktop/Code\ Cache
+      rm -rf ~/.config/vesktop/GPUCache
+    '';
+
     # Vencord settings with transparent theme
     xdg.configFile."vesktop/settings/quickCss.css".text = ''
       /* Transparent Discord for compositor transparency */

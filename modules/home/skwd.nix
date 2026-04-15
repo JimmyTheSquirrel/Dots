@@ -21,6 +21,7 @@
       imagemagick
       inotify-tools
       matugen
+      spicetify-cli  # For matugen to refresh spotify theme
       playerctl
       parallel
       cava
@@ -98,16 +99,10 @@
     },
     "windowSwitcher": true,
     "powerMenu": {
-      "enabled": true,
-      "items": [
-        { "action": "lock", "icon": "\uf023", "label": "" },
-        { "action": "logout", "icon": "\uf2f5", "label": "" },
-        { "action": "reboot", "icon": "\uf2f9", "label": "" },
-        { "action": "poweroff", "icon": "\uf011", "label": "" }
-      ]
+      "enabled": false
     },
     "smartHome": false,
-    "notifications": true
+    "notifications": false
   }
 }
 EOF
@@ -199,6 +194,8 @@ EOF
       TEMPLATE="${skwdPath}/ext/matugen/config.toml.in"
       if [ -f "$TEMPLATE" ]; then
         ${pkgs.gnused}/bin/sed -i 's|"~/|"${config.home.homeDirectory}/|g' "$TEMPLATE"
+        # Use spicetify-text.ini template for text theme instead of spicetify.ini
+        ${pkgs.gnused}/bin/sed -i 's|spicetify\.ini|spicetify-text.ini|g' "$TEMPLATE"
       fi
 
       # Regenerate the matugen config with fixed paths
@@ -207,17 +204,22 @@ EOF
       CONFIG="${skwdPath}/data/config.json"
       MATUGEN_CONFIG="$CACHE/matugen-config.toml"
 
+      # Helper function to expand ~ to home directory
+      expand_tilde() {
+        echo "$1" | ${pkgs.gnused}/bin/sed "s|^~|${config.home.homeDirectory}|"
+      }
+
       if [ -f "$TEMPLATE" ] && [ -f "$CONFIG" ]; then
-        # Read integration paths (empty = disabled)
-        int_kitty=$(${pkgs.jq}/bin/jq -r '.integrations.kitty // ""' "$CONFIG")
-        int_kde=$(${pkgs.jq}/bin/jq -r '.integrations.kde // ""' "$CONFIG")
-        int_vscode=$(${pkgs.jq}/bin/jq -r '.integrations.vscode // ""' "$CONFIG")
-        int_vesktop=$(${pkgs.jq}/bin/jq -r '.integrations.vesktop // ""' "$CONFIG")
-        int_zen=$(${pkgs.jq}/bin/jq -r '.integrations.zen // ""' "$CONFIG")
-        int_spicetify=$(${pkgs.jq}/bin/jq -r '.integrations.spicetify // ""' "$CONFIG")
-        int_spicetify_css=$(${pkgs.jq}/bin/jq -r '.integrations.spicetifyCss // ""' "$CONFIG")
-        int_yazi=$(${pkgs.jq}/bin/jq -r '.integrations.yazi // ""' "$CONFIG")
-        int_qt6ct=$(${pkgs.jq}/bin/jq -r '.integrations.qt6ct // ""' "$CONFIG")
+        # Read integration paths (empty = disabled) and expand tildes
+        int_kitty=$(expand_tilde "$(${pkgs.jq}/bin/jq -r '.integrations.kitty // ""' "$CONFIG")")
+        int_kde=$(expand_tilde "$(${pkgs.jq}/bin/jq -r '.integrations.kde // ""' "$CONFIG")")
+        int_vscode=$(expand_tilde "$(${pkgs.jq}/bin/jq -r '.integrations.vscode // ""' "$CONFIG")")
+        int_vesktop=$(expand_tilde "$(${pkgs.jq}/bin/jq -r '.integrations.vesktop // ""' "$CONFIG")")
+        int_zen=$(expand_tilde "$(${pkgs.jq}/bin/jq -r '.integrations.zen // ""' "$CONFIG")")
+        int_spicetify=$(expand_tilde "$(${pkgs.jq}/bin/jq -r '.integrations.spicetify // ""' "$CONFIG")")
+        int_spicetify_css=$(expand_tilde "$(${pkgs.jq}/bin/jq -r '.integrations.spicetifyCss // ""' "$CONFIG")")
+        int_yazi=$(expand_tilde "$(${pkgs.jq}/bin/jq -r '.integrations.yazi // ""' "$CONFIG")")
+        int_qt6ct=$(expand_tilde "$(${pkgs.jq}/bin/jq -r '.integrations.qt6ct // ""' "$CONFIG")")
 
         ${pkgs.gnused}/bin/sed \
           -e "s|@SKWD_INSTALL@|${skwdPath}|g" \

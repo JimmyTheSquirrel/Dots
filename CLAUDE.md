@@ -68,7 +68,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 |--------|---------|-------------|-------------|
 | **Sisyphus** | Hyprland | `hosts/Sisyphus/system.nix` | hyprland (nixos+home), skwd-wallpaper, noctalia, screenshot, spicetify |
 | **Elektra** | KDE Plasma 6 | `hosts/Elektra/system.nix` | kde (plasma-manager), screenshot |
-| **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar only), skwd (full shell), spicetify, discord |
+| **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + power menu + notifications), skwd (launcher + wallpaper), spicetify, discord |
 
 All systems share: base, grub, sddm, audio, locale, steam, polkit, zsh, kitty, brave, git, navi
 
@@ -76,7 +76,7 @@ All systems share: base, grub, sddm, audio, locale, steam, polkit, zsh, kitty, b
 
 Two variants of SKWD exist for different use cases:
 
-- **skwd.nix** (full shell): Launcher, wallpaper selector, power menu, window switcher, notifications. Used on Niri with bar disabled (noctalia provides the bar). Clones from `github.com/liixini/skwd` to `~/.config/skwd/`.
+- **skwd.nix** (full shell): Launcher, wallpaper selector, window switcher. Used on Niri with bar disabled (noctalia provides the bar). Power menu and notifications are disabled in favor of Noctalia's implementations. Clones from `github.com/liixini/skwd` to `~/.config/skwd/`.
 
 - **skwd-wallpaper.nix** (wallpaper only): Just the wallpaper selector component. Used on Hyprland where noctalia handles everything else. Clones from `github.com/liixini/skwd-wall` to `~/.config/skwd-wall/`.
 
@@ -115,7 +115,9 @@ SKWD uses **matugen** to generate Material You color schemes from wallpapers. Co
 
 **NixOS fix** (in `skwd.nix`):
 - Matugen doesn't expand `~` in paths - the `skwdFixMatugen` activation hook patches `config.toml.in` to use absolute paths
-- Also regenerates `matugen-config.toml` with correct paths and removes empty template sections
+- Also expands `~` in all integration paths from `config.json` before writing to `matugen-config.toml`
+- Patches template to use `spicetify-text.ini` instead of `spicetify.ini` for the text theme format
+- Removes empty template sections from generated config
 
 **Adding integrations:**
 1. Add output path to `config.json` under `integrations` (e.g., `"spicetify": "~/.config/spicetify/Themes/Matugen/color.ini"`)
@@ -147,12 +149,19 @@ Theme files in `modules/home/spicetify-text-theme/`.
 4. SKWD's apply script runs `spicetify refresh` to apply new colors
 5. Theme uses `colorScheme = "Matugen"` to pick up the dynamic colors
 
+**Live color updates:**
+- A `spicetify-watch` systemd user service runs `spicetify watch -s` for live theme reloading
+- Colors update within seconds of wallpaper change without restarting Spotify
+- Service auto-starts with graphical session
+
 ### Discord Setup
 
 Uses Vesktop (Discord + Vencord) instead of regular Discord for:
 - Better Wayland/Linux support
 - CSS injection for transparent theme
 - Native transparency support
+
+**Cache clearing:** The module clears Vesktop cache directories (`Cache`, `Code Cache`, `GPUCache`) on each rebuild to prevent EPIPE errors. Login session is preserved.
 
 Config in `modules/home/discord.nix`.
 
@@ -199,6 +208,8 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 - Focus ring disabled (`layout.focus-ring.width = 0`) for no active window border
 - Window opacity rules for transparency (spotify 0.90, vesktop 0.85, etc.)
 - `skwd-daemon` wrapper script in systemPackages for spawn-at-startup (niri needs single executable, not command with args)
+- Spotify auto-starts on HDMI-A-1 (secondary monitor) via `spotify-startup` wrapper with `--uri=spotify:collection:tracks` to open Liked Songs
+- Power menu keybind (`Mod+Shift+Delete`) triggers Noctalia's session menu via qdbus
 
 ### Display Configuration
 
