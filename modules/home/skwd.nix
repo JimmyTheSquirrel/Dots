@@ -21,7 +21,6 @@
       imagemagick
       inotify-tools
       matugen
-      spicetify-cli  # For matugen to refresh spotify theme
       playerctl
       parallel
       cava
@@ -75,9 +74,7 @@
   "matugen": {
     "schemeType": "scheme-fidelity"
   },
-  "integrations": {
-    "spicetify": "~/.config/spicetify/Themes/text/color.ini"
-  },
+  "integrations": {},
   "intervals": {
     "weatherPollMs": 600000,
     "wifiPollMs": 10000,

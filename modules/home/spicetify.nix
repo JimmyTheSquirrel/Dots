@@ -71,10 +71,28 @@
           .main-nowPlayingBar-right {
             opacity: 1 !important;
           }
+
+          /* Fix connect bar - make clickable and position properly */
+          .main-connectBar-connectBar {
+            position: relative !important;
+            pointer-events: auto !important;
+            right: unset !important;
+            bottom: unset !important;
+            opacity: 1 !important;
+            padding: 0 8px !important;
+          }
+
+          /* Ensure right side of now playing bar has proper layout */
+          .main-nowPlayingBar-right {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            flex-shrink: 0 !important;
+          }
         '';
       };
 
-      colorScheme = "Matugen";
+      colorScheme = "Orange";
 
       enabledExtensions = with spicePkgs.extensions; [
         adblock

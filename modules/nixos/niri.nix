@@ -62,6 +62,29 @@
       (lib.hiPrio (writeShellScriptBin "steam" ''
         exec ${steam}/bin/steam -no-cef-sandbox "$@"
       ''))
+      # Wrapped spotify: GPU workaround + navigate to Liked Songs via D-Bus
+      (lib.hiPrio (writeShellScriptBin "spotify" ''
+        LIKED_SONGS="spotify:collection:tracks"
+
+        # Check if Spotify is already running
+        if ! pgrep -x spotify >/dev/null; then
+          # First launch - start Spotify then navigate via D-Bus after it's ready
+          /etc/profiles/per-user/rock/bin/spotify \
+            --disable-gpu-sandbox --use-gl=angle --use-angle=swiftshader "$@" &
+          SPOTIFY_PID=$!
+          # Wait for D-Bus interface to become available, then open Liked Songs
+          (for i in $(seq 1 30); do
+            sleep 1
+            if qdbus6 org.mpris.MediaPlayer2.spotify / org.freedesktop.MediaPlayer2.OpenUri "$LIKED_SONGS" 2>/dev/null; then
+              break
+            fi
+          done) &
+          wait $SPOTIFY_PID
+        else
+          # Already running - navigate via D-Bus
+          qdbus6 org.mpris.MediaPlayer2.spotify / org.freedesktop.MediaPlayer2.OpenUri "$LIKED_SONGS" 2>/dev/null || true
+        fi
+      ''))
       # SKWD shell daemon launcher (niri spawn-at-startup needs single executable)
       (writeShellScriptBin "skwd-daemon" ''
         exec ${inputs.quickshell.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/quickshell -p /home/rock/.config/skwd/shell.qml "$@"
@@ -73,11 +96,10 @@
         export SKWD_CONFIG="''${XDG_CONFIG_HOME:-$HOME/.config}/skwd"
         exec /home/rock/.config/skwd/scripts/bash/restore-wallpaper
       '')
-      # Spotify startup launcher (uses spicetified spotify from PATH, opens to Liked Songs)
+      # Spotify startup launcher (delayed start for session init)
       (writeShellScriptBin "spotify-startup" ''
         sleep 3  # Wait for desktop to initialize
-        # Use spotify from PATH (spicetified version) with GPU workaround flags
-        exec spotify --disable-gpu-sandbox --use-gl=angle --use-angle=swiftshader --uri=spotify:collection:tracks
+        exec spotify
       '')
     ];
 
@@ -115,8 +137,10 @@
         # Layout
         layout.gaps = 4;
         layout.center-focused-column = "never";
-        layout.focus-ring.width = 0;  # Disable active window border
-        layout.border.width = 0;
+        layout.focus-ring.width = 0;  # Disable focus ring (using border instead)
+        layout.border.width = 2;
+        layout.border.active-color = "#888888";
+        layout.border.inactive-color = "#555555";
 
 
         # Default column width (100% = full monitor width)
