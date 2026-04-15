@@ -44,7 +44,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
     │   ├── noctalia.nix     # Desktop shell/bar (wrapper-modules)
     │   ├── skwd.nix         # SKWD shell (launcher, wallpaper selector, matugen theming)
     │   ├── skwd-wallpaper.nix # SKWD wallpaper-only module (for Hyprland)
-    │   ├── spicetify.nix    # Spotify theming with static orange color scheme
+    │   ├── spicetify.nix    # Spotify theming with static blue color scheme
     │   ├── discord.nix      # Vesktop (Discord + Vencord) with transparency
     │   ├── kitty.nix, brave.nix, git.nix, vscodium.nix, etc.
     │   └── screenshot.nix, navi.nix, gtk.nix, fastfetch.nix
@@ -68,7 +68,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 |--------|---------|-------------|-------------|
 | **Sisyphus** | Hyprland | `hosts/Sisyphus/system.nix` | hyprland (nixos+home), skwd-wallpaper, noctalia, screenshot, spicetify |
 | **Elektra** | KDE Plasma 6 | `hosts/Elektra/system.nix` | kde (plasma-manager), screenshot |
-| **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + power menu + notifications), skwd (launcher + wallpaper only), spicetify (static orange theme), discord |
+| **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + power menu + notifications), skwd (launcher + wallpaper only), spicetify (static blue theme), discord |
 
 All systems share: base, grub, sddm, audio, locale, steam, polkit, zsh, kitty, brave, git, navi
 
@@ -132,7 +132,7 @@ matugen -c ~/.cache/skwd/matugen-config.toml image -t scheme-fidelity ~/Pictures
 
 ### Spicetify Theme
 
-Custom **"text" theme** with static orange color scheme:
+Custom **"text" theme** with static blue color scheme:
 - JetBrains Mono font throughout
 - ASCII art banners and pane border labels ("Nav", "Main", "Playing", etc.)
 - Custom Unicode icons for player controls
@@ -143,7 +143,7 @@ Custom **"text" theme** with static orange color scheme:
 
 Theme files in `modules/home/spicetify-text-theme/`.
 
-**Note on dynamic colors:** Spicetify-nix bakes themes into the Nix store at build time, so runtime color updates (e.g., from matugen) don't work without a rebuild. The theme uses a static "Orange" color scheme defined in `color.ini`.
+**Note on dynamic colors:** Spicetify-nix bakes themes into the Nix store at build time, so runtime color updates (e.g., from matugen) don't work without a rebuild. The theme uses a static "Blue" color scheme defined in `color.ini`.
 
 ### Discord Setup
 
@@ -195,15 +195,18 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 - Monitor/output config uses `extraConfig` for positioning
 - Niri config lives entirely in `modules/nixos/niri.nix` (no separate home module)
 - Hot corners disabled via `gestures { hot-corners { off } }` in extraConfig
-- Rounded corners via `geometry-corner-radius 8` in window-rule
+- Sharp corners (no border radius) with thin dark border (`width = 2`, `#333333`)
 - Border config uses hyphenated syntax: `layout.border.active-color` and `layout.border.inactive-color` (not nested objects)
 - Focus ring disabled (`layout.focus-ring.width = 0`), using border instead for window outlines
+- Cursor theme configured via `cursor.xcursor-theme` and `cursor.xcursor-size` in wrapper-modules settings
 - Window opacity rules for transparency (spotify 0.90, vesktop 0.85, etc.)
 - `skwd-daemon` wrapper script in systemPackages for spawn-at-startup (niri needs single executable, not command with args)
-- `skwd-wallpaper-restore` in spawn-at-startup restores last wallpaper on login
+- `skwd-wallpaper-restore` waits for SKWD FIFO to exist before restoring (polls every 100ms, no fixed sleep)
 - Spotify wrapper uses D-Bus to navigate to Liked Songs: `qdbus6 org.mpris.MediaPlayer2.spotify / org.freedesktop.MediaPlayer2.OpenUri "spotify:collection:tracks"` (the `--uri` flag only works on fresh launch, not when Spotify is already running)
-- Power menu keybind (`Mod+Shift+Delete`) triggers Noctalia's session menu via `qdbus6`
-- `kdePackages.qttools` provides `qdbus6` for D-Bus calls to Noctalia and Spotify
+- Power menu keybind (`Mod+Shift+Delete`) triggers Noctalia's session menu via IPC: `noctalia-shell ipc call sessionMenu toggle`
+- `kdePackages.qttools` provides `qdbus6` for D-Bus calls to Spotify
+- Startup optimization: D-Bus environment commands run in background (`sh -c '... &'`) so visual elements load first
+- Session startup delay: niri binary is wrapped with a 2-second sleep to allow SDDM/session to fully initialize before rendering
 
 ### Display Configuration
 

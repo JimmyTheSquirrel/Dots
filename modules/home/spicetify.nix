@@ -92,7 +92,7 @@
         '';
       };
 
-      colorScheme = "Orange";
+      colorScheme = "Blue";
 
       enabledExtensions = with spicePkgs.extensions; [
         adblock

@@ -1,9 +1,14 @@
-{ ... }: {
-  flake.nixosModules.base = { pkgs, activeUser, inputs, ... }: {
+{...}: {
+  flake.nixosModules.base = {
+    pkgs,
+    activeUser,
+    inputs,
+    ...
+  }: {
     # Nix settings
     nix.settings = {
-      experimental-features = [ "nix-command" "flakes" ];
-      substituters = [ "https://nix-citizen.cachix.org" ];
+      experimental-features = ["nix-command" "flakes"];
+      substituters = ["https://nix-citizen.cachix.org"];
       trusted-public-keys = [
         "nix-citizen.cachix.org-1:lPMkWc2X8XD4/7YPEEwXKKBg+SVbYTVrAaLA2wQTKCo="
       ];
@@ -27,7 +32,7 @@
     users.users.${activeUser} = {
       isNormalUser = true;
       description = activeUser;
-      extraGroups = [ "networkmanager" "wheel" "video" "render" "input" ];
+      extraGroups = ["networkmanager" "wheel" "video" "render" "input"];
       shell = pkgs.zsh;
       packages = [];
     };
@@ -51,8 +56,8 @@
       spotify
       gparted
       claude-code
-      opencode
-      (prismlauncher.override { jdks = [ pkgs.jdk21 ]; })
+      wowup-cf
+      (prismlauncher.override {jdks = [pkgs.jdk21];})
       inputs.nix-citizen.packages.${pkgs.stdenv.hostPlatform.system}.rsi-launcher
     ];
 
