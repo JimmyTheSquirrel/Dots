@@ -21,23 +21,67 @@
       (pkgs.writeShellScriptBin "system-rebuild" ''
         #!/usr/bin/env bash
         set -euo pipefail
+        cd "$HOME/Dots" || { echo "❌ ~/Dots not found"; exit 1; }
 
-        cd "$HOME/Dots" || { echo ":: $HOME/Dots not found"; exit 1; }
+        user="rock"
 
-        sys="''${1:-}"
-        if [[ -z "$sys" ]]; then
-          echo "Usage: system-rebuild <flake-key>   e.g.  system-rebuild rock-Sisyphus"
-          echo "Available nixosConfigurations:"
-          nix flake show . | sed -n 's/^ *nixosConfigurations\.\([A-Za-z0-9._-]\+\).*/  \1/p'
-          exit 2
+        # If no args, interactive mode
+        if [[ -z "''${1:-}" ]]; then
+          echo -e "\033[1;36m╭──────────────────────────────╮\033[0m"
+          echo -e "\033[1;36m│     System Rebuild Menu      │\033[0m"
+          echo -e "\033[1;36m╰──────────────────────────────╯\033[0m"
+          echo ""
+          echo -e "\033[1;33mSelect System:\033[0m"
+          echo "  1) Sisyphus  (Hyprland)"
+          echo "  2) Odysseus  (Niri)"
+          echo "  3) Elektra   (KDE Plasma)"
+          echo ""
+          read -p "System [1-3]: " sys_choice
+
+          case "$sys_choice" in
+            1) system="Sisyphus" ;;
+            2) system="Odysseus" ;;
+            3) system="Elektra" ;;
+            *) echo "Invalid choice"; exit 1 ;;
+          esac
+
+          echo ""
+          echo -e "\033[1;33mSelect Action:\033[0m"
+          echo "  1) Switch  (rebuild & activate now)"
+          echo "  2) Boot    (rebuild for GRUB menu)"
+          echo ""
+          read -p "Action [1-2]: " action_choice
+
+          case "$action_choice" in
+            1) action="switch" ;;
+            2) action="boot" ;;
+            *) echo "Invalid choice"; exit 1 ;;
+          esac
+        else
+          # CLI mode: system-rebuild USER SYSTEM [--boot]
+          user="''${1:-}"
+          system="''${2:-}"
+          action="switch"
+          [[ "''${3:-}" == "--boot" ]] && action="boot"
+
+          if [[ -z "$system" ]]; then
+            echo "Usage: system-rebuild USER SYSTEM [--boot]"
+            echo "   or: system-rebuild  (interactive)"
+            exit 2
+          fi
         fi
 
-        sys="''${sys#\#}"
+        flake_key="''${user}-''${system}"
+        profile=$(echo "$system" | tr '[:upper:]' '[:lower:]')
 
-        echo -e "\n\033[1;34m==> Rebuilding NixOS + Home Manager (#''${sys})...\033[0m"
-        sudo nixos-rebuild switch --flake ".#''${sys}"
+        if [[ "$action" == "switch" ]]; then
+          echo -e "\n\033[1;34m==> Rebuilding and switching to ''${system}...\033[0m"
+        else
+          echo -e "\n\033[1;34m==> Building ''${system} (select from GRUB)...\033[0m"
+        fi
 
-        echo -e "\n\033[1;32m==> All done!\033[0m"
+        sudo nixos-rebuild "''${action}" -p "''${profile}" --flake ".#''${flake_key}"
+        echo -e "\n\033[1;32m==> Done!\033[0m"
       '')
 
       (pkgs.writeShellScriptBin "git-sync" ''
@@ -230,32 +274,12 @@
       nix-gc
 
       % System Rebuild
-      # Rebuild Sisyphus (Hyprland)
-      sudo nixos-rebuild switch --flake "$HOME/Dots#rock-Sisyphus"
-
-      % System Rebuild
-      # Rebuild Odysseus (Niri)
-      sudo nixos-rebuild switch --flake "$HOME/Dots#rock-Odysseus"
-
-      % System Rebuild
-      # Rebuild Elektra (KDE Plasma 6)
-      sudo nixos-rebuild switch --flake "$HOME/Dots#rock-Elektra"
-
-      % Remove mimeapps.list (fix Home Manager conflict)
-      # Delete the file Home Manager complains about
-      rm -f "$HOME/.config/mimeapps.list"
+      # Interactive system rebuild menu
+      system-rebuild
 
       % Git Sync
       # Same as git-sync, but include a commit message
       git-sync "chore: sync"
-
-      % Git Cleanup (Nuke)
-      # Wipe commit history on main and keep only current snapshot (FORCE PUSH)
-      cd "$HOME/Dots" && git checkout main && git pull --rebase origin main && git checkout --orphan _fresh_main && git add -A && git commit -m "chore: fresh start" && git branch -M main && git push -f origin main
-
-      % Restart Podman Containers
-      # Restart all running podman containers
-      podman restart $(podman ps -q)
     '';
   };
 }

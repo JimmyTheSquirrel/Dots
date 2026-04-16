@@ -45,6 +45,7 @@ in {
       self.nixosModules.grub
       self.nixosModules.polkit
       self.nixosModules.kde
+      self.nixosModules.thunar
       self.nixosModules.steam
       self.nixosModules.audio
       self.nixosModules.locale
@@ -79,6 +80,11 @@ in {
             self.homeModules.kde
             self.homeModules.screenshot
             self.homeModules.navi
+            self.homeModules.starship
+            self.homeModules.skwd-wallpaper
+            self.homeModules.thunar
+            self.homeModules.spicetify
+            self.homeModules.discord
           ];
           home.username = activeUser;
           home.homeDirectory = "/home/${activeUser}";

@@ -8,51 +8,76 @@ system-rebuild() {
     set -euo pipefail
     cd ~/Dots || { echo "❌ ~/Dots not found"; exit 1; }
 
-    local user="${1:-}"
-    local system="${2:-}"
-    local boot_only=false
+    local user="rock"
+    local system=""
+    local action="switch"
 
-    # Check for --boot flag
-    if [[ "${3:-}" == "--boot" ]] || [[ "${2:-}" == "--boot" ]]; then
-      boot_only=true
-      # If --boot is second arg, system wasn't provided
-      if [[ "${2:-}" == "--boot" ]]; then
-        system=""
+    # Interactive mode if no arguments
+    if [[ -z "${1:-}" ]]; then
+      echo -e "\033[1;36m╭──────────────────────────────╮\033[0m"
+      echo -e "\033[1;36m│     System Rebuild Menu      │\033[0m"
+      echo -e "\033[1;36m╰──────────────────────────────╯\033[0m"
+      echo ""
+      echo -e "\033[1;33mSelect System:\033[0m"
+      echo "  1) Sisyphus  (Hyprland)"
+      echo "  2) Odysseus  (Niri)"
+      echo "  3) Elektra   (KDE Plasma)"
+      echo ""
+      echo -n "System [1-3]: "
+      read sys_choice
+
+      case "$sys_choice" in
+        1) system="Sisyphus" ;;
+        2) system="Odysseus" ;;
+        3) system="Elektra" ;;
+        *) echo "Invalid choice"; exit 1 ;;
+      esac
+
+      echo ""
+      echo -e "\033[1;33mSelect Action:\033[0m"
+      echo "  1) Switch  (rebuild & activate now)"
+      echo "  2) Boot    (rebuild for GRUB menu)"
+      echo ""
+      echo -n "Action [1-2]: "
+      read action_choice
+
+      case "$action_choice" in
+        1) action="switch" ;;
+        2) action="boot" ;;
+        *) echo "Invalid choice"; exit 1 ;;
+      esac
+    else
+      # CLI mode: system-rebuild USER SYSTEM [--boot]
+      user="${1:-}"
+      system="${2:-}"
+
+      if [[ "${3:-}" == "--boot" ]]; then
+        action="boot"
+      fi
+
+      if [[ -z "$system" ]]; then
+        echo "Usage: system-rebuild USER SYSTEM [--boot]"
+        echo "   or: system-rebuild  (interactive menu)"
+        exit 2
       fi
     fi
 
-    if [[ -z "$user" ]] || [[ -z "$system" ]]; then
-      echo "Usage: system-rebuild USER SYSTEM [--boot]"
-      echo "  e.g.  system-rebuild rock Sisyphus"
-      echo "  e.g.  system-rebuild rock Sisyphus --boot  (build without switching)"
-      echo ""
-      echo "Available nixosConfigurations:"
-      nix flake show . 2>/dev/null | sed -n 's/^ *nixosConfigurations\.\([A-Za-z0-9._-]\+\).*/  \1/p'
-      exit 2
-    fi
-
-    # Build flake key (e.g., rock-Sisyphus)
     local flake_key="${user}-${system}"
-    # Extract profile name (lowercase system name, e.g., sisyphus)
     local profile=$(echo "$system" | tr '[:upper:]' '[:lower:]')
 
-    local action="switch"
-    local action_desc="Rebuilding and switching to"
-    if [[ "$boot_only" == true ]]; then
-      action="boot"
-      action_desc="Building (boot only, no switch)"
+    if [[ "$action" == "switch" ]]; then
+      echo -e "\n\033[1;34m==> Rebuilding and switching to ${system}...\033[0m"
+    else
+      echo -e "\n\033[1;34m==> Building ${system} (select from GRUB)...\033[0m"
     fi
 
-    echo -e "\n\033[1;34m==> ${action_desc} ${flake_key} (profile: ${profile})...\033[0m"
-    echo "+ sudo nixos-rebuild ${action} -p ${profile} --flake .#${flake_key}"
-
     if sudo nixos-rebuild "${action}" -p "${profile}" --flake ".#${flake_key}"; then
-      echo -e "\n\033[1;32m==> All done!\033[0m"
-      if [[ "$boot_only" == true ]]; then
-        echo -e "\033[1;33m==> Profile built but not activated. Reboot to use it.\033[0m"
+      echo -e "\n\033[1;32m==> Done!\033[0m"
+      if [[ "$action" == "boot" ]]; then
+        echo -e "\033[1;33m==> Reboot and select ${system} from GRUB.\033[0m"
       fi
     else
-      echo -e "\n\033[1;31m==> Build failed. Check the output above.\033[0m"
+      echo -e "\n\033[1;31m==> Build failed.\033[0m"
       exit 1
     fi
   )

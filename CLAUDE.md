@@ -5,19 +5,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build Commands
 
 ```bash
-# Build and switch to a system configuration (uses named profiles)
-system-rebuild rock Sisyphus         # Hyprland desktop
-system-rebuild rock Elektra          # KDE Plasma 6
-system-rebuild rock Odysseus         # Niri compositor
+# Interactive menu (recommended)
+system-rebuild
+# Prompts for:
+#   1) System: Sisyphus/Odysseus/Elektra
+#   2) Action: Switch (now) / Boot (GRUB menu)
 
-# Build without switching (for building other profiles safely)
-system-rebuild rock Sisyphus --boot
+# Direct CLI usage
+system-rebuild rock Sisyphus         # Build and switch immediately
+system-rebuild rock Elektra --boot   # Build for GRUB, don't switch
 
 # Update flake inputs
 nix flake update
 ```
 
-The `system-rebuild` helper (defined in `modules/home/zsh/scripts/zsh-helpers.sh`) takes USER and SYSTEM as arguments, builds `${USER}-${SYSTEM}` flake, and uses `-p ${system}` for named profiles.
+The `system-rebuild` helper (defined in `modules/home/zsh/scripts/zsh-helpers.sh`) supports both interactive and CLI modes. Uses named profiles (`-p ${system}`) so each desktop environment has its own profile at `/nix/var/nix/profiles/system-profiles/`.
+
+**Note:** The script uses `echo -n` + `read` (not `read -p`) for zsh compatibility.
 
 ## Architecture
 
@@ -68,7 +72,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 | System | Desktop | Entry Point | Key Modules |
 |--------|---------|-------------|-------------|
 | **Sisyphus** | Hyprland | `hosts/Sisyphus/system.nix` | hyprland (nixos+home), skwd-wallpaper, noctalia, screenshot, spicetify |
-| **Elektra** | KDE Plasma 6 | `hosts/Elektra/system.nix` | kde (plasma-manager), screenshot |
+| **Elektra** | KDE Plasma 6 | `hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wallpaper, thunar, spicetify, discord, screenshot |
 | **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + power menu + notifications), skwd (launcher + wallpaper only), spicetify (static blue theme), discord |
 
 All systems share: base, grub, sddm, audio, locale, steam, polkit, zsh, kitty, brave, git, navi, starship, fastfetch
@@ -112,9 +116,9 @@ system-rebuild rock Sisyphus --boot
 
 Two variants of SKWD exist for different use cases:
 
-- **skwd.nix** (full shell): Launcher, wallpaper selector, window switcher. Used on Niri with bar, power menu, and notifications disabled (Noctalia provides these). Clones from `github.com/liixini/skwd` to `~/.config/skwd/`.
+- **skwd.nix** (full shell): Launcher, wallpaper selector, window switcher. Used on Niri with bar, power menu, and notifications disabled (Noctalia provides these). Clones from `github.com/liixini/skwd` to `~/.config/skwd/`. Controlled via **FIFO** at `$XDG_RUNTIME_DIR/skwd/cmd`.
 
-- **skwd-wallpaper.nix** (wallpaper only): Just the wallpaper selector component. Used on Hyprland where noctalia handles everything else. Clones from `github.com/liixini/skwd-wall` to `~/.config/skwd-wall/`.
+- **skwd-wallpaper.nix** (wallpaper only): Just the wallpaper selector component. Used on Hyprland and KDE. Clones from `github.com/liixini/skwd-wall` to `~/.config/skwd-wall/`. Uses `awww` daemon for wallpapers (compositor-agnostic). Controlled via **quickshell IPC** (not FIFO): `quickshell ipc -p ~/.config/skwd-wall/daemon.qml call wallpaper toggle`.
 
 **NixOS compatibility patches** (applied via `home.activation`):
 - SKWD's app launcher searches standard Linux paths (`/usr/share/applications`) which don't exist on NixOS
@@ -192,6 +196,28 @@ Uses Vesktop (Discord + Vencord) instead of regular Discord for:
 
 Config in `modules/home/discord.nix`.
 
+### KDE Plasma (Elektra)
+
+Configured via `plasma-manager` in `modules/home/kde.nix`:
+
+**Panel:** Bottom of DP-2 (primary monitor), floating, height 32
+- Widgets: Kickoff, Pager, Icon Tasks, Separator, System Tray, Digital Clock
+
+**Keybinds:**
+| Key | Action |
+|-----|--------|
+| `Meta+Q` | Close window |
+| `Meta+Shift+F` | Fullscreen |
+| `Meta+A` | Overview |
+| `Meta+Return` | Kitty terminal |
+| `Meta+E` | Thunar file browser |
+| `Meta+F` | Brave browser |
+| `Meta+W` | SKWD wallpaper selector |
+
+**SKWD on KDE:** Uses `skwd-wall` (the lightweight wallpaper-only variant) with quickshell IPC instead of the FIFO-based full SKWD shell. The daemon (`skwd-wall-daemon`) autostarts via XDG autostart entry, and `skwd-wallpaper-toggle` sends IPC commands: `quickshell ipc -p ~/.config/skwd-wall/daemon.qml call wallpaper toggle`.
+
+**Monitor config:** Plasma-manager doesn't support `displays` option. Configure monitors manually in KDE System Settings on first boot (persists after).
+
 ### Starship Prompt
 
 Custom Gruvbox Rainbow theme in `modules/home/starship.nix`:
@@ -211,6 +237,18 @@ Custom system info display in `modules/home/fastfetch.nix`:
 - Uses kitty image protocol for logo display (`assets/terminal-logo-small.png`)
 - Grouped sections: Hardware, Graphics, Software, Session
 - Gruvbox color scheme with box-drawing borders
+
+### Navi Cheats
+
+Custom cheatsheet in `modules/home/navi.nix` at `~/.config/navi/cheats/rhys.cheat`:
+- **System Cleanup** - `nix-gc` (GC, store optimise, journal vacuum)
+- **System Rebuild** - Interactive menu via `system-rebuild`
+- **Git Sync** - `git-sync "message"` for quick commits
+
+Also provides wrapper scripts:
+- `system-rebuild` - Interactive or CLI system rebuild
+- `git-sync` - Stash, pull --rebase, push workflow
+- `nix-gc` - Full cleanup (GC + optimise + journal + podman prune)
 
 ### How import-tree Works
 
@@ -270,6 +308,41 @@ All systems use dual monitors:
 - **DP-2**: 2560x1080 @ 144Hz (primary)
 - **HDMI-A-1**: 1920x1080 @ 60Hz (secondary)
 
+### Secrets Management (sops-nix)
+
+Uses **sops-nix** with age keys for encrypted secrets. Secrets are decrypted at system activation and available at `/run/secrets/`.
+
+**Files:**
+- `.sops.yaml` - Lists age public keys and path rules
+- `secrets/secrets.yaml` - Encrypted secrets file (safe to commit)
+- `modules/nixos/sops.nix` - sops-nix module config
+
+**Key locations:**
+- PC key: `~/.config/sops/age/keys.txt`
+- Apollo USB backup: wherever you store it
+
+**Adding a secret:**
+1. Edit the encrypted file: `sops secrets/secrets.yaml`
+2. Add your secret: `my-api-key: "the-actual-key"`
+3. Save and exit (auto re-encrypts)
+4. Reference in `sops.nix`:
+   ```nix
+   sops.secrets.my-api-key = { };
+   ```
+5. Available at `/run/secrets/my-api-key` after rebuild
+
+**Useful commands:**
+```bash
+# Edit secrets (decrypts in editor, re-encrypts on save)
+sops secrets/secrets.yaml
+
+# Rotate keys (after adding new key to .sops.yaml)
+sops updatekeys secrets/secrets.yaml
+
+# View decrypted secrets (read-only)
+sops -d secrets/secrets.yaml
+```
+
 ### Flake Inputs of Note
 
 - `nixpkgs@nixos-25.11` (stable) and `nixpkgs-unstable`
@@ -284,3 +357,4 @@ All systems use dual monitors:
 - `niri` - Scrollable tiling Wayland compositor (niri-flake)
 - `silentSDDM` - Login screen theme
 - `nix-citizen` / `nix-gaming` - Gaming packages (Star Citizen, Proton)
+- `sops-nix` - Encrypted secrets management with age keys

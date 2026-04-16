@@ -4,9 +4,11 @@
     environment.systemPackages = with pkgs; [
       xfce.thunar
       xfce.thunar-volman
+      xfce.thunar-archive-plugin
       xfce.tumbler
       ffmpegthumbnailer
       file-roller
+      p7zip
       xdg-utils
       adwaita-icon-theme
       hicolor-icon-theme
