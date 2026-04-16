@@ -49,6 +49,7 @@ in {
       self.nixosModules.steam
       self.nixosModules.audio
       self.nixosModules.locale
+      self.nixosModules.sops
 
       # System-specific settings
       {

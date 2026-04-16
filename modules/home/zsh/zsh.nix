@@ -1,5 +1,9 @@
 { ... }: {
   flake.homeModules.zsh = { config, pkgs, ... }: {
+    home.sessionVariables = {
+      EDITOR = "codium --wait";
+    };
+
     home.file.".config/zsh/zsh-helpers.sh" = {
       source = ./scripts/zsh-helpers.sh;
       executable = true;

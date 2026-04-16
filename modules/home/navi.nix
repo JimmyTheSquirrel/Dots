@@ -280,6 +280,10 @@
       % Git Sync
       # Same as git-sync, but include a commit message
       git-sync "chore: sync"
+
+      % Edit Secrets
+      # Open encrypted secrets file in editor (decrypts, re-encrypts on save)
+      sops ~/Dots/secrets/secrets.yaml
     '';
   };
 }

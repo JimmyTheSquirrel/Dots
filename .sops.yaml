@@ -1,9 +1,9 @@
 keys:
-  # PC key - generate with: age-keygen -o ~/.config/sops/age/keys.txt
-  - &pc age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  # PC key (~/.config/sops/age/keys.txt)
+  - &pc age1he4hsv9cgdpj6l86eq0tp3cmdmg544v3kw9wunw4z94dc5gjegvsy37aaf
 
-  # Apollo USB backup key - generate with: age-keygen -o /path/to/apollo/age-keys.txt
-  - &apollo age1yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  # Apollo USB backup key (/run/media/rock/Apollo/keys/age-keys.txt)
+  - &apollo age1e7gwwejhck67d36zjak3l0k5jpwlj23eluma9jaku0ae48eypveq9z3qyj
 
 creation_rules:
   - path_regex: secrets/.*\.yaml$

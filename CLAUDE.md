@@ -62,7 +62,8 @@ flake.nix                    # Entry point using flake-parts + import-tree
         ├── hyprland.nix     # Hyprland system config (native NixOS)
         ├── kde.nix          # KDE system config
         ├── niri.nix         # Niri config (wrapper-modules with perSystem)
-        ├── thunar.nix       # File manager + icon themes
+        ├── thunar.nix       # File manager + archive support (7zip) + icon themes
+        ├── sops.nix         # Secrets management with age keys
         ├── locale.nix       # Australia/Sydney, en_AU
         └── polkit.nix       # Polkit + authentication agent
 ```
@@ -75,7 +76,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 | **Elektra** | KDE Plasma 6 | `hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wallpaper, thunar, spicetify, discord, screenshot |
 | **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + power menu + notifications), skwd (launcher + wallpaper only), spicetify (static blue theme), discord |
 
-All systems share: base, grub, sddm, audio, locale, steam, polkit, zsh, kitty, brave, git, navi, starship, fastfetch
+All systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, brave, git, navi, starship, fastfetch
 
 ### Multi-Boot System
 
@@ -244,6 +245,7 @@ Custom cheatsheet in `modules/home/navi.nix` at `~/.config/navi/cheats/rhys.chea
 - **System Cleanup** - `nix-gc` (GC, store optimise, journal vacuum)
 - **System Rebuild** - Interactive menu via `system-rebuild`
 - **Git Sync** - `git-sync "message"` for quick commits
+- **Edit Secrets** - `sops ~/Dots/secrets/secrets.yaml` (decrypts in editor)
 
 Also provides wrapper scripts:
 - `system-rebuild` - Interactive or CLI system rebuild
@@ -319,7 +321,7 @@ Uses **sops-nix** with age keys for encrypted secrets. Secrets are decrypted at 
 
 **Key locations:**
 - PC key: `~/.config/sops/age/keys.txt`
-- Apollo USB backup: wherever you store it
+- Apollo USB backup: `/run/media/rock/Apollo/keys/age-keys.txt`
 
 **Adding a secret:**
 1. Edit the encrypted file: `sops secrets/secrets.yaml`
@@ -330,6 +332,8 @@ Uses **sops-nix** with age keys for encrypted secrets. Secrets are decrypted at 
    sops.secrets.my-api-key = { };
    ```
 5. Available at `/run/secrets/my-api-key` after rebuild
+
+**Editor:** `EDITOR` is set to `codium --wait` in `zsh.nix`, so sops opens VSCodium.
 
 **Useful commands:**
 ```bash
