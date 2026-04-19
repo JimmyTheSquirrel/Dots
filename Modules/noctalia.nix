@@ -140,7 +140,7 @@
         };
 
         colorSchemes = {
-          useWallpaperColors = true;
+          useWallpaperColors = false;
           predefinedScheme = "Gruvbox";
           darkMode = true;
         };

@@ -16,8 +16,8 @@ DraggableDesktopWidget {
 
   // Font sizes scaled by widgetScale
   readonly property real dayFontSize: Math.round(72 * widgetScale)
-  readonly property real dateFontSize: Math.round(18 * widgetScale)
-  readonly property real timeFontSize: Math.round(16 * widgetScale)
+  readonly property real dateFontSize: Math.round(14 * widgetScale)
+  readonly property real timeFontSize: Math.round(12 * widgetScale)
 
   // Padding
   readonly property real contentPadding: Math.round(Style.marginXL * 1.5 * widgetScale)
@@ -38,19 +38,19 @@ DraggableDesktopWidget {
     spacing: Math.round(4 * root.widgetScale)
     opacity: root.widgetOpacity
 
-    // Day name (e.g., "FRIDAY")
+    // Day name (e.g., "MONDAY")
     Text {
       id: dayText
       Layout.alignment: Qt.AlignHCenter
       text: Qt.formatDate(root.now, "dddd").toUpperCase()
       font.family: "Orbitron"
       font.pixelSize: root.dayFontSize
-      font.weight: Font.Bold
-      font.letterSpacing: Math.round(4 * root.widgetScale)
+      font.weight: Font.Medium
+      font.letterSpacing: Math.round(6 * root.widgetScale)
       color: Color.mOnSurface
     }
 
-    // Date (e.g., "13 JUN 2025")
+    // Date (e.g., "20 APR 2025")
     Text {
       id: dateText
       Layout.alignment: Qt.AlignHCenter
@@ -58,11 +58,12 @@ DraggableDesktopWidget {
       font.family: "Orbitron"
       font.pixelSize: root.dateFontSize
       font.weight: Font.Normal
-      font.letterSpacing: Math.round(2 * root.widgetScale)
+      font.letterSpacing: Math.round(4 * root.widgetScale)
       color: Color.mOnSurfaceVariant
+      opacity: 0.85
     }
 
-    // Time (e.g., "- 05:30 PM -")
+    // Time (e.g., "- 05:30 AM -")
     Text {
       id: timeText
       Layout.alignment: Qt.AlignHCenter
@@ -70,8 +71,9 @@ DraggableDesktopWidget {
       font.family: "Orbitron"
       font.pixelSize: root.timeFontSize
       font.weight: Font.Normal
-      font.letterSpacing: Math.round(2 * root.widgetScale)
+      font.letterSpacing: Math.round(4 * root.widgetScale)
       color: Color.mOnSurfaceVariant
+      opacity: 0.7
     }
   }
 }
