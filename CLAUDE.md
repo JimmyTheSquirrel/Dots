@@ -19,7 +19,7 @@ system-rebuild rock Elektra --boot   # Build for GRUB, don't switch
 nix flake update
 ```
 
-The `system-rebuild` helper (defined in `modules/home/zsh/scripts/zsh-helpers.sh`) supports both interactive and CLI modes. Uses named profiles (`-p ${system}`) so each desktop environment has its own profile at `/nix/var/nix/profiles/system-profiles/`.
+The `system-rebuild` helper (defined in `Resources/zsh-scripts/zsh-helpers.sh`) supports both interactive and CLI modes. Uses named profiles (`-p ${system}`) so each desktop environment has its own profile at `/nix/var/nix/profiles/system-profiles/`.
 
 **Note:** The script uses `echo -n` + `read` (not `read -p`) for zsh compatibility.
 
@@ -31,50 +31,45 @@ This is a NixOS Flake-based dotfiles repository using **flake-parts** + **import
 
 ```
 flake.nix                    # Entry point using flake-parts + import-tree
-├── hosts/                   # System configurations (auto-imported)
+├── Hosts/                   # System configurations (auto-imported)
 │   ├── Sisyphus/            # Hyprland desktop
-│   │   └── system.nix       # NixOS config + Home Manager setup
+│   │   └── system.nix       # NixOS config with module imports
 │   ├── Elektra/             # KDE Plasma 6
 │   │   └── system.nix
 │   └── Odysseus/            # Niri compositor
 │       └── system.nix
-└── modules/                 # Reusable modules (auto-imported)
-    ├── flake-outputs.nix    # Custom flake option for homeModules
-    ├── home/                # Home Manager modules
-    │   ├── zsh/             # Shell config with helper scripts
-    │   ├── starship.nix     # Starship prompt (Gruvbox Rainbow theme, requires Nerd Font)
-    │   ├── fastfetch.nix    # System info display with custom logo
-    │   ├── hyprland.nix     # Hyprland WM config (native HM module)
-    │   ├── kde.nix          # Plasma config via plasma-manager
-    │   ├── noctalia.nix     # Desktop shell/bar (wrapper-modules)
-    │   ├── skwd.nix         # SKWD shell (launcher, wallpaper selector, matugen theming)
-    │   ├── skwd-wallpaper.nix # SKWD wallpaper-only module (for Hyprland)
-    │   ├── spicetify.nix    # Spotify theming with static blue color scheme
-    │   ├── discord.nix      # Vesktop (Discord + Vencord) with transparency
-    │   ├── kitty.nix, brave.nix, git.nix, vscodium.nix, etc.
-    │   └── screenshot.nix, navi.nix, gtk.nix
-    └── nixos/               # NixOS system modules
-        ├── base.nix         # Common packages and settings
-        ├── grub.nix         # GRUB with Yorha theme + multi-system boot menu
-        ├── sddm/            # SDDM with SilentSDDM video theme
-        ├── audio.nix        # Pipewire audio
-        ├── steam.nix        # Gaming (Steam, Proton, gamemode)
-        ├── hyprland.nix     # Hyprland system config (native NixOS)
-        ├── kde.nix          # KDE system config
-        ├── niri.nix         # Niri config (wrapper-modules with perSystem)
-        ├── thunar.nix       # File manager + archive support (7zip) + icon themes
-        ├── sops.nix         # Secrets management with age keys
-        ├── locale.nix       # Australia/Sydney, en_AU
-        └── polkit.nix       # Polkit + authentication agent
+├── Modules/                 # Self-contained modules (auto-imported)
+│   ├── Desktops/            # Desktop environment configs
+│   │   ├── hyprland.nix     # Hyprland (system + home config combined)
+│   │   ├── kde.nix          # KDE Plasma (system + home config combined)
+│   │   └── niri.nix         # Niri (wrapper-modules with perSystem)
+│   ├── noctalia.nix         # Desktop shell/bar (wrapper-modules)
+│   ├── skwd-wall.nix        # Wallpaper selector with systemd service
+│   ├── kitty.nix            # Terminal emulator
+│   ├── zsh.nix              # Shell config
+│   ├── spicetify.nix        # Spotify theming
+│   ├── discord.nix          # Vesktop with transparency
+│   ├── sddm.nix             # SDDM video login theme
+│   ├── base.nix             # Common packages and settings
+│   ├── grub.nix             # GRUB with multi-system boot menu
+│   └── ... (audio, steam, sops, locale, polkit, etc.)
+├── Resources/               # Static files (not Nix modules)
+│   ├── Spicetify-Text-Theme/  # Spicetify CSS/color theme
+│   ├── Zsh-Scripts/         # Shell helper scripts
+│   ├── Terminal-Images/     # Fastfetch logos
+│   └── Sddm/                # SDDM video background
+└── Secrets/                 # Encrypted secrets
+    ├── .sops.yaml           # Age key config
+    └── secrets.yaml         # Encrypted values
 ```
 
 ### The Three Systems
 
 | System | Desktop | Entry Point | Key Modules |
 |--------|---------|-------------|-------------|
-| **Sisyphus** | Hyprland | `hosts/Sisyphus/system.nix` | hyprland (nixos+home), skwd-wallpaper, noctalia, screenshot, spicetify |
-| **Elektra** | KDE Plasma 6 | `hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wallpaper, thunar, spicetify, discord, screenshot |
-| **Odysseus** | Niri | `hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + power menu + notifications), skwd (launcher + wallpaper only), spicetify (static blue theme), discord |
+| **Sisyphus** | Hyprland | `Hosts/Sisyphus/system.nix` | hyprland (nixos+home), skwd-wall, noctalia, screenshot, spicetify |
+| **Elektra** | KDE Plasma 6 | `Hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wall, thunar, spicetify, discord, screenshot |
+| **Odysseus** | Niri | `Hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + launcher + power menu + notifications), skwd-wall, spicetify, discord |
 
 All systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, brave, git, navi, starship, fastfetch
 
@@ -113,63 +108,38 @@ system-rebuild rock Sisyphus --boot
 # After rebuilding any system, the GRUB menu auto-updates on next switch
 ```
 
-### SKWD Modules
+### SKWD Wallpaper Selector
 
-Two variants of SKWD exist for different use cases:
+All systems use **skwd-wall** - a wallpaper selector with matugen integration for Material You color schemes.
 
-- **skwd.nix** (full shell): Launcher, wallpaper selector, window switcher. Used on Niri with bar, power menu, and notifications disabled (Noctalia provides these). Clones from `github.com/liixini/skwd` to `~/.config/skwd/`. Controlled via **FIFO** at `$XDG_RUNTIME_DIR/skwd/cmd`.
-
-- **skwd-wallpaper.nix** (wallpaper only): Just the wallpaper selector component. Used on Hyprland and KDE. Clones from `github.com/liixini/skwd-wall` to `~/.config/skwd-wall/`. Uses `awww` daemon for wallpapers (compositor-agnostic). Controlled via **quickshell IPC** (not FIFO): `quickshell ipc -p ~/.config/skwd-wall/daemon.qml call wallpaper toggle`.
-
-**NixOS compatibility patches** (applied via `home.activation`):
-- SKWD's app launcher searches standard Linux paths (`/usr/share/applications`) which don't exist on NixOS
-- The module patches `scripts/python/build-app-cache` to add NixOS paths:
-  - `/run/current-system/sw/share/applications/` (system packages)
-  - `/etc/profiles/per-user/rock/share/applications/` (home-manager packages)
-  - Corresponding icon paths in `/run/current-system/sw/share/icons/`
-- Also patches `qml/launcher/AppLauncherService.qml` inotifywatcher for live updates
-
-**App customization** (`~/.config/skwd/data/apps.json`):
-- Keys match `.desktop` file `Name` fields (case-insensitive)
-- Optional fields: `background` (image path), `icon` (nerd font glyph), `displayName`, `hidden`, `tags`
-- Steam game thumbnails auto-generated from library cache when `paths.steam` is set in config.json
-
-**Rebuild app cache manually:**
-```bash
-cd ~/.config/skwd && python3 scripts/python/build-app-cache
-```
-
-### Matugen Integration
-
-SKWD uses **matugen** (v3.0.0+) to generate Material You color schemes from wallpapers. Colors update dynamically when wallpaper changes.
+**Module:** `Modules/skwd-wall.nix`
 
 **How it works:**
-1. When wallpaper changes, `scripts/bash/apply-static-wallpaper` runs matugen
-2. Matugen reads templates from `~/.config/skwd/ext/matugen/templates/`
-3. Generates color files based on `~/.cache/skwd/matugen-config.toml`
-4. SKWD's `Colors.qml` watches `~/.cache/skwd/colors.json` for hot-reload
+- Uses the `skwd-wall` flake input (github:liixini/skwd-wall)
+- Installs the package which provides `skwd`, `skwd-wall`, and `skwd-daemon` executables
+- Enables a systemd user service (`skwd-daemon`) that auto-starts with the graphical session
+- Seeds `~/.config/skwd-wall/config.json` on first run
 
-**Config files:**
-- `~/.config/skwd/data/config.json` - contains `matugen.schemeType` and `integrations` paths
-- `~/.cache/skwd/matugen-config.toml` - generated config mapping templates to output paths
-- `~/.config/skwd/ext/matugen/config.toml.in` - template for matugen config
-
-**NixOS fix** (in `skwd.nix`):
-- Matugen doesn't expand `~` in paths - the `skwdFixMatugen` activation hook patches `config.toml.in` to use absolute paths
-- Also expands `~` in all integration paths from `config.json` before writing to `matugen-config.toml`
-- Removes empty template sections from generated config
-
-**Important:** Matugen 3.0.0 removed the `--source-color-index` flag. SKWD scripts have been patched to not use this flag.
-
-**Adding integrations:**
-1. Add output path to `config.json` under `integrations` (e.g., `"kitty": "~/.config/kitty/colors.conf"`)
-2. The `skwdFixMatugen` hook will include it in the generated matugen config
-3. Template must exist in `ext/matugen/templates/`
-
-**Test matugen manually:**
+**Usage:**
 ```bash
-matugen -c ~/.cache/skwd/matugen-config.toml image -t scheme-fidelity ~/Pictures/Wallpapers/some-image.jpg
+# Toggle wallpaper selector (bind to Meta+W in all compositors)
+skwd wall toggle
+
+# Other commands
+skwd wallpaper set /path/to/image.jpg
+skwd wallpaper random
 ```
+
+**Config file:** `~/.config/skwd-wall/config.json`
+- `compositor`: "niri", "hyprland", or "kde"
+- `monitor`: Target monitor (e.g., "DP-2")
+- `paths.wallpaper`: Wallpaper directory
+- `features.matugen`: Enable Material You color generation
+- `matugen.schemeType`: Color scheme type (e.g., "scheme-fidelity")
+
+**Keybinds:**
+- All systems: `Meta+W` toggles the wallpaper selector
+- Niri: `Meta+D` now uses Noctalia's app launcher instead of SKWD
 
 ### Spicetify Theme
 
@@ -182,7 +152,7 @@ Custom **"text" theme** with static blue color scheme:
 - Fixed connect bar positioning and clickability (CSS fixes in additionalCss)
 - Marketplace app + adblock/shuffle extensions
 
-Theme files in `modules/home/spicetify-text-theme/`.
+Theme files in `Resources/spicetify-text-theme/`.
 
 **Note on dynamic colors:** Spicetify-nix bakes themes into the Nix store at build time, so runtime color updates (e.g., from matugen) don't work without a rebuild. The theme uses a static "Blue" color scheme defined in `color.ini`.
 
@@ -195,11 +165,11 @@ Uses Vesktop (Discord + Vencord) instead of regular Discord for:
 
 **Cache clearing:** The module clears Vesktop cache directories (`Cache`, `Code Cache`, `GPUCache`) on each rebuild to prevent EPIPE errors. Login session is preserved.
 
-Config in `modules/home/discord.nix`.
+Config in `Modules/discord.nix`.
 
 ### KDE Plasma (Elektra)
 
-Configured via `plasma-manager` in `modules/home/kde.nix`:
+Configured via `plasma-manager` in `Modules/Desktops/kde.nix`:
 
 **Panel:** Bottom of DP-2 (primary monitor), floating, height 32
 - Widgets: Kickoff, Pager, Icon Tasks, Separator, System Tray, Digital Clock
@@ -215,13 +185,11 @@ Configured via `plasma-manager` in `modules/home/kde.nix`:
 | `Meta+F` | Brave browser |
 | `Meta+W` | SKWD wallpaper selector |
 
-**SKWD on KDE:** Uses `skwd-wall` (the lightweight wallpaper-only variant) with quickshell IPC instead of the FIFO-based full SKWD shell. The daemon (`skwd-wall-daemon`) autostarts via XDG autostart entry, and `skwd-wallpaper-toggle` sends IPC commands: `quickshell ipc -p ~/.config/skwd-wall/daemon.qml call wallpaper toggle`.
-
 **Monitor config:** Plasma-manager doesn't support `displays` option. Configure monitors manually in KDE System Settings on first boot (persists after).
 
 ### Starship Prompt
 
-Custom Gruvbox Rainbow theme in `modules/home/starship.nix`:
+Custom Gruvbox Rainbow theme in `Modules/starship.nix`:
 - Sharp powerline arrows (`` U+E0B0, `` U+E0B2) for segment separators
 - Format: `user @ hostname` → `directory` → `git` → `language` → `docker/conda`
 - Command prompt uses `➜` arrow (green for success, red for error)
@@ -234,31 +202,51 @@ Custom Gruvbox Rainbow theme in `modules/home/starship.nix`:
 
 ### Fastfetch
 
-Custom system info display in `modules/home/fastfetch.nix`:
+Custom system info display in `Modules/fastfetch.nix`:
 - Uses kitty image protocol for logo display (`assets/terminal-logo-small.png`)
 - Grouped sections: Hardware, Graphics, Software, Session
 - Gruvbox color scheme with box-drawing borders
 
 ### Navi Cheats
 
-Custom cheatsheet in `modules/home/navi.nix` at `~/.config/navi/cheats/rhys.cheat`:
+Custom cheatsheet in `Modules/navi.nix` at `~/.config/navi/cheats/rhys.cheat`:
 - **System Cleanup** - `nix-gc` (GC, store optimise, journal vacuum)
 - **System Rebuild** - Interactive menu via `system-rebuild`
 - **Git Sync** - `git-sync "message"` for quick commits
-- **Edit Secrets** - `sops ~/Dots/secrets/secrets.yaml` (decrypts in editor)
+- **Edit Secrets** - `sops ~/Dots/Secrets/secrets.yaml` (decrypts in editor)
 
 Also provides wrapper scripts:
 - `system-rebuild` - Interactive or CLI system rebuild
 - `git-sync` - Stash, pull --rebase, push workflow
 - `nix-gc` - Full cleanup (GC + optimise + journal + podman prune)
 
-### How import-tree Works
+### Dendritic Module Pattern
 
-The flake uses `import-tree` for automatic module discovery:
-- `(inputs.import-tree ./hosts)` - auto-imports all `*.nix` files in hosts/
-- `(inputs.import-tree ./modules)` - auto-imports all `*.nix` files in modules/
+Each module is **self-contained** - it includes both NixOS system config AND Home Manager user config in one file. This follows the dendritic pattern where related code is co-located.
 
-Each module defines itself as `flake.nixosModules.{name}` or `flake.homeModules.{name}`, and system configs select which modules to enable.
+**Example module structure:**
+```nix
+{ ... }: {
+  flake.nixosModules.kitty = { activeUser, pkgs, ... }: {
+    # System config (if needed)
+    # ...
+
+    # Home Manager config embedded
+    home-manager.users.${activeUser} = {
+      programs.kitty = {
+        enable = true;
+        # ...
+      };
+    };
+  };
+}
+```
+
+**How import-tree works:**
+- `(inputs.import-tree ./Hosts)` - auto-imports all `*.nix` files in Hosts/
+- `(inputs.import-tree ./Modules)` - auto-imports all `*.nix` files in Modules/
+
+Each module defines `flake.nixosModules.{name}`. Host configs only need one import list - no separate `homeModules` imports.
 
 ### wrapper-modules Pattern
 
@@ -289,17 +277,17 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 **Niri-specific notes:**
 - Window rules require `extraConfig` with raw KDL because the `match app-id="pattern"` syntax doesn't translate correctly from Nix
 - Monitor/output config uses `extraConfig` for positioning
-- Niri config lives entirely in `modules/nixos/niri.nix` (no separate home module)
+- Niri config lives entirely in `Modules/Desktops/niri.nix`
 - Hot corners disabled via `gestures { hot-corners { off } }` in extraConfig
 - Sharp corners (no border radius) with thin dark border (`width = 2`, `#333333`)
 - Border config uses hyphenated syntax: `layout.border.active-color` and `layout.border.inactive-color` (not nested objects)
 - Focus ring disabled (`layout.focus-ring.width = 0`), using border instead for window outlines
 - Cursor theme configured via `cursor.xcursor-theme` and `cursor.xcursor-size` in wrapper-modules settings
 - Window opacity rules for transparency (spotify 0.90, vesktop 0.85, etc.)
-- `skwd-daemon` wrapper script in systemPackages for spawn-at-startup (niri needs single executable, not command with args)
-- `skwd-wallpaper-restore` waits for SKWD FIFO to exist before restoring (polls every 100ms, no fixed sleep)
 - Spotify wrapper uses D-Bus to navigate to Liked Songs: `qdbus6 org.mpris.MediaPlayer2.spotify / org.freedesktop.MediaPlayer2.OpenUri "spotify:collection:tracks"` (the `--uri` flag only works on fresh launch, not when Spotify is already running)
 - Power menu keybind (`Mod+Shift+Delete`) triggers Noctalia's session menu via IPC: `noctalia-shell ipc call sessionMenu toggle`
+- App launcher keybind (`Mod+D`) uses Noctalia: `noctalia-shell ipc call appLauncher toggle`
+- Wallpaper keybind (`Mod+W`) uses skwd-wall: `skwd wall toggle`
 - `kdePackages.qttools` provides `qdbus6` for D-Bus calls to Spotify
 - Startup optimization: D-Bus environment commands run in background (`sh -c '... &'`) so visual elements load first
 - Session startup delay: niri binary is wrapped with a 2-second sleep to allow SDDM/session to fully initialize before rendering
@@ -315,16 +303,16 @@ All systems use dual monitors:
 Uses **sops-nix** with age keys for encrypted secrets. Secrets are decrypted at system activation and available at `/run/secrets/`.
 
 **Files:**
-- `.sops.yaml` - Lists age public keys and path rules
-- `secrets/secrets.yaml` - Encrypted secrets file (safe to commit)
-- `modules/nixos/sops.nix` - sops-nix module config
+- `Secrets/.sops.yaml` - Lists age public keys and path rules
+- `Secrets/secrets.yaml` - Encrypted secrets file (safe to commit)
+- `Modules/sops.nix` - sops-nix module config
 
 **Key locations:**
 - PC key: `~/.config/sops/age/keys.txt`
 - Apollo USB backup: `/run/media/rock/Apollo/keys/age-keys.txt`
 
 **Adding a secret:**
-1. Edit the encrypted file: `sops secrets/secrets.yaml`
+1. Edit the encrypted file: `sops Secrets/secrets.yaml`
 2. Add your secret: `my-api-key: "the-actual-key"`
 3. Save and exit (auto re-encrypts)
 4. Reference in `sops.nix`:
@@ -338,7 +326,7 @@ Uses **sops-nix** with age keys for encrypted secrets. Secrets are decrypted at 
 **Useful commands:**
 ```bash
 # Edit secrets (decrypts in editor, re-encrypts on save)
-sops secrets/secrets.yaml
+sops Secrets/secrets.yaml
 
 # Rotate keys (after adding new key to .sops.yaml)
 sops updatekeys secrets/secrets.yaml
@@ -353,9 +341,8 @@ sops -d secrets/secrets.yaml
 - `home-manager@release-25.11`
 - `flake-parts` + `import-tree` - Modular flake organization
 - `wrapper-modules` - Wraps packages with settings baked in (used for niri, noctalia)
-- `noctalia` - Custom desktop shell with widgets/bar
-- `quickshell` - QML framework for SKWD
-- `awww` - Wayland wallpaper daemon (used by SKWD instead of swww)
+- `noctalia` - Custom desktop shell with widgets/bar/launcher
+- `skwd-wall` - Wallpaper selector with matugen integration (bundles quickshell + awww)
 - `spicetify-nix` - Declarative Spotify theming
 - `plasma-manager` - KDE Plasma declarative config
 - `niri` - Scrollable tiling Wayland compositor (niri-flake)

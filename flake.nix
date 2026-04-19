@@ -22,15 +22,8 @@
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
 
-    # --- Quickshell (for skwd) ---
-    quickshell = {
-      url = "github:quickshell-mirror/quickshell";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
-    };
-
-    awww = {
-      url = "git+https://codeberg.org/LGFae/awww";
-    };
+    # --- SKWD Wallpaper Selector ---
+    skwd-wall.url = "github:liixini/skwd-wall";
 
     # --- KDE Plasma Manager ---
     plasma-manager = {
@@ -77,8 +70,8 @@
       systems = [ "x86_64-linux" ];
 
       imports = [
-        (inputs.import-tree ./hosts)
-        (inputs.import-tree ./modules)
+        (inputs.import-tree ./Hosts)
+        (inputs.import-tree ./Modules)
       ];
     };
 }

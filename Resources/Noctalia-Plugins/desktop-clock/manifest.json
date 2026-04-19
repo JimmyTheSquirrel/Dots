@@ -1,0 +1,11 @@
+{
+  "id": "desktop-clock",
+  "name": "Desktop Clock",
+  "version": "1.0.0",
+  "description": "Centered desktop clock with day, date, and time",
+  "author": "rock",
+  "license": "MIT",
+  "entryPoints": {
+    "desktopWidget": "DesktopWidget.qml"
+  }
+}
