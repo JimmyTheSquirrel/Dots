@@ -43,7 +43,7 @@ DraggableDesktopWidget {
       id: dayText
       Layout.alignment: Qt.AlignHCenter
       text: Qt.formatDate(root.now, "dddd").toUpperCase()
-      font.family: "Orbitron"
+      font.family: "Michroma"
       font.pixelSize: root.dayFontSize
       font.weight: Font.Medium
       font.letterSpacing: Math.round(6 * root.widgetScale)
@@ -55,7 +55,7 @@ DraggableDesktopWidget {
       id: dateText
       Layout.alignment: Qt.AlignHCenter
       text: Qt.formatDate(root.now, "dd MMM yyyy").toUpperCase()
-      font.family: "Orbitron"
+      font.family: "Michroma"
       font.pixelSize: root.dateFontSize
       font.weight: Font.Normal
       font.letterSpacing: Math.round(4 * root.widgetScale)
@@ -68,7 +68,7 @@ DraggableDesktopWidget {
       id: timeText
       Layout.alignment: Qt.AlignHCenter
       text: "- " + Qt.formatTime(root.now, "hh:mm AP") + " -"
-      font.family: "Orbitron"
+      font.family: "Michroma"
       font.pixelSize: root.timeFontSize
       font.weight: Font.Normal
       font.letterSpacing: Math.round(4 * root.widgetScale)

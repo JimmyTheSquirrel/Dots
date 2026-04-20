@@ -5,7 +5,8 @@
         self.packages.${pkgs.stdenv.hostPlatform.system}.wrappedNoctalia
         pkgs.playerctl
         pkgs.jetbrains-mono
-        pkgs.orbitron  # Geometric font for desktop clock widget
+        pkgs.orbitron      # Geometric font for desktop clock widget
+        pkgs.google-fonts  # Contains Michroma, Audiowide, Exo 2, etc.
       ];
     };
   };

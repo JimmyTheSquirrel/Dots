@@ -54,6 +54,8 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   ├── grub.nix             # GRUB with multi-system boot menu
 │   └── ... (audio, steam, sops, locale, polkit, etc.)
 ├── Resources/               # Static files (not Nix modules)
+│   ├── Noctalia-Plugins/    # Custom Noctalia plugins
+│   │   └── desktop-clock/   # Desktop clock widget
 │   ├── Spicetify-Text-Theme/  # Spicetify CSS/color theme
 │   ├── Zsh-Scripts/         # Shell helper scripts
 │   ├── Terminal-Images/     # Fastfetch logos
@@ -291,6 +293,30 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 - `kdePackages.qttools` provides `qdbus6` for D-Bus calls to Spotify
 - Startup optimization: D-Bus environment commands run in background (`sh -c '... &'`) so visual elements load first
 - Session startup delay: niri binary is wrapped with a 2-second sleep to allow SDDM/session to fully initialize before rendering
+
+### Noctalia Desktop Shell
+
+Noctalia is the desktop shell used on Sisyphus (Hyprland) and Odysseus (Niri). Configured via wrapper-modules in `Modules/noctalia.nix`.
+
+**Key settings:**
+- Bar: top position, capsule style, 70% background opacity
+- Widgets: ControlCenter, Workspace, MediaMini, Volume, Network, Bluetooth, Clock, Tray
+- Color scheme: Gruvbox (predefined, `useWallpaperColors = false` for fully declarative config)
+- Desktop widgets enabled on both monitors
+
+**Desktop Clock Plugin:**
+Custom plugin at `Resources/Noctalia-Plugins/desktop-clock/`:
+- `manifest.json` - Plugin metadata
+- `DesktopWidget.qml` - Clock widget showing day, date, and time
+- Uses Orbitron font (geometric/futuristic style)
+- Centered on both monitors with no background
+- Registered via `preInstalledPlugins` in wrapper-modules
+
+**Plugin development notes:**
+- Plugins must extend `DraggableDesktopWidget`
+- All dimensions must be multiplied by `widgetScale` for proper scaling
+- Use `Color.mOnSurface` and `Color.mOnSurfaceVariant` for theme-aware colors
+- Plugin source must be a Nix store path (use `${self}/Resources/...`)
 
 ### Display Configuration
 
