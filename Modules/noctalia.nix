@@ -1,20 +1,81 @@
-{ self, inputs, ... }: {
+{ self, inputs, ... }:
+let
+  anuratiFont = "${self}/Resources/Fonts/Anurati-Regular.otf";
+in {
   flake.nixosModules.noctalia = { pkgs, activeUser, ... }: {
     home-manager.users.${activeUser} = {
       home.packages = [
         self.packages.${pkgs.stdenv.hostPlatform.system}.wrappedNoctalia
+        self.packages.${pkgs.stdenv.hostPlatform.system}.anurati-font
         pkgs.playerctl
-        pkgs.jetbrains-mono
-        pkgs.orbitron      # Geometric font for desktop clock widget
-        pkgs.google-fonts  # Contains Michroma, Audiowide, Exo 2, etc.
+        pkgs.google-fonts
+        pkgs.jq
       ];
+
+      # Declaratively ensure desktop widgets and plugins are configured
+      # This patches config files on each activation since outOfStoreConfig
+      # means noctalia ignores the Nix-generated widget config
+      home.activation.noctaliaDesktopWidgets = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        CONFIG_DIR="$HOME/.config/noctalia"
+        SETTINGS_FILE="$CONFIG_DIR/settings.json"
+        PLUGINS_FILE="$CONFIG_DIR/plugins.json"
+        PLUGIN_DIR="$CONFIG_DIR/plugins/desktop-clock"
+
+        # Create config directory if it doesn't exist
+        mkdir -p "$CONFIG_DIR/plugins"
+
+        # Create default settings.json if it doesn't exist
+        if [ ! -f "$SETTINGS_FILE" ]; then
+          echo '{"desktopWidgets":{"enabled":true}}' > "$SETTINGS_FILE"
+        fi
+
+        # Create default plugins.json if it doesn't exist
+        if [ ! -f "$PLUGINS_FILE" ]; then
+          echo '{"version":2,"sources":[],"states":{}}' > "$PLUGINS_FILE"
+        fi
+
+        # Patch settings.json to add desktop clock widgets
+        ${pkgs.jq}/bin/jq '.desktopWidgets.monitorWidgets = [
+          {"name": "DP-2", "widgets": [{"id": "plugin:desktop-clock", "showBackground": false}]},
+          {"name": "HDMI-A-1", "widgets": [{"id": "plugin:desktop-clock", "showBackground": false}]}
+        ]' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+
+        # Patch plugins.json to enable the desktop-clock plugin
+        ${pkgs.jq}/bin/jq '.states["desktop-clock"] = {"enabled": true}' "$PLUGINS_FILE" > "$PLUGINS_FILE.tmp" && mv "$PLUGINS_FILE.tmp" "$PLUGINS_FILE"
+
+        # Sync desktop-clock plugin files from nix store to user config
+        mkdir -p "$PLUGIN_DIR"
+        cp -f ${anuratiFont} "$PLUGIN_DIR/Anurati-Regular.otf"
+        cp -f ${self}/Resources/Noctalia-Plugins/desktop-clock/DesktopWidget.qml "$PLUGIN_DIR/DesktopWidget.qml"
+        cp -f ${self}/Resources/Noctalia-Plugins/desktop-clock/manifest.json "$PLUGIN_DIR/manifest.json"
+      '';
     };
   };
 
   perSystem = { pkgs, system, ... }: {
+    # Anurati font - futuristic geometric display font by Emmeran Richard
+    packages.anurati-font = pkgs.stdenvNoCC.mkDerivation {
+      pname = "anurati-font";
+      version = "1.0";
+      dontUnpack = true;
+      src = anuratiFont;
+
+      installPhase = ''
+        mkdir -p $out/share/fonts/opentype
+        cp $src $out/share/fonts/opentype/Anurati-Regular.otf
+      '';
+
+      meta = {
+        description = "Anurati - futuristic geometric display font";
+        license = pkgs.lib.licenses.ofl;  # Free for personal use
+      };
+    };
     packages.wrappedNoctalia = inputs.wrapper-modules.wrappers.noctalia-shell.wrap {
       inherit pkgs;
       package = inputs.noctalia.packages.${system}.default;
+
+      # Use out-of-store config so matugen can write colors.json
+      outOfStoreConfig = "/home/rock/.config/noctalia";
 
       # Desktop clock plugin
       preInstalledPlugins.desktop-clock = {
@@ -141,8 +202,7 @@
         };
 
         colorSchemes = {
-          useWallpaperColors = false;
-          predefinedScheme = "Gruvbox";
+          useWallpaperColors = true;
           darkMode = true;
         };
 

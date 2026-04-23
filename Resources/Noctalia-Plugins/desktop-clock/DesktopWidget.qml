@@ -11,16 +11,26 @@ DraggableDesktopWidget {
 
   property var pluginApi: null
 
+  // Load Anurati font from plugin directory
+  FontLoader {
+    id: anuratiFont
+    source: "Anurati-Regular.otf"
+  }
+
   readonly property var now: Time.now
   readonly property real widgetOpacity: widgetData.opacity !== undefined ? widgetData.opacity : 1.0
 
   // Font sizes scaled by widgetScale
-  readonly property real dayFontSize: Math.round(72 * widgetScale)
-  readonly property real dateFontSize: Math.round(14 * widgetScale)
-  readonly property real timeFontSize: Math.round(12 * widgetScale)
+  readonly property real dayFontSize: Math.round(64 * widgetScale)
+  readonly property real dateFontSize: Math.round(22 * widgetScale)
+  readonly property real timeFontSize: Math.round(18 * widgetScale)
+
+  // Softer text color (off-white instead of pure white)
+  readonly property color textColor: "#c8c8c8"
+  readonly property color textColorDim: "#909090"
 
   // Padding
-  readonly property real contentPadding: Math.round(Style.marginXL * 1.5 * widgetScale)
+  readonly property real contentPadding: Math.round(Style.marginXL * 2 * widgetScale)
 
   // Implicit size based on content
   implicitWidth: Math.round(contentLayout.implicitWidth + contentPadding * 2)
@@ -35,7 +45,7 @@ DraggableDesktopWidget {
   ColumnLayout {
     id: contentLayout
     anchors.centerIn: parent
-    spacing: Math.round(4 * root.widgetScale)
+    spacing: Math.round(8 * root.widgetScale)
     opacity: root.widgetOpacity
 
     // Day name (e.g., "MONDAY")
@@ -43,11 +53,13 @@ DraggableDesktopWidget {
       id: dayText
       Layout.alignment: Qt.AlignHCenter
       text: Qt.formatDate(root.now, "dddd").toUpperCase()
-      font.family: "Michroma"
+      font.family: anuratiFont.name
       font.pixelSize: root.dayFontSize
       font.weight: Font.Medium
-      font.letterSpacing: Math.round(6 * root.widgetScale)
-      color: Color.mOnSurface
+      font.letterSpacing: Math.round(8 * root.widgetScale)
+      color: root.textColor
+      style: Text.Outline
+      styleColor: "#99000000"
     }
 
     // Date (e.g., "20 APR 2025")
@@ -55,12 +67,13 @@ DraggableDesktopWidget {
       id: dateText
       Layout.alignment: Qt.AlignHCenter
       text: Qt.formatDate(root.now, "dd MMM yyyy").toUpperCase()
-      font.family: "Michroma"
+      font.family: anuratiFont.name
       font.pixelSize: root.dateFontSize
       font.weight: Font.Normal
-      font.letterSpacing: Math.round(4 * root.widgetScale)
-      color: Color.mOnSurfaceVariant
-      opacity: 0.85
+      font.letterSpacing: Math.round(6 * root.widgetScale)
+      color: root.textColorDim
+      style: Text.Outline
+      styleColor: "#99000000"
     }
 
     // Time (e.g., "- 05:30 AM -")
@@ -68,12 +81,13 @@ DraggableDesktopWidget {
       id: timeText
       Layout.alignment: Qt.AlignHCenter
       text: "- " + Qt.formatTime(root.now, "hh:mm AP") + " -"
-      font.family: "Michroma"
+      font.family: anuratiFont.name
       font.pixelSize: root.timeFontSize
       font.weight: Font.Normal
-      font.letterSpacing: Math.round(4 * root.widgetScale)
-      color: Color.mOnSurfaceVariant
-      opacity: 0.7
+      font.letterSpacing: Math.round(6 * root.widgetScale)
+      color: root.textColorDim
+      style: Text.Outline
+      styleColor: "#99000000"
     }
   }
 }

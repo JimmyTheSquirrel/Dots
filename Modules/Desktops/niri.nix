@@ -318,6 +318,8 @@
             }
 
             window-rule {
+              clip-to-geometry true
+              geometry-corner-radius 12
               draw-border-with-background false
             }
             window-rule {
@@ -359,7 +361,7 @@
             "Mod+Return".spawn-sh = lib.getExe pkgs.kitty;
             "Mod+E".spawn-sh = lib.getExe pkgs.xfce.thunar;
             "Mod+F".spawn-sh = lib.getExe pkgs.brave;
-            "Mod+D".spawn-sh = "noctalia-shell ipc call appLauncher toggle";
+            "Mod+D".spawn-sh = "noctalia-shell ipc call launcher toggle";
             "Mod+W".spawn-sh = "skwd wall toggle";
             "Mod+Shift+Delete".spawn-sh = "noctalia-shell ipc call sessionMenu toggle";
             "Mod+Q".close-window = _: {};

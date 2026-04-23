@@ -137,11 +137,59 @@ skwd wallpaper random
 - `monitor`: Target monitor (e.g., "DP-2")
 - `paths.wallpaper`: Wallpaper directory
 - `features.matugen`: Enable Material You color generation
-- `matugen.schemeType`: Color scheme type (e.g., "scheme-fidelity")
+- `matugen.schemeType`: Color scheme type (use `"scheme-tonal-spot"` for colorful Material You colors)
+- `integrations`: Array of matugen template integrations (see below)
+
+**Matugen → Noctalia Integration:**
+
+When wallpaper changes, skwd-wall runs matugen to generate Material You colors. These colors are output to noctalia via a template integration:
+
+1. **Template:** `~/.config/skwd-wall/data/matugen/templates/noctalia-colors.json`
+   - Maps matugen color tokens to noctalia's format (`mPrimary`, `mOnPrimary`, etc.)
+   - **Surface colors are static** (neutral dark `#0a0a0a`, `#1a1a1a`) so bar background stays neutral
+   - **Accent colors are dynamic** (primary, secondary, tertiary) from wallpaper for text/icons
+
+2. **Integration config** in `config.json`:
+   ```json
+   "integrations": [
+     {
+       "name": "noctalia",
+       "template": "noctalia-colors.json",
+       "output": "~/.config/noctalia/colors.json"
+     }
+   ]
+   ```
+
+3. **Noctalia setting:** `colorSchemes.useWallpaperColors = true` in `Modules/noctalia.nix`
+
+**Flow:** Wallpaper change → matugen generates colors → writes to `~/.config/noctalia/colors.json` → restart noctalia to apply
+
+**Important:**
+- Noctalia must use `outOfStoreConfig = "/home/rock/.config/noctalia"` in wrapper-modules. Without this, noctalia reads from the Nix store instead of the user config directory where matugen writes.
+- Noctalia does NOT hot-reload colors. After changing wallpaper, restart noctalia: `pkill -9 quickshell; rm -rf /run/user/1000/quickshell; noctalia-shell &`
+
+**Troubleshooting skwd-wall:**
+
+If thumbnails are blank, duplicated, or the cache seems stale:
+
+```bash
+# Full cache reset (nuclear option)
+systemctl --user stop skwd-daemon
+rm -f ~/.config/skwd-wall/.bootstrapped  # Forces fresh bootstrap
+rm -rf ~/.cache/skwd-wall                 # Clears all cached data
+systemctl --user start skwd-daemon
+skwd wall toggle                          # Triggers cache rebuild
+```
+
+**Cache behavior:**
+- `.bootstrapped` file in `~/.config/skwd-wall/` tells daemon setup is complete
+- Daemon uses file modification times to detect changes - touch wallpaper files to force rebuild
+- Thumbnail cache at `~/.cache/skwd-wall/wallpaper/thumbs/`
+- Don't put files like `wallpaper.jpg` in the wallpaper directory - skwd-wall may create copies that cause duplicates
 
 **Keybinds:**
 - All systems: `Meta+W` toggles the wallpaper selector
-- Niri: `Meta+D` now uses Noctalia's app launcher instead of SKWD
+- Niri: `Meta+D` uses Noctalia's app launcher (via IPC: `noctalia-shell ipc call launcher toggle`)
 
 ### Spicetify Theme
 
@@ -281,14 +329,14 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 - Monitor/output config uses `extraConfig` for positioning
 - Niri config lives entirely in `Modules/Desktops/niri.nix`
 - Hot corners disabled via `gestures { hot-corners { off } }` in extraConfig
-- Sharp corners (no border radius) with thin dark border (`width = 2`, `#333333`)
+- Rounded corners (`corner-radius = 12`) with thin dark border (`width = 2`, `#333333`), using `clip-to-geometry` and `geometry-corner-radius` in window rules
 - Border config uses hyphenated syntax: `layout.border.active-color` and `layout.border.inactive-color` (not nested objects)
 - Focus ring disabled (`layout.focus-ring.width = 0`), using border instead for window outlines
 - Cursor theme configured via `cursor.xcursor-theme` and `cursor.xcursor-size` in wrapper-modules settings
 - Window opacity rules for transparency (spotify 0.90, vesktop 0.85, etc.)
 - Spotify wrapper uses D-Bus to navigate to Liked Songs: `qdbus6 org.mpris.MediaPlayer2.spotify / org.freedesktop.MediaPlayer2.OpenUri "spotify:collection:tracks"` (the `--uri` flag only works on fresh launch, not when Spotify is already running)
 - Power menu keybind (`Mod+Shift+Delete`) triggers Noctalia's session menu via IPC: `noctalia-shell ipc call sessionMenu toggle`
-- App launcher keybind (`Mod+D`) uses Noctalia: `noctalia-shell ipc call appLauncher toggle`
+- App launcher keybind (`Mod+D`) uses Noctalia: `noctalia-shell ipc call launcher toggle`
 - Wallpaper keybind (`Mod+W`) uses skwd-wall: `skwd wall toggle`
 - `kdePackages.qttools` provides `qdbus6` for D-Bus calls to Spotify
 - Startup optimization: D-Bus environment commands run in background (`sh -c '... &'`) so visual elements load first
@@ -301,22 +349,69 @@ Noctalia is the desktop shell used on Sisyphus (Hyprland) and Odysseus (Niri). C
 **Key settings:**
 - Bar: top position, capsule style, 70% background opacity
 - Widgets: ControlCenter, Workspace, MediaMini, Volume, Network, Bluetooth, Clock, Tray
-- Color scheme: Gruvbox (predefined, `useWallpaperColors = false` for fully declarative config)
+- Color scheme: Dynamic from wallpaper (`useWallpaperColors = true`) via skwd-wall matugen integration
 - Desktop widgets enabled on both monitors
+- `outOfStoreConfig = "/home/rock/.config/noctalia"` - Required for matugen colors to work (reads from user dir, not Nix store)
+
+**IPC Commands:**
+```bash
+# App launcher
+noctalia-shell ipc call launcher toggle
+
+# Power/session menu
+noctalia-shell ipc call sessionMenu toggle
+
+# List all available IPC targets
+noctalia-shell ipc show
+```
+
+**Note:** The IPC target for the app launcher is `launcher`, not `appLauncher`.
 
 **Desktop Clock Plugin:**
 Custom plugin at `Resources/Noctalia-Plugins/desktop-clock/`:
 - `manifest.json` - Plugin metadata
 - `DesktopWidget.qml` - Clock widget showing day, date, and time
-- Uses Orbitron font (geometric/futuristic style)
+- `Anurati-Regular.otf` - Futuristic geometric display font (bundled with plugin)
+- Uses **Anurati** font loaded via QML `FontLoader` from the plugin directory
+- Anurati only has uppercase letters (A-Z), so numbers/symbols fall back to system font
+- Black text outline (`style: Text.Outline`) for visibility on any wallpaper
 - Centered on both monitors with no background
-- Registered via `preInstalledPlugins` in wrapper-modules
+
+**Declarative Widget Configuration:**
+Because `outOfStoreConfig` is used (required for matugen colors), noctalia ignores the Nix-generated widget config and reads from user config files. A home-manager activation script handles setup on each rebuild:
+
+1. Creates `~/.config/noctalia/` directory structure if missing (fresh install)
+2. Creates default `settings.json` and `plugins.json` if they don't exist
+3. Patches config to enable the desktop-clock widget on both monitors
+4. Syncs plugin files (QML, font, manifest) from nix store to `~/.config/noctalia/plugins/desktop-clock/`
+
+This ensures the clock widget works automatically on fresh installs without manual configuration.
+
+**Custom Font Packaging:**
+Anurati font is stored locally at `Resources/Fonts/Anurati-Regular.otf` and packaged in `noctalia.nix`:
+```nix
+anuratiFont = "${self}/Resources/Fonts/Anurati-Regular.otf";
+
+packages.anurati-font = pkgs.stdenvNoCC.mkDerivation {
+  pname = "anurati-font";
+  src = anuratiFont;
+  dontUnpack = true;
+  installPhase = ''
+    mkdir -p $out/share/fonts/opentype
+    cp $src $out/share/fonts/opentype/Anurati-Regular.otf
+  '';
+};
+```
+
+The font is also bundled directly in the plugin directory and loaded via QML FontLoader for reliable rendering.
 
 **Plugin development notes:**
 - Plugins must extend `DraggableDesktopWidget`
 - All dimensions must be multiplied by `widgetScale` for proper scaling
 - Use `Color.mOnSurface` and `Color.mOnSurfaceVariant` for theme-aware colors
-- Plugin source must be a Nix store path (use `${self}/Resources/...`)
+- Custom fonts should be bundled in the plugin directory and loaded via `FontLoader { source: "FontName.otf" }`
+- Plugin files are synced to `~/.config/noctalia/plugins/<name>/` by the activation script
+- Restart noctalia after changes: `pkill -9 quickshell; rm -rf /run/user/1000/quickshell; noctalia-shell &`
 
 ### Display Configuration
 
