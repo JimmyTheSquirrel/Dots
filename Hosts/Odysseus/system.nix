@@ -75,6 +75,7 @@ in {
       self.nixosModules.starship
       self.nixosModules.kitty
       self.nixosModules.brave
+      self.nixosModules.helium
       self.nixosModules.git
       self.nixosModules.fastfetch
       self.nixosModules.vscodium

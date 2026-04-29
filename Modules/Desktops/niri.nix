@@ -343,6 +343,10 @@
               opacity 0.85
             }
             window-rule {
+              match app-id="^zen$"
+              opacity 0.85
+            }
+            window-rule {
               match app-id="^spotify$"
               opacity 0.90
               open-on-output "HDMI-A-1"

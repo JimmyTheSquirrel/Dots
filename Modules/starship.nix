@@ -12,16 +12,16 @@
         "$schema" = 'https://starship.rs/config-schema.json'
 
         format = """
-        [](color_orange)\
+        [](color_orange)\
         $os\
         $username\
         $hostname\
-        [](bg:color_yellow fg:color_orange)\
+        [](bg:color_yellow fg:color_orange)\
         $directory\
-        [](fg:color_yellow bg:color_aqua)\
+        [](fg:color_yellow bg:color_aqua)\
         $git_branch\
         $git_status\
-        [](fg:color_aqua bg:color_blue)\
+        [](fg:color_aqua bg:color_blue)\
         $c\
         $rust\
         $golang\
@@ -31,10 +31,10 @@
         $kotlin\
         $haskell\
         $python\
-        [](fg:color_blue bg:color_bg3)\
+        [](fg:color_blue bg:color_bg3)\
         $docker_context\
         $conda\
-        [](fg:color_bg3)\
+        [](fg:color_bg3)\
         $line_break$character"""
 
         palette = 'gruvbox_dark'

@@ -57,11 +57,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # --- Helium Browser ---
+    helium.url = "github:amaanq/helium-flake";
+
     # --- Secrets Management ---
     sops-nix = {
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
   };
 
   outputs = inputs: inputs.flake-parts.lib.mkFlake

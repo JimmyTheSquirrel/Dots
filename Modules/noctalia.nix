@@ -97,7 +97,7 @@ in {
           marginVertical = 8;
           marginHorizontal = 8;
           outerCorners = true;
-          floating = false;
+          floating = true;
 
           widgets = {
             left = [

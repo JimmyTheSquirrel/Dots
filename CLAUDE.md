@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Core Principles
+
+**Everything must be declarative and fully reproducible.** This repository should be the single source of truth for the entire system configuration. A fresh NixOS install should be fully configured by cloning this repo and running a single rebuild command.
+
+Key requirements:
+- **No manual configuration** - If it's not in Nix, it doesn't exist. Any manual tweak must be captured in a module.
+- **No imperative state** - Avoid runtime config files that aren't generated or seeded by Nix. When unavoidable (e.g., `outOfStoreConfig` for matugen integration), use home-manager activation scripts to declaratively manage the initial state.
+- **Reproducible builds** - Running `system-rebuild` on a fresh system should produce an identical environment.
+- **Self-contained modules** - Each module includes all related config (NixOS + Home Manager) in one file.
+
+When making changes, always ask: "Will this work on a fresh install without manual steps?"
+
 ## Build Commands
 
 ```bash
@@ -45,6 +57,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   │   └── niri.nix         # Niri (wrapper-modules with perSystem)
 │   ├── noctalia.nix         # Desktop shell/bar (wrapper-modules)
 │   ├── skwd-wall.nix        # Wallpaper selector with systemd service
+│   ├── zen.nix              # Zen browser (transparency, Bitwarden, matugen)
 │   ├── kitty.nix            # Terminal emulator
 │   ├── zsh.nix              # Shell config
 │   ├── spicetify.nix        # Spotify theming
@@ -73,7 +86,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 | **Elektra** | KDE Plasma 6 | `Hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wall, thunar, spicetify, discord, screenshot |
 | **Odysseus** | Niri | `Hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + launcher + power menu + notifications), skwd-wall, spicetify, discord |
 
-All systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, brave, git, navi, starship, fastfetch
+All systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, brave, zen, git, navi, starship, fastfetch
 
 ### Multi-Boot System
 
@@ -145,28 +158,38 @@ skwd wallpaper random
 When wallpaper changes, skwd-wall runs matugen to generate Material You colors. These colors are output to noctalia via a template integration:
 
 1. **Template:** `~/.config/skwd-wall/data/matugen/templates/noctalia-colors.json`
-   - Maps matugen color tokens to noctalia's format (`mPrimary`, `mOnPrimary`, etc.)
+   - Always synced by the activation script (Nix managed, not just seeded once)
    - **Surface colors are static** (neutral dark `#0a0a0a`, `#1a1a1a`) so bar background stays neutral
    - **Accent colors are dynamic** (primary, secondary, tertiary) from wallpaper for text/icons
 
-2. **Integration config** in `config.json`:
+2. **Integration config** in `config.json` (patched on every activation via jq):
    ```json
    "integrations": [
      {
+       "name": "skwd-wall",
+       "template": "quickshell-colors.json",
+       "output": "colors.json"
+     },
+     {
        "name": "noctalia",
        "template": "noctalia-colors.json",
-       "output": "~/.config/noctalia/colors.json"
+       "output": "~/.config/noctalia/colors.json",
+       "reload": "noctalia-shell ipc call colorScheme refresh"
      }
    ]
    ```
+   The `skwd-wall` built-in integration (`quickshell-colors.json`) is required for the wallpaper selector UI's own colors - without it the selector stays pink/default.
 
 3. **Noctalia setting:** `colorSchemes.useWallpaperColors = true` in `Modules/noctalia.nix`
 
-**Flow:** Wallpaper change → matugen generates colors → writes to `~/.config/noctalia/colors.json` → restart noctalia to apply
+**Flow:** Wallpaper change → matugen generates colors → writes to `~/.config/noctalia/colors.json` → `reload` triggers `noctalia-shell ipc call colorScheme refresh` automatically
 
 **Important:**
 - Noctalia must use `outOfStoreConfig = "/home/rock/.config/noctalia"` in wrapper-modules. Without this, noctalia reads from the Nix store instead of the user config directory where matugen writes.
-- Noctalia does NOT hot-reload colors. After changing wallpaper, restart noctalia: `pkill -9 quickshell; rm -rf /run/user/1000/quickshell; noctalia-shell &`
+- Noctalia color refresh is now **automatic** via the `reload` field in the integration. No manual restart needed.
+- Do NOT use `pkill -9 quickshell` to reload colors — it kills skwd-wall's quickshell UI too. Use `noctalia-shell ipc call colorScheme refresh` instead.
+- The `matugen.schemeType` should be `"scheme-tonal-spot"` for colorful Material You colors and `matugen.mode` should be `"dark"`.
+- The activation script patches the existing `config.json` via jq on every rebuild (not just first run), so integrations/reload fields stay correct even if the user edits the file.
 
 **Troubleshooting skwd-wall:**
 
@@ -236,6 +259,62 @@ Configured via `plasma-manager` in `Modules/Desktops/kde.nix`:
 | `Meta+W` | SKWD wallpaper selector |
 
 **Monitor config:** Plasma-manager doesn't support `displays` option. Configure monitors manually in KDE System Settings on first boot (persists after).
+
+### Niri (Odysseus)
+
+Niri is a scrollable-tiling Wayland compositor. Configured via wrapper-modules in `Modules/Desktops/niri.nix`.
+
+**Current version:** 26.04 (via niri-flake)
+
+**Key features:**
+- Scrollable tiling - windows arranged in infinite horizontal strip
+- Blur support (new in 26.04) - can be enabled in window rules
+- Custom window open/close animations using GLSL shaders (fluid/dissolve effect)
+- Per-window transparency via opacity rules
+
+**Layout settings:**
+- `layout.gaps = 4` - Gap between windows
+- `layout.border.width = 2` with `#333333` color
+- `layout.focus-ring.width = 0` - Disabled, using border instead
+- `layout.default-column-width.proportion = 1.0` - Windows fill monitor width
+
+**Window rules** (in `extraConfig` as raw KDL):
+- Global: `corner-radius 12`, `clip-to-geometry true`
+- Opacity: spotify 0.90, vesktop 0.85, brave 0.85, zen 0.85, codium 0.80, thunar 0.90
+- Floating: pavucontrol, Picture-in-Picture
+- Spotify opens on HDMI-A-1 (secondary monitor)
+
+**Keybinds:**
+| Key | Action |
+|-----|--------|
+| `Mod+Return` | Kitty terminal |
+| `Mod+E` | Thunar |
+| `Mod+F` | Brave browser |
+| `Mod+D` | Noctalia app launcher |
+| `Mod+W` | SKWD wallpaper selector |
+| `Mod+Q` | Close window |
+| `Mod+A` | Toggle overview |
+| `Mod+V` | Toggle floating |
+| `Mod+Shift+F` | Fullscreen |
+| `Mod+Shift+Delete` | Noctalia power menu |
+| `Mod+Left/Right` | Focus column |
+| `Mod+Up/Down` | Focus workspace |
+| `Mod+Shift+S` | Screenshot region to clipboard |
+| `Mod+S` | Screenshot full screen to clipboard |
+
+**Startup sequence:**
+1. Niri binary is wrapped with 2-second sleep (allows SDDM to fully initialize)
+2. Noctalia shell launches first for instant visual feedback
+3. D-Bus environment setup runs in background
+4. Spotify launches via `spotify-startup` (3-second delay, opens to Liked Songs)
+
+**Spotify wrapper:** Custom wrapper at system level handles GPU sandbox issues and D-Bus navigation to Liked Songs on launch.
+
+**Monitor config** (in `extraConfig`):
+```kdl
+output "DP-2" { position x=0 y=1080 }
+output "HDMI-A-1" { position x=320 y=0 }
+```
 
 ### Starship Prompt
 
@@ -347,7 +426,7 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 Noctalia is the desktop shell used on Sisyphus (Hyprland) and Odysseus (Niri). Configured via wrapper-modules in `Modules/noctalia.nix`.
 
 **Key settings:**
-- Bar: top position, capsule style, 70% background opacity
+- Bar: top position, floating with 8px margins, capsule style, 70% background opacity
 - Widgets: ControlCenter, Workspace, MediaMini, Volume, Network, Bluetooth, Clock, Tray
 - Color scheme: Dynamic from wallpaper (`useWallpaperColors = true`) via skwd-wall matugen integration
 - Desktop widgets enabled on both monitors
@@ -456,6 +535,46 @@ sops updatekeys secrets/secrets.yaml
 sops -d secrets/secrets.yaml
 ```
 
+### Zen Browser
+
+Firefox-based browser used as a secondary browser alongside Brave. Configured in `Modules/zen.nix`.
+
+**Flake input:** `github:youwen5/zen-browser-flake` (not in nixpkgs)
+
+**App-id on Wayland:** `zen` (used for Niri opacity rule)
+
+**Profile location:** `~/.zen/` — profiles found via:
+```bash
+grep "^Path=" ~/.zen/profiles.ini | head -1 | cut -d= -f2-
+```
+**Important:** Profile directory name may contain spaces and capital letters (e.g., `m7n38kve.Default Profile`). Do NOT use `*.default*` glob — it won't match. Always use `grep` on `profiles.ini`.
+
+**What the module manages declaratively:**
+
+- **Bitwarden** — auto-installed via enterprise `~/.zen/policies/policies.json` (force_installed mode)
+- **userChrome.css** — always synced on activation; makes toolbar/sidebar transparent
+- **userContent.css** — always synced; targets `about:newtab`/`about:home`/`about:blank`
+- **user.js** — prefs managed on every activation (stale entries removed then re-appended):
+  - `toolkit.legacyUserProfileCustomizations.stylesheets = true` — enables userChrome/userContent
+  - `widget.transparent-background = true` — ARGB window visual for compositor transparency
+  - `browser.newtabpage.enabled = false` — disables Zen's new tab page
+  - `browser.startup.homepage = "about:blank"` — blank/transparent start page
+- **skwd-wall matugen** — patches skwd-wall `config.json` to add `zen` and `zen-content` integrations pointing to the profile's chrome directory
+
+**Transparency setup:**
+- Niri opacity rule (`app-id="^zen$"`, opacity 0.85) handles compositor-level transparency
+- `widget.transparent-background` + CSS removes browser's own background colors
+- New tab set to `about:blank` so the content area is transparent (Zen's custom new tab has its own solid background that can't be easily overridden)
+- **Niri opacity rule requires logout/login** — Niri's config is baked into the wrapper-modules binary, not hot-reloaded
+
+**Activation gotchas:**
+- HM activation runs with `set -euo pipefail` — any `ls` glob that matches nothing returns exit code 1 and kills the script. Always add `|| true` to glob-based fallbacks
+- Profile must exist (Zen launched at least once) before chrome files can be written
+- After writing user.js, Zen must be fully quit and relaunched (not just window closed)
+
+**New modules need `git add`:**
+Import-tree only sees git-tracked files. A new `*.nix` file in `Modules/` will be silently ignored (missing from `self.nixosModules`) until staged with `git add`.
+
 ### Flake Inputs of Note
 
 - `nixpkgs@nixos-25.11` (stable) and `nixpkgs-unstable`
@@ -464,6 +583,7 @@ sops -d secrets/secrets.yaml
 - `wrapper-modules` - Wraps packages with settings baked in (used for niri, noctalia)
 - `noctalia` - Custom desktop shell with widgets/bar/launcher
 - `skwd-wall` - Wallpaper selector with matugen integration (bundles quickshell + awww)
+- `zen-browser` - Zen browser (github:youwen5/zen-browser-flake, not in nixpkgs)
 - `spicetify-nix` - Declarative Spotify theming
 - `plasma-manager` - KDE Plasma declarative config
 - `niri` - Scrollable tiling Wayland compositor (niri-flake)
