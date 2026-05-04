@@ -343,7 +343,7 @@
               opacity 0.85
             }
             window-rule {
-              match app-id="^zen$"
+              match app-id="^helium$"
               opacity 0.85
             }
             window-rule {

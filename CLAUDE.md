@@ -57,7 +57,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   │   └── niri.nix         # Niri (wrapper-modules with perSystem)
 │   ├── noctalia.nix         # Desktop shell/bar (wrapper-modules)
 │   ├── skwd-wall.nix        # Wallpaper selector with systemd service
-│   ├── zen.nix              # Zen browser (transparency, Bitwarden, matugen)
+│   ├── helium.nix           # Helium browser (policies, Bitwarden, bookmarks)
 │   ├── kitty.nix            # Terminal emulator
 │   ├── zsh.nix              # Shell config
 │   ├── spicetify.nix        # Spotify theming
@@ -86,7 +86,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 | **Elektra** | KDE Plasma 6 | `Hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wall, thunar, spicetify, discord, screenshot |
 | **Odysseus** | Niri | `Hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + launcher + power menu + notifications), skwd-wall, spicetify, discord |
 
-All systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, brave, zen, git, navi, starship, fastfetch
+All systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, brave, helium, git, navi, starship, fastfetch
 
 ### Multi-Boot System
 
@@ -280,7 +280,7 @@ Niri is a scrollable-tiling Wayland compositor. Configured via wrapper-modules i
 
 **Window rules** (in `extraConfig` as raw KDL):
 - Global: `corner-radius 12`, `clip-to-geometry true`
-- Opacity: spotify 0.90, vesktop 0.85, brave 0.85, zen 0.85, codium 0.80, thunar 0.90
+- Opacity: spotify 0.90, vesktop 0.85, brave 0.85, helium 0.85, codium 0.80, thunar 0.90
 - Floating: pavucontrol, Picture-in-Picture
 - Spotify opens on HDMI-A-1 (secondary monitor)
 
@@ -535,42 +535,47 @@ sops updatekeys secrets/secrets.yaml
 sops -d secrets/secrets.yaml
 ```
 
-### Zen Browser
+### Helium Browser
 
-Firefox-based browser used as a secondary browser alongside Brave. Configured in `Modules/zen.nix`.
+Chromium-based privacy browser (de-googled, built on ungoogled-chromium) used alongside Brave. Configured in `Modules/helium.nix`.
 
-**Flake input:** `github:youwen5/zen-browser-flake` (not in nixpkgs)
+**Flake input:** `github:amaanq/helium-flake` (not in nixpkgs)
 
-**App-id on Wayland:** `zen` (used for Niri opacity rule)
-
-**Profile location:** `~/.zen/` — profiles found via:
-```bash
-grep "^Path=" ~/.zen/profiles.ini | head -1 | cut -d= -f2-
-```
-**Important:** Profile directory name may contain spaces and capital letters (e.g., `m7n38kve.Default Profile`). Do NOT use `*.default*` glob — it won't match. Always use `grep` on `profiles.ini`.
+**App-id on Wayland:** `helium` (used for Niri opacity rule)
 
 **What the module manages declaratively:**
 
-- **Bitwarden** — auto-installed via enterprise `~/.zen/policies/policies.json` (force_installed mode)
-- **userChrome.css** — always synced on activation; makes toolbar/sidebar transparent
-- **userContent.css** — always synced; targets `about:newtab`/`about:home`/`about:blank`
-- **user.js** — prefs managed on every activation (stale entries removed then re-appended):
-  - `toolkit.legacyUserProfileCustomizations.stylesheets = true` — enables userChrome/userContent
-  - `widget.transparent-background = true` — ARGB window visual for compositor transparency
-  - `browser.newtabpage.enabled = false` — disables Zen's new tab page
-  - `browser.startup.homepage = "about:blank"` — blank/transparent start page
-- **skwd-wall matugen** — patches skwd-wall `config.json` to add `zen` and `zen-content` integrations pointing to the profile's chrome directory
+- **Package** — installed via `inputs.helium.packages.${system}.default`
+- **Bitwarden** — force-installed and toolbar-pinned via Chromium enterprise policy (`ExtensionSettings`)
+- **Bookmarks** — two managed folders (Work: Outlook, Personal: GitHub/Reddit/ProtonDB) via `ManagedBookmarks` policy
+- **Bookmarks bar** — always visible via `BookmarksBarEnabled = true`
+- **New tab page** — blank via `NewTabPageLocation = "about:blank"`
+- **URL bar** — history and topsites suggestions disabled via `browser.urlbar.suggest.history/topsites = false`
 
-**Transparency setup:**
-- Niri opacity rule (`app-id="^zen$"`, opacity 0.85) handles compositor-level transparency
-- `widget.transparent-background` + CSS removes browser's own background colors
-- New tab set to `about:blank` so the content area is transparent (Zen's custom new tab has its own solid background that can't be easily overridden)
+**Policy setup:**
+- Policies go in `/etc/chromium/policies/managed/helium.json` via `environment.etc`
+- Helium reads from `/etc/chromium/policies/managed/` (standard ungoogled-chromium path)
+- Verify policies loaded at `helium://policy` — all entries should show Status: OK
+- Bitwarden extension ID: `nngceckbapebfimnlniiiahkandclblb`
+
+**Transparency:**
+- Niri opacity rule (`app-id="^helium$"`, opacity 0.85) handles compositor-level transparency
 - **Niri opacity rule requires logout/login** — Niri's config is baked into the wrapper-modules binary, not hot-reloaded
+- No CSS-level transparency (Chromium doesn't support userChrome equivalent)
 
-**Activation gotchas:**
-- HM activation runs with `set -euo pipefail` — any `ls` glob that matches nothing returns exit code 1 and kills the script. Always add `|| true` to glob-based fallbacks
-- Profile must exist (Zen launched at least once) before chrome files can be written
-- After writing user.js, Zen must be fully quit and relaunched (not just window closed)
+**ManagedBookmarks format:**
+```nix
+ManagedBookmarks = [
+  { toplevel_name = "Bookmarks"; }          # parent folder name on bar
+  { name = "Work"; children = [
+    { name = "Outlook"; url = "..."; }
+  ]; }
+  { name = "Personal"; children = [
+    { name = "GitHub"; url = "..."; }
+  ]; }
+];
+```
+All managed bookmarks live under one parent folder on the bar — can't split into two independent top-level folders via policy.
 
 **New modules need `git add`:**
 Import-tree only sees git-tracked files. A new `*.nix` file in `Modules/` will be silently ignored (missing from `self.nixosModules`) until staged with `git add`.
@@ -583,7 +588,7 @@ Import-tree only sees git-tracked files. A new `*.nix` file in `Modules/` will b
 - `wrapper-modules` - Wraps packages with settings baked in (used for niri, noctalia)
 - `noctalia` - Custom desktop shell with widgets/bar/launcher
 - `skwd-wall` - Wallpaper selector with matugen integration (bundles quickshell + awww)
-- `zen-browser` - Zen browser (github:youwen5/zen-browser-flake, not in nixpkgs)
+- `helium` - Helium browser (github:amaanq/helium-flake, not in nixpkgs)
 - `spicetify-nix` - Declarative Spotify theming
 - `plasma-manager` - KDE Plasma declarative config
 - `niri` - Scrollable tiling Wayland compositor (niri-flake)
