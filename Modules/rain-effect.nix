@@ -61,9 +61,11 @@
       static GLint  loc_time, loc_resolution, loc_pos;
       static GLuint vbo;
 
-      // ── GLSL: rain streaks transparent overlay ─────────────────────────────
-      // Background is fully transparent (alpha=0). Only the rain drops are
-      // visible, so the wallpaper shows through underneath.
+      // ── GLSL: rain-on-glass overlay ────────────────────────────────────────
+      // Adapted from "Heartfelt" by Martijn Steinrucken (BigWings) 2017
+      // Original: https://www.shadertoy.com/view/ltffzl  (CC BY-NC-SA 3.0)
+      // Drops slide down with trails and small droplets. Transparent overlay —
+      // background is alpha=0, only water is visible.
 
       static const char *vert_src =
           "attribute vec2 pos;\n"
@@ -73,45 +75,91 @@
           "precision highp float;\n"
           "uniform float u_time;\n"
           "uniform vec2  u_resolution;\n"
+          "#define S(a,b,t) smoothstep(a,b,t)\n"
           "\n"
-          "float rng(vec2 p) {\n"
-          "    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);\n"
+          "vec3 N13(float p) {\n"
+          "    vec3 p3 = fract(vec3(p)*vec3(.1031,.11369,.13787));\n"
+          "    p3 += dot(p3, p3.yzx+19.19);\n"
+          "    return fract(vec3((p3.x+p3.y)*p3.z,(p3.x+p3.z)*p3.y,(p3.y+p3.z)*p3.x));\n"
+          "}\n"
+          "float N(float t) { return fract(sin(t*12345.564)*7658.76); }\n"
+          "float Saw(float b, float t) { return S(0.,b,t)*S(1.,b,t); }\n"
+          "\n"
+          "vec2 DropLayer2(vec2 uv, float t) {\n"
+          "    vec2 UV = uv;\n"
+          "    uv.y += t*0.75;\n"
+          "    vec2 a = vec2(6.,1.);\n"
+          "    vec2 grid = a*2.;\n"
+          "    vec2 id = floor(uv*grid);\n"
+          "    float colShift = N(id.x);\n"
+          "    uv.y += colShift;\n"
+          "    id = floor(uv*grid);\n"
+          "    vec3 n = N13(id.x*35.2+id.y*2376.1);\n"
+          "    vec2 st = fract(uv*grid)-vec2(.5,0.);\n"
+          "    float x = n.x-.5;\n"
+          "    float y = UV.y*20.;\n"
+          "    float wiggle = sin(y+sin(y));\n"
+          "    x += wiggle*(.5-abs(x))*(n.z-.5);\n"
+          "    x *= .7;\n"
+          "    float ti = fract(t+n.z);\n"
+          "    y = (Saw(.85,ti)-.5)*.9+.5;\n"
+          "    vec2 p = vec2(x,y);\n"
+          "    float d = length((st-p)*a.yx);\n"
+          "    float mainDrop = S(.4,.0,d);\n"
+          "    float r = sqrt(S(1.,y,st.y));\n"
+          "    float cd = abs(st.x-x);\n"
+          "    float trail = S(.23*r,.15*r*r,cd);\n"
+          "    float trailFront = S(-.02,.02,st.y-y);\n"
+          "    trail *= trailFront*r*r;\n"
+          "    y = UV.y;\n"
+          "    float trail2 = S(.2*r,.0,cd);\n"
+          "    float droplets = max(0.,(sin(y*(1.-y)*120.)-st.y))*trail2*trailFront*n.z;\n"
+          "    y = fract(y*10.)+(st.y-.5);\n"
+          "    float dd = length(st-vec2(x,y));\n"
+          "    droplets = S(.3,0.,dd);\n"
+          "    float m = mainDrop+droplets*r*trailFront;\n"
+          "    return vec2(m, trail);\n"
           "}\n"
           "\n"
-          "// One layer of rain: grid of falling streaks with randomised\n"
-          "// speed, length, brightness, and a slight directional lean.\n"
-          "float rainLayer(vec2 uv, float t, float density, float speed, float lean) {\n"
-          "    float aspect = u_resolution.x / u_resolution.y;\n"
-          "    vec2  grid   = vec2(density * aspect, density);\n"
-          "    vec2  cell   = floor(uv * grid);\n"
-          "    vec2  f      = fract(uv * grid);\n"
-          "    float offset = rng(cell);\n"
-          "    float spd    = speed * (0.7 + rng(cell + 5.0)  * 0.6);\n"
-          "    float bright = 0.4  + rng(cell + 10.0) * 0.6;\n"
-          "    float len    = 0.06 + rng(cell + 15.0) * 0.18;\n"
-          "    float w      = 0.05 + rng(cell + 20.0) * 0.08;\n"
-          "    float xLean  = lean * f.y;\n"
-          "    float y      = fract(t * spd + offset);\n"
-          "    float xMask  = smoothstep(0.5 - w, 0.5, f.x + xLean)\n"
-          "                 * smoothstep(0.5 + w, 0.5, f.x + xLean);\n"
-          "    float yDist  = f.y - y;\n"
-          "    float yMask  = smoothstep(0.0, 0.01, yDist)\n"
-          "                 * (1.0 - smoothstep(len * 0.4, len, yDist));\n"
-          "    return xMask * yMask * bright;\n"
+          "float StaticDrops(vec2 uv, float t) {\n"
+          "    uv *= 40.;\n"
+          "    vec2 id = floor(uv);\n"
+          "    uv = fract(uv)-.5;\n"
+          "    vec3 n = N13(id.x*107.45+id.y*3543.654);\n"
+          "    vec2 p = (n.xy-.5)*.7;\n"
+          "    float d = length(uv-p);\n"
+          "    float fade = Saw(.025, fract(t+n.z));\n"
+          "    return S(.3,0.,d)*fract(n.z*10.)*fade;\n"
+          "}\n"
+          "\n"
+          "vec2 Drops(vec2 uv, float t, float l0, float l1, float l2) {\n"
+          "    float s  = StaticDrops(uv,t)*l0;\n"
+          "    vec2  m1 = DropLayer2(uv,t)*l1;\n"
+          "    vec2  m2 = DropLayer2(uv*1.85,t)*l2;\n"
+          "    float c  = S(.3,1.,s+m1.x+m2.x);\n"
+          "    return vec2(c, max(m1.y*l0, m2.y*l1));\n"
           "}\n"
           "\n"
           "void main() {\n"
-          "    vec2  uv = gl_FragCoord.xy / u_resolution;\n"
-          "    uv.y = 1.0 - uv.y;\n"
-          "    float t = u_time * 0.4;\n"
-          "    float r = 0.0;\n"
-          "    // Three depth layers: far (faint/dense), mid, close (bright/sparse)\n"
-          "    r += rainLayer(uv, t * 0.55, 42.0, 0.7, -0.10) * 0.30;\n"
-          "    r += rainLayer(uv, t * 0.75, 28.0, 1.0, -0.12) * 0.55;\n"
-          "    r += rainLayer(uv, t * 1.00, 16.0, 1.4, -0.15) * 0.80;\n"
-          "    r = clamp(r, 0.0, 1.0);\n"
-          "    vec3 color = vec3(0.68, 0.84, 1.0);\n"
-          "    gl_FragColor = vec4(color, r * 0.60);\n"
+          "    vec2  uv = (gl_FragCoord.xy - 0.5*u_resolution.xy) / u_resolution.y;\n"
+          "    float t  = u_time*0.2;\n"
+          "    float rain        = 0.7;\n"
+          "    float staticDrops = S(-.5,1.,rain)*2.;\n"
+          "    float layer1      = S(.25,.75,rain);\n"
+          "    float layer2      = S(.0,.5,rain);\n"
+          "    vec2 c = Drops(uv, t, staticDrops, layer1, layer2);\n"
+          "    vec2 e  = vec2(.001, 0.);\n"
+          "    float cx = Drops(uv+e,    t, staticDrops, layer1, layer2).x;\n"
+          "    float cy = Drops(uv+e.yx, t, staticDrops, layer1, layer2).x;\n"
+          "    vec2  n  = vec2(cx-c.x, cy-c.x);\n"
+          "    vec3  sn   = normalize(vec3(n*8.0, 1.0));\n"
+          "    float spec = pow(max(0.0, dot(sn, normalize(vec3(0.5,1.0,1.5)))), 16.0);\n"
+          "    float dropA  = c.x;\n"
+          "    float trailA = c.y;\n"
+          "    vec3 col = mix(vec3(0.52,0.70,0.94), vec3(0.72,0.86,1.00), dropA)\n"
+          "             + spec*vec3(1.0);\n"
+          "    float alpha = dropA*0.50 + trailA*0.20*(1.0-dropA) + spec*0.35*dropA;\n"
+          "    gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));\n"
           "}\n";
 
       // ── Shader helpers ─────────────────────────────────────────────────────
@@ -375,7 +423,8 @@
                   if (screens[i].configured)
                       render(&screens[i], t);
               wl_display_flush(display);
-              usleep(16667); // ~60 fps
+              struct timespec ts = {0, 16667000}; // ~60 fps (16.667ms)
+              nanosleep(&ts, NULL);
           }
 
           return 0;
@@ -390,10 +439,18 @@
       dontUnpack = true;
 
       nativeBuildInputs = [ pkgs.pkg-config pkgs.wayland-scanner ];
-      buildInputs       = with pkgs; [ wayland mesa libGL ];
+      buildInputs       = with pkgs; [ wayland wayland-protocols wlr-protocols mesa libGL ];
 
       buildPhase = ''
         cp ${pkgs.writeText "rain-overlay.c" rainC} rain-overlay.c
+
+        # xdg-shell is referenced by wlr-layer-shell in newer protocol versions
+        wayland-scanner client-header \
+          < ${pkgs.wayland-protocols}/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml \
+          > xdg-shell-client.h
+        wayland-scanner private-code \
+          < ${pkgs.wayland-protocols}/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml \
+          > xdg-shell-protocol.c
 
         # Generate wlr-layer-shell Wayland protocol bindings
         wayland-scanner client-header \
@@ -403,8 +460,8 @@
           < ${pkgs.wlr-protocols}/share/wlr-protocols/unstable/wlr-layer-shell-unstable-v1.xml \
           > wlr-layer-shell-protocol.c
 
-        gcc rain-overlay.c wlr-layer-shell-protocol.c \
-          -I. -O2 -std=c11 \
+        gcc rain-overlay.c xdg-shell-protocol.c wlr-layer-shell-protocol.c \
+          -I. -O2 -std=gnu11 \
           $(pkg-config --cflags --libs wayland-client wayland-egl egl glesv2) \
           -lm -o rain-overlay
       '';

@@ -84,6 +84,8 @@ in {
       self.nixosModules.spicetify
       self.nixosModules.discord
       self.nixosModules.rain-effect
+      self.nixosModules.tailscale
+      self.nixosModules.sunshine
 
       # System-specific settings
       {

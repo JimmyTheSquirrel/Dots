@@ -62,6 +62,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   ├── zsh.nix              # Shell config
 │   ├── spicetify.nix        # Spotify theming
 │   ├── discord.nix          # Vesktop with transparency
+│   ├── rain-effect.nix      # GLSL rain overlay (Odysseus, wlr-layer-shell bottom layer)
 │   ├── sddm.nix             # SDDM video login theme
 │   ├── base.nix             # Common packages and settings
 │   ├── grub.nix             # GRUB with multi-system boot menu
@@ -84,7 +85,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 |--------|---------|-------------|-------------|
 | **Sisyphus** | Hyprland | `Hosts/Sisyphus/system.nix` | hyprland (nixos+home), skwd-wall, noctalia, screenshot, spicetify |
 | **Elektra** | KDE Plasma 6 | `Hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wall, thunar, spicetify, discord, screenshot |
-| **Odysseus** | Niri | `Hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + launcher + power menu + notifications), skwd-wall, spicetify, discord |
+| **Odysseus** | Niri | `Hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + launcher + power menu + notifications), skwd-wall, spicetify, discord, rain-effect |
 
 Sisyphus + Elektra share with above: brave, helium
 Odysseus only: helium (default browser, brave removed)
@@ -233,6 +234,36 @@ Custom **"text" theme** with static blue color scheme:
 Theme files in `Resources/spicetify-text-theme/`.
 
 **Note on dynamic colors:** Spicetify-nix bakes themes into the Nix store at build time, so runtime color updates (e.g., from matugen) don't work without a rebuild. The theme uses a static "Blue" color scheme defined in `color.ini`.
+
+### Rain Effect Overlay
+
+GLSL rain-on-glass overlay rendered on the Wayland `bottom` layer — above the wallpaper, below all windows. Fully independent of skwd-wall; changing wallpaper while rain is active has no effect.
+
+**Module:** `Modules/rain-effect.nix` (Odysseus only)
+
+**How it works:**
+- C program using `wlr-layer-shell` (`ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM`) + EGL + OpenGL ES 2
+- Empty input region so all mouse/keyboard events pass through
+- `exclusive_zone = -1` so it doesn't push other surfaces
+- Creates one layer surface per monitor (handles dual-monitor setup)
+- Shader: adapted "Heartfelt" by Martijn Steinrucken (BigWings) 2017 — rain-on-glass drops with trails, static droplets, specular highlights. CC BY-NC-SA 3.0.
+- Binary compiled at Nix build time via `stdenv.mkDerivation` with `wayland-scanner` generating xdg-shell + wlr-layer-shell protocol bindings
+
+**Usage:**
+```bash
+rain-toggle          # toggle on/off
+rain-toggle on       # explicit on (for weather automation)
+rain-toggle off      # explicit off
+```
+Keybind: `Mod+Shift+R` in Niri
+
+**Future:** auto-trigger based on weather API (Noctalia has Sydney weather enabled)
+
+**Shader tuning notes:**
+- `rain` variable (0.0–1.0) controls intensity — currently `0.7`
+- `u_time*0.2` controls animation speed
+- Alpha: `dropA*0.50 + trailA*0.20*(1.0-dropA) + spec*0.35*dropA` — lower `dropA` multiplier for subtler drops
+- Drop color: `mix(vec3(0.52,0.70,0.94), vec3(0.72,0.86,1.00), dropA)` — light blue water tones
 
 ### Discord Setup
 
