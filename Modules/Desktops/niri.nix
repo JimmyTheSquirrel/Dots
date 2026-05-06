@@ -33,7 +33,12 @@
         pkgs.xdg-desktop-portal-gnome
         pkgs.xdg-desktop-portal-gtk
       ];
-      config.common.default = "gtk";
+      config.common = {
+        default = "gtk";
+        "org.freedesktop.impl.portal.ScreenCast" = "gnome";
+        "org.freedesktop.impl.portal.Screenshot" = "gnome";
+        "org.freedesktop.impl.portal.RemoteDesktop" = "gnome";
+      };
     };
 
     xdg.mime = {
@@ -70,35 +75,46 @@
       (lib.hiPrio (writeShellScriptBin "steam" ''
         exec ${steam}/bin/steam -no-cef-sandbox "$@"
       ''))
-      # Wrapped spotify: GPU workaround + navigate to Liked Songs via D-Bus
-      (lib.hiPrio (writeShellScriptBin "spotify" ''
-        LIKED_SONGS="spotify:collection:tracks"
-
-        # Check if Spotify is already running
-        if ! pgrep -x spotify >/dev/null; then
-          # First launch - start Spotify then navigate via D-Bus after it's ready
-          /etc/profiles/per-user/rock/bin/spotify \
-            --disable-gpu-sandbox --use-gl=angle --use-angle=swiftshader "$@" &
-          SPOTIFY_PID=$!
-          # Wait for D-Bus interface to become available, then open Liked Songs
-          (for i in $(seq 1 30); do
-            sleep 1
-            if qdbus6 org.mpris.MediaPlayer2.spotify / org.freedesktop.MediaPlayer2.OpenUri "$LIKED_SONGS" 2>/dev/null; then
-              break
-            fi
-          done) &
-          wait $SPOTIFY_PID
-        else
-          # Already running - navigate via D-Bus
-          qdbus6 org.mpris.MediaPlayer2.spotify / org.freedesktop.MediaPlayer2.OpenUri "$LIKED_SONGS" 2>/dev/null || true
-        fi
-      ''))
-      # Spotify startup launcher (delayed start for session init)
+      # Spotify startup launcher: delayed start for session init, opens to liked songs.
+      # Used in niri spawn-at-startup — needs the sleep for session initialization.
       (writeShellScriptBin "spotify-startup" ''
-        sleep 3  # Wait for desktop to initialize
-        exec spotify
+        LIKED_SONGS="spotify:collection:tracks"
+        sleep 3  # Wait for desktop/session to fully initialize
+        exec spotify \
+          --disable-gpu-sandbox --use-gl=angle --use-angle=swiftshader \
+          --uri="$LIKED_SONGS"
+      '')
+      # Spotify manual launcher: no sleep, handles fresh launch + already-running.
+      # Used by the .desktop file so the app launcher opens Spotify to liked songs.
+      # Avoids infinite recursion by never replacing the 'spotify' binary in PATH.
+      (writeShellScriptBin "spotify-open" ''
+        LIKED_SONGS="spotify:collection:tracks"
+        if ! pgrep -x spotify >/dev/null; then
+          # Fresh launch — pass URI directly, Spotify opens straight to playlist
+          spotify \
+            --disable-gpu-sandbox --use-gl=angle --use-angle=swiftshader \
+            --uri="$LIKED_SONGS" "$@" &
+        else
+          # Already running — navigate via D-Bus MPRIS
+          dbus-send --dest=org.mpris.MediaPlayer2.spotify \
+            /org/mpris/MediaPlayer2 \
+            org.mpris.MediaPlayer2.Player.OpenUri \
+            string:"$LIKED_SONGS" 2>/dev/null || true
+        fi
       '')
     ];
+
+    # Override Spotify .desktop so the app launcher uses spotify-open instead of spotify.
+    # This means the launcher always opens Liked Songs without touching the spotify binary.
+    home-manager.users.rock.xdg.desktopEntries.spotify = {
+      name = "Spotify";
+      genericName = "Music Player";
+      exec = "spotify-open %U";
+      icon = "spotify";
+      terminal = false;
+      categories = ["Audio" "Music" "Player" "AudioVideo"];
+      mimeType = ["x-scheme-handler/spotify"];
+    };
 
     # Disable GNOME SSH agent to avoid conflict with programs.ssh.startAgent
     services.gnome.gcr-ssh-agent.enable = false;
@@ -327,10 +343,6 @@
               opacity 0.90
             }
             window-rule {
-              match app-id="^brave-browser$"
-              opacity 0.85
-            }
-            window-rule {
               match app-id="^codium$"
               opacity 0.80
             }
@@ -364,7 +376,7 @@
           binds = {
             "Mod+Return".spawn-sh = lib.getExe pkgs.kitty;
             "Mod+E".spawn-sh = lib.getExe pkgs.xfce.thunar;
-            "Mod+F".spawn-sh = lib.getExe pkgs.brave;
+            "Mod+F".spawn-sh = "helium";
             "Mod+D".spawn-sh = "noctalia-shell ipc call launcher toggle";
             "Mod+W".spawn-sh = "skwd wall toggle";
             "Mod+Shift+Delete".spawn-sh = "noctalia-shell ipc call sessionMenu toggle";
@@ -398,6 +410,7 @@
             "Mod+WheelScrollUp".focus-column-left = _: {};
             "Mod+Shift+S".spawn-sh = "grim -g \"$(slurp)\" - | wl-copy";
             "Mod+S".spawn-sh = "grim - | wl-copy";
+            "Mod+Shift+R".spawn-sh = "rain-toggle";
             "XF86AudioRaiseVolume".spawn-sh = "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+";
             "XF86AudioLowerVolume".spawn-sh = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-";
             "XF86AudioMute".spawn-sh = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle";
@@ -417,7 +430,6 @@
                   rm $out/bin/niri
                   cat > $out/bin/niri << 'EOF'
           #!/bin/sh
-          sleep 2
           exec ${baseNiri}/bin/niri "$@"
           EOF
                   chmod +x $out/bin/niri

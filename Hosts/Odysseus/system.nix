@@ -74,7 +74,6 @@ in {
       self.nixosModules.zsh
       self.nixosModules.starship
       self.nixosModules.kitty
-      self.nixosModules.brave
       self.nixosModules.helium
       self.nixosModules.git
       self.nixosModules.fastfetch
@@ -84,6 +83,7 @@ in {
       self.nixosModules.navi
       self.nixosModules.spicetify
       self.nixosModules.discord
+      self.nixosModules.rain-effect
 
       # System-specific settings
       {

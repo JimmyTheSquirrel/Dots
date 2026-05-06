@@ -86,7 +86,10 @@ flake.nix                    # Entry point using flake-parts + import-tree
 | **Elektra** | KDE Plasma 6 | `Hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wall, thunar, spicetify, discord, screenshot |
 | **Odysseus** | Niri | `Hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + launcher + power menu + notifications), skwd-wall, spicetify, discord |
 
-All systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, brave, helium, git, navi, starship, fastfetch
+Sisyphus + Elektra share with above: brave, helium
+Odysseus only: helium (default browser, brave removed)
+
+All systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, git, navi, starship, fastfetch
 
 ### Multi-Boot System
 
@@ -187,7 +190,9 @@ When wallpaper changes, skwd-wall runs matugen to generate Material You colors. 
 **Important:**
 - Noctalia must use `outOfStoreConfig = "/home/rock/.config/noctalia"` in wrapper-modules. Without this, noctalia reads from the Nix store instead of the user config directory where matugen writes.
 - Noctalia color refresh is now **automatic** via the `reload` field in the integration. No manual restart needed.
-- Do NOT use `pkill -9 quickshell` to reload colors — it kills skwd-wall's quickshell UI too. Use `noctalia-shell ipc call colorScheme refresh` instead.
+- Do NOT use `pkill -9 quickshell` to reload colors — it kills skwd-wall's quickshell UI too. Use `noctalia-shell ipc call wallpaper refresh` instead.
+- **`colorScheme refresh` was removed** from noctalia's IPC in a newer version — the reload command is now `noctalia-shell ipc call wallpaper refresh`.
+- **Zen integrations in config.json break matugen** — their output paths contain literal `\n` which corrupts the generated TOML. The activation script now strips them on every rebuild. Symptom: `matugen exited with exit status: 1` in `journalctl --user -u skwd-daemon`.
 - The `matugen.schemeType` should be `"scheme-tonal-spot"` for colorful Material You colors and `matugen.mode` should be `"dark"`.
 - The activation script patches the existing `config.json` via jq on every rebuild (not just first run), so integrations/reload fields stay correct even if the user edits the file.
 
@@ -280,7 +285,7 @@ Niri is a scrollable-tiling Wayland compositor. Configured via wrapper-modules i
 
 **Window rules** (in `extraConfig` as raw KDL):
 - Global: `corner-radius 12`, `clip-to-geometry true`
-- Opacity: spotify 0.90, vesktop 0.85, brave 0.85, helium 0.85, codium 0.80, thunar 0.90
+- Opacity: spotify 0.90, vesktop 0.85, helium 0.85, codium 0.80, thunar 0.90
 - Floating: pavucontrol, Picture-in-Picture
 - Spotify opens on HDMI-A-1 (secondary monitor)
 
@@ -289,7 +294,7 @@ Niri is a scrollable-tiling Wayland compositor. Configured via wrapper-modules i
 |-----|--------|
 | `Mod+Return` | Kitty terminal |
 | `Mod+E` | Thunar |
-| `Mod+F` | Brave browser |
+| `Mod+F` | Helium browser |
 | `Mod+D` | Noctalia app launcher |
 | `Mod+W` | SKWD wallpaper selector |
 | `Mod+Q` | Close window |
@@ -303,12 +308,15 @@ Niri is a scrollable-tiling Wayland compositor. Configured via wrapper-modules i
 | `Mod+S` | Screenshot full screen to clipboard |
 
 **Startup sequence:**
-1. Niri binary is wrapped with 2-second sleep (allows SDDM to fully initialize)
-2. Noctalia shell launches first for instant visual feedback
-3. D-Bus environment setup runs in background
-4. Spotify launches via `spotify-startup` (3-second delay, opens to Liked Songs)
+1. Noctalia shell launches first for instant visual feedback
+2. D-Bus environment setup runs in background
+3. Spotify launches via `spotify-startup` (3-second delay, opens to Liked Songs)
 
-**Spotify wrapper:** Custom wrapper at system level handles GPU sandbox issues and D-Bus navigation to Liked Songs on launch.
+**Spotify launcher:** Two scripts in `environment.systemPackages` handle Spotify launch:
+- `spotify-startup` — used by niri `spawn-at-startup`, sleeps 3s then launches with GPU flags + `--uri` for playlist
+- `spotify-open` — used by the app launcher `.desktop` entry, no sleep, handles fresh launch (`--uri`) and already-running (D-Bus MPRIS `OpenUri`)
+
+The `spotify` binary is never replaced (avoids infinite recursion with spicetify's wrapper). Instead, `home-manager.users.rock.xdg.desktopEntries.spotify` overrides the `.desktop` file to call `spotify-open %U`.
 
 **Monitor config** (in `extraConfig`):
 ```kdl
@@ -413,13 +421,14 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 - Focus ring disabled (`layout.focus-ring.width = 0`), using border instead for window outlines
 - Cursor theme configured via `cursor.xcursor-theme` and `cursor.xcursor-size` in wrapper-modules settings
 - Window opacity rules for transparency (spotify 0.90, vesktop 0.85, etc.)
-- Spotify wrapper uses D-Bus to navigate to Liked Songs: `qdbus6 org.mpris.MediaPlayer2.spotify / org.freedesktop.MediaPlayer2.OpenUri "spotify:collection:tracks"` (the `--uri` flag only works on fresh launch, not when Spotify is already running)
+- Spotify opens to Liked Songs on launch via `LIKED_SONGS="spotify:collection:tracks"` in both `spotify-startup` and `spotify-open` scripts. Fresh launch uses `--uri` flag (processed before UI renders, most reliable). Already-running uses `dbus-send --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.OpenUri string:URI`. To change the target, update `LIKED_SONGS` in both scripts in `niri.nix`. If `spotify:collection:tracks` stops working, replace with a real `spotify:playlist:ID` URI (right-click playlist → Share → Copy Spotify URI).
+- Spotify binary is never wrapped directly — spicetify owns the `spotify` binary. Instead, `spotify-open` and `spotify-startup` call `spotify` (spicetify's version) with extra flags. The app launcher uses a custom `.desktop` entry (`xdg.desktopEntries.spotify`) pointing to `spotify-open`.
 - Power menu keybind (`Mod+Shift+Delete`) triggers Noctalia's session menu via IPC: `noctalia-shell ipc call sessionMenu toggle`
 - App launcher keybind (`Mod+D`) uses Noctalia: `noctalia-shell ipc call launcher toggle`
 - Wallpaper keybind (`Mod+W`) uses skwd-wall: `skwd wall toggle`
 - `kdePackages.qttools` provides `qdbus6` for D-Bus calls to Spotify
 - Startup optimization: D-Bus environment commands run in background (`sh -c '... &'`) so visual elements load first
-- Session startup delay: niri binary is wrapped with a 2-second sleep to allow SDDM/session to fully initialize before rendering
+- Niri binary is wrapped (via `pkgs.symlinkJoin`) to add `providedSessions` passthru — no startup delay. The old `sleep 2` was removed because it applied to `niri msg` too, causing every IPC call (and all app launches from Noctalia) to take 2 seconds.
 
 ### Noctalia Desktop Shell
 
@@ -545,22 +554,33 @@ Chromium-based privacy browser (de-googled, built on ungoogled-chromium) used al
 
 **What the module manages declaratively:**
 
-- **Package** — installed via `inputs.helium.packages.${system}.default`
-- **Bitwarden** — force-installed and toolbar-pinned via Chromium enterprise policy (`ExtensionSettings`)
+- **Package** — wrapped binary via `pkgs.symlinkJoin` + `makeWrapper` (not installed directly)
+- **Dark theme** — custom Chrome theme extension (`helium-dark-theme` derivation) loaded via `--load-extension`. Sets exact colors for frame, toolbar, omnibox, and tabs. Loaded alongside Bitwarden as a comma-separated `--load-extension` list. If the theme doesn't apply after rebuild, go to `helium://settings/appearance` and reset the theme there once.
+- **Bitwarden** — loaded via `--load-extension` pointing to a Nix-fetched derivation (ungoogled-chromium blocks Google's CWS, so `force_installed` doesn't work). The extension zip is fetched from Bitwarden's GitHub releases, source maps stripped, and Bitwarden's RSA public key injected into `manifest.json` so `--load-extension` assigns the correct extension ID (`nngceckbapebfimnlniiiahkandclblb`) instead of a random one. Key was extracted from the signed CRX and verified by computing SHA256 → extension ID.
+- **Bitwarden pinned** — `ExtensionSettings` policy with `toolbar_pin = "force_pinned"` targets the correct ID
 - **Bookmarks** — two managed folders (Work: Outlook, Personal: GitHub/Reddit/ProtonDB) via `ManagedBookmarks` policy
-- **Bookmarks bar** — always visible via `BookmarksBarEnabled = true`
 - **New tab page** — blank via `NewTabPageLocation = "about:blank"`
-- **URL bar** — history and topsites suggestions disabled via `browser.urlbar.suggest.history/topsites = false`
+
+**Theme colors** (in `helium-dark-theme` derivation manifest):
+- `frame`: `[42, 42, 42]` — tab strip background
+- `toolbar`: `[48, 48, 48]` — address bar area
+- `omnibox_background`: `[38, 38, 38]` — search bar input (darker than toolbar for depth)
+- `tab_text` / `tab_background_text`: `[230]` / `[150]` — active/inactive tab text
+- To adjust: edit the color arrays in `helium-dark-theme` inside `helium.nix` and rebuild
+- GTK/QT theme options in settings do nothing useful on Niri without a GTK theme configured — use the custom theme extension instead
 
 **Policy setup:**
 - Policies go in `/etc/chromium/policies/managed/helium.json` via `environment.etc`
 - Helium reads from `/etc/chromium/policies/managed/` (standard ungoogled-chromium path)
 - Verify policies loaded at `helium://policy` — all entries should show Status: OK
-- Bitwarden extension ID: `nngceckbapebfimnlniiiahkandclblb`
+- Bitwarden extension ID: `nngceckbapebfimnlniiiahkandclblb` (locked by key in manifest)
+- Bitwarden version is pinned — update URL + hash in `helium.nix` when upgrading. The RSA key stays the same across versions.
+- `BookmarksBarEnabled` policy removed — Helium sets this internally, adding it causes a policy Error
 
 **Transparency:**
-- Niri opacity rule (`app-id="^helium$"`, opacity 0.85) handles compositor-level transparency
+- Niri opacity rule (`app-id="^helium$"`, opacity 0.96) handles compositor-level transparency
 - **Niri opacity rule requires logout/login** — Niri's config is baked into the wrapper-modules binary, not hot-reloaded
+- Wallpaper colors bleed through at lower opacity values — keep at 0.95+ to avoid tinting web content
 - No CSS-level transparency (Chromium doesn't support userChrome equivalent)
 
 **ManagedBookmarks format:**

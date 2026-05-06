@@ -108,11 +108,13 @@ EOF
         # Always patch integrations: ensure skwd-wall built-in + noctalia reload
         if [ -f "${configPath}/config.json" ]; then
           ${pkgs.jq}/bin/jq '
-            # Fix noctalia reload to use IPC instead of killing quickshell
+            # Remove zen integrations (broken paths cause matugen TOML parse errors)
+            .integrations = ((.integrations // []) | map(select(.name != "zen" and .name != "zen-content"))) |
+            # Fix noctalia reload (colorScheme refresh was removed; wallpaper refresh triggers re-read)
             .integrations = (
-              (.integrations // []) |
+              .integrations |
               map(if .name == "noctalia" then
-                .reload = "noctalia-shell ipc call colorScheme refresh"
+                .reload = "noctalia-shell ipc call wallpaper refresh"
               else . end)
             ) |
             # Add skwd-wall built-in integration if missing (needed for UI colors)

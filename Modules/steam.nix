@@ -11,6 +11,13 @@
       extraPackages = with pkgs; [
         mangohud
       ];
+
+      # Override bundled ancient PulseAudio 1.1 from Steam's scout runtime
+      # with the host's modern libpulseaudio. Without this, Steam crashes
+      # in its PA callback thread when talking to pipewire-pulse.
+      package = pkgs.steam.override {
+        extraLibraries = _pkgs: [ _pkgs.libpulseaudio ];
+      };
     };
 
     programs.gamemode.enable = true;
