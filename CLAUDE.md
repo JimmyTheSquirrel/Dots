@@ -646,3 +646,45 @@ Import-tree only sees git-tracked files. A new `*.nix` file in `Modules/` will b
 - `silentSDDM` - Login screen theme
 - `nix-citizen` / `nix-gaming` - Gaming packages (Star Citizen, Proton)
 - `sops-nix` - Encrypted secrets management with age keys
+
+### Game Streaming (Sunshine + Moonlight + Tailscale)
+
+Odysseus runs **Sunshine** as a game streaming host, accessible remotely via **Tailscale**, streamed to an Android phone using **Moonlight**.
+
+**Modules:**
+- `Modules/sunshine.nix` — Sunshine user service (Odysseus only)
+- `Modules/tailscale.nix` — Tailscale VPN (Odysseus only, auth key via sops)
+
+**How it works:**
+- Sunshine runs as a systemd user service (`systemctl --user start sunshine`)
+- `capSysAdmin = true` enables KMS display capture on Wayland
+- `hardware.uinput.enable = true` allows Sunshine to send virtual controller/keyboard/mouse input to Linux
+- `openFirewall = true` + `trustedInterfaces = [ "tailscale0" ]` means Sunshine is reachable over Tailscale without extra firewall rules
+- Tailscale auth key is stored in sops (`secrets.yaml` → `tailscale-auth-key`) and auto-authenticates on rebuild
+
+**Setup notes:**
+- Sunshine is a **user service** — it doesn't auto-start until login. Start manually with `systemctl --user start sunshine` if needed after boot
+- Sunshine web UI: `https://localhost:47990` (self-signed cert, accept the warning) — set credentials here on first run
+- Tailscale IP: `100.119.193.77` (check current IP with `tailscale ip`)
+- Moonlight on Android: add PC manually by IP (mDNS auto-discovery doesn't work over Tailscale tunnels) — Moonlight saves it permanently
+- Pairing: Moonlight shows PIN on phone → enter it in Sunshine web UI → paired permanently
+- DualSense controller: pair to Android via Bluetooth, Sunshine translates inputs to uinput on the PC side
+
+**Display selection:**
+In Sunshine web UI → Configuration → Audio/Video → Display Number. Available outputs:
+- `card1-DP-2` — 2560x1080 @ 144Hz (primary ultrawide)
+- `card1-HDMI-A-1` — 1920x1080 @ 60Hz (secondary, better aspect ratio for phone streaming)
+
+**sops.nix path fix:**
+`defaultSopsFile` must use `../Secrets/secrets.yaml` (one level up from `Modules/`), NOT `../../` which resolves to `/nix/store/Secrets` and breaks pure evaluation.
+
+**Planned: DualSense controller desktop navigation (not yet implemented)**
+
+Want to map DualSense inputs (via Moonlight/uinput) to Niri desktop actions:
+- Left thumbstick → cursor/focus movement
+- X button → confirm/enter
+- Triangle → close focused window (`Mod+Q`)
+- One button → toggle app launcher (`noctalia-shell ipc call launcher toggle`)
+- One button → toggle wallpaper picker (`skwd wall toggle`)
+
+Will need a daemon (e.g. `antimicrox` or custom evdev reader) to map controller events to key combos.

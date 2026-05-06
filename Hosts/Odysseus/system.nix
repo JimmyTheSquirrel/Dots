@@ -86,6 +86,7 @@ in {
       self.nixosModules.rain-effect
       self.nixosModules.tailscale
       self.nixosModules.sunshine
+      self.nixosModules.controller
 
       # System-specific settings
       {

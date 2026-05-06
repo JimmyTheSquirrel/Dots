@@ -14,7 +14,7 @@
     ];
 
     sops = {
-      defaultSopsFile = ../../Secrets/secrets.yaml;
+      defaultSopsFile = ../Secrets/secrets.yaml;
       age.keyFile = "/home/rock/.config/sops/age/keys.txt";
       secrets.tailscale-auth-key = { };
     };
