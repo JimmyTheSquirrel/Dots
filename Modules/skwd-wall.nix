@@ -12,6 +12,13 @@
       # ============================================================
       home.packages = [ skwdPackage ];
 
+      # Hide from app launchers — skwd-wall is keybind-driven (Meta+W)
+      xdg.desktopEntries."skwd-wall" = {
+        name = "Skwd-wall";
+        exec = "skwd wall toggle";
+        noDisplay = true;
+      };
+
       # ============================================================
       # SYSTEMD SERVICE
       # ============================================================

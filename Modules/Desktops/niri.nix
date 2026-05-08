@@ -112,7 +112,7 @@
       name = "Spotify";
       genericName = "Music Player";
       exec = "spotify-open %U";
-      icon = "spotify";
+      icon = "${pkgs.spotify}/share/spotify/icons/spotify-linux-512.png";
       terminal = false;
       categories = ["Audio" "Music" "Player" "AudioVideo"];
       mimeType = ["x-scheme-handler/spotify"];

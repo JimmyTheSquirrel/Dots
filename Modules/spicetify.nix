@@ -21,7 +21,7 @@
             if (style) {
               // Force browser to re-process the style by toggling it
               const text = style.textContent;
-              style.textContent = '';
+              style.textContent = ''';
               style.textContent = text;
             }
           }
@@ -151,12 +151,12 @@
             | ${pkgs.jq}/bin/jq -r '[.[] | select(.type == "page")] | .[0].webSocketDebuggerUrl' 2>/dev/null)
           [ -n "$WS_URL" ] && [ "$WS_URL" != "null" ] || exit 0
 
-          # Build JS that applies each CSS variable via setProperty on :root
-          COLORS=$(cat "$COLORS_FILE")
+          # Compact colors to one line so the JS expression has no newlines
+          COLORS=$(${pkgs.jq}/bin/jq -c . "$COLORS_FILE")
           JS="(function(){var c=''${COLORS};var r=document.documentElement;Object.entries(c).forEach(function(kv){r.style.setProperty(kv[0],kv[1]);});})();"
 
-          # Send Runtime.evaluate via CDP WebSocket
-          MSG=$(${pkgs.jq}/bin/jq -n --arg e "$JS" '{"id":1,"method":"Runtime.evaluate","params":{"expression":$e}}')
+          # -cn = compact single-line JSON (websocat --one-message reads one line at a time)
+          MSG=$(${pkgs.jq}/bin/jq -cn --arg e "$JS" '{"id":1,"method":"Runtime.evaluate","params":{"expression":$e}}')
           echo "$MSG" | ${pkgs.websocat}/bin/websocat --one-message "$WS_URL" 2>/dev/null || true
         '')
       ];

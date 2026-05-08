@@ -241,8 +241,12 @@ Colors update live in Spotify the moment skwd-wall changes the wallpaper — no 
 1. skwd-wall runs matugen on wallpaper change, writing two files:
    - `~/.config/spicetify/matugen-colors.json` — CSS custom property values (`--spice-*`) for runtime use
    - `~/.config/spicetify/Themes/text/color.ini` — `[Matugen]` section for bake-in on next rebuild
-2. A baked-in JS extension (`matugen-colors.js` in `spicetify.nix`) uses `fs.watch` on `~/.config/spicetify/` to detect the file update and immediately calls `document.documentElement.style.setProperty()` for each `--spice-*` variable
-3. Also hooks `Spicetify.Platform.History.listen` to re-apply after SPA navigation
+2. The `spicetify-live` integration in skwd-wall config has `"reload": "spotify-apply-colors"` — after matugen writes the JSON, skwd-wall runs this script automatically
+3. `spotify-apply-colors` (in `home.packages` in `spicetify.nix`) connects to Spotify's CDP debug port (9222), reads `matugen-colors.json`, and injects each `--spice-*` variable via `Runtime.evaluate` → `document.documentElement.style.setProperty()`
+4. Spotify must be launched with `--remote-debugging-port=9222` (set in both `spotify-startup` and `spotify-open` in `niri.nix`)
+5. The baked-in `matugen-colors.js` extension hooks `Spicetify.Platform.History.listen` to re-apply the injected `<style>` element after SPA navigation wipes inline styles
+
+**Why not `fs.watch` or `fetch()`?** Spotify uses CEF (Chromium Embedded Framework), not Electron. The renderer has no Node.js `require('fs')` and blocks all localhost HTTP connections. CDP is the only reliable way to inject JS into the running renderer from outside.
 
 **Color scheme:** `colorScheme = "Matugen"` in `spicetify.nix` — the `[Matugen]` section in `color.ini` is the baked-in fallback (used until the first wallpaper change writes `matugen-colors.json`).
 
