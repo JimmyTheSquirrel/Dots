@@ -82,6 +82,7 @@
         sleep 3  # Wait for desktop/session to fully initialize
         exec spotify \
           --disable-gpu-sandbox --use-gl=angle --use-angle=swiftshader \
+          --remote-debugging-port=9222 \
           --uri="$LIKED_SONGS"
       '')
       # Spotify manual launcher: no sleep, handles fresh launch + already-running.
@@ -93,6 +94,7 @@
           # Fresh launch — pass URI directly, Spotify opens straight to playlist
           spotify \
             --disable-gpu-sandbox --use-gl=angle --use-angle=swiftshader \
+            --remote-debugging-port=9222 \
             --uri="$LIKED_SONGS" "$@" &
         else
           # Already running — navigate via D-Bus MPRIS

@@ -2,8 +2,37 @@
   flake.nixosModules.spicetify = { pkgs, activeUser, ... }:
   let
     spicePkgs = inputs.spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
+
+    # Live color injection is handled externally via CDP (Chrome DevTools Protocol).
+    # When wallpaper changes, skwd-wall runs spotify-apply-colors which connects to
+    # Spotify's CDP port (9222) and calls setProperty directly in the renderer.
+    # This extension handles the startup case: re-applies colors after SPA navigation
+    # using a <style> element injected at startup via CDP (colors are already in the DOM).
+    # No Node.js require() or network fetch needed — the style element persists in the DOM.
+    matugenExt = pkgs.writeTextFile {
+      name = "spicetify-matugen-colors";
+      destination = "/matugen-colors.js";
+      text = ''
+        (function () {
+          // Re-apply the matugen-dynamic-colors style after SPA navigation wipes inline styles.
+          // The actual colors are injected externally via CDP (spotify-apply-colors script).
+          function reapply() {
+            const style = document.getElementById('matugen-dynamic-colors');
+            if (style) {
+              // Force browser to re-process the style by toggling it
+              const text = style.textContent;
+              style.textContent = '';
+              style.textContent = text;
+            }
+          }
+          if (Spicetify?.Platform?.History) {
+            Spicetify.Platform.History.listen(reapply);
+          }
+        })();
+      '';
+    };
   in {
-    home-manager.users.${activeUser} = {
+    home-manager.users.${activeUser} = { config, ... }: {
       imports = [ inputs.spicetify-nix.homeManagerModules.default ];
 
       programs.spicetify = {
@@ -93,11 +122,12 @@
           '';
         };
 
-        colorScheme = "Blue";
+        colorScheme = "Matugen";
 
         enabledExtensions = with spicePkgs.extensions; [
           adblock
           shuffle
+          { src = matugenExt; name = "matugen-colors.js"; }
         ];
 
         enabledCustomApps = with spicePkgs.apps; [
@@ -105,8 +135,32 @@
         ];
       };
 
-      # Note: spicetify-watch doesn't work with spicetify-nix (themes are baked in at build time)
-      # Colors from matugen will apply after a rebuild, or manually restart Spotify after wallpaper change
+      # spotify-apply-colors: injects current matugen colors into the running Spotify via CDP.
+      # Spotify must be launched with --remote-debugging-port=9222 (see niri.nix).
+      # Called by skwd-wall's spicetify-live integration reload command on wallpaper change.
+      home.packages = [
+        pkgs.websocat
+        (pkgs.writeShellScriptBin "spotify-apply-colors" ''
+          COLORS_FILE="$HOME/.config/spicetify/matugen-colors.json"
+          CDP="http://127.0.0.1:9222"
+
+          [ -f "$COLORS_FILE" ] || exit 0
+
+          # Find the main xpui page target
+          WS_URL=$(${pkgs.curl}/bin/curl -s "$CDP/json/list" 2>/dev/null \
+            | ${pkgs.jq}/bin/jq -r '[.[] | select(.type == "page")] | .[0].webSocketDebuggerUrl' 2>/dev/null)
+          [ -n "$WS_URL" ] && [ "$WS_URL" != "null" ] || exit 0
+
+          # Build JS that applies each CSS variable via setProperty on :root
+          COLORS=$(cat "$COLORS_FILE")
+          JS="(function(){var c=''${COLORS};var r=document.documentElement;Object.entries(c).forEach(function(kv){r.style.setProperty(kv[0],kv[1]);});})();"
+
+          # Send Runtime.evaluate via CDP WebSocket
+          MSG=$(${pkgs.jq}/bin/jq -n --arg e "$JS" '{"id":1,"method":"Runtime.evaluate","params":{"expression":$e}}')
+          echo "$MSG" | ${pkgs.websocat}/bin/websocat --one-message "$WS_URL" 2>/dev/null || true
+        '')
+      ];
+
     };
   };
 }

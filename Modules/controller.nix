@@ -24,7 +24,7 @@
       import threading
       import time
 
-      DEADZONE = 8000       # Stick deadzone (axis range is -32767 to 32767)
+      DEADZONE = 0.25       # Stick deadzone as fraction of axis range (0.0–1.0)
       INITIAL_DELAY = 0.40  # Seconds before auto-repeat kicks in
       REPEAT_INTERVAL = 0.12  # Seconds between repeated arrow keys while held
 
@@ -55,12 +55,13 @@
 
       # Face buttons -> key presses
       FACE_KEYS = {
-          e.BTN_SOUTH: e.KEY_RETURN,
-          e.BTN_EAST:  e.KEY_ESCAPE,
+          e.BTN_SOUTH: e.KEY_ENTER,
+          e.BTN_EAST:  e.KEY_ESC,
       }
 
 
       def run(cmd):
+          print(f"cmd: {cmd}", flush=True)
           subprocess.Popen(
               cmd, shell=True,
               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -71,8 +72,15 @@
           run(f"notify-send -t 1500 -i input-gaming 'Controller' '{msg}'")
 
 
+      def normalize(value, abs_info):
+          """Normalize raw axis value to -1.0..1.0 using device AbsInfo."""
+          center = (abs_info.min + abs_info.max) / 2.0
+          half = (abs_info.max - abs_info.min) / 2.0
+          return (value - center) / half if half else 0.0
+
+
       def get_direction(lx, ly, deadzone):
-          """Dominant axis direction from analog stick, or None if in deadzone."""
+          """Dominant axis direction from normalized stick (-1.0..1.0), or None if in deadzone."""
           ax, ay = abs(lx), abs(ly)
           if ax <= deadzone and ay <= deadzone:
               return None
@@ -90,7 +98,8 @@
                       caps = dev.capabilities()
                       keys = caps.get(e.EV_KEY, [])
                       if e.BTN_SOUTH in keys:
-                          return dev
+                          abs_caps = dict(caps.get(e.EV_ABS, []))
+                          return dev, abs_caps
                   except Exception:
                       pass
               print("No gamepad found, waiting for Moonlight client...", flush=True)
@@ -102,7 +111,7 @@
               {
                   e.EV_KEY: [
                       e.KEY_LEFT, e.KEY_RIGHT, e.KEY_UP, e.KEY_DOWN,
-                      e.KEY_RETURN, e.KEY_ESCAPE,
+                      e.KEY_ENTER, e.KEY_ESC,
                       e.KEY_LEFTMETA,
                   ],
               },
@@ -162,7 +171,7 @@
           prev_hx = prev_hy = 0
 
           while True:
-              device = find_gamepad()
+              device, abs_caps = find_gamepad()
               print(f"Gamepad connected: {device.name}", flush=True)
               try:
                   for event in device.read_loop():
@@ -192,12 +201,12 @@
                                   run(cmd)
 
                       elif event.type == e.EV_ABS:
-                          if event.code == e.ABS_X:
+                          if event.code == e.ABS_X and e.ABS_X in abs_caps:
                               with lock:
-                                  lx = event.value
-                          elif event.code == e.ABS_Y:
+                                  lx = normalize(event.value, abs_caps[e.ABS_X])
+                          elif event.code == e.ABS_Y and e.ABS_Y in abs_caps:
                               with lock:
-                                  ly = event.value
+                                  ly = normalize(event.value, abs_caps[e.ABS_Y])
 
                           elif event.code == e.ABS_HAT0X:
                               if desktop_mode and event.value != 0 and event.value != prev_hx:

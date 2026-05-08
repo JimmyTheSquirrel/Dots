@@ -125,7 +125,60 @@ EOF
             && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
         fi
 
-        # Always sync the matugen template (managed by Nix)
+        # Patch spicetify integrations: color.ini (rebuild-time) + matugen-colors.json (runtime via fs.watchFile)
+        if [ -f "${configPath}/config.json" ]; then
+          ${pkgs.jq}/bin/jq '
+            if (.integrations | map(.name) | contains(["spicetify"])) | not then
+              .integrations += [{"name": "spicetify", "template": "spicetify-text.ini", "output": "~/.config/spicetify/Themes/text/color.ini"}]
+            else . end |
+            # Add spicetify-live integration or patch reload to use CDP injection
+            if (.integrations | map(.name) | contains(["spicetify-live"])) then
+              .integrations = (.integrations | map(if .name == "spicetify-live" then
+                .reload = "spotify-apply-colors"
+              else . end))
+            else
+              .integrations += [{"name": "spicetify-live", "template": "spicetify-colors.json", "output": "~/.config/spicetify/matugen-colors.json", "reload": "spotify-apply-colors"}]
+            end
+          ' "${configPath}/config.json" > "${configPath}/config.json.tmp" \
+            && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
+        fi
+
+        # Always sync matugen templates (managed by Nix)
+        cat > "${configPath}/data/matugen/templates/spicetify-colors.json" << 'EOF'
+{
+  "--spice-text": "{{colors.on_surface.default.hex}}",
+  "--spice-subtext": "{{colors.on_surface_variant.default.hex}}",
+  "--spice-main": "{{colors.surface.default.hex}}",
+  "--spice-accent": "{{colors.primary.default.hex}}",
+  "--spice-accent-active": "{{colors.primary_container.default.hex}}",
+  "--spice-accent-inactive": "{{colors.surface.default.hex}}",
+  "--spice-banner": "{{colors.primary.default.hex}}",
+  "--spice-border-active": "{{colors.primary.default.hex}}",
+  "--spice-border-inactive": "{{colors.outline.default.hex}}",
+  "--spice-header": "{{colors.primary_container.default.hex}}",
+  "--spice-highlight": "{{colors.surface_container.default.hex}}",
+  "--spice-notification": "{{colors.primary_container.default.hex}}",
+  "--spice-notification-error": "{{colors.error.default.hex}}"
+}
+EOF
+
+        cat > "${configPath}/data/matugen/templates/spicetify-text.ini" << 'EOF'
+[Matugen]
+accent             = {{colors.primary.default.hex_stripped}}
+accent-active      = {{colors.primary_container.default.hex_stripped}}
+accent-inactive    = {{colors.surface.default.hex_stripped}}
+banner             = {{colors.primary.default.hex_stripped}}
+border-active      = {{colors.primary.default.hex_stripped}}
+border-inactive    = {{colors.outline.default.hex_stripped}}
+header             = {{colors.primary_container.default.hex_stripped}}
+highlight          = {{colors.surface_container.default.hex_stripped}}
+main               = {{colors.surface.default.hex_stripped}}
+notification       = {{colors.primary_container.default.hex_stripped}}
+notification-error = {{colors.error.default.hex_stripped}}
+subtext            = {{colors.on_surface_variant.default.hex_stripped}}
+text               = {{colors.on_surface.default.hex_stripped}}
+EOF
+
         cat > "${configPath}/data/matugen/templates/noctalia-colors.json" << 'EOF'
 {
   "mPrimary": "{{colors.primary.default.hex}}",

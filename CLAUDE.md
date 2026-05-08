@@ -63,6 +63,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   ├── spicetify.nix        # Spotify theming
 │   ├── discord.nix          # Vesktop with transparency
 │   ├── rain-effect.nix      # GLSL rain overlay (Odysseus, wlr-layer-shell bottom layer)
+│   ├── controller.nix       # DualSense desktop nav daemon (Odysseus, Moonlight/Sunshine)
 │   ├── sddm.nix             # SDDM video login theme
 │   ├── base.nix             # Common packages and settings
 │   ├── grub.nix             # GRUB with multi-system boot menu
@@ -222,18 +223,34 @@ skwd wall toggle                          # Triggers cache rebuild
 
 ### Spicetify Theme
 
-Custom **"text" theme** with static blue color scheme:
+Custom **"text" theme** with matugen dynamic colors:
 - JetBrains Mono font throughout
 - ASCII art banners and pane border labels ("Nav", "Main", "Playing", etc.)
 - Custom Unicode icons for player controls
 - Transparent background for compositor transparency
 - Hidden right sidebar
 - Fixed connect bar positioning and clickability (CSS fixes in additionalCss)
-- Marketplace app + adblock/shuffle extensions
+- Marketplace app + adblock/shuffle + matugen-colors extensions
 
-Theme files in `Resources/spicetify-text-theme/`.
+Theme files in `Resources/Spicetify-Text-Theme/`.
 
-**Note on dynamic colors:** Spicetify-nix bakes themes into the Nix store at build time, so runtime color updates (e.g., from matugen) don't work without a rebuild. The theme uses a static "Blue" color scheme defined in `color.ini`.
+**Dynamic colors via matugen:**
+Colors update live in Spotify the moment skwd-wall changes the wallpaper — no restart or rebuild needed.
+
+**How it works:**
+1. skwd-wall runs matugen on wallpaper change, writing two files:
+   - `~/.config/spicetify/matugen-colors.json` — CSS custom property values (`--spice-*`) for runtime use
+   - `~/.config/spicetify/Themes/text/color.ini` — `[Matugen]` section for bake-in on next rebuild
+2. A baked-in JS extension (`matugen-colors.js` in `spicetify.nix`) uses `fs.watch` on `~/.config/spicetify/` to detect the file update and immediately calls `document.documentElement.style.setProperty()` for each `--spice-*` variable
+3. Also hooks `Spicetify.Platform.History.listen` to re-apply after SPA navigation
+
+**Color scheme:** `colorScheme = "Matugen"` in `spicetify.nix` — the `[Matugen]` section in `color.ini` is the baked-in fallback (used until the first wallpaper change writes `matugen-colors.json`).
+
+**Templates** (synced by `skwd-wall.nix` activation script):
+- `spicetify-colors.json` → outputs `~/.config/spicetify/matugen-colors.json` (runtime CSS vars)
+- `spicetify-text.ini` → outputs `~/.config/spicetify/Themes/text/color.ini` (rebuild-time color.ini)
+
+**If colors stop updating:** check `journalctl --user -u skwd-daemon` for matugen errors and verify `~/.config/spicetify/matugen-colors.json` is being written on wallpaper change.
 
 ### Rain Effect Overlay
 
@@ -654,6 +671,7 @@ Odysseus runs **Sunshine** as a game streaming host, accessible remotely via **T
 **Modules:**
 - `Modules/sunshine.nix` — Sunshine user service (Odysseus only)
 - `Modules/tailscale.nix` — Tailscale VPN (Odysseus only, auth key via sops)
+- `Modules/controller.nix` — DualSense desktop navigation daemon (Odysseus only)
 
 **How it works:**
 - Sunshine runs as a systemd user service (`systemctl --user start sunshine`)
@@ -678,13 +696,36 @@ In Sunshine web UI → Configuration → Audio/Video → Display Number. Availab
 **sops.nix path fix:**
 `defaultSopsFile` must use `../Secrets/secrets.yaml` (one level up from `Modules/`), NOT `../../` which resolves to `/nix/store/Secrets` and breaks pure evaluation.
 
-**Planned: DualSense controller desktop navigation (not yet implemented)**
+**DualSense controller desktop navigation:**
 
-Want to map DualSense inputs (via Moonlight/uinput) to Niri desktop actions:
-- Left thumbstick → cursor/focus movement
-- X button → confirm/enter
-- Triangle → close focused window (`Mod+Q`)
-- One button → toggle app launcher (`noctalia-shell ipc call launcher toggle`)
-- One button → toggle wallpaper picker (`skwd wall toggle`)
+`Modules/controller.nix` runs a Python evdev daemon (`controller-mapper`) as a systemd user service. It reads Sunshine's virtual uinput gamepad and emits events via a virtual UInput keyboard device.
 
-Will need a daemon (e.g. `antimicrox` or custom evdev reader) to map controller events to key combos.
+The DualSense touchpad handles mouse movement natively through Sunshine — no cursor emulation in the daemon.
+
+**Button mapping (desktop mode only):**
+
+| Input | Action |
+|---|---|
+| Left stick | Arrow keys (menu/list navigation, with auto-repeat) |
+| D-Pad | `Super+Arrow` → Niri window/workspace focus |
+| X (South) | Enter |
+| Circle (East) | Escape |
+| Triangle (North) | `niri msg action close-window` |
+| Square (West) | `noctalia-shell ipc call launcher toggle` |
+| L1 | `skwd wall toggle` |
+| R1 | `niri msg action toggle-overview` |
+| Options | `noctalia-shell ipc call sessionMenu toggle` |
+| PS button | Toggle desktop mode on/off |
+
+**Desktop mode toggle:**
+- Default: **on** (ready for desktop nav when Moonlight connects)
+- PS button toggles to **game mode** — all mappings suppressed so controller input goes cleanly to the game
+- A `notify-send` notification confirms the mode change
+
+**Implementation notes:**
+- Uses Python `evdev` + `UInput` — no process spawning per frame, direct kernel input writes
+- `find_gamepad()` retries every 3s so the service stays alive when no Moonlight client is connected
+- Left stick auto-repeat: fires immediately on deflection, 400ms initial delay, then repeats every 120ms (dominant axis wins to prevent diagonal misfires)
+- D-Pad Super+Arrow is run in a thread to avoid blocking the event loop during the 50ms key hold
+- Requires user in `input` group (read `/dev/input/event*`) and `uinput` group (write `/dev/uinput`)
+- `hardware.uinput.enable` (from `sunshine.nix`) already provides udev rules for the `uinput` group
