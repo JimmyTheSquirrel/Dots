@@ -1,40 +1,42 @@
 { self, inputs, ... }:
 let
   activeUser = "rock";
-  hostName = "Odysseus";
+  hostName = "Eclipse";
 
-  # Hardware configuration inline to avoid import-tree issues
+  # Hardware config — fill in after running nixos-generate-config on the Pi
   hardwareConfig = { config, lib, modulesPath, ... }: {
     imports = [
       (modulesPath + "/installer/scan/not-detected.nix")
     ];
 
-    boot.initrd.availableKernelModules = [ "nvme" "xhci_pci" "ahci" "usbhid" "usb_storage" "sd_mod" ];
+    boot.initrd.availableKernelModules = [ "xhci_pci" "usbhid" "usb_storage" "sd_mod" ];
     boot.initrd.kernelModules = [ ];
-    boot.kernelModules = [ "kvm-amd" ];
+    boot.kernelModules = [ ];
     boot.extraModulePackages = [ ];
 
+    # TODO: replace with actual UUIDs from nixos-generate-config
     fileSystems."/" = {
-      device = "/dev/disk/by-uuid/ee6c7638-4daf-4f37-aa05-bd6068c113f1";
+      device = "/dev/disk/by-uuid/PLACEHOLDER";
       fsType = "ext4";
     };
 
     fileSystems."/boot" = {
-      device = "/dev/disk/by-uuid/21BA-2C3E";
+      device = "/dev/disk/by-uuid/PLACEHOLDER";
       fsType = "vfat";
       options = [ "fmask=0077" "dmask=0077" ];
     };
 
-    swapDevices = [
-      { device = "/dev/disk/by-uuid/a0478bec-dbd0-4f91-8021-5a6dead6d769"; }
-    ];
+    swapDevices = [ ];
 
-    nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
-    hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
+    nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
+
+    # Pi5 bootloader (not GRUB)
+    boot.loader.grub.enable = false;
+    boot.loader.generic-extlinux-compatible.enable = true;
   };
 in {
   flake.nixosConfigurations."${activeUser}-${hostName}" = inputs.nixpkgs.lib.nixosSystem {
-    system = "x86_64-linux";
+    system = "aarch64-linux";
     specialArgs = { inherit inputs activeUser; };
     modules = [
       # Hardware
@@ -49,7 +51,7 @@ in {
         home-manager.extraSpecialArgs = {
           inherit inputs activeUser hostName;
           pkgs-unstable = import inputs.nixpkgs-unstable {
-            system = "x86_64-linux";
+            system = "aarch64-linux";
             config.allowUnfree = true;
           };
         };
@@ -60,29 +62,19 @@ in {
         };
       }
 
-      # All modules (system + home config combined)
+      # Modules
       self.nixosModules.base
-      self.nixosModules.grub
-      self.nixosModules.sddm
       self.nixosModules.polkit
-      self.nixosModules.thunar
-      self.nixosModules.hyprland
-      self.nixosModules.steam
+      self.nixosModules.niri
+      self.nixosModules.noctalia
       self.nixosModules.audio
       self.nixosModules.locale
-      self.nixosModules.sops
       self.nixosModules.zsh
+      self.nixosModules.starship
       self.nixosModules.kitty
-      self.nixosModules.brave
-      self.nixosModules.helium
       self.nixosModules.git
       self.nixosModules.fastfetch
-      self.nixosModules.vscodium
-      self.nixosModules.noctalia
-      self.nixosModules.skwd-wall
-      self.nixosModules.screenshot
       self.nixosModules.navi
-      self.nixosModules.spicetify
 
       # System-specific settings
       {

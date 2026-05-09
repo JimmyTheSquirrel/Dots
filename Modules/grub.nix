@@ -51,9 +51,9 @@ ENTRY
         fi
       }
 
-      generate_entry "sisyphus" "Sisyphus (Hyprland)"
+      generate_entry "sisyphus" "Sisyphus (Niri)"
       generate_entry "elektra" "Elektra (KDE Plasma 6)"
-      generate_entry "odysseus" "Odysseus (Niri)"
+      generate_entry "odysseus" "Odysseus (Hyprland)"
 
       echo '}' >> "$OUTPUT_FILE"
     '';

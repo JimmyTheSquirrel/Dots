@@ -34,11 +34,19 @@ in {
           echo '{"version":2,"sources":[],"states":{}}' > "$PLUGINS_FILE"
         fi
 
-        # Patch settings.json to add desktop clock widgets
-        ${pkgs.jq}/bin/jq '.desktopWidgets.monitorWidgets = [
-          {"name": "DP-2", "widgets": [{"id": "plugin:desktop-clock", "showBackground": false}]},
-          {"name": "HDMI-A-1", "widgets": [{"id": "plugin:desktop-clock", "showBackground": false}]}
-        ]' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+        # Patch settings.json to add desktop clock widgets and restrict power options
+        ${pkgs.jq}/bin/jq '
+          .desktopWidgets.monitorWidgets = [
+            {"name": "DP-2", "widgets": [{"id": "plugin:desktop-clock", "showBackground": false}]},
+            {"name": "HDMI-A-1", "widgets": [{"id": "plugin:desktop-clock", "showBackground": false}]}
+          ] |
+          .sessionMenu.powerOptions = [
+            {"action": "lock",     "enabled": true},
+            {"action": "reboot",   "enabled": true},
+            {"action": "logout",   "enabled": true},
+            {"action": "shutdown", "enabled": true}
+          ]
+        ' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
 
         # Patch plugins.json to enable the desktop-clock plugin
         ${pkgs.jq}/bin/jq '.states["desktop-clock"] = {"enabled": true}' "$PLUGINS_FILE" > "$PLUGINS_FILE.tmp" && mv "$PLUGINS_FILE.tmp" "$PLUGINS_FILE"

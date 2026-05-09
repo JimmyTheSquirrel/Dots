@@ -153,7 +153,7 @@ EOF
         # Always sync matugen templates (managed by Nix)
         cat > "${configPath}/data/matugen/templates/spicetify-colors.json" << 'EOF'
 {
-  "--spice-text": "{{colors.on_surface.default.hex}}",
+  "--spice-text": "{{colors.on_primary_container.default.hex}}",
   "--spice-subtext": "{{colors.on_surface_variant.default.hex}}",
   "--spice-main": "{{colors.surface.default.hex}}",
   "--spice-accent": "{{colors.primary.default.hex}}",
@@ -183,7 +183,7 @@ main               = {{colors.surface.default.hex_stripped}}
 notification       = {{colors.primary_container.default.hex_stripped}}
 notification-error = {{colors.error.default.hex_stripped}}
 subtext            = {{colors.on_surface_variant.default.hex_stripped}}
-text               = {{colors.on_surface.default.hex_stripped}}
+text               = {{colors.on_primary_container.default.hex_stripped}}
 EOF
 
         cat > "${configPath}/data/matugen/templates/noctalia-colors.json" << 'EOF'

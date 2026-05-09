@@ -84,9 +84,9 @@ flake.nix                    # Entry point using flake-parts + import-tree
 
 | System | Desktop | Entry Point | Key Modules |
 |--------|---------|-------------|-------------|
-| **Sisyphus** | Hyprland | `Hosts/Sisyphus/system.nix` | hyprland (nixos+home), skwd-wall, noctalia, screenshot, spicetify |
+| **Sisyphus** | Niri | `Hosts/Sisyphus/system.nix` | niri (wrapper-modules), noctalia (bar + launcher + power menu + notifications), skwd-wall, spicetify, discord, rain-effect |
 | **Elektra** | KDE Plasma 6 | `Hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wall, thunar, spicetify, discord, screenshot |
-| **Odysseus** | Niri | `Hosts/Odysseus/system.nix` | niri (wrapper-modules), noctalia (bar + launcher + power menu + notifications), skwd-wall, spicetify, discord, rain-effect |
+| **Odysseus** | Hyprland | `Hosts/Odysseus/system.nix` | hyprland (nixos+home), skwd-wall, noctalia, screenshot, spicetify |
 
 Sisyphus + Elektra share with above: brave, helium
 Odysseus only: helium (default browser, brave removed)
@@ -254,6 +254,28 @@ Colors update live in Spotify the moment skwd-wall changes the wallpaper — no 
 - `spicetify-colors.json` → outputs `~/.config/spicetify/matugen-colors.json` (runtime CSS vars)
 - `spicetify-text.ini` → outputs `~/.config/spicetify/Themes/text/color.ini` (rebuild-time color.ini)
 
+**Color choices:**
+- `--spice-text` = `on_primary_container` — light tinted version of the accent, gives warmth to body text
+- `--spice-subtext` = `on_surface_variant` — slightly dimmer/more muted, for secondary text
+- `--spice-main` = overridden to `#0d0d0d !important` in `additionalCss` — neutral dark, ignores matugen surface tint
+- `--spice-banner` = `primary` (from matugen) — accent color for "Liked Songs" / playlist titles
+
+**Volume bar:** The `x-progressBar-sliderArea` in Spotify is only 4px tall with `overflow: hidden`. The text theme sets `height: 9px` on the fill which clips the `border-bottom` making it invisible. Fixed in `additionalCss` by overriding to 4px solid fill with a dim track background.
+
+**Pane borders/labels:** Always show in `--spice-border-active` color (matugen primary). Removed hover-only coloring from `user.css`.
+
+**Transparency:** Spotify window opacity is set to `0.75` in Niri window rules (`niri.nix`). Pane container backgrounds (Nav, Library, Main, Playing) are forced transparent in `additionalCss` so the wallpaper shows through. `--spice-main` stays solid `#0d0d0d` so UI elements (buttons, chips, hover rows) remain readable. **Niri opacity changes require logout/login** — rebuild alone is not enough, must log out and back in for the opacity rule to take effect.
+
+**Now-playing (Playing pane) seekbar:** The text theme uses `position: absolute` + `width: 100vw` on `.playback-bar`, making it a full-viewport-width block. We override it in `additionalCss` to be centered and refined:
+- Centered with `left: 50%; transform: translateX(-50%); width: 75%` — spans most of the Playing pane width but not edge-to-edge
+- 14px tall, 7px border-radius (rounded pill shape)
+- `bottom: 38px` — positioned higher, closer to the play/skip buttons
+- `padding-bottom: 52px` on `.main-nowPlayingBar-nowPlayingBar` — gives the pane enough height to contain bar + time numbers
+- `margin: 8px 14px 6px 10px` on `.Root__now-playing-bar` — aligns Playing pane borders with Nav/Library/Main borders
+- Hover states locked: `--fg-color` and `--bg-color` pinned so color doesn't change on hover
+- Scrubber handle always visible: `div[data-testid="progress-bar-handle"] { opacity: 1; transform: none }`
+- After CSS changes, Spotify must be **fully killed and relaunched** — layout CSS is compiled into the binary by spicetify at build time, not injected live like colors
+
 **If colors stop updating:** check `journalctl --user -u skwd-daemon` for matugen errors and verify `~/.config/spicetify/matugen-colors.json` is being written on wallpaper change.
 
 ### Rain Effect Overlay
@@ -362,7 +384,8 @@ Niri is a scrollable-tiling Wayland compositor. Configured via wrapper-modules i
 **Startup sequence:**
 1. Noctalia shell launches first for instant visual feedback
 2. D-Bus environment setup runs in background
-3. Spotify launches via `spotify-startup` (3-second delay, opens to Liked Songs)
+3. Stale Spotify singleton locks cleared (`~/.cache/spotify/SingletonLock`, `SingletonSocket`) — left over from previous sessions/reboots, cause Spotify to silently exit if not cleaned
+4. Spotify launches via `spotify-startup` (3-second delay, opens to Liked Songs)
 
 **Spotify launcher:** Two scripts in `environment.systemPackages` handle Spotify launch:
 - `spotify-startup` — used by niri `spawn-at-startup`, sleeps 3s then launches with GPU flags + `--uri` for playlist
@@ -523,7 +546,8 @@ Because `outOfStoreConfig` is used (required for matugen colors), noctalia ignor
 1. Creates `~/.config/noctalia/` directory structure if missing (fresh install)
 2. Creates default `settings.json` and `plugins.json` if they don't exist
 3. Patches config to enable the desktop-clock widget on both monitors
-4. Syncs plugin files (QML, font, manifest) from nix store to `~/.config/noctalia/plugins/desktop-clock/`
+4. Patches `sessionMenu.powerOptions` to only show: Lock, Reboot, Logout, Shutdown (removes Suspend, Hibernate, Reboot to UEFI)
+5. Syncs plugin files (QML, font, manifest) from nix store to `~/.config/noctalia/plugins/desktop-clock/`
 
 This ensures the clock widget works automatically on fresh installs without manual configuration.
 
@@ -673,19 +697,26 @@ Import-tree only sees git-tracked files. A new `*.nix` file in `Modules/` will b
 Odysseus runs **Sunshine** as a game streaming host, accessible remotely via **Tailscale**, streamed to an Android phone using **Moonlight**.
 
 **Modules:**
-- `Modules/sunshine.nix` — Sunshine user service (Odysseus only)
-- `Modules/tailscale.nix` — Tailscale VPN (Odysseus only, auth key via sops)
-- `Modules/controller.nix` — DualSense desktop navigation daemon (Odysseus only)
+- `Modules/sunshine.nix` — Sunshine user service (Sisyphus only)
+- `Modules/tailscale.nix` — Tailscale VPN (Sisyphus only, auth key via sops)
+- `Modules/controller.nix` — DualSense desktop navigation daemon (Sisyphus only)
 
 **How it works:**
-- Sunshine runs as a systemd user service (`systemctl --user start sunshine`)
-- `capSysAdmin = true` enables KMS display capture on Wayland
+- Sunshine runs as a **user service** (`autoStart = true`) — starts automatically when Niri logs in via the graphical session
 - `hardware.uinput.enable = true` allows Sunshine to send virtual controller/keyboard/mouse input to Linux
 - `openFirewall = true` + `trustedInterfaces = [ "tailscale0" ]` means Sunshine is reachable over Tailscale without extra firewall rules
 - Tailscale auth key is stored in sops (`secrets.yaml` → `tailscale-auth-key`) and auto-authenticates on rebuild
 
+**5G / Moonlight streaming optimisations (server-side):**
+- **Kernel UDP buffers** — `net.core.rmem_max` and `wmem_max` set to 25 MB (default ~212 KB is too small for bursty 5G traffic), `netdev_max_backlog = 5000`
+- **`sunshine.conf` seeded** via home-manager activation (only written when empty, so web UI changes survive rebuilds):
+  - `hevc_mode = 2` — prefer H.265, ~40% less bandwidth than H.264 at same quality
+  - `encoder = vaapi` — force AMD hardware encoding
+  - `fec_percentage = 20` — Forward Error Correction for packet loss recovery
+- On Moonlight side: 10–20 Mbps bitrate, 1080p@30fps uses half the bandwidth of @60fps
+
 **Setup notes:**
-- Sunshine is a **user service** — it doesn't auto-start until login. Start manually with `systemctl --user start sunshine` if needed after boot
+- Sunshine is a **user service** — starts automatically on login. No manual start needed.
 - Sunshine web UI: `https://localhost:47990` (self-signed cert, accept the warning) — set credentials here on first run
 - Tailscale IP: `100.119.193.77` (check current IP with `tailscale ip`)
 - Moonlight on Android: add PC manually by IP (mDNS auto-discovery doesn't work over Tailscale tunnels) — Moonlight saves it permanently

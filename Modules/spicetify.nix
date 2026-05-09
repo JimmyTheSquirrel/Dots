@@ -54,10 +54,19 @@
             .Root__main-view,
             .Root__nav-bar,
             .Root__now-playing-bar,
+            .Root__globalNav,
+            .main-yourLibraryX-entryPoints,
             .main-view-container,
             .main-view-container__scroll-node,
             .main-view-container__scroll-node-child,
             .main-home-content,
+            .main-topBar-background,
+            .main-home-filterChipsSection,
+            .main-home-filterChipsSection::after,
+            .main-trackList-trackListHeader,
+            .main-trackList-trackListHeaderStuck,
+            .main-entityHeader-container + div,
+            .main-entityHeader-container + div > div,
             .os-viewport,
             .os-content {
               background: transparent !important;
@@ -72,28 +81,51 @@
               min-width: 0 !important;
             }
 
-            /* Fix playback bar - remove absolute positioning and extra size */
+            /* Seekbar: centered, 75% wide, 14px tall, rounded, always visible.
+               Text theme uses position:absolute + 100vw (full viewport edge-to-edge). */
+            .Root__now-playing-bar .playback-bar {
+              left: 50% !important;
+              transform: translateX(-50%) !important;
+              width: 75% !important;
+              bottom: 38px !important; /* higher — closer to play/skip buttons */
+            }
+            .Root__now-playing-bar .playback-progressbar-container div[data-testid="progress-bar"] {
+              --progress-bar-height: 14px !important;
+              --progress-bar-radius: 7px !important;
+              --fg-color: var(--spice-button-active) !important;
+              --bg-color: var(--spice-button-disabled) !important;
+            }
+            /* Prevent hover from darkening/brightening the fill color */
+            .Root__now-playing-bar .playback-progressbar-isInteractive:hover div[data-testid="progress-bar"],
+            .Root__now-playing-bar .playback-progressbar-container:hover div[data-testid="progress-bar"] {
+              --fg-color: var(--spice-button-active) !important;
+              --bg-color: var(--spice-button-disabled) !important;
+            }
+            /* Always show the scrubber handle — Spotify hides it until hover */
+            .Root__now-playing-bar div[data-testid="progress-bar-handle"] {
+              opacity: 1 !important;
+              transform: none !important;
+            }
+            /* Increase pane height to contain bar + time numbers */
+            .Root__now-playing-bar .main-nowPlayingBar-nowPlayingBar {
+              padding-bottom: 52px !important;
+            }
+            /* Margins align Playing pane border with Nav/Main outer borders */
             .Root__now-playing-bar {
-              position: relative !important;
-              height: auto !important;
-              min-height: unset !important;
-              margin: 0 !important;
-              padding: 0 !important;
+              margin: 8px 14px 6px 10px !important;
             }
-            .main-nowPlayingBar-nowPlayingBar {
-              padding: 8px !important;
-              height: auto !important;
-              min-height: unset !important;
-            }
-            .playback-bar {
-              position: relative !important;
-              left: unset !important;
-              bottom: unset !important;
-              width: 100% !important;
-              margin: 0 !important;
+            /* Always visible — not just on hover */
+            .Root__now-playing-bar .playback-bar,
+            .Root__now-playing-bar .playback-progressbar-container,
+            .Root__now-playing-bar .x-progressBar-sliderArea,
+            .Root__now-playing-bar .x-progressBar-fillColor,
+            .Root__now-playing-bar div[data-testid="progress-bar"],
+            .Root__now-playing-bar div[data-testid="progress-bar-background"] {
+              opacity: 1 !important;
+              visibility: visible !important;
             }
 
-            /* Make player controls always visible (not just on hover) */
+            /* Make player controls always visible */
             .player-controls__buttons,
             .main-nowPlayingBar-extraControls,
             .main-nowPlayingBar-left,
@@ -102,22 +134,35 @@
               opacity: 1 !important;
             }
 
-            /* Fix connect bar - make clickable and position properly */
+            /* Keep connect bar clickable */
             .main-connectBar-connectBar {
-              position: relative !important;
               pointer-events: auto !important;
-              right: unset !important;
-              bottom: unset !important;
               opacity: 1 !important;
-              padding: 0 8px !important;
             }
 
-            /* Ensure right side of now playing bar has proper layout */
-            .main-nowPlayingBar-right {
-              display: flex !important;
-              align-items: center !important;
-              gap: 8px !important;
-              flex-shrink: 0 !important;
+            /* Neutral dark background — remove matugen surface color tint */
+            :root {
+              --spice-main: #0d0d0d !important;
+              --spice-rgb-main: 13, 13, 13 !important;
+            }
+
+            /* Let matugen handle text shades naturally (on_surface / on_surface_variant) */
+
+            /* Volume bar fix: sliderArea is 4px tall with overflow:hidden,
+               theme sets 9px on fill so border-bottom is always clipped.
+               Switch to solid background-color fill that fits in 4px. */
+            .volume-bar__slider-container .x-progressBar-fillColor {
+              height: 4px !important;
+              background-color: var(--spice-text) !important;
+              border-bottom: none !important;
+            }
+            .volume-bar__slider-container .x-progressBar-sliderArea {
+              height: 4px !important;
+            }
+            /* Background track (dim) */
+            .volume-bar__slider-container .x-progressBar-sliderArea:first-child > div {
+              background-color: rgba(255, 255, 255, 0.15) !important;
+              height: 4px !important;
             }
           '';
         };

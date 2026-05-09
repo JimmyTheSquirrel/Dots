@@ -33,8 +33,8 @@
             echo -e "\033[1;36m╰──────────────────────────────╯\033[0m"
             echo ""
             echo -e "\033[1;33mSelect System:\033[0m"
-            echo "  1) Sisyphus  (Hyprland)"
-            echo "  2) Odysseus  (Niri)"
+            echo "  1) Sisyphus  (Niri)"
+            echo "  2) Odysseus  (Hyprland)"
             echo "  3) Elektra   (KDE Plasma)"
             echo ""
             read -p "System [1-3]: " sys_choice

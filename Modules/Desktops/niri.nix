@@ -144,6 +144,8 @@
             # D-Bus environment setup runs in background (& at end)
             "sh -c 'dbus-update-activation-environment --systemd --all &'"
             "sh -c 'systemctl --user import-environment --all &'"
+            # Clear stale Spotify singleton locks left over from previous sessions/reboots
+            "sh -c 'rm -f ~/.cache/spotify/SingletonLock ~/.cache/spotify/SingletonSocket'"
             "spotify-startup"
           ];
 
@@ -362,7 +364,7 @@
             }
             window-rule {
               match app-id="^spotify$"
-              opacity 0.90
+              opacity 0.75
               open-on-output "HDMI-A-1"
             }
             window-rule {

@@ -59,6 +59,7 @@
       wowup-cf
       (prismlauncher.override {jdks = [pkgs.jdk21];})
       inputs.nix-citizen.packages.${pkgs.stdenv.hostPlatform.system}.rsi-launcher
+      moonlight-qt
     ];
 
     # Fonts

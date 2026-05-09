@@ -66,23 +66,27 @@ in {
       self.nixosModules.sddm
       self.nixosModules.polkit
       self.nixosModules.thunar
-      self.nixosModules.hyprland
-      self.nixosModules.steam
+      self.nixosModules.niri
       self.nixosModules.audio
       self.nixosModules.locale
+      self.nixosModules.steam
       self.nixosModules.sops
       self.nixosModules.zsh
+      self.nixosModules.starship
       self.nixosModules.kitty
-      self.nixosModules.brave
       self.nixosModules.helium
       self.nixosModules.git
       self.nixosModules.fastfetch
       self.nixosModules.vscodium
       self.nixosModules.noctalia
       self.nixosModules.skwd-wall
-      self.nixosModules.screenshot
       self.nixosModules.navi
       self.nixosModules.spicetify
+      self.nixosModules.discord
+      self.nixosModules.rain-effect
+      self.nixosModules.tailscale
+      self.nixosModules.sunshine
+      self.nixosModules.controller
 
       # System-specific settings
       {
