@@ -63,9 +63,9 @@ in {
       }
 
       # Modules
-      self.nixosModules.base
+      self.nixosModules.pi5-base
+      self.nixosModules.pi5-niri
       self.nixosModules.polkit
-      self.nixosModules.niri
       self.nixosModules.noctalia
       self.nixosModules.audio
       self.nixosModules.locale
