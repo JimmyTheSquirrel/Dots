@@ -37,24 +37,29 @@ The `system-rebuild` helper (defined in `Resources/zsh-scripts/zsh-helpers.sh`) 
 
 ## Architecture
 
-This is a NixOS Flake-based dotfiles repository using **flake-parts** + **import-tree** for automatic module discovery. Manages three desktop environment configurations for user `rock` on AMD/Wayland hardware.
+This is a NixOS Flake-based dotfiles repository using **flake-parts** + **import-tree** for automatic module discovery. Manages four system configurations for user `rock` — three AMD/Wayland desktop environments and one Raspberry Pi 5. Supports both `x86_64-linux` and `aarch64-linux` in `flake.nix`.
 
 ### Directory Structure
 
 ```
 flake.nix                    # Entry point using flake-parts + import-tree
 ├── Hosts/                   # System configurations (auto-imported)
-│   ├── Sisyphus/            # Hyprland desktop
+│   ├── Sisyphus/            # Niri compositor (primary desktop)
 │   │   └── system.nix       # NixOS config with module imports
 │   ├── Elektra/             # KDE Plasma 6
 │   │   └── system.nix
-│   └── Odysseus/            # Niri compositor
+│   ├── Odysseus/            # Hyprland desktop
+│   │   └── system.nix
+│   └── Eclipse/             # Raspberry Pi 5 (aarch64, Niri, autologin)
 │       └── system.nix
 ├── Modules/                 # Self-contained modules (auto-imported)
 │   ├── Desktops/            # Desktop environment configs
 │   │   ├── hyprland.nix     # Hyprland (system + home config combined)
 │   │   ├── kde.nix          # KDE Plasma (system + home config combined)
 │   │   └── niri.nix         # Niri (wrapper-modules with perSystem)
+│   ├── Pi5/                 # Raspberry Pi 5 specific modules (aarch64)
+│   │   ├── base.nix         # Lean base for Pi (no gaming/x86-only packages)
+│   │   └── niri.nix         # Pi niri config (greetd autologin, no SDDM/amdgpu)
 │   ├── noctalia.nix         # Desktop shell/bar (wrapper-modules)
 │   ├── skwd-wall.nix        # Wallpaper selector with systemd service
 │   ├── helium.nix           # Helium browser (policies, Bitwarden, bookmarks)
@@ -62,10 +67,10 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   ├── zsh.nix              # Shell config
 │   ├── spicetify.nix        # Spotify theming
 │   ├── discord.nix          # Vesktop with transparency
-│   ├── rain-effect.nix      # GLSL rain overlay (Odysseus, wlr-layer-shell bottom layer)
-│   ├── controller.nix       # DualSense desktop nav daemon (Odysseus, Moonlight/Sunshine)
+│   ├── rain-effect.nix      # GLSL rain overlay (Sisyphus, wlr-layer-shell bottom layer)
+│   ├── controller.nix       # DualSense desktop nav daemon (Sisyphus, Moonlight/Sunshine)
 │   ├── sddm.nix             # SDDM video login theme
-│   ├── base.nix             # Common packages and settings
+│   ├── base.nix             # Common packages and settings (x86_64 only packages behind optionals)
 │   ├── grub.nix             # GRUB with multi-system boot menu
 │   └── ... (audio, steam, sops, locale, polkit, etc.)
 ├── Resources/               # Static files (not Nix modules)
@@ -80,18 +85,20 @@ flake.nix                    # Entry point using flake-parts + import-tree
     └── secrets.yaml         # Encrypted values
 ```
 
-### The Three Systems
+### The Four Systems
 
-| System | Desktop | Entry Point | Key Modules |
-|--------|---------|-------------|-------------|
-| **Sisyphus** | Niri | `Hosts/Sisyphus/system.nix` | niri (wrapper-modules), noctalia (bar + launcher + power menu + notifications), skwd-wall, spicetify, discord, rain-effect |
-| **Elektra** | KDE Plasma 6 | `Hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wall, thunar, spicetify, discord, screenshot |
-| **Odysseus** | Hyprland | `Hosts/Odysseus/system.nix` | hyprland (nixos+home), skwd-wall, noctalia, screenshot, spicetify |
+| System | Desktop | Hardware | Entry Point | Key Modules |
+|--------|---------|----------|-------------|-------------|
+| **Sisyphus** | Niri | AMD x86_64 | `Hosts/Sisyphus/system.nix` | niri (wrapper-modules), noctalia, skwd-wall, spicetify, discord, rain-effect, sunshine, tailscale, controller |
+| **Elektra** | KDE Plasma 6 | AMD x86_64 | `Hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wall, thunar, spicetify, discord, screenshot |
+| **Odysseus** | Hyprland | AMD x86_64 | `Hosts/Odysseus/system.nix` | hyprland (nixos+home), noctalia, skwd-wall, screenshot, spicetify, brave, helium |
+| **Eclipse** | Niri | Pi5 aarch64 | `Hosts/Eclipse/system.nix` | pi5-base, pi5-niri (greetd autologin), noctalia, kitty, zsh, audio, locale, git, starship, fastfetch, navi |
 
-Sisyphus + Elektra share with above: brave, helium
-Odysseus only: helium (default browser, brave removed)
+Sisyphus + Elektra: brave, helium
+Odysseus only: helium as default browser, brave
 
-All systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, git, navi, starship, fastfetch
+x86_64 systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, git, navi, starship, fastfetch
+All systems (including Eclipse): moonlight-qt (in base.nix, available on aarch64)
 
 ### Multi-Boot System
 
@@ -282,7 +289,7 @@ Colors update live in Spotify the moment skwd-wall changes the wallpaper — no 
 
 GLSL rain-on-glass overlay rendered on the Wayland `bottom` layer — above the wallpaper, below all windows. Fully independent of skwd-wall; changing wallpaper while rain is active has no effect.
 
-**Module:** `Modules/rain-effect.nix` (Odysseus only)
+**Module:** `Modules/rain-effect.nix` (Sisyphus only)
 
 **How it works:**
 - C program using `wlr-layer-shell` (`ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM`) + EGL + OpenGL ES 2
@@ -339,7 +346,7 @@ Configured via `plasma-manager` in `Modules/Desktops/kde.nix`:
 
 **Monitor config:** Plasma-manager doesn't support `displays` option. Configure monitors manually in KDE System Settings on first boot (persists after).
 
-### Niri (Odysseus)
+### Niri (Sisyphus)
 
 Niri is a scrollable-tiling Wayland compositor. Configured via wrapper-modules in `Modules/Desktops/niri.nix`.
 
@@ -507,7 +514,7 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 
 ### Noctalia Desktop Shell
 
-Noctalia is the desktop shell used on Sisyphus (Hyprland) and Odysseus (Niri). Configured via wrapper-modules in `Modules/noctalia.nix`.
+Noctalia is the desktop shell used on Sisyphus (Niri) and Odysseus (Hyprland), and Eclipse (Pi5 Niri). Configured via wrapper-modules in `Modules/noctalia.nix`.
 
 **Key settings:**
 - Bar: top position, floating with 8px margins, capsule style, 70% background opacity
@@ -676,6 +683,26 @@ All managed bookmarks live under one parent folder on the bar — can't split in
 **New modules need `git add`:**
 Import-tree only sees git-tracked files. A new `*.nix` file in `Modules/` will be silently ignored (missing from `self.nixosModules`) until staged with `git add`.
 
+### Eclipse (Raspberry Pi 5)
+
+Eclipse is a Pi5 host running NixOS aarch64 with Niri. Used as a remote desktop accessible from Sisyphus via Moonlight.
+
+**Key differences from x86_64 hosts:**
+- Uses `Modules/Pi5/base.nix` (`pi5-base`) instead of `base.nix` — no gaming/x86-only packages
+- Uses `Modules/Pi5/niri.nix` (`pi5-niri`) instead of `Modules/Desktops/niri.nix` — greetd autologin, no SDDM, no amdgpu driver
+- No grub, sddm, steam, sops, skwd-wall, spicetify, discord, rain-effect, sunshine, controller
+- Autologin via `services.greetd` — boots directly into Niri with no login screen
+- `aarch64-linux` added to `systems` in `flake.nix` so wrapper-modules perSystem outputs (wrappedNiri, wrappedNoctalia) build for Pi
+
+**Installing NixOS on Pi5:**
+- Pi5 uses its own bootloader — standard UEFI ISOs (including NixOS graphical aarch64) **will not boot**
+- Use the **NixOS Pi SD card image** from hydra (disk image, not ISO) flashed to SD card or USB
+- Requires a USB microSD card reader to flash from Sisyphus via `dd`
+- After install, run `nixos-generate-config` to get hardware UUIDs, update `Hosts/Eclipse/system.nix`
+
+**Hardware config placeholder:**
+`Hosts/Eclipse/system.nix` has `PLACEHOLDER` UUIDs that must be replaced after running `nixos-generate-config --root /mnt` during NixOS installation.
+
 ### Flake Inputs of Note
 
 - `nixpkgs@nixos-25.11` (stable) and `nixpkgs-unstable`
@@ -694,12 +721,14 @@ Import-tree only sees git-tracked files. A new `*.nix` file in `Modules/` will b
 
 ### Game Streaming (Sunshine + Moonlight + Tailscale)
 
-Odysseus runs **Sunshine** as a game streaming host, accessible remotely via **Tailscale**, streamed to an Android phone using **Moonlight**.
+Sisyphus runs **Sunshine** as a game streaming host, accessible remotely via **Tailscale**, streamed to an Android phone using **Moonlight**.
 
 **Modules:**
-- `Modules/sunshine.nix` — Sunshine user service (Sisyphus only)
+- `Modules/sunshine.nix` — Sunshine user service (Sisyphus only) — streams desktop to Moonlight clients
 - `Modules/tailscale.nix` — Tailscale VPN (Sisyphus only, auth key via sops)
 - `Modules/controller.nix` — DualSense desktop navigation daemon (Sisyphus only)
+
+**Moonlight client:** `moonlight-qt` is in `base.nix` and available on all systems (including Eclipse/Pi5). Use it to connect to a Sunshine host.
 
 **How it works:**
 - Sunshine runs as a **user service** (`autoStart = true`) — starts automatically when Niri logs in via the graphical session
