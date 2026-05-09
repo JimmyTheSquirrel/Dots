@@ -1,4 +1,4 @@
-{ inputs, activeUser, pkgs, ... }: {
+{ ... }: {
   flake.nixosModules.pi5-base = { pkgs, activeUser, ... }: {
     nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
@@ -8,7 +8,6 @@
 
     services.printing.enable = true;
     programs.dconf.enable = true;
-    programs.ssh.startAgent = true;
 
     users.users.${activeUser} = {
       isNormalUser = true;

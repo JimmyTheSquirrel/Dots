@@ -1,4 +1,4 @@
-{ self, inputs, pkgs, ... }: {
+{ self, inputs, ... }: {
   flake.nixosModules.pi5-niri = { pkgs, lib, activeUser, ... }: {
     programs.niri = {
       enable = true;
