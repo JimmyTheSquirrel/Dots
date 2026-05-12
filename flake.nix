@@ -66,6 +66,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # --- Disko (declarative disk partitioning for nixos-anywhere) ---
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # --- NixOS Hardware (Pi 5 boot support) ---
+    nixos-hardware.url = "github:NixOS/nixos-hardware";
+
   };
 
   outputs = inputs: inputs.flake-parts.lib.mkFlake

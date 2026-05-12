@@ -50,7 +50,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   │   └── system.nix
 │   ├── Odysseus/            # Hyprland desktop
 │   │   └── system.nix
-│   └── Eclipse/             # Raspberry Pi 5 (aarch64, Niri, autologin)
+│   └── Eclipse/             # Raspberry Pi 5 (NixOS config exists but Pi runs Pi OS graphical)
 │       └── system.nix
 ├── Modules/                 # Self-contained modules (auto-imported)
 │   ├── Desktops/            # Desktop environment configs
@@ -92,13 +92,13 @@ flake.nix                    # Entry point using flake-parts + import-tree
 | **Sisyphus** | Niri | AMD x86_64 | `Hosts/Sisyphus/system.nix` | niri (wrapper-modules), noctalia, skwd-wall, spicetify, discord, rain-effect, sunshine, tailscale, controller |
 | **Elektra** | KDE Plasma 6 | AMD x86_64 | `Hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wall, thunar, spicetify, discord, screenshot |
 | **Odysseus** | Hyprland | AMD x86_64 | `Hosts/Odysseus/system.nix` | hyprland (nixos+home), noctalia, skwd-wall, screenshot, spicetify, brave, helium |
-| **Eclipse** | Niri | Pi5 aarch64 | `Hosts/Eclipse/system.nix` | pi5-base, pi5-niri (greetd autologin), noctalia, kitty, zsh, audio, locale, git, starship, fastfetch, navi |
+| **Eclipse** | Pi OS (graphical) | Pi5 aarch64 | `Hosts/Eclipse/system.nix` (NixOS config, not yet deployed) | Tailscale, Moonlight (connects to Sisyphus) |
 
 Sisyphus + Elektra: brave, helium
 Odysseus only: helium as default browser, brave
 
 x86_64 systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, git, navi, starship, fastfetch
-All systems (including Eclipse): moonlight-qt (in base.nix, available on aarch64)
+x86_64 systems: moonlight-qt (in base.nix). Eclipse uses native Moonlight on Pi OS.
 
 ### Multi-Boot System
 
@@ -514,7 +514,7 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 
 ### Noctalia Desktop Shell
 
-Noctalia is the desktop shell used on Sisyphus (Niri) and Odysseus (Hyprland), and Eclipse (Pi5 Niri). Configured via wrapper-modules in `Modules/noctalia.nix`.
+Noctalia is the desktop shell used on Sisyphus (Niri) and Odysseus (Hyprland). Configured via wrapper-modules in `Modules/noctalia.nix`.
 
 **Key settings:**
 - Bar: top position, floating with 8px margins, capsule style, 70% background opacity
@@ -685,23 +685,31 @@ Import-tree only sees git-tracked files. A new `*.nix` file in `Modules/` will b
 
 ### Eclipse (Raspberry Pi 5)
 
-Eclipse is a Pi5 host running NixOS aarch64 with Niri. Used as a remote desktop accessible from Sisyphus via Moonlight.
+Eclipse is a Pi5 running **Raspberry Pi OS (64-bit graphical)** — not NixOS. Used as a Moonlight client connected to the TV to stream games from Sisyphus without moving the PC to the lounge.
 
-**Key differences from x86_64 hosts:**
-- Uses `Modules/Pi5/base.nix` (`pi5-base`) instead of `base.nix` — no gaming/x86-only packages
-- Uses `Modules/Pi5/niri.nix` (`pi5-niri`) instead of `Modules/Desktops/niri.nix` — greetd autologin, no SDDM, no amdgpu driver
-- No grub, sddm, steam, sops, skwd-wall, spicetify, discord, rain-effect, sunshine, controller
-- Autologin via `services.greetd` — boots directly into Niri with no login screen
-- `aarch64-linux` added to `systems` in `flake.nix` so wrapper-modules perSystem outputs (wrappedNiri, wrappedNoctalia) build for Pi
+**Current setup (Pi OS, not NixOS):**
+- **OS:** Raspberry Pi OS Trixie 64-bit graphical (flashed via `dd` from Sisyphus)
+- **Tailscale:** installed via `curl -fsSL https://tailscale.com/install.sh | sh`, authenticated to jimmythesquirrel.github tailnet
+- **Moonlight:** installed natively on Pi OS, connects to Sisyphus (Sunshine host)
+- **Tailscale IP:** `100.78.125.37`
+- **SSH:** enabled, root login allowed (for future nixos-anywhere attempt)
+- SSH in from Sisyphus: `ssh pi@100.78.125.37` (password) or `ssh rock@100.78.125.37` after NixOS install
 
-**Installing NixOS on Pi5:**
-- Pi5 uses its own bootloader — standard UEFI ISOs (including NixOS graphical aarch64) **will not boot**
-- Use the **NixOS Pi SD card image** from hydra (disk image, not ISO) flashed to SD card or USB
-- Requires a USB microSD card reader to flash from Sisyphus via `dd`
-- After install, run `nixos-generate-config` to get hardware UUIDs, update `Hosts/Eclipse/system.nix`
+**Streaming to TV (recommended settings):**
+- Resolution: 1080p (even on 4K TV, fine at couch distance)
+- Bitrate: 30-50 Mbps on local network
+- FPS: 60
+- Enable H.265 in Moonlight for ~40% bandwidth saving
+- Disconnect from stream: `Ctrl+Alt+Shift+Q`
+- Use DualSense controller for Niri navigation (controller.nix maps buttons to Niri commands)
 
-**Hardware config placeholder:**
-`Hosts/Eclipse/system.nix` has `PLACEHOLDER` UUIDs that must be replaced after running `nixos-generate-config --root /mnt` during NixOS installation.
+**NixOS config:** `Hosts/Eclipse/system.nix` exists with disko, Tailscale, Sunshine, Niri, Noctalia — ready for future nixos-anywhere deployment.
+
+**Why nixos-anywhere failed:**
+- Pi OS kernel doesn't have `CONFIG_KEXEC=y` — kexec step fails with `Function not implemented`
+- Standard NixOS aarch64 ISOs also won't boot on Pi5 (uses its own bootloader, not UEFI)
+- Fix: install nix on Pi OS first (`curl ... | sh`), then run nixos-anywhere with `--phases disko,install,reboot` to skip kexec
+- Alternative: use NixOS Pi SD card image from Hydra (disk image, not ISO) flashed via `dd`
 
 ### Flake Inputs of Note
 

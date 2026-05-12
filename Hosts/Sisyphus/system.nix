@@ -63,6 +63,7 @@ in {
       # All modules (system + home config combined)
       self.nixosModules.base
       self.nixosModules.grub
+      self.nixosModules.plymouth
       self.nixosModules.sddm
       self.nixosModules.polkit
       self.nixosModules.thunar
@@ -92,6 +93,9 @@ in {
       {
         networking.hostName = hostName;
         system.stateVersion = "25.05";
+
+        # Allow building aarch64 (Pi5) packages and ISOs on this x86_64 machine
+        boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
       }
     ];
   };

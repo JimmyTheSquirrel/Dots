@@ -3,8 +3,8 @@ let
   activeUser = "rock";
   hostName = "Eclipse";
 
-  # Hardware config — fill in after running nixos-generate-config on the Pi
-  hardwareConfig = { config, lib, modulesPath, ... }: {
+  # Hardware config
+  hardwareConfig = { lib, modulesPath, ... }: {
     imports = [
       (modulesPath + "/installer/scan/not-detected.nix")
     ];
@@ -13,19 +13,6 @@ let
     boot.initrd.kernelModules = [ ];
     boot.kernelModules = [ ];
     boot.extraModulePackages = [ ];
-
-    # TODO: replace with actual UUIDs from nixos-generate-config
-    fileSystems."/" = {
-      device = "/dev/disk/by-uuid/PLACEHOLDER";
-      fsType = "ext4";
-    };
-
-    fileSystems."/boot" = {
-      device = "/dev/disk/by-uuid/PLACEHOLDER";
-      fsType = "vfat";
-      options = [ "fmask=0077" "dmask=0077" ];
-    };
-
     swapDevices = [ ];
 
     nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
@@ -34,6 +21,38 @@ let
     boot.loader.grub.enable = false;
     boot.loader.generic-extlinux-compatible.enable = true;
   };
+
+  # Disko disk layout — targets /dev/mmcblk0 (Pi5 internal SD/eMMC)
+  # nixos-anywhere will wipe and partition this automatically
+  diskoConfig = { ... }: {
+    disko.devices.disk.main = {
+      device = "/dev/mmcblk0";
+      type = "disk";
+      content = {
+        type = "gpt";
+        partitions = {
+          boot = {
+            size = "512M";
+            type = "EF00";
+            content = {
+              type = "filesystem";
+              format = "vfat";
+              mountpoint = "/boot";
+              mountOptions = [ "fmask=0077" "dmask=0077" ];
+            };
+          };
+          root = {
+            size = "100%";
+            content = {
+              type = "filesystem";
+              format = "ext4";
+              mountpoint = "/";
+            };
+          };
+        };
+      };
+    };
+  };
 in {
   flake.nixosConfigurations."${activeUser}-${hostName}" = inputs.nixpkgs.lib.nixosSystem {
     system = "aarch64-linux";
@@ -41,6 +60,10 @@ in {
     modules = [
       # Hardware
       hardwareConfig
+
+      # Disko — declarative disk partitioning (used by nixos-anywhere)
+      inputs.disko.nixosModules.disko
+      diskoConfig
 
       # Home Manager setup
       inputs.home-manager.nixosModules.home-manager
@@ -80,6 +103,39 @@ in {
       {
         networking.hostName = hostName;
         system.stateVersion = "25.05";
+
+        # Tailscale (no sops on Pi — run `sudo tailscale up` after install)
+        services.tailscale = {
+          enable = true;
+          openFirewall = true;
+        };
+        networking.firewall = {
+          trustedInterfaces = [ "tailscale0" ];
+          allowedUDPPorts = [ 41641 ];
+        };
+
+        # Sunshine game streaming (Pi5 uses software encoding, not vaapi)
+        services.sunshine = {
+          enable = true;
+          autoStart = true;
+          openFirewall = true;
+        };
+        hardware.uinput.enable = true;
+
+        home-manager.users.${activeUser} = { lib, ... }: {
+          home.activation.sunshineConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+            CONF="$HOME/.config/sunshine/sunshine.conf"
+            mkdir -p "$(dirname "$CONF")"
+            if [ ! -s "$CONF" ]; then
+              cat > "$CONF" <<'EOF'
+# Pi5 uses software encoding (no VAAPI/AMD GPU)
+encoder = software
+hevc_mode = 1
+fec_percentage = 20
+EOF
+            fi
+          '';
+        };
       }
     ];
   };
