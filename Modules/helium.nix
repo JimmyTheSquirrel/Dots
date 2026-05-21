@@ -69,7 +69,11 @@ EOF
               buildInputs = [pkgs.makeWrapper];
               postBuild = ''
                 wrapProgram $out/bin/helium \
-                  --add-flags "--load-extension=${bitwarden-extension},${helium-dark-theme}"
+                  --add-flags "--load-extension=${bitwarden-extension},${helium-dark-theme}" \
+                  --add-flags "--disk-cache-size=104857600" \
+                  --add-flags "--enable-gpu-rasterization" \
+                  --add-flags "--enable-zero-copy" \
+                  --add-flags "--no-default-browser-check"
               '';
             }
         )

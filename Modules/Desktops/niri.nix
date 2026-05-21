@@ -75,11 +75,31 @@
       (lib.hiPrio (writeShellScriptBin "steam" ''
         exec ${steam}/bin/steam -no-cef-sandbox "$@"
       ''))
+      # Steam launcher for Noctalia: niri msg action spawn fails to start Steam
+      # without a brief delay (known niri issue #2463). sleep 1 fixes it.
+      (writeShellScriptBin "steam-open" ''
+        if pgrep -x steam >/dev/null; then
+          steam steam://open/games &
+        else
+          sleep 1 && steam "$@" &
+        fi
+      '')
       # Spotify startup launcher: delayed start for session init, opens to liked songs.
       # Used in niri spawn-at-startup — needs the sleep for session initialization.
       (writeShellScriptBin "spotify-startup" ''
         LIKED_SONGS="spotify:collection:tracks"
         sleep 3  # Wait for desktop/session to fully initialize
+        # Once Spotify's CDP port is ready, apply saved matugen colors
+        (
+          sleep 8
+          for _i in 1 2 3 4 5; do
+            if ${pkgs.curl}/bin/curl -sf http://127.0.0.1:9222/json/list >/dev/null 2>&1; then
+              spotify-apply-colors
+              break
+            fi
+            sleep 3
+          done
+        ) &
         exec spotify \
           --disable-gpu-sandbox --use-gl=angle --use-angle=swiftshader \
           --remote-debugging-port=9222 \
@@ -105,6 +125,17 @@
         fi
       '')
     ];
+
+    # Override Steam .desktop so the app launcher uses steam-open (with sleep 1 delay).
+    # Niri's spawn mechanism requires a delay or Steam silently fails (niri issue #2463).
+    home-manager.users.rock.xdg.desktopEntries.steam = {
+      name = "Steam";
+      exec = "steam-open %U";
+      icon = "steam";
+      terminal = false;
+      categories = ["Network" "FileTransfer" "Game"];
+      mimeType = ["x-scheme-handler/steam" "x-scheme-handler/steamlink"];
+    };
 
     # Override Spotify .desktop so the app launcher uses spotify-open instead of spotify.
     # This means the launcher always opens Liked Songs without touching the spotify binary.

@@ -72,15 +72,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # --- NixOS Hardware (Pi 5 boot support) ---
-    nixos-hardware.url = "github:NixOS/nixos-hardware";
-
   };
 
   outputs = inputs: inputs.flake-parts.lib.mkFlake
     { inherit inputs; }
     {
-      systems = [ "x86_64-linux" "aarch64-linux" ];
+      systems = [ "x86_64-linux" ];
 
       imports = [
         (inputs.import-tree ./Hosts)

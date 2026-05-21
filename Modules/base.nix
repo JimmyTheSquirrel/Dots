@@ -61,7 +61,34 @@
       inputs.nix-citizen.packages.${pkgs.stdenv.hostPlatform.system}.rsi-launcher
       moonlight-qt
       nixos-anywhere
+      mpv
+      imv
     ];
+
+    home-manager.users.${activeUser} = {
+      xdg.mimeApps = {
+        enable = true;
+        defaultApplications = {
+          # Video
+          "video/quicktime"   = "mpv.desktop";
+          "video/mp4"         = "mpv.desktop";
+          "video/x-matroska"  = "mpv.desktop";
+          "video/x-msvideo"   = "mpv.desktop";
+          "video/webm"        = "mpv.desktop";
+          "video/mpeg"        = "mpv.desktop";
+          "video/ogg"         = "mpv.desktop";
+          "video/x-flv"       = "mpv.desktop";
+          "video/3gpp"        = "mpv.desktop";
+          # Images
+          "image/jpeg"        = "imv.desktop";
+          "image/png"         = "imv.desktop";
+          "image/gif"         = "imv.desktop";
+          "image/webp"        = "imv.desktop";
+          "image/bmp"         = "imv.desktop";
+          "image/tiff"        = "imv.desktop";
+        };
+      };
+    };
 
     # Fonts
     fonts = {

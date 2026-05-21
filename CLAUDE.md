@@ -37,7 +37,7 @@ The `system-rebuild` helper (defined in `Resources/zsh-scripts/zsh-helpers.sh`) 
 
 ## Architecture
 
-This is a NixOS Flake-based dotfiles repository using **flake-parts** + **import-tree** for automatic module discovery. Manages four system configurations for user `rock` — three AMD/Wayland desktop environments and one Raspberry Pi 5. Supports both `x86_64-linux` and `aarch64-linux` in `flake.nix`.
+This is a NixOS Flake-based dotfiles repository using **flake-parts** + **import-tree** for automatic module discovery. Manages three system configurations for user `rock` — three AMD/Wayland desktop environments. x86_64-linux only.
 
 ### Directory Structure
 
@@ -48,18 +48,13 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   │   └── system.nix       # NixOS config with module imports
 │   ├── Elektra/             # KDE Plasma 6
 │   │   └── system.nix
-│   ├── Odysseus/            # Hyprland desktop
-│   │   └── system.nix
-│   └── Eclipse/             # Raspberry Pi 5 (NixOS config exists but Pi runs Pi OS graphical)
+│   └── Odysseus/            # Hyprland desktop
 │       └── system.nix
 ├── Modules/                 # Self-contained modules (auto-imported)
 │   ├── Desktops/            # Desktop environment configs
 │   │   ├── hyprland.nix     # Hyprland (system + home config combined)
 │   │   ├── kde.nix          # KDE Plasma (system + home config combined)
 │   │   └── niri.nix         # Niri (wrapper-modules with perSystem)
-│   ├── Pi5/                 # Raspberry Pi 5 specific modules (aarch64)
-│   │   ├── base.nix         # Lean base for Pi (no gaming/x86-only packages)
-│   │   └── niri.nix         # Pi niri config (greetd autologin, no SDDM/amdgpu)
 │   ├── noctalia.nix         # Desktop shell/bar (wrapper-modules)
 │   ├── skwd-wall.nix        # Wallpaper selector with systemd service
 │   ├── helium.nix           # Helium browser (policies, Bitwarden, bookmarks)
@@ -70,8 +65,9 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   ├── rain-effect.nix      # GLSL rain overlay (Sisyphus, wlr-layer-shell bottom layer)
 │   ├── controller.nix       # DualSense desktop nav daemon (Sisyphus, Moonlight/Sunshine)
 │   ├── sddm.nix             # SDDM video login theme
-│   ├── base.nix             # Common packages and settings (x86_64 only packages behind optionals)
+│   ├── base.nix             # Common packages and settings
 │   ├── grub.nix             # GRUB with multi-system boot menu
+│   ├── plymouth.nix         # Boot splash screen (Sisyphus only)
 │   └── ... (audio, steam, sops, locale, polkit, etc.)
 ├── Resources/               # Static files (not Nix modules)
 │   ├── Noctalia-Plugins/    # Custom Noctalia plugins
@@ -85,20 +81,18 @@ flake.nix                    # Entry point using flake-parts + import-tree
     └── secrets.yaml         # Encrypted values
 ```
 
-### The Four Systems
+### The Three Systems
 
 | System | Desktop | Hardware | Entry Point | Key Modules |
 |--------|---------|----------|-------------|-------------|
 | **Sisyphus** | Niri | AMD x86_64 | `Hosts/Sisyphus/system.nix` | niri (wrapper-modules), noctalia, skwd-wall, spicetify, discord, rain-effect, sunshine, tailscale, controller |
 | **Elektra** | KDE Plasma 6 | AMD x86_64 | `Hosts/Elektra/system.nix` | kde (plasma-manager), skwd-wall, thunar, spicetify, discord, screenshot |
 | **Odysseus** | Hyprland | AMD x86_64 | `Hosts/Odysseus/system.nix` | hyprland (nixos+home), noctalia, skwd-wall, screenshot, spicetify, brave, helium |
-| **Eclipse** | Pi OS (graphical) | Pi5 aarch64 | `Hosts/Eclipse/system.nix` (NixOS config, not yet deployed) | Tailscale, Moonlight (connects to Sisyphus) |
 
 Sisyphus + Elektra: brave, helium
 Odysseus only: helium as default browser, brave
 
-x86_64 systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, git, navi, starship, fastfetch
-x86_64 systems: moonlight-qt (in base.nix). Eclipse uses native Moonlight on Pi OS.
+All three systems share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, git, navi, starship, fastfetch, moonlight-qt
 
 ### Multi-Boot System
 
@@ -106,9 +100,9 @@ All three desktop environments are bootable from GRUB without rebuilding. The se
 
 ```
 NixOS - System Select           <- GRUB submenu
-  Sisyphus (Hyprland)
+  Sisyphus (Niri)
   Elektra (KDE Plasma 6)
-  Odysseus (Niri)
+  Odysseus (Hyprland)
 Windows                         <- Detected by os-prober
 ```
 
@@ -134,6 +128,18 @@ system-rebuild rock Sisyphus --boot
 
 # After rebuilding any system, the GRUB menu auto-updates on next switch
 ```
+
+### Plymouth Boot Splash
+
+**Module:** `Modules/plymouth.nix` (Sisyphus only)
+
+Displays an animated boot splash screen instead of kernel log text.
+
+- `boot.initrd.kernelModules = [ "amdgpu" ]` — early KMS so Plymouth gets a real GPU framebuffer from the start (without this it renders in low-res VGA mode)
+- `boot.plymouth.theme = "spinner"` — clean minimal spinner (built-in, no extra package needed)
+- Kernel params: `quiet splash loglevel=3 rd.udev.log_level=3` — suppress kernel/udev log spam during boot
+
+**Changing the theme:** NixOS ships `bgrt` (UEFI logo), `spinner`, `fade-in`, `solar`, `tribar` out of the box. For fancier themes add `pkgs.adi1090x-plymouth-themes` to `boot.plymouth.themePackages` and set `boot.plymouth.theme` to any theme name from that package.
 
 ### SKWD Wallpaper Selector
 
@@ -252,6 +258,7 @@ Colors update live in Spotify the moment skwd-wall changes the wallpaper — no 
 3. `spotify-apply-colors` (in `home.packages` in `spicetify.nix`) connects to Spotify's CDP debug port (9222), reads `matugen-colors.json`, and injects each `--spice-*` variable via `Runtime.evaluate` → `document.documentElement.style.setProperty()`
 4. Spotify must be launched with `--remote-debugging-port=9222` (set in both `spotify-startup` and `spotify-open` in `niri.nix`)
 5. The baked-in `matugen-colors.js` extension hooks `Spicetify.Platform.History.listen` to re-apply the injected `<style>` element after SPA navigation wipes inline styles
+6. On boot, `spotify-startup` also runs `spotify-apply-colors` automatically — a background subshell polls `localhost:9222/json/list` until CDP is ready (up to 5 retries, 3s apart, starting 8s after Spotify launches), then applies the saved colors from the last wallpaper change
 
 **Why not `fs.watch` or `fetch()`?** Spotify uses CEF (Chromium Embedded Framework), not Electron. The renderer has no Node.js `require('fs')` and blocks all localhost HTTP connections. CDP is the only reliable way to inject JS into the running renderer from outside.
 
@@ -314,6 +321,14 @@ Keybind: `Mod+Shift+R` in Niri
 - `u_time*0.2` controls animation speed
 - Alpha: `dropA*0.50 + trailA*0.20*(1.0-dropA) + spec*0.35*dropA` — lower `dropA` multiplier for subtler drops
 - Drop color: `mix(vec3(0.52,0.70,0.94), vec3(0.72,0.86,1.00), dropA)` — light blue water tones
+
+### Media Viewers
+
+**Video:** `mpv` — handles all formats including `.MOV`/QuickTime. Keyboard-driven, minimal. Installed in `base.nix`.
+
+**Images:** `imv` — Wayland-native image viewer. Arrow keys to browse, `q` to quit. Installed in `base.nix`.
+
+**Default app associations:** Declared via `xdg.mimeApps` in `base.nix` (`home-manager.users.${activeUser}`). Covers all common video MIME types → `mpv.desktop` and image MIME types → `imv.desktop`. Changes take effect after log out/in (session must refresh `XDG_DATA_DIRS`).
 
 ### Discord Setup
 
@@ -395,10 +410,15 @@ Niri is a scrollable-tiling Wayland compositor. Configured via wrapper-modules i
 4. Spotify launches via `spotify-startup` (3-second delay, opens to Liked Songs)
 
 **Spotify launcher:** Two scripts in `environment.systemPackages` handle Spotify launch:
-- `spotify-startup` — used by niri `spawn-at-startup`, sleeps 3s then launches with GPU flags + `--uri` for playlist
+- `spotify-startup` — used by niri `spawn-at-startup`, sleeps 3s then launches with GPU flags + `--uri` for playlist. Also runs `spotify-apply-colors` on boot: background subshell polls CDP port until ready, then injects saved matugen colors.
 - `spotify-open` — used by the app launcher `.desktop` entry, no sleep, handles fresh launch (`--uri`) and already-running (D-Bus MPRIS `OpenUri`)
 
 The `spotify` binary is never replaced (avoids infinite recursion with spicetify's wrapper). Instead, `home-manager.users.rock.xdg.desktopEntries.spotify` overrides the `.desktop` file to call `spotify-open %U`.
+
+**Steam launcher:** Steam has the same niri spawn issue as other apps (niri issue #2463 — apps launched via `niri msg action spawn` fail silently without a brief delay). Fixed with a `steam-open` script:
+- `steam-open` — checks if steam is already running (`pgrep -x steam`); if so, opens the library (`steam steam://open/games`); if not, `sleep 1 && steam "$@"` in background
+- `home-manager.users.rock.xdg.desktopEntries.steam` overrides the `.desktop` to call `steam-open %U`
+- The plain `steam` wrapper (with `-no-cef-sandbox`) remains for direct terminal use
 
 **Monitor config** (in `extraConfig`):
 ```kdl
@@ -637,7 +657,7 @@ Chromium-based privacy browser (de-googled, built on ungoogled-chromium) used al
 
 **What the module manages declaratively:**
 
-- **Package** — wrapped binary via `pkgs.symlinkJoin` + `makeWrapper` (not installed directly)
+- **Package** — wrapped binary via `pkgs.symlinkJoin` + `makeWrapper` (not installed directly). Wrapper flags: `--disk-cache-size=104857600` (100MB cache), `--enable-gpu-rasterization`, `--enable-zero-copy`, `--no-default-browser-check`
 - **Dark theme** — custom Chrome theme extension (`helium-dark-theme` derivation) loaded via `--load-extension`. Sets exact colors for frame, toolbar, omnibox, and tabs. Loaded alongside Bitwarden as a comma-separated `--load-extension` list. If the theme doesn't apply after rebuild, go to `helium://settings/appearance` and reset the theme there once.
 - **Bitwarden** — loaded via `--load-extension` pointing to a Nix-fetched derivation (ungoogled-chromium blocks Google's CWS, so `force_installed` doesn't work). The extension zip is fetched from Bitwarden's GitHub releases, source maps stripped, and Bitwarden's RSA public key injected into `manifest.json` so `--load-extension` assigns the correct extension ID (`nngceckbapebfimnlniiiahkandclblb`) instead of a random one. Key was extracted from the signed CRX and verified by computing SHA256 → extension ID.
 - **Bitwarden pinned** — `ExtensionSettings` policy with `toolbar_pin = "force_pinned"` targets the correct ID
@@ -685,31 +705,18 @@ Import-tree only sees git-tracked files. A new `*.nix` file in `Modules/` will b
 
 ### Eclipse (Raspberry Pi 5)
 
-Eclipse is a Pi5 running **Raspberry Pi OS (64-bit graphical)** — not NixOS. Used as a Moonlight client connected to the TV to stream games from Sisyphus without moving the PC to the lounge.
+Eclipse is a Pi5 running **Raspberry Pi OS (64-bit graphical)** — not managed by this repo. Used as a Moonlight client connected to the TV to stream games from Sisyphus.
 
-**Current setup (Pi OS, not NixOS):**
-- **OS:** Raspberry Pi OS Trixie 64-bit graphical (flashed via `dd` from Sisyphus)
-- **Tailscale:** installed via `curl -fsSL https://tailscale.com/install.sh | sh`, authenticated to jimmythesquirrel.github tailnet
+- **OS:** Raspberry Pi OS Trixie 64-bit graphical
+- **Tailscale:** authenticated to jimmythesquirrel.github tailnet, IP `100.78.125.37`
 - **Moonlight:** installed natively on Pi OS, connects to Sisyphus (Sunshine host)
-- **Tailscale IP:** `100.78.125.37`
-- **SSH:** enabled, root login allowed (for future nixos-anywhere attempt)
-- SSH in from Sisyphus: `ssh pi@100.78.125.37` (password) or `ssh rock@100.78.125.37` after NixOS install
+- SSH in: `ssh pi@100.78.125.37`
 
 **Streaming to TV (recommended settings):**
-- Resolution: 1080p (even on 4K TV, fine at couch distance)
-- Bitrate: 30-50 Mbps on local network
-- FPS: 60
+- Resolution: 1080p, Bitrate: 30-50 Mbps, FPS: 60
 - Enable H.265 in Moonlight for ~40% bandwidth saving
 - Disconnect from stream: `Ctrl+Alt+Shift+Q`
 - Use DualSense controller for Niri navigation (controller.nix maps buttons to Niri commands)
-
-**NixOS config:** `Hosts/Eclipse/system.nix` exists with disko, Tailscale, Sunshine, Niri, Noctalia — ready for future nixos-anywhere deployment.
-
-**Why nixos-anywhere failed:**
-- Pi OS kernel doesn't have `CONFIG_KEXEC=y` — kexec step fails with `Function not implemented`
-- Standard NixOS aarch64 ISOs also won't boot on Pi5 (uses its own bootloader, not UEFI)
-- Fix: install nix on Pi OS first (`curl ... | sh`), then run nixos-anywhere with `--phases disko,install,reboot` to skip kexec
-- Alternative: use NixOS Pi SD card image from Hydra (disk image, not ISO) flashed via `dd`
 
 ### Flake Inputs of Note
 
@@ -726,6 +733,7 @@ Eclipse is a Pi5 running **Raspberry Pi OS (64-bit graphical)** — not NixOS. U
 - `silentSDDM` - Login screen theme
 - `nix-citizen` / `nix-gaming` - Gaming packages (Star Citizen, Proton)
 - `sops-nix` - Encrypted secrets management with age keys
+- `disko` - Declarative disk partitioning (for nixos-anywhere on UEFI installs)
 
 ### Game Streaming (Sunshine + Moonlight + Tailscale)
 
@@ -736,7 +744,7 @@ Sisyphus runs **Sunshine** as a game streaming host, accessible remotely via **T
 - `Modules/tailscale.nix` — Tailscale VPN (Sisyphus only, auth key via sops)
 - `Modules/controller.nix` — DualSense desktop navigation daemon (Sisyphus only)
 
-**Moonlight client:** `moonlight-qt` is in `base.nix` and available on all systems (including Eclipse/Pi5). Use it to connect to a Sunshine host.
+**Moonlight client:** `moonlight-qt` is in `base.nix` and available on all three systems. Use it to connect to a Sunshine host.
 
 **How it works:**
 - Sunshine runs as a **user service** (`autoStart = true`) — starts automatically when Niri logs in via the graphical session
