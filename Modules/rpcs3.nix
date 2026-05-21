@@ -6,6 +6,23 @@
     ];
 
     home-manager.users.${activeUser} = {
+      xdg.desktopEntries = {
+        rpcs3 = {
+          name = "RPCS3";
+          exec = "rpcs3 %f";
+          icon = "rpcs3";
+          comment = "PlayStation 3 Emulator";
+          categories = [ "Game" "Emulator" ];
+        };
+        ryubing = {
+          name = "Ryubing";
+          exec = "ryubing %f";
+          icon = "ryubing";
+          comment = "Nintendo Switch Emulator";
+          categories = [ "Game" "Emulator" ];
+        };
+      };
+
       home.activation.rpcs3Config = lib.hm.dag.entryAfter ["writeBoundary"] ''
         if [ ! -f "$HOME/.config/rpcs3/config.yml" ]; then
           mkdir -p "$HOME/.config/rpcs3"
