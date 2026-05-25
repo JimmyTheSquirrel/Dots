@@ -64,6 +64,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   ├── discord.nix          # Vesktop with transparency
 │   ├── rain-effect.nix      # GLSL rain overlay (Sisyphus, wlr-layer-shell bottom layer)
 │   ├── controller.nix       # DualSense desktop nav daemon (Sisyphus, Moonlight/Sunshine)
+│   ├── rpcs3.nix            # RPCS3 (PS3) + Ryubing (Switch) emulators with seeded config
 │   ├── sddm.nix             # SDDM video login theme
 │   ├── base.nix             # Common packages and settings
 │   ├── grub.nix             # GRUB with multi-system boot menu
@@ -294,7 +295,7 @@ Colors update live in Spotify the moment skwd-wall changes the wallpaper — no 
 
 ### Rain Effect Overlay
 
-GLSL rain-on-glass overlay rendered on the Wayland `bottom` layer — above the wallpaper, below all windows. Fully independent of skwd-wall; changing wallpaper while rain is active has no effect.
+GLSL rain-on-glass overlay rendered on the Wayland `bottom` layer — above the wallpaper, below all windows.
 
 **Module:** `Modules/rain-effect.nix` (Sisyphus only)
 
@@ -303,24 +304,71 @@ GLSL rain-on-glass overlay rendered on the Wayland `bottom` layer — above the 
 - Empty input region so all mouse/keyboard events pass through
 - `exclusive_zone = -1` so it doesn't push other surfaces
 - Creates one layer surface per monitor (handles dual-monitor setup)
-- Shader: adapted "Heartfelt" by Martijn Steinrucken (BigWings) 2017 — rain-on-glass drops with trails, static droplets, specular highlights. CC BY-NC-SA 3.0.
-- Binary compiled at Nix build time via `stdenv.mkDerivation` with `wayland-scanner` generating xdg-shell + wlr-layer-shell protocol bindings
+- Shader: BigWings "Heartfelt" drop simulation (CC BY-NC-SA 3.0) + refractive wallpaper sampling
+- Binary compiled at Nix build time via `stdenv.mkDerivation` with `wayland-scanner`
+- Uses `stb_image` (`pkgs.stb`) to load the wallpaper texture at runtime
+- Wallpaper path stored in `$XDG_RUNTIME_DIR/rain-overlay.wallpaper`; SIGUSR1 triggers hot-reload
+- Shine texture at `Resources/Rain-Effect/drop-shine.png`
 
 **Usage:**
 ```bash
 rain-toggle          # toggle on/off
-rain-toggle on       # explicit on (for weather automation)
+rain-toggle on       # explicit on
 rain-toggle off      # explicit off
+rain-toggle wallpaper /path/to/image   # hot-swap wallpaper while running
 ```
 Keybind: `Mod+Shift+R` in Niri
 
-**Future:** auto-trigger based on weather API (Noctalia has Sydney weather enabled)
+**How wallpaper is found at startup:**
+`rain-toggle` writes the wallpaper path to `$XDG_RUNTIME_DIR/rain-overlay.wallpaper` before launching the overlay. It finds the path by: stored WALLFILE → `jq` from skwd-wall config → most recent file in wallpaper dir. The `~` in the jq result is expanded manually (`${walldir/#\~/$HOME}`).
 
-**Shader tuning notes:**
-- `rain` variable (0.0–1.0) controls intensity — currently `0.7`
-- `u_time*0.2` controls animation speed
-- Alpha: `dropA*0.50 + trailA*0.20*(1.0-dropA) + spec*0.35*dropA` — lower `dropA` multiplier for subtler drops
-- Drop color: `mix(vec3(0.52,0.70,0.94), vec3(0.72,0.86,1.00), dropA)` — light blue water tones
+**Architecture: single-pass refractive shader**
+The fragment shader does everything in one pass (no FBO):
+1. Compute drop alpha + trail alpha via `Drops()` → single `DropLayer2` layer (rotated slightly)
+2. Compute surface normals via forward finite differences on the drop field
+3. Offset wallpaper UV by normals (refraction)
+4. Apply `wallUV()` for cover/fill aspect ratio correction
+5. Composite: refracted wallpaper + subtle cool tint + specular highlight from shine texture
+
+**Rendering model and why it matters:**
+The overlay is alpha-blended over the compositor's wallpaper. Our texture is a separate load of the same wallpaper file — it may not perfectly match the compositor's rendering (gamma, color management). This means:
+- If drop alpha is high and our sample is dark (due to refraction offset landing in a darker region), drops look like dark/grey blobs — **bad**
+- The correct approach: keep alpha moderate (~35%), use near-zero tint, let the specular highlight be the primary visual cue — drops look like transparent glass with a bright glint — **good**
+- **Never use large refraction offsets** — `normal * 14.0 * 0.022 = 0.308` = 30% screen shift, samples completely different wallpaper regions → dark blobs. Keep combined product ≤ 0.03 (3% screen max).
+
+**Current shader parameters (glass-like drops):**
+- `rain = 0.48` — drop density
+- `a = vec2(3., 3.)` in `DropLayer2` — 6×6 grid (changed from original 6×2 to reduce horizontal banding)
+- `alpha = dropAlpha * 0.35 + trailAlpha * 0.02` — transparent drops, 65% compositor shows through
+- `normal = vec2(nx,ny) * 5.0` — moderate normal scale
+- `refractUV = screenUV + normal * 0.006` — tiny lens distortion (max ~1.8% screen offset)
+- `water = mix(wall.rgb, vec3(0.92,0.95,1.0), 0.04)` — nearly no tint, drop body ≈ background
+- `spec = shine.r * dropAlpha * 0.85` — strong specular, the main visual indicator of each drop
+
+**Known bugs fixed:**
+- **Blurry blob bug** (was: `droplets=S(.3,0.,length(st-vec2(x,y)))` overwriting the sin-based micro-drop computation with a large blurry circle ~54px radius). Fix: removed the two overwrite lines, keeping the original `sin(y*(1-y)*120)` droplets only.
+- **Dark blob bug** (was: `normal * 14.0 * 0.022 = 0.308` 30% screen shift sampling dark wallpaper regions). Fix: reduced to `normal * 5.0 * 0.006 = 0.03`.
+- **Frosted glass attempt broke everything** — niri does NOT support `blur {}` inside `layer-rule` (only in `window-rule`). Attempting it gives `unexpected node 'blur'` build error. Shader-based blur (9-tap Gaussian sampling our texture) blurs the drops not the background — doesn't work.
+
+**Shader tuning knobs:**
+- `rain` (0.0–1.0) — drop density; `l1=S(.25,.75,rain)` scales the layer
+- `u_time*0.2` — animation speed (lower = slower drops)
+- `a=vec2(X.,Y.)` in `DropLayer2` — grid density; higher X = more columns, higher Y = more rows
+- `rot2(0.07)` in `Drops()` — slight rotation breaks horizontal grid alignment
+- `normal * N` — normal scale; higher = more exaggerated refraction shape
+- `screenUV + normal * M` — refraction strength; keep `N*M < 0.05` to avoid dark blob sampling
+- `dropAlpha * A` in alpha — drop opacity (0.35 = mostly transparent, 0.70 = visible but paint-like)
+- `mix(wall.rgb, vec3(...), T)` — water tint strength; keep T < 0.10 for glass look
+- `shine.r * dropAlpha * S` — specular intensity; increase S when alpha A is low
+- `wallUV()` — handles cover/fill aspect ratio: screen wider → crop texture height, taller → crop texture width
+
+**Current state (WIP):**
+- Drop shapes are animated (sliding down via `Saw(.85,ti)` in `DropLayer2`) and have trails
+- Drops look like transparent glass with specular highlights — not dark blobs or white paint
+- Grid pattern partially addressed with `a=vec2(3.,3.)` and `rot2(0.07)` — some regularity still visible
+- Frosted glass background deferred — not achievable without compositor blur support on layer surfaces
+
+**Future:** auto-trigger based on weather API (Noctalia has Sydney weather enabled)
 
 ### Media Viewers
 
@@ -703,6 +751,37 @@ All managed bookmarks live under one parent folder on the bar — can't split in
 **New modules need `git add`:**
 Import-tree only sees git-tracked files. A new `*.nix` file in `Modules/` will be silently ignored (missing from `self.nixosModules`) until staged with `git add`.
 
+### Emulation
+
+**Module:** `Modules/rpcs3.nix` (all systems)
+
+Two emulators are installed:
+- `rpcs3` — PS3 emulator (for SSX 2012 and other PS3 games)
+- `ryubing` — Nintendo Switch emulator (community Ryujinx fork, official was shut down Oct 2024)
+
+**RPCS3 config** is seeded on first activation via home-manager activation script at `~/.config/rpcs3/config.yml`. Key settings: Vulkan renderer, LLVM recompilers, Cubeb audio. The file is only written if it doesn't exist — RPCS3 UI changes survive rebuilds.
+
+**Preparing a PS3 game from an encrypted ISO + .dkey:**
+```bash
+nix-shell -p ps3iso-utils --run "bash"
+extractps3iso /path/to/game.iso /path/to/output/
+```
+`extractps3iso` can read encrypted ISOs without needing the `.dkey` in most cases. The `.dkey` is for `patchps3iso` which uses a different (CFW) key format. After extraction, use **File → Add Games** in RPCS3.
+
+**Firmware:** PS3 firmware is bundled in the game ISO at `PS3_UPDATE/PS3UPDAT.PUP`. Install via **File → Install Firmware** in RPCS3 before launching games.
+
+**DualSense with RPCS3:**
+- Config → Pads → Handler: `DualSense`, Device: `DualSense Pad #1`
+- Connect via Bluetooth before opening the Pads dialog, hit Refresh if needed
+
+**Resolution:** SSX (2012) natively runs at 720p on PS3. Use **Resolution Scale** (Config → GPU) at 150–200% to upscale the internal rendering — much sharper than native PS3 output. The `Resolution` setting (output res) is ignored by games that don't support it.
+
+**Bluetooth auto-connect** is configured in `niri.nix`:
+- `hardware.bluetooth.powerOnBoot = true`
+- `hardware.bluetooth.settings.Policy.AutoEnable = "true"`
+- `services.blueman.enable = true`
+- After pairing, run `bluetoothctl trust <MAC>` once so the controller reconnects automatically on PS button press
+
 ### Eclipse (Raspberry Pi 5)
 
 Eclipse is a Pi5 running **Raspberry Pi OS (64-bit graphical)** — not managed by this repo. Used as a Moonlight client connected to the TV to stream games from Sisyphus.
@@ -805,6 +884,7 @@ The DualSense touchpad handles mouse movement natively through Sunshine — no c
 **Implementation notes:**
 - Uses Python `evdev` + `UInput` — no process spawning per frame, direct kernel input writes
 - `find_gamepad()` retries every 3s so the service stays alive when no Moonlight client is connected
+- `find_gamepad()` skips real Bluetooth devices (`dev.phys` contains a MAC address `XX:XX:XX:XX:XX:XX`) — this prevents it from grabbing a directly-connected DualSense that should be used by RPCS3 or other apps
 - Left stick auto-repeat: fires immediately on deflection, 400ms initial delay, then repeats every 120ms (dominant axis wins to prevent diagonal misfires)
 - D-Pad Super+Arrow is run in a thread to avoid blocking the event loop during the 50ms key hold
 - Requires user in `input` group (read `/dev/input/event*`) and `uinput` group (write `/dev/uinput`)

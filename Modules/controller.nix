@@ -95,6 +95,10 @@
               for path in evdev.list_devices():
                   try:
                       dev = evdev.InputDevice(path)
+                      # Skip real Bluetooth devices (phys contains a MAC address)
+                      # Only grab Sunshine's virtual uinput gamepad
+                      if dev.phys and ":" in dev.phys:
+                          continue
                       caps = dev.capabilities()
                       keys = caps.get(e.EV_KEY, [])
                       if e.BTN_SOUTH in keys:

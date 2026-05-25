@@ -62,6 +62,9 @@
     };
 
     hardware.bluetooth.enable = true;
+    hardware.bluetooth.powerOnBoot = true;
+    hardware.bluetooth.settings.Policy.AutoEnable = "true";
+    services.blueman.enable = true;
     hardware.graphics = {
       enable = true;
       enable32Bit = true;

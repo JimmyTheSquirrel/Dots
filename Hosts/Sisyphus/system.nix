@@ -88,6 +88,7 @@ in {
       self.nixosModules.tailscale
       self.nixosModules.sunshine
       self.nixosModules.controller
+      self.nixosModules.rpcs3
 
       # System-specific settings
       {

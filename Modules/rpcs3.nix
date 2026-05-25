@@ -1,5 +1,5 @@
 { ... }: {
-  flake.nixosModules.rpcs3 = { pkgs, lib, activeUser, ... }: {
+  flake.nixosModules.rpcs3 = { pkgs, inputs, activeUser, ... }: {
     environment.systemPackages = with pkgs; [
       rpcs3
       ryubing
@@ -23,13 +23,13 @@
         };
       };
 
-      home.activation.rpcs3Config = lib.hm.dag.entryAfter ["writeBoundary"] ''
+      home.activation.rpcs3Config = inputs.home-manager.lib.hm.dag.entryAfter ["writeBoundary"] ''
         if [ ! -f "$HOME/.config/rpcs3/config.yml" ]; then
           mkdir -p "$HOME/.config/rpcs3"
           cat > "$HOME/.config/rpcs3/config.yml" << 'EOF'
 Core:
-  PPU Decoder: LLVM Recompiler
-  SPU Decoder: LLVM Recompiler
+  PPU Decoder: Recompiler (LLVM)
+  SPU Decoder: Recompiler (LLVM)
   Thread Scheduler: RPCS3 Scheduler
   SPU loop detection: true
   SPU Block Size: Safe
@@ -38,12 +38,8 @@ Core:
 
 Video:
   Renderer: Vulkan
-  Resolution: 1920x1080
-  Aspect ratio: 16:9
-  Frame limit: Auto
   Shader Mode: Async Shader Recompiler
   VSync: false
-  Resolution Scale: 100
 
 Audio:
   Renderer: Cubeb
