@@ -1,13 +1,12 @@
 { self, inputs, ... }:
 let
   activeUser = "rock";
-  hostName = "Sisyphus";
+  hostName = "Asgard";
 
-  # Hardware configuration inline to avoid import-tree issues
+  # Hardware reused from Sisyphus (same physical machine).
+  # When moving to a dedicated box, replace the UUIDs from `nixos-generate-config`.
   hardwareConfig = { config, lib, modulesPath, ... }: {
-    imports = [
-      (modulesPath + "/installer/scan/not-detected.nix")
-    ];
+    imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
 
     boot.initrd.availableKernelModules = [ "nvme" "xhci_pci" "ahci" "usbhid" "usb_storage" "sd_mod" ];
     boot.initrd.kernelModules = [ ];
@@ -37,10 +36,8 @@ in {
     system = "x86_64-linux";
     specialArgs = { inherit inputs activeUser; };
     modules = [
-      # Hardware
       hardwareConfig
 
-      # Home Manager setup
       inputs.home-manager.nixosModules.home-manager
       {
         home-manager.useGlobalPkgs = true;
@@ -60,44 +57,28 @@ in {
         };
       }
 
-      # All modules (system + home config combined)
+      # Shared base modules (shell, git, fonts, nix settings, user setup)
       self.nixosModules.base
       self.nixosModules.grub
-      self.nixosModules.plymouth
-      self.nixosModules.sddm
-      self.nixosModules.polkit
-      self.nixosModules.thunar
-      self.nixosModules.niri
-      self.nixosModules.audio
       self.nixosModules.locale
-      self.nixosModules.steam
       self.nixosModules.sops
       self.nixosModules.zsh
-      self.nixosModules.starship
-      self.nixosModules.kitty
-      self.nixosModules.helium
       self.nixosModules.git
+      self.nixosModules.starship
       self.nixosModules.fastfetch
-      self.nixosModules.vscodium
-      self.nixosModules.noctalia
-      self.nixosModules.skwd-wall
-      self.nixosModules.navi
-      self.nixosModules.spicetify
-      self.nixosModules.discord
-      self.nixosModules.rain-effect
-      self.nixosModules.tailscale
-      self.nixosModules.sunshine
-      self.nixosModules.controller
-      self.nixosModules.rpcs3
+
+      # The full media server stack
       self.nixosModules.server
 
-      # System-specific settings
       {
         networking.hostName = hostName;
         system.stateVersion = "25.05";
 
-        # Allow building aarch64 (Pi5) packages and ISOs on this x86_64 machine
-        boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+        # SSH for remote management (password auth disabled — use keys)
+        services.openssh = {
+          enable = true;
+          settings.PasswordAuthentication = false;
+        };
       }
     ];
   };

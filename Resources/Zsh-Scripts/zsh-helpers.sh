@@ -19,17 +19,19 @@ system-rebuild() {
       echo -e "\033[1;36m╰──────────────────────────────╯\033[0m"
       echo ""
       echo -e "\033[1;33mSelect System:\033[0m"
-      echo "  1) Sisyphus  (Hyprland)"
-      echo "  2) Odysseus  (Niri)"
+      echo "  1) Sisyphus  (Niri)"
+      echo "  2) Odysseus  (Hyprland)"
       echo "  3) Elektra   (KDE Plasma)"
+      echo "  4) Asgard    (Media Server)"
       echo ""
-      echo -n "System [1-3]: "
+      echo -n "System [1-4]: "
       read sys_choice
 
       case "$sys_choice" in
         1) system="Sisyphus" ;;
         2) system="Odysseus" ;;
         3) system="Elektra" ;;
+        4) system="Asgard" ;;
         *) echo "Invalid choice"; exit 1 ;;
       esac
 
