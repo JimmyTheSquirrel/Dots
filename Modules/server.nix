@@ -56,16 +56,18 @@
 
       jellyfin = {
         enable = true;
-        config = {
-          apiKey._secret = config.sops.secrets."jellyfin-api-key".path;
-          admin.password._secret = config.sops.secrets."jellyfin-admin-password".path;
+        apiKey._secret = config.sops.secrets."jellyfin-api-key".path;
+        users.admin = {
+          password._secret = config.sops.secrets."jellyfin-admin-password".path;
+          policy.isAdministrator = true;
         };
       };
 
       # Jellyseerr — media request portal (exposed via Cloudflare tunnel)
       seerr = {
         enable = true;
-        config.apiKey._secret = config.sops.secrets."jellyseerr-api-key".path;
+        package = pkgs.jellyseerr;
+        apiKey._secret = config.sops.secrets."jellyseerr-api-key".path;
       };
 
       # SABnzbd usenet download client
@@ -85,6 +87,73 @@
       openFirewall = false;
     };
     users.users.readarr.extraGroups = [ "media" ];
+
+    # Completes the Jellyseerr setup wizard declaratively:
+    # logs in via Jellyfin creds, syncs + enables all libraries, marks initialized.
+    # Uses session cookie auth (same as nixflix's seerr-setup) — idempotent.
+    systemd.services.seerr-library-setup = {
+      description = "Activate all Jellyfin libraries in Jellyseerr";
+      after    = [ "seerr.service" "seerr-setup.service" "network.target" ];
+      wants    = [ "seerr.service" "seerr-setup.service" ];
+      wantedBy = [ "multi-user.target" ];
+      path     = [ pkgs.curl pkgs.jq ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        set -euo pipefail
+        SEERR="http://localhost:5055"
+        COOKIE="/tmp/seerr-library-setup-cookie"
+
+        # Wait up to 2 minutes for Jellyseerr
+        for i in $(seq 1 24); do
+          if curl -sf "$SEERR/api/v1/status" > /dev/null 2>&1; then break; fi
+          echo "Waiting for Jellyseerr... ($i/24)"
+          sleep 5
+        done
+
+        # Skip if already initialized
+        if curl -s "$SEERR/api/v1/settings/public" | jq -e '.initialized == true' > /dev/null; then
+          echo "Jellyseerr already initialized — nothing to do."
+          exit 0
+        fi
+
+        # Log in with credentials only (no server config — Jellyfin is already wired by nixflix)
+        echo "Logging in..."
+        ADMIN_PASS=$(cat ${config.sops.secrets."jellyfin-admin-password".path})
+        LOGIN_CODE=$(curl -s -c "$COOKIE" -X POST \
+          -H "Content-Type: application/json" \
+          -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}" \
+          -w "%{http_code}" -o /dev/null \
+          "$SEERR/api/v1/auth/jellyfin")
+
+        if [ "$LOGIN_CODE" != "200" ] && [ "$LOGIN_CODE" != "201" ]; then
+          echo "Login failed (HTTP $LOGIN_CODE)" >&2; exit 1
+        fi
+        echo "Logged in."
+
+        # Sync libraries from Jellyfin and enable all of them
+        echo "Syncing libraries..."
+        LIBS=$(curl -s -b "$COOKIE" "$SEERR/api/v1/settings/jellyfin/library?sync=true")
+        echo "Found: $(echo "$LIBS" | jq -r '.[].name' | tr '\n' ' ')"
+        LIBRARY_IDS=$(echo "$LIBS" | jq -r '.[].id' | paste -sd,)
+
+        if [ -n "$LIBRARY_IDS" ]; then
+          curl -sf -b "$COOKIE" \
+            "$SEERR/api/v1/settings/jellyfin/library?enable=$LIBRARY_IDS" > /dev/null
+          echo "Libraries enabled: $LIBRARY_IDS"
+        else
+          echo "Warning: no libraries found"
+        fi
+
+        # Mark setup as complete (dismisses wizard permanently)
+        curl -sf -b "$COOKIE" -X POST "$SEERR/api/v1/settings/initialize" > /dev/null
+
+        rm -f "$COOKIE"
+        echo "Jellyseerr setup complete."
+      '';
+    };
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -111,21 +180,228 @@
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DASHBOARD — Homarr homelab dashboard
-# Note: arr API key integrations must be entered in the Homarr UI post-boot
-# (Homarr stores integration credentials in its own DB, not injectable via env).
-# Port: 7575 (Tailscale only)
+# DASHBOARD — Homepage (declarative homelab dashboard)
+# Runs as a native NixOS service (not a container) so localhost works for all
+# arr/jellyfin widgets and /data is accessible for the disk widget.
+# API keys are injected from sops via an env file on every boot.
+# Readarr, Kavita, Immich are links only (API keys not in sops yet).
+# Port: 3000 (Tailscale only)
 # ══════════════════════════════════════════════════════════════════════════════
 
-    virtualisation.oci-containers.containers.homarr = {
-      image = "ghcr.io/ajnart/homarr:latest";
-      ports = [ "7575:7575" ];
-      volumes = [
-        "/var/lib/homarr:/app/data/configs"
-        "/run/podman/podman.sock:/var/run/docker.sock:ro"
+    # Writes sops API keys to an env file for {{HOMEPAGE_VAR_*}} substitution
+    systemd.services.homepage-env = {
+      description = "Generate Homepage env file from sops secrets";
+      wantedBy = [ "homepage-dashboard.service" ];
+      before   = [ "homepage-dashboard.service" ];
+      partOf   = [ "homepage-dashboard.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        mkdir -p /var/lib/homepage
+        {
+          printf 'HOMEPAGE_VAR_SONARR_API_KEY=%s\n'     "$(cat ${config.sops.secrets."sonarr-api-key".path})"
+          printf 'HOMEPAGE_VAR_RADARR_API_KEY=%s\n'     "$(cat ${config.sops.secrets."radarr-api-key".path})"
+          printf 'HOMEPAGE_VAR_LIDARR_API_KEY=%s\n'     "$(cat ${config.sops.secrets."lidarr-api-key".path})"
+          printf 'HOMEPAGE_VAR_PROWLARR_API_KEY=%s\n'   "$(cat ${config.sops.secrets."prowlarr-api-key".path})"
+          printf 'HOMEPAGE_VAR_SABNZBD_API_KEY=%s\n'    "$(cat ${config.sops.secrets."sabnzbd-api-key".path})"
+          printf 'HOMEPAGE_VAR_JELLYFIN_API_KEY=%s\n'   "$(cat ${config.sops.secrets."jellyfin-api-key".path})"
+          printf 'HOMEPAGE_VAR_JELLYSEERR_API_KEY=%s\n' "$(cat ${config.sops.secrets."jellyseerr-api-key".path})"
+        } > /var/lib/homepage/homepage.env
+        chmod 600 /var/lib/homepage/homepage.env
+      '';
+    };
+
+    # Pass env file to the homepage-dashboard systemd service
+    systemd.services.homepage-dashboard.serviceConfig.EnvironmentFile =
+      lib.mkForce "/var/lib/homepage/homepage.env";
+
+    services.homepage-dashboard = {
+      enable = true;
+      listenPort = 3000;
+
+      settings = {
+        title = "Asgard";
+        theme = "dark";
+        color = "slate";
+        headerStyle = "clean";
+        layout = {
+          "Media"             = { style = "row"; columns = 3; };
+          "Downloads"         = { style = "row"; columns = 2; };
+          "Arr Stack"         = { style = "row"; columns = 4; };
+          "Books & Utilities" = { style = "row"; columns = 3; };
+        };
+      };
+
+      widgets = [
+        {
+          resources = {
+            cpu = true;
+            memory = true;
+            disk = "/data";
+            cacheInterval = 5;
+          };
+        }
+        {
+          datetime = {
+            text_size = "xl";
+            format = {
+              timeStyle = "short";
+              dateStyle = "long";
+              hour12 = false;
+            };
+          };
+        }
       ];
-      environmentFiles = [ config.sops.secrets."homarr-env".path ];
-      autoStart = true;
+
+      services = [
+        {
+          "Media" = [
+            {
+              "Jellyfin" = {
+                href = "http://localhost:8096";
+                description = "Media Server";
+                icon = "jellyfin.png";
+                widget = {
+                  type = "jellyfin";
+                  url = "http://localhost:8096";
+                  key = "{{HOMEPAGE_VAR_JELLYFIN_API_KEY}}";
+                  enableBlocks = true;
+                };
+              };
+            }
+            {
+              "Jellyseerr" = {
+                href = "http://localhost:5055";
+                description = "Media Requests";
+                icon = "jellyseerr.png";
+                widget = {
+                  type = "overseerr";
+                  url = "http://localhost:5055";
+                  key = "{{HOMEPAGE_VAR_JELLYSEERR_API_KEY}}";
+                };
+              };
+            }
+            {
+              "Immich" = {
+                href = "http://localhost:2283";
+                description = "Photo Server";
+                icon = "immich.png";
+              };
+            }
+          ];
+        }
+        {
+          "Downloads" = [
+            {
+              "SABnzbd" = {
+                href = "http://localhost:8080";
+                description = "Usenet Downloader";
+                icon = "sabnzbd.png";
+                widget = {
+                  type = "sabnzbd";
+                  url = "http://localhost:8080";
+                  key = "{{HOMEPAGE_VAR_SABNZBD_API_KEY}}";
+                };
+              };
+            }
+            {
+              "Prowlarr" = {
+                href = "http://localhost:9696";
+                description = "Indexer Manager";
+                icon = "prowlarr.png";
+                widget = {
+                  type = "prowlarr";
+                  url = "http://localhost:9696";
+                  key = "{{HOMEPAGE_VAR_PROWLARR_API_KEY}}";
+                };
+              };
+            }
+          ];
+        }
+        {
+          "Arr Stack" = [
+            {
+              "Sonarr" = {
+                href = "http://localhost:8989";
+                description = "TV Shows";
+                icon = "sonarr.png";
+                widget = {
+                  type = "sonarr";
+                  url = "http://localhost:8989";
+                  key = "{{HOMEPAGE_VAR_SONARR_API_KEY}}";
+                };
+              };
+            }
+            {
+              "Radarr" = {
+                href = "http://localhost:7878";
+                description = "Movies";
+                icon = "radarr.png";
+                widget = {
+                  type = "radarr";
+                  url = "http://localhost:7878";
+                  key = "{{HOMEPAGE_VAR_RADARR_API_KEY}}";
+                };
+              };
+            }
+            {
+              "Lidarr" = {
+                href = "http://localhost:8686";
+                description = "Music";
+                icon = "lidarr.png";
+                widget = {
+                  type = "lidarr";
+                  url = "http://localhost:8686";
+                  key = "{{HOMEPAGE_VAR_LIDARR_API_KEY}}";
+                };
+              };
+            }
+            {
+              "Readarr" = {
+                href = "http://localhost:8787";
+                description = "Books";
+                icon = "readarr.png";
+              };
+            }
+          ];
+        }
+        {
+          "Books & Utilities" = [
+            {
+              "Kavita" = {
+                href = "http://localhost:5000";
+                description = "Book Server";
+                icon = "kavita.png";
+              };
+            }
+            {
+              "Dozzle" = {
+                href = "http://localhost:8888";
+                description = "Container Logs";
+                icon = "dozzle.png";
+              };
+            }
+            {
+              "File Browser" = {
+                href = "http://localhost:8081";
+                description = "File Manager";
+                icon = "filebrowser.png";
+              };
+            }
+          ];
+        }
+      ];
+
+      bookmarks = [
+        {
+          "Quick Links" = [
+            { "Nixpkgs Search" = [{ abbr = "NX"; href = "https://search.nixos.org/packages"; }]; }
+            { "NixOS Options"  = [{ abbr = "NO"; href = "https://search.nixos.org/options"; }]; }
+          ];
+        }
+      ];
     };
 
 
@@ -206,7 +482,7 @@
 
 # ══════════════════════════════════════════════════════════════════════════════
 # UTILITIES — Dozzle (container log viewer) + File Browser
-# Port 8888: Dozzle    — live container logs, no auth needed (Tailscale-only)
+# Port 8888: Dozzle      — live container logs, no auth needed (Tailscale-only)
 # Port 8081: FileBrowser — full filesystem browser, set password on first login
 #   Default login: admin / admin — change immediately after first boot
 # Both are Tailscale-only, not exposed via Cloudflare tunnel.
@@ -220,12 +496,11 @@
     };
 
     virtualisation.oci-containers.containers.filebrowser = {
-      image = "filebrowser/filebrowser:latest";
-      ports = [ "8081:80" ];
+      image = "ghcr.io/gtsteffaniak/filebrowser:latest";
+      ports = [ "8081:8080" ];
       volumes = [
         "/:/srv"
-        "/var/lib/filebrowser/filebrowser.db:/database/filebrowser.db"
-        "/var/lib/filebrowser/.filebrowser.json:/.filebrowser.json"
+        "/var/lib/filebrowser:/config"
       ];
       autoStart = true;
     };
@@ -250,11 +525,11 @@
 # INFRASTRUCTURE — Podman, media group, data directories, sops secrets
 # ══════════════════════════════════════════════════════════════════════════════
 
-    # --- Podman (OCI backend for all containers above) ---
+    # --- Podman (OCI backend for Kavita, Dozzle, FileBrowser) ---
     virtualisation.oci-containers.backend = "podman";
     virtualisation.podman = {
       enable = true;
-      dockerSocket.enable = true; # compat socket for Dozzle and Homarr
+      dockerSocket.enable = true; # compat socket for Dozzle
     };
     # Allow containers to reach host-bound services (arr, immich, etc.)
     networking.firewall.trustedInterfaces = [ "podman0" "cni-podman0" ];
@@ -279,7 +554,7 @@
       "d /data/.state/services      0775 root  media -"
       # Container state dirs
       "d /var/lib/kavita            0775 root  media -"
-      "d /var/lib/homarr            0775 root  media -"
+      "d /var/lib/homepage          0755 root  root  -"
       "d /var/lib/filebrowser       0775 root  media -"
     ];
 
@@ -289,19 +564,17 @@
     #
     #   sops ~/Dots/Secrets/secrets.yaml
     #
-    # Add each key as a plain string (generate with: openssl rand -hex 16):
+    # Add each key as a plain string (generate with: od -An -tx1 -N16 /dev/urandom | tr -d ' \n'):
     #   sonarr-api-key: "<32 hex chars>"
     #   radarr-api-key: "<32 hex chars>"
     #   lidarr-api-key: "<32 hex chars>"
     #   prowlarr-api-key: "<32 hex chars>"
-    #   seerr-api-key: "<32 hex chars>"
+    #   jellyseerr-api-key: "<32 hex chars>"
     #   sabnzbd-api-key: "<32 hex chars>"
     #   sabnzbd-nzb-key: "<32 hex chars>"
     #   jellyfin-api-key: "<32 hex chars>"
     #   jellyfin-admin-password: "<your chosen password>"
     #   cloudflare-tunnel: "<full credentials JSON from Cloudflare dashboard>"
-    #   homarr-env: |
-    #     SECRET_ENCRYPTION_KEY=<32 chars — openssl rand -hex 16>
     sops.secrets."sonarr-api-key"           = {};
     sops.secrets."radarr-api-key"           = {};
     sops.secrets."lidarr-api-key"           = {};
@@ -312,13 +585,12 @@
     sops.secrets."jellyfin-api-key"         = {};
     sops.secrets."jellyfin-admin-password"  = {};
     sops.secrets."cloudflare-tunnel"        = {};
-    sops.secrets."homarr-env"               = {};
 
     # Kernel UDP buffer tuning for smooth streaming over Tailscale
     boot.kernel.sysctl = {
-      "net.core.rmem_max"           = 26214400;
-      "net.core.wmem_max"           = 26214400;
-      "net.core.netdev_max_backlog" = 5000;
+      "net.core.rmem_max"           = lib.mkDefault 26214400;
+      "net.core.wmem_max"           = lib.mkDefault 26214400;
+      "net.core.netdev_max_backlog" = lib.mkDefault 5000;
     };
 
   };

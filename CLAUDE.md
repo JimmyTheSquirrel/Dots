@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation Files
+
+Detailed reference docs live alongside the code — read the relevant file before working on that area:
+
+- **`server-info.md`** — Asgard media server: ports, nixflix quirks, Jellyseerr API, Homepage config, sops secrets, fresh deploy checklist
+
+## TODO — Next Session
+Split this CLAUDE.md into smaller topic files to reduce the ~50k character load on every session.
+Plan: keep CLAUDE.md as a lean index with pointers, move detailed sections to:
+`docs/niri.md`, `docs/noctalia.md`, `docs/spicetify.md`, `docs/rain-effect.md`,
+`docs/skwd-wall.md`, `docs/helium.md`, `docs/streaming.md`, `docs/server.md`
+
 ## Core Principles
 
 **Everything must be declarative and fully reproducible.** This repository should be the single source of truth for the entire system configuration. A fresh NixOS install should be fully configured by cloning this repo and running a single rebuild command.

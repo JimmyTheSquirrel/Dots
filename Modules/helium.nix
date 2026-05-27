@@ -117,6 +117,10 @@ EOF
               name = "ProtonDB";
               url = "https://www.protondb.com";
             }
+            {
+              name = "Homepage";
+              url = "http://localhost:3000";
+            }
           ];
         }
       ];

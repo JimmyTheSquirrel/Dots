@@ -39,13 +39,15 @@ system-rebuild() {
       echo -e "\033[1;33mSelect Action:\033[0m"
       echo "  1) Switch  (rebuild & activate now)"
       echo "  2) Boot    (rebuild for GRUB menu)"
+      echo "  3) Test    (test the build)"
       echo ""
-      echo -n "Action [1-2]: "
+      echo -n "Action [1-3]: "
       read action_choice
 
       case "$action_choice" in
         1) action="switch" ;;
         2) action="boot" ;;
+        3) action="build" ;;
         *) echo "Invalid choice"; exit 1 ;;
       esac
     else
