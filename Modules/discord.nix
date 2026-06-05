@@ -73,6 +73,12 @@
         }
       '';
 
+      # Tell Discord's WebRTC engine to use PipeWire natively instead of going
+      # through the PulseAudio compat layer — prevents periodic voice audio dropouts.
+      xdg.configFile."vesktop/argv.json".text = builtins.toJSON [
+        "--enable-features=WebRTCPipeWireCapturer"
+      ];
+
       # Vesktop settings for transparency
       xdg.configFile."vesktop/settings.json".text = builtins.toJSON {
         transparent = true;

@@ -98,6 +98,7 @@ in {
 
         # Allow building aarch64 (Pi5) packages and ISOs on this x86_64 machine
         boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+
       }
     ];
   };

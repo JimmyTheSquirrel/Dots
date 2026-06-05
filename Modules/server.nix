@@ -26,7 +26,7 @@
         enable = true;
         config = {
           apiKey._secret = config.sops.secrets."sonarr-api-key".path;
-          hostConfig.authenticationRequired = "disabled";
+          hostConfig.password._secret = config.sops.secrets."admin-password".path;
         };
       };
 
@@ -34,7 +34,7 @@
         enable = true;
         config = {
           apiKey._secret = config.sops.secrets."radarr-api-key".path;
-          hostConfig.authenticationRequired = "disabled";
+          hostConfig.password._secret = config.sops.secrets."admin-password".path;
         };
       };
 
@@ -42,7 +42,7 @@
         enable = true;
         config = {
           apiKey._secret = config.sops.secrets."lidarr-api-key".path;
-          hostConfig.authenticationRequired = "disabled";
+          hostConfig.password._secret = config.sops.secrets."admin-password".path;
         };
       };
 
@@ -50,7 +50,21 @@
         enable = true;
         config = {
           apiKey._secret = config.sops.secrets."prowlarr-api-key".path;
-          hostConfig.authenticationRequired = "disabled";
+          hostConfig.password._secret = config.sops.secrets."admin-password".path;
+          indexers = [
+            {
+              name = "Miatrix";
+              apiKey._secret = config.sops.secrets."indexer-api-keys/Miatrix".path;
+            }
+            {
+              name = "NZBgeek";
+              apiKey._secret = config.sops.secrets."indexer-api-keys/NZBGeek".path;
+            }
+            {
+              name = "NzbPlanet";
+              apiKey._secret = config.sops.secrets."indexer-api-keys/NZBPlanet".path;
+            }
+          ];
         };
       };
 
@@ -73,20 +87,31 @@
       # SABnzbd usenet download client
       usenetClients.sabnzbd = {
         enable = true;
-        settings.misc = {
-          api_key._secret = config.sops.secrets."sabnzbd-api-key".path;
-          nzb_key._secret = config.sops.secrets."sabnzbd-nzb-key".path;
-          port = 8080;
+        settings = {
+          misc = {
+            api_key._secret  = config.sops.secrets."sabnzbd-api-key".path;
+            nzb_key._secret  = config.sops.secrets."sabnzbd-nzb-key".path;
+            username._secret = config.sops.secrets."sabnzbd-username".path;
+            password._secret = config.sops.secrets."sabnzbd-password".path;
+            port = 8080;
+            par2_multicore = 1;
+          };
+          servers = [
+            {
+              name = "FrugalUsenet";
+              host = "aunews.frugalusenet.com";
+              port = 563;
+              username._secret = config.sops.secrets."usenet/frugalusenet/username".path;
+              password._secret = config.sops.secrets."usenet/frugalusenet/password".path;
+              connections = 200;
+              ssl = true;
+              priority = 0;
+            }
+          ];
         };
       };
     };
 
-    # Readarr (book grabber) — not yet in Nixflix, use native NixOS service
-    services.readarr = {
-      enable = true;
-      openFirewall = false;
-    };
-    users.users.readarr.extraGroups = [ "media" ];
 
     # Completes the Jellyseerr setup wizard declaratively:
     # logs in via Jellyfin creds, syncs + enables all libraries, marks initialized.
@@ -157,23 +182,50 @@
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BOOKS — Kavita book server
-# Android: install Kavita app → connect to http://<tailscale-ip>:5000
-# Post-boot: add Readarr to Prowlarr in the Prowlarr UI (Settings → Apps)
-# Port: 5000 (Tailscale only)
+# BOOKS — Audiobookshelf (server) + Shelfarr (request portal)
+# Audiobookshelf: port 13378 — serves ebooks + audiobooks (Jellyfin-style UI)
+# Shelfarr:       port 5056  — Jellyseerr-style request portal for books
+#   Connects to Prowlarr (search) + SABnzbd (download) → delivers to ABS
+#
+# Post-boot (one-time): open Shelfarr at localhost:5056 → Admin → Settings:
+#   Prowlarr: http://localhost:9696 + prowlarr-api-key (from sops)
+#   SABnzbd:  http://localhost:8080 + sabnzbd-api-key (from sops)
+#   ABS:      http://localhost:13378 + key from ABS Settings → API Keys
 # ══════════════════════════════════════════════════════════════════════════════
 
-    virtualisation.oci-containers.containers.kavita = {
-      image = "lscr.io/linuxserver/kavita:latest";
-      ports = [ "5000:5000" ];
+    # Audiobookshelf — ebook + audiobook server
+    virtualisation.oci-containers.containers.audiobookshelf = {
+      image = "ghcr.io/advplyr/audiobookshelf:latest";
+      ports = [ "13378:80" ];
       volumes = [
-        "/var/lib/kavita:/config"
-        "/data/media/books:/books"
+        "/var/lib/audiobookshelf/config:/config"
+        "/var/lib/audiobookshelf/metadata:/metadata"
+        "/data/media/audiobooks:/audiobooks"
+        "/data/media/books:/ebooks"
       ];
       environment = {
-        PUID = "1000"; # rock user
-        PGID = "1001"; # media group
-        TZ   = "Australia/Sydney";
+        TZ = "Australia/Sydney";
+      };
+      autoStart = true;
+    };
+
+    # Shelfarr — Jellyseerr-style book request portal
+    # RAILS_MASTER_KEY is auto-generated on first run and stored in /var/lib/shelfarr.
+    # As long as the volume persists, the key is preserved across rebuilds.
+    virtualisation.oci-containers.containers.shelfarr = {
+      image = "ghcr.io/pedro-revez-silva/shelfarr:latest";
+      ports = [ "5056:4000" ];
+      volumes = [
+        "/var/lib/shelfarr:/rails/storage"
+        "/data/media/audiobooks:/audiobooks"
+        "/data/media/books:/ebooks"
+        "/data/downloads:/downloads"
+      ];
+      environment = {
+        PUID                = "1000";
+        PGID                = "1001";
+        SOLID_QUEUE_IN_PUMA = "1";
+        HTTP_PORT           = "4000";  # Go proxy port — must differ from Rails/Puma (3000)
       };
       autoStart = true;
     };
@@ -208,6 +260,7 @@
           printf 'HOMEPAGE_VAR_SABNZBD_API_KEY=%s\n'    "$(cat ${config.sops.secrets."sabnzbd-api-key".path})"
           printf 'HOMEPAGE_VAR_JELLYFIN_API_KEY=%s\n'   "$(cat ${config.sops.secrets."jellyfin-api-key".path})"
           printf 'HOMEPAGE_VAR_JELLYSEERR_API_KEY=%s\n' "$(cat ${config.sops.secrets."jellyseerr-api-key".path})"
+          printf 'HOMEPAGE_VAR_TAILSCALE_API_KEY=%s\n' "$(cat ${config.sops.secrets."tailscale-api-key".path})"
         } > /var/lib/homepage/homepage.env
         chmod 600 /var/lib/homepage/homepage.env
       '';
@@ -220,17 +273,18 @@
     services.homepage-dashboard = {
       enable = true;
       listenPort = 3000;
+      settings.allowedHosts = "sisyphus,sisyphus:3000,localhost,localhost:3000";
 
       settings = {
         title = "Asgard";
         theme = "dark";
-        color = "slate";
+        color = "neutral";
         headerStyle = "clean";
         layout = {
-          "Media"             = { style = "row"; columns = 3; };
-          "Downloads"         = { style = "row"; columns = 2; };
-          "Arr Stack"         = { style = "row"; columns = 4; };
-          "Books & Utilities" = { style = "row"; columns = 3; };
+          "Services"   = { style = "row"; columns = 2; };  # arr (left) + media (right), 2-col grid
+          "Downloads"  = { style = "row"; columns = 2; };
+          "Utilities"  = { style = "column"; };
+          "Network"    = { style = "row"; columns = 4; };
         };
       };
 
@@ -257,10 +311,27 @@
 
       services = [
         {
-          "Media" = [
+          # columns = 2 → items fill left-to-right, so odd positions = left col (arr),
+          # even positions = right col (media). Interleave to achieve the desired layout:
+          #   Sonarr    | Jellyfin
+          #   Radarr    | Jellyseerr
+          #   Lidarr    | Readarr
+          "Services" = [
+            {
+              "Sonarr" = {
+                href = "http://sisyphus:8989";
+                description = "TV Shows";
+                icon = "sonarr.png";
+                widget = {
+                  type = "sonarr";
+                  url = "http://localhost:8989";
+                  key = "{{HOMEPAGE_VAR_SONARR_API_KEY}}";
+                };
+              };
+            }
             {
               "Jellyfin" = {
-                href = "http://localhost:8096";
+                href = "http://sisyphus:8096";
                 description = "Media Server";
                 icon = "jellyfin.png";
                 widget = {
@@ -272,8 +343,20 @@
               };
             }
             {
+              "Radarr" = {
+                href = "http://sisyphus:7878";
+                description = "Movies";
+                icon = "radarr.png";
+                widget = {
+                  type = "radarr";
+                  url = "http://localhost:7878";
+                  key = "{{HOMEPAGE_VAR_RADARR_API_KEY}}";
+                };
+              };
+            }
+            {
               "Jellyseerr" = {
-                href = "http://localhost:5055";
+                href = "http://sisyphus:5055";
                 description = "Media Requests";
                 icon = "jellyseerr.png";
                 widget = {
@@ -284,10 +367,27 @@
               };
             }
             {
-              "Immich" = {
-                href = "http://localhost:2283";
-                description = "Photo Server";
-                icon = "immich.png";
+              "Readarr" = {
+                href = "http://sisyphus:8787";
+                description = "Books";
+                icon = "readarr.png";
+                widget = {
+                  type = "readarr";
+                  url = "http://localhost:8787";
+                  key = "{{HOMEPAGE_VAR_READARR_API_KEY}}";
+                };
+              };
+            }
+            {
+              "Lidarr" = {
+                href = "http://sisyphus:8686";
+                description = "Music";
+                icon = "lidarr.png";
+                widget = {
+                  type = "lidarr";
+                  url = "http://localhost:8686";
+                  key = "{{HOMEPAGE_VAR_LIDARR_API_KEY}}";
+                };
               };
             }
           ];
@@ -296,7 +396,7 @@
           "Downloads" = [
             {
               "SABnzbd" = {
-                href = "http://localhost:8080";
+                href = "http://sisyphus:8080";
                 description = "Usenet Downloader";
                 icon = "sabnzbd.png";
                 widget = {
@@ -308,7 +408,7 @@
             }
             {
               "Prowlarr" = {
-                href = "http://localhost:9696";
+                href = "http://sisyphus:9696";
                 description = "Indexer Manager";
                 icon = "prowlarr.png";
                 widget = {
@@ -321,73 +421,92 @@
           ];
         }
         {
-          "Arr Stack" = [
+          "Utilities" = [
             {
-              "Sonarr" = {
-                href = "http://localhost:8989";
-                description = "TV Shows";
-                icon = "sonarr.png";
-                widget = {
-                  type = "sonarr";
-                  url = "http://localhost:8989";
-                  key = "{{HOMEPAGE_VAR_SONARR_API_KEY}}";
-                };
+              "Immich" = {
+                href = "http://sisyphus:2283";
+                description = "Photo Server";
+                icon = "immich.png";
               };
             }
             {
-              "Radarr" = {
-                href = "http://localhost:7878";
-                description = "Movies";
-                icon = "radarr.png";
-                widget = {
-                  type = "radarr";
-                  url = "http://localhost:7878";
-                  key = "{{HOMEPAGE_VAR_RADARR_API_KEY}}";
-                };
+              "Audiobookshelf" = {
+                href = "http://sisyphus:13378";
+                description = "Books & Audiobooks";
+                icon = "audiobookshelf.png";
               };
             }
             {
-              "Lidarr" = {
-                href = "http://localhost:8686";
-                description = "Music";
-                icon = "lidarr.png";
-                widget = {
-                  type = "lidarr";
-                  url = "http://localhost:8686";
-                  key = "{{HOMEPAGE_VAR_LIDARR_API_KEY}}";
-                };
-              };
-            }
-            {
-              "Readarr" = {
-                href = "http://localhost:8787";
-                description = "Books";
-                icon = "readarr.png";
-              };
-            }
-          ];
-        }
-        {
-          "Books & Utilities" = [
-            {
-              "Kavita" = {
-                href = "http://localhost:5000";
-                description = "Book Server";
-                icon = "kavita.png";
+              "Shelfarr" = {
+                href = "http://sisyphus:5056";
+                description = "Book Requests";
+                icon = "shelfarr.png";
               };
             }
             {
               "Dozzle" = {
-                href = "http://localhost:8888";
+                href = "http://sisyphus:8888";
                 description = "Container Logs";
                 icon = "dozzle.png";
               };
             }
             {
               "File Browser" = {
-                href = "http://localhost:8081";
+                href = "http://sisyphus:8081";
                 description = "File Manager";
                 icon = "filebrowser.png";
+              };
+            }
+          ];
+        }
+        {
+          "Network" = [
+            {
+              "Sisyphus" = {
+                icon = "tailscale.png";
+                description = "Linux Desktop";
+                widget = {
+                  type = "tailscale";
+                  deviceid = "8021612644818291";
+                  key = "{{HOMEPAGE_VAR_TAILSCALE_API_KEY}}";
+                  fields = [ "last_seen" "os" "authorized" ];
+                };
+              };
+            }
+            {
+              "Eclipse Pi" = {
+                icon = "tailscale.png";
+                description = "Raspberry Pi";
+                widget = {
+                  type = "tailscale";
+                  deviceid = "3166629277500775";
+                  key = "{{HOMEPAGE_VAR_TAILSCALE_API_KEY}}";
+                  fields = [ "last_seen" "os" "authorized" ];
+                };
+              };
+            }
+            {
+              "Caitlin's S25" = {
+                icon = "tailscale.png";
+                description = "Android";
+                widget = {
+                  type = "tailscale";
+                  deviceid = "6502532657979703";
+                  key = "{{HOMEPAGE_VAR_TAILSCALE_API_KEY}}";
+                  fields = [ "last_seen" "os" "authorized" ];
+                };
+              };
+            }
+            {
+              "Rhys's S25" = {
+                icon = "tailscale.png";
+                description = "Android";
+                widget = {
+                  type = "tailscale";
+                  deviceid = "5131325073312736";
+                  key = "{{HOMEPAGE_VAR_TAILSCALE_API_KEY}}";
+                  fields = [ "last_seen" "os" "authorized" ];
+                };
               };
             }
           ];
@@ -397,8 +516,9 @@
       bookmarks = [
         {
           "Quick Links" = [
-            { "Nixpkgs Search" = [{ abbr = "NX"; href = "https://search.nixos.org/packages"; }]; }
-            { "NixOS Options"  = [{ abbr = "NO"; href = "https://search.nixos.org/options"; }]; }
+            { "Nixpkgs Search"   = [{ abbr = "NX"; href = "https://search.nixos.org/packages"; }]; }
+            { "NixOS Options"    = [{ abbr = "NO"; href = "https://search.nixos.org/options"; }]; }
+            { "Tailscale Admin"  = [{ abbr = "TS"; href = "https://login.tailscale.com/admin/machines"; }]; }
           ];
         }
       ];
@@ -432,11 +552,120 @@
 #   4. Rebuild Asgard
 # ══════════════════════════════════════════════════════════════════════════════
 
-    # virtualisation.oci-containers.containers.decluttarr = {
-    #   image = "ghcr.io/manimatter/decluttarr:latest";
-    #   environmentFiles = [ config.sops.secrets."decluttarr-env".path ];
-    #   autoStart = true;
-    # };
+# ══════════════════════════════════════════════════════════════════════════════
+# QUALITY — Recyclarr (TRaSH Guides quality profile sync)
+# Syncs quality profiles + custom formats to Sonarr + Radarr on boot + daily.
+#   Sonarr: WEB-1080p + WEB-2160p (TV is web-sourced)
+#   Radarr: Remux-1080p + Remux-2160p (Remux → Bluray → WEB, best first)
+# This fixes grab issues like "only getting Redux" — proper CF scoring applied.
+# ══════════════════════════════════════════════════════════════════════════════
+
+    systemd.services.recyclarr-config = {
+      description = "Generate Recyclarr config from sops secrets";
+      before   = [ "recyclarr-sync.service" ];
+      wantedBy = [ "recyclarr-sync.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        mkdir -p /var/lib/recyclarr
+        SONARR_KEY=$(cat ${config.sops.secrets."sonarr-api-key".path})
+        RADARR_KEY=$(cat ${config.sops.secrets."radarr-api-key".path})
+        cat > /var/lib/recyclarr/recyclarr.yml << EOF
+sonarr:
+  main:
+    base_url: http://localhost:8989
+    api_key: $SONARR_KEY
+    include:
+      - template: sonarr-quality-definition-series
+      - template: sonarr-v4-quality-profile-web-1080p
+      - template: sonarr-v4-custom-formats-web-1080p
+      - template: sonarr-v4-quality-profile-web-2160p
+      - template: sonarr-v4-custom-formats-web-2160p
+radarr:
+  main:
+    base_url: http://localhost:7878
+    api_key: $RADARR_KEY
+    include:
+      - template: radarr-quality-definition-movie
+      - template: radarr-quality-profile-remux-1080p
+      - template: radarr-custom-formats-remux-1080p
+      - template: radarr-quality-profile-remux-2160p
+      - template: radarr-custom-formats-remux-2160p
+EOF
+        chmod 600 /var/lib/recyclarr/recyclarr.yml
+      '';
+    };
+
+    systemd.services.recyclarr-sync = {
+      description = "Sync TRaSH Guides quality profiles via Recyclarr";
+      after  = [ "recyclarr-config.service" "sonarr.service" "radarr.service" "network-online.target" ];
+      wants  = [ "recyclarr-config.service" "sonarr.service" "radarr.service" "network-online.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${pkgs.recyclarr}/bin/recyclarr sync --config /var/lib/recyclarr/recyclarr.yml";
+        Environment = "RECYCLARR_APP_DATA=/var/lib/recyclarr";
+      };
+    };
+
+    systemd.timers.recyclarr-sync = {
+      description = "Daily Recyclarr sync";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "5min";
+        OnUnitActiveSec = "24h";
+      };
+    };
+
+
+    systemd.services.decluttarr-config = {
+      description = "Generate Decluttarr YAML config from sops secrets";
+      wantedBy = [ "podman-decluttarr.service" ];
+      before   = [ "podman-decluttarr.service" ];
+      partOf   = [ "podman-decluttarr.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        mkdir -p /var/lib/decluttarr/config
+        SONARR_KEY=$(cat ${config.sops.secrets."sonarr-api-key".path})
+        RADARR_KEY=$(cat ${config.sops.secrets."radarr-api-key".path})
+        LIDARR_KEY=$(cat ${config.sops.secrets."lidarr-api-key".path})
+        SABNZBD_KEY=$(cat ${config.sops.secrets."sabnzbd-api-key".path})
+        cat > /var/lib/decluttarr/config/config.yaml << EOF
+instances:
+  sonarr:
+    - base_url: http://host.containers.internal:8989
+      api_key: $SONARR_KEY
+  radarr:
+    - base_url: http://host.containers.internal:7878
+      api_key: $RADARR_KEY
+  lidarr:
+    - base_url: http://host.containers.internal:8686
+      api_key: $LIDARR_KEY
+download_clients:
+  sabnzbd:
+    - name: SABnzbd
+      base_url: http://host.containers.internal:8080
+      api_key: $SABNZBD_KEY
+jobs:
+  remove_stalled: true
+  remove_failed_imports: true
+  remove_failed_downloads: true
+  remove_metadata_missing: true
+  remove_orphans: true
+EOF
+        chmod 600 /var/lib/decluttarr/config/config.yaml
+      '';
+    };
+
+    virtualisation.oci-containers.containers.decluttarr = {
+      image = "ghcr.io/manimatter/decluttarr:latest";
+      volumes = [ "/var/lib/decluttarr/config:/app/config" ];
+      autoStart = true;
+    };
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -483,8 +712,9 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # UTILITIES — Dozzle (container log viewer) + File Browser
 # Port 8888: Dozzle      — live container logs, no auth needed (Tailscale-only)
-# Port 8081: FileBrowser — full filesystem browser, set password on first login
-#   Default login: admin / admin — change immediately after first boot
+# Port 8081: FileBrowser — full filesystem browser (downloads, media, photos)
+#   Credentials managed via sops: filebrowser-username / filebrowser-password
+#   filebrowser-credentials.service syncs them on every boot.
 # Both are Tailscale-only, not exposed via Cloudflare tunnel.
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -495,14 +725,94 @@
       autoStart = true;
     };
 
+    # Always writes config.yaml on every rebuild — port and sources are
+    # infrastructure, not user settings. User prefs live in the database.
+    systemd.services.filebrowser-init = {
+      description = "Write FileBrowser Quantum config";
+      before   = [ "podman-filebrowser.service" ];
+      wantedBy = [ "podman-filebrowser.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        mkdir -p /var/lib/filebrowser
+        printf 'server:\n  port: 8080\n  sources:\n    - path: /downloads\n      name: downloads\n    - path: /media\n      name: media\n    - path: /photos\n      name: photos\n' \
+          > /var/lib/filebrowser/config.yaml
+      '';
+    };
+
     virtualisation.oci-containers.containers.filebrowser = {
       image = "ghcr.io/gtsteffaniak/filebrowser:latest";
       ports = [ "8081:8080" ];
       volumes = [
-        "/:/srv"
-        "/var/lib/filebrowser:/config"
+        "/data/downloads:/downloads"
+        "/data/media:/media"
+        "/data/photos:/photos"
+        "/var/lib/filebrowser:/home/filebrowser/data"
       ];
+      user = "root";
       autoStart = true;
+    };
+
+    # Syncs admin credentials from sops on every boot.
+    # Tries the sops password first (handles already-changed installs),
+    # then falls back to "admin" (handles first run with default password).
+    systemd.services.filebrowser-credentials = {
+      description = "Seed FileBrowser admin credentials from sops";
+      after    = [ "podman-filebrowser.service" ];
+      wantedBy = [ "multi-user.target" ];
+      path = [ pkgs.curl pkgs.jq ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        USERNAME=$(cat ${config.sops.secrets."admin-username".path})
+        PASSWORD=$(cat ${config.sops.secrets."admin-password".path})
+        BASE="http://localhost:8081"
+
+        # Wait up to 60s for FileBrowser to accept connections
+        for i in $(seq 1 30); do
+          if curl -s "$BASE" > /dev/null 2>&1; then break; fi
+          echo "Waiting for FileBrowser... ($i/30)"
+          sleep 2
+        done
+
+        # Authenticate — try sops password first, fall back to default "admin"
+        # || true on every jq call prevents set -e from exiting on parse errors
+        TOKEN=""
+        for CURRENT_PASS in "$PASSWORD" "admin"; do
+          RESP=$(curl -s -X POST "$BASE/api/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"admin\",\"password\":\"$CURRENT_PASS\"}" 2>/dev/null) || true
+          TOKEN=$(printf '%s' "$RESP" | jq -r '.token // empty' 2>/dev/null) || true
+          [ -n "$TOKEN" ] && break
+        done
+
+        if [ -z "$TOKEN" ]; then
+          echo "FileBrowser: could not authenticate — skipping credential sync" >&2
+          exit 0
+        fi
+
+        # Fetch current user object, patch username + password, write back
+        USER_DATA=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/users/1" 2>/dev/null) || true
+        UPDATED=$(printf '%s' "$USER_DATA" | jq \
+          --arg u "$USERNAME" --arg p "$PASSWORD" \
+          '.username = $u | .password = $p' 2>/dev/null) || true
+
+        if [ -z "$UPDATED" ]; then
+          echo "FileBrowser: could not build update payload — skipping" >&2
+          exit 0
+        fi
+
+        curl -s -X PUT "$BASE/api/users/1" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "$UPDATED" > /dev/null
+
+        echo "FileBrowser credentials synced (user: $USERNAME)."
+      '';
     };
 
 
@@ -520,6 +830,45 @@
       openFirewall = false;
     };
 
+    # Seeds the Immich admin account from sops on first boot.
+    # /api/auth/admin-signup is only available before any admin exists — idempotent.
+    systemd.services.immich-admin-seed = {
+      description = "Create Immich admin account from sops";
+      after    = [ "immich-server.service" "network.target" ];
+      wants    = [ "immich-server.service" ];
+      wantedBy = [ "multi-user.target" ];
+      path     = [ pkgs.curl pkgs.jq ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        USERNAME=$(cat ${config.sops.secrets."admin-username".path})
+        PASSWORD=$(cat ${config.sops.secrets."admin-password".path})
+        BASE="http://localhost:2283"
+
+        # Wait up to 2 minutes for Immich
+        for i in $(seq 1 24); do
+          if curl -sf "$BASE/api/server/ping" > /dev/null 2>&1; then break; fi
+          echo "Waiting for Immich... ($i/24)"
+          sleep 5
+        done
+
+        CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          -X POST "$BASE/api/auth/admin-signup" \
+          -H "Content-Type: application/json" \
+          -d "{\"email\":\"$USERNAME@asgard.local\",\"password\":\"$PASSWORD\",\"name\":\"$USERNAME\"}" 2>/dev/null) || true
+
+        if [ "$CODE" = "201" ]; then
+          echo "Immich admin created."
+        elif [ "$CODE" = "400" ]; then
+          echo "Immich admin already exists — skipping."
+        else
+          echo "Immich admin-signup returned HTTP $CODE" >&2
+        fi
+      '';
+    };
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # INFRASTRUCTURE — Podman, media group, data directories, sops secrets
@@ -532,7 +881,8 @@
       dockerSocket.enable = true; # compat socket for Dozzle
     };
     # Allow containers to reach host-bound services (arr, immich, etc.)
-    networking.firewall.trustedInterfaces = [ "podman0" "cni-podman0" ];
+    # tailscale0 trusted so all services are reachable from any tailnet device by hostname
+    networking.firewall.trustedInterfaces = [ "podman0" "cni-podman0" "tailscale0" ];
 
     # --- Shared media group (GID 1001) ---
     # All service users and containers use this group for /data/media access.
@@ -547,15 +897,22 @@
       "d /data/media/tv             0775 root  media -"
       "d /data/media/movies         0775 root  media -"
       "d /data/media/music          0775 root  media -"
-      "d /data/media/books          0775 root  media -"
+      "d /data/media/books          0777 root  media -"
       "d /data/downloads            0775 root  media -"
       "d /data/downloads/usenet     0775 root  media -"
       "d /data/photos               0775 root  media -"
       "d /data/.state/services      0775 root  media -"
+      "d /data/media/audiobooks               0777 root  media -"
       # Container state dirs
-      "d /var/lib/kavita            0775 root  media -"
-      "d /var/lib/homepage          0755 root  root  -"
+      "d /var/lib/audiobookshelf             0775 root  media -"
+      "d /var/lib/audiobookshelf/config      0775 root  media -"
+      "d /var/lib/audiobookshelf/metadata    0775 root  media -"
+      "d /var/lib/shelfarr                   0755 root  root  -"
+      "d /var/lib/homepage                   0755 root  root  -"
       "d /var/lib/filebrowser       0775 root  media -"
+      "d /var/lib/decluttarr        0755 root  root  -"
+      "d /var/lib/decluttarr/config 0755 root  root  -"
+      "d /var/lib/recyclarr         0700 root  root  -"
     ];
 
     # --- Sops secrets ---
@@ -579,12 +936,23 @@
     sops.secrets."radarr-api-key"           = {};
     sops.secrets."lidarr-api-key"           = {};
     sops.secrets."prowlarr-api-key"         = {};
-    sops.secrets."jellyseerr-api-key"        = {};
-    sops.secrets."sabnzbd-api-key"          = {};
-    sops.secrets."sabnzbd-nzb-key"          = {};
+    sops.secrets."jellyseerr-api-key"       = {};
+    # audiobookshelf-api-key: declare here + add to homepage-env once you have the key from ABS Settings → API Keys
+    sops.secrets."sabnzbd-api-key"              = {};
+    sops.secrets."sabnzbd-nzb-key"              = {};
+    sops.secrets."sabnzbd-username"             = {};
+    sops.secrets."sabnzbd-password"             = {};
+    sops.secrets."usenet/frugalusenet/username"    = {};
+    sops.secrets."usenet/frugalusenet/password"    = {};
+    sops.secrets."indexer-api-keys/Miatrix"        = {};
+    sops.secrets."indexer-api-keys/NZBGeek"        = {};
+    sops.secrets."indexer-api-keys/NZBPlanet"      = {};
     sops.secrets."jellyfin-api-key"         = {};
     sops.secrets."jellyfin-admin-password"  = {};
     sops.secrets."cloudflare-tunnel"        = {};
+    sops.secrets."tailscale-api-key"        = {};
+    sops.secrets."admin-username"           = {};
+    sops.secrets."admin-password"           = {};
 
     # Kernel UDP buffer tuning for smooth streaming over Tailscale
     boot.kernel.sysctl = {

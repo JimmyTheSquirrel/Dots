@@ -12,11 +12,12 @@
         mangohud
       ];
 
-      # Override bundled ancient PulseAudio 1.1 from Steam's scout runtime
-      # with the host's modern libpulseaudio. Without this, Steam crashes
-      # in its PA callback thread when talking to pipewire-pulse.
+      # Override Steam's bundled old audio libraries with host versions:
+      # - libpulseaudio: Steam's scout runtime ships PA 1.1 which crashes talking to pipewire-pulse
+      # - pipewire: Steam/CS2 bundles old libpipewire-0.3 (protocol v4) which desynchs from
+      #   the system PipeWire server and causes audio to cut out mid-session
       package = pkgs.steam.override {
-        extraLibraries = _pkgs: [ _pkgs.libpulseaudio ];
+        extraLibraries = _pkgs: [ _pkgs.libpulseaudio _pkgs.pipewire ];
       };
     };
 

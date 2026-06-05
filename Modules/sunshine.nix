@@ -41,6 +41,10 @@ encoder = vaapi
 
 # Forward Error Correction — 20% overhead to recover from 5G packet loss
 fec_percentage = 20
+
+# Monitor index 1 = HDMI-A-1 (1920x1080). Index 0 = DP-2 (2560x1080 ultrawide).
+# On Wayland, output_name must be a numeric index, not the connector name.
+output_name = 1
 EOF
         else
           # Always enforce hevc_mode=0 to prevent green bar, even on existing configs.
@@ -48,6 +52,12 @@ EOF
             sed -i 's/^hevc_mode\s*=.*/hevc_mode = 0/' "$CONF"
           else
             echo "hevc_mode = 0" >> "$CONF"
+          fi
+          # Always enforce output_name to keep streaming the 1080p HDMI monitor.
+          if grep -q "^output_name" "$CONF"; then
+            sed -i 's/^output_name\s*=.*/output_name = 1/' "$CONF"
+          else
+            echo "output_name = 1" >> "$CONF"
           fi
         fi
       '';
