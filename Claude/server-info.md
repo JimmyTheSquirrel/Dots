@@ -8,6 +8,12 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 
 ---
 
+## TODO
+
+- **Headscale (self-hosted Tailscale control plane)** — Replace Tailscale cloud with Headscale on Asgard for full control + non-expiring keys. Prerequisites already done: `bifrost-vault.com` domain + Cloudflare tunnel. Steps: add `services.headscale` to server.nix, add `"hs.bifrost-vault.com" = "http://localhost:8085"` to CF tunnel ingress, create DNS entry in Cloudflare, add sops secret for pre-auth key, re-auth all devices once pointing at new server. Set key expiry to never/very long.
+
+---
+
 ## Current Status (as of 2026-06-02)
 
 ### Full stack working on Sisyphus
@@ -63,7 +69,7 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 
 ### Native NixOS services (not nixflix)
 - Readarr — `services.readarr`, user added to `media` group manually. Auth wizard must be completed once on fresh deploy (API key is pre-seeded, auth is not — `AuthenticationMethod=None` in config.xml causes a DryIoc crash same as env vars)
-- Immich — `services.immich`, manages its own PostgreSQL + Redis
+- Immich — `services.immich`, manages its own PostgreSQL + Redis. `host = "0.0.0.0"` required — default `localhost` binds to `[::1]` (IPv6 only) making it unreachable. `ExecStartPre` script creates `.immich` marker files in all subdirs of `/data/photos/` (encoded-video, thumbs, upload, backups, library, profile) — Immich refuses to start without these.
 - Tailscale — `services.tailscale`
 - Cloudflared — `services.cloudflared`
 
@@ -77,7 +83,7 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 - Kavita, Dozzle, File Browser Quantum, Decluttarr
 - Backend: `virtualisation.oci-containers.backend = "podman"`
 - Docker compat socket enabled for Dozzle
-- **Decluttarr:** `decluttarr-config.service` generates `/var/lib/decluttarr/config/config.yaml` from individual arr + sabnzbd sops secrets before the container starts. No separate `decluttarr-env` secret — reuses existing API key secrets directly.
+- **Decluttarr:** `decluttarr-config.service` generates `/var/lib/decluttarr/config/config.yaml` from individual arr + sabnzbd sops secrets before the container starts. No separate `decluttarr-env` secret — reuses existing API key secrets directly. `remove_orphans: false` — do NOT enable this, it kills newly queued downloads before SABnzbd picks them up (within 2 minutes).
 
 ---
 
@@ -89,6 +95,13 @@ Forms auth with the `admin-password` sops secret. No manual wizard step needed o
 **Prowlarr indexers** are pre-configured via `nixflix.prowlarr.config.indexers`: Miatrix, NZBGeek, NzbPlanet. Each has an `apiKey._secret` pointing to `indexer-api-keys/<Name>` in sops.
 
 **SABnzbd usenet server** (FrugalUsenet) is pre-configured: host `aunews.frugalusenet.com`, port 563, SSL, 200 connections. Credentials from `usenet/frugalusenet/username` + `/password` sops secrets.
+
+**SABnzbd misc settings (all in `nixflix.sabnzbd.config.misc`):**
+- `par2_multicore = 1` + `par2_threads = 12` — use all cores for par2 verification
+- `abort_max_missing = 10` — abort download if >10% articles missing
+- `fail_hopeless_jobs = 1` — fail (not pause) job if par2 can't repair after download; Radarr/Sonarr will blacklist and grab next release
+- `host_whitelist = "sisyphus,sisyphus.tailb54b82.ts.net,100.119.193.77"` — allows access by hostname from Tailscale
+- `inet_exposure = 4` — allows connections from any IP (safe, only reachable via Tailscale)
 
 **CRITICAL — do NOT use `settings.auth` env vars:**
 Setting `SONARR__AUTH__METHOD=None` (or any Disabled/None combo) via nixflix `settings.auth`
@@ -112,6 +125,12 @@ Use `hostConfig.password._secret` only.
 - `seerr-setup.service` — nixflix's initial wiring script
 - `seerr-env.service` — writes API key header file
 - `jellyfin-setup-wizard.service` — Jellyfin initial setup (creates admin user + libraries)
+
+**Custom Jellyseerr quality profile services (in server.nix):**
+- `seerr-radarr-profile.service` + timer — sets Radarr default quality profile to "Remux + WEB 1080p" in Jellyseerr
+- `seerr-sonarr-profile.service` + timer — sets Sonarr default quality profile to "WEB-1080p" in Jellyseerr
+- Both run after `seerr-setup.service`, have `Restart = on-failure` + `RestartSec = 30` for boot timing
+- Uses Jellyseerr session cookie auth (not API key) — logs in then PUTs to `/api/v1/settings/radarr/0` / `/api/v1/settings/sonarr/0`
 
 **Known nixflix bug (v1.2.0):** `seerr-setup.service` fails on library fetch step (`curl -sf` exits 22).
 The Jellyfin connection IS established on first run — only the library activation fails.
@@ -169,6 +188,10 @@ curl -s -b /tmp/t.txt -X POST "http://localhost:5055/api/v1/settings/initialize"
 **Declarative approach:** Static YAML files built in Nix store, written to `/var/lib/homepage/config/` by `homepage-config.service` on every boot before the container starts.
 API keys injected via `/var/lib/homepage/homepage.env` using `{{HOMEPAGE_VAR_*}}` substitution.
 
+**Remote access:** `href` links use `sisyphus:port` (not localhost) so clicking them works from any Tailscaled machine. Widget `url` fields stay as `localhost` (Homepage fetches those server-side). `allowedHosts` includes `sisyphus`, `sisyphus.tailb54b82.ts.net`, and `100.119.193.77` to prevent host validation errors from remote clients.
+
+**Disk widget:** Uses `metric = "fs:/data"` to show the NVMe data drive — not `fs:/` (root drive).
+
 **Services with live widgets (API keys in sops):**
 Jellyfin, Jellyseerr, Sonarr, Radarr, Lidarr, Prowlarr, SABnzbd, Readarr
 
@@ -219,9 +242,9 @@ indexer-api-keys/NZBPlanet        # Prowlarr indexer API key
 jellyfin-api-key
 jellyfin-admin-password
 cloudflare-tunnel                  # full credentials JSON from cloudflared tunnel create
-tailscale-api-key                  # tskey-api-... from Tailscale admin panel (for Homepage widget, expires 90 days)
 admin-username                     # shared admin username for FileBrowser, Immich seed (e.g. admin)
 admin-password                     # shared admin password for FileBrowser, Immich seed
+mullvad-private-key                # WireGuard private key from Mullvad account → WireGuard Keys → Generate key → download Linux .conf → Interface.PrivateKey
 ```
 
 **Cloudflare tunnel UUID:** `804d54a8-e7ad-4f34-812d-3052cf862c47` (in server.nix)
@@ -230,6 +253,9 @@ admin-password                     # shared admin password for FileBrowser, Immi
 ---
 
 ## Data Layout
+
+`/data` is mounted from the Shared NVMe (`nvme1n1p1`, 931.5G ext4, UUID `bcb3be2b-3e76-41b4-9a08-748039214823`).
+Declared in `Hosts/Sisyphus/system.nix` via `fileSystems."/data"`. All media/downloads/state live here, off the root drive.
 
 ```
 /data/
@@ -280,3 +306,33 @@ cloudflared tunnel create asgard          # creates credentials JSON
 ```
 
 Public routes: jellyfin.bifrost-vault.com, requests.bifrost-vault.com, photos.bifrost-vault.com
+
+---
+
+## Mullvad VPN for SABnzbd — Deferred
+
+**Goal:** Route SABnzbd traffic through Mullvad WireGuard for a kill-switch / privacy layer.
+
+**Approach:** nixflix `nixflix.vpn.enable` + `nixflix.usenetClients.sabnzbd.vpn.enable = true` uses vpn-confinement (Maroka-chan) — creates a WireGuard network namespace and confines SABnzbd's systemd service to it via `NetworkNamespacePath`.
+
+**Root cause of failure:** DNS resolution inside the combined mount+network namespace environment fails with `EAI_AGAIN`.
+
+The critical conflict: `accessibleFrom = ["100.64.0.0/10"]` (needed for Tailscale return traffic from within the VPN namespace) creates a route `100.64.0.0/10 via veth-wg` inside the namespace. Mullvad's CGNAT DNS is at `100.64.0.55` — this route intercepts it and routes it via veth back to the host instead of through the WireGuard tunnel. All alternative DNS IPs also failed from inside SABnzbd's sandbox.
+
+`/etc/hosts` bypass was confirmed working at the Python+namespace level (`socket.getaddrinfo()` returned both FrugalUsenet IPs) but SABnzbd itself still reported "Server name does not resolve" — root cause not identified.
+
+**Current state:** VPN confinement removed. SABnzbd runs without VPN. `/etc/hosts` entries remain for FrugalUsenet as a DNS bypass:
+```nix
+networking.hosts = {
+  "45.125.247.68"  = [ "aunews.frugalusenet.com" ];
+  "45.125.247.108" = [ "aunews.frugalusenet.com" ];
+};
+```
+
+**Mullvad WireGuard config details (for future attempt):**
+- Endpoint: `146.70.200.2:51820` (AU server — regenerate key if resuming)
+- DNS: `100.64.0.55` (Mullvad CGNAT — conflicts with Tailscale accessibleFrom route)
+- FrugalUsenet IPs confirmed reachable on port 563 through tunnel: `45.125.247.68`, `45.125.247.108`
+- Private key in sops: `mullvad-private-key`
+
+**wg.service restart note:** `wg.service` does NOT automatically restart on rebuild when only the conf-generate script content changes. If DNS or config is stale, manually `sudo systemctl restart wg` then `sudo systemctl restart sabnzbd`.

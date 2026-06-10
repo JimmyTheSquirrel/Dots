@@ -1,12 +1,32 @@
 { ... }: {
   flake.nixosModules.thunar = { pkgs, activeUser, ... }: {
+    # Workaround for NixOS packaging bug: xarchiver.tap lives in xarchiver's
+    # package but thunar-archive-plugin can't see it — copy it in at build time.
+    # https://github.com/NixOS/nixpkgs/issues/248192
+    nixpkgs.overlays = [
+      (final: prev: {
+        xfce = prev.xfce.overrideScope (xfinal: xprev: {
+          thunar-archive-plugin = xprev.thunar-archive-plugin.overrideAttrs (old: {
+            postInstall = (old.postInstall or "") + ''
+              cp ${prev.xarchiver}/libexec/thunar-archive-plugin/* $out/libexec/thunar-archive-plugin/
+            '';
+          });
+        });
+      })
+    ];
+
+    programs.thunar = {
+      enable = true;
+      plugins = with pkgs.xfce; [
+        thunar-archive-plugin
+        thunar-volman
+      ];
+    };
+
     environment.systemPackages = with pkgs; [
-      xfce.thunar
-      xfce.thunar-volman
-      xfce.thunar-archive-plugin
       xfce.tumbler
       ffmpegthumbnailer
-      file-roller
+      xarchiver
       p7zip
       xdg-utils
       adwaita-icon-theme

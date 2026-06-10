@@ -25,6 +25,12 @@ let
       options = [ "fmask=0077" "dmask=0077" ];
     };
 
+    # Shared NVMe — all server media/downloads/state live here, off the root drive
+    fileSystems."/data" = {
+      device = "/dev/disk/by-uuid/bcb3be2b-3e76-41b4-9a08-748039214823";
+      fsType = "ext4";
+    };
+
     swapDevices = [
       { device = "/dev/disk/by-uuid/a0478bec-dbd0-4f91-8021-5a6dead6d769"; }
     ];

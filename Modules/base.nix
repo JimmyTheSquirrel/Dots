@@ -113,6 +113,12 @@
       ];
     };
 
+    # Force SDL apps to use PulseAudio backend (routes through pipewire-pulse).
+    # Prevents old games in Steam Linux Runtime (pressure-vessel) from connecting
+    # to PipeWire directly with their bundled old libpipewire, which causes
+    # system-wide audio dropouts.
+    environment.sessionVariables.SDL_AUDIODRIVER = "pulseaudio";
+
     boot.kernel.sysctl = {
       "vm.max_map_count" = 16777216;
       "fs.file-max" = 524288;

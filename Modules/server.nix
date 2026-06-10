@@ -11,7 +11,7 @@
 #
 # Port reference (Tailscale-only unless noted):
 #   Sonarr     8989  |  Radarr    7878  |  Lidarr   8686
-#   Prowlarr   9696  |  Readarr   8787  |  SABnzbd  8080
+#   Prowlarr   9696  |  SABnzbd  8080
 #   Jellyfin   8096  (+ Cloudflare tunnel at jellyfin.bifrost-vault.com)
 #   Jellyseerr 5055  (+ Cloudflare tunnel at requests.bifrost-vault.com)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -95,6 +95,11 @@
             password._secret = config.sops.secrets."sabnzbd-password".path;
             port = 8080;
             par2_multicore = 1;
+            par2_threads = 12;
+            abort_max_missing = 10;
+            fail_hopeless_jobs = true;
+            host_whitelist = "sisyphus,sisyphus.tailb54b82.ts.net,100.119.193.77";
+            inet_exposure = 4;
           };
           servers = [
             {
@@ -112,6 +117,9 @@
       };
     };
 
+
+    # unrar in SABnzbd service PATH — required for RAR-packed NZBs
+    systemd.services.sabnzbd.path = [ pkgs.unrar ];
 
     # Completes the Jellyseerr setup wizard declaratively:
     # logs in via Jellyfin creds, syncs + enables all libraries, marks initialized.
@@ -236,7 +244,7 @@
 # Runs as a native NixOS service (not a container) so localhost works for all
 # arr/jellyfin widgets and /data is accessible for the disk widget.
 # API keys are injected from sops via an env file on every boot.
-# Readarr, Kavita, Immich are links only (API keys not in sops yet).
+# Kavita, Immich are links only (API keys not in sops yet).
 # Port: 3000 (Tailscale only)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -260,7 +268,6 @@
           printf 'HOMEPAGE_VAR_SABNZBD_API_KEY=%s\n'    "$(cat ${config.sops.secrets."sabnzbd-api-key".path})"
           printf 'HOMEPAGE_VAR_JELLYFIN_API_KEY=%s\n'   "$(cat ${config.sops.secrets."jellyfin-api-key".path})"
           printf 'HOMEPAGE_VAR_JELLYSEERR_API_KEY=%s\n' "$(cat ${config.sops.secrets."jellyseerr-api-key".path})"
-          printf 'HOMEPAGE_VAR_TAILSCALE_API_KEY=%s\n' "$(cat ${config.sops.secrets."tailscale-api-key".path})"
         } > /var/lib/homepage/homepage.env
         chmod 600 /var/lib/homepage/homepage.env
       '';
@@ -273,28 +280,38 @@
     services.homepage-dashboard = {
       enable = true;
       listenPort = 3000;
-      settings.allowedHosts = "sisyphus,sisyphus:3000,localhost,localhost:3000";
+      allowedHosts = "sisyphus,sisyphus:3000,sisyphus.tailb54b82.ts.net,sisyphus.tailb54b82.ts.net:3000,100.119.193.77,100.119.193.77:3000,localhost,localhost:3000";
 
       settings = {
         title = "Asgard";
         theme = "dark";
         color = "neutral";
         headerStyle = "clean";
+        statusStyle = "dot";
+        hideErrors = true;
         layout = {
+          "Asgard"     = { style = "row"; columns = 5; };  # glances machine info cards
           "Services"   = { style = "row"; columns = 2; };  # arr (left) + media (right), 2-col grid
           "Downloads"  = { style = "row"; columns = 2; };
           "Utilities"  = { style = "column"; };
-          "Network"    = { style = "row"; columns = 4; };
         };
       };
 
       widgets = [
         {
-          resources = {
-            cpu = true;
-            memory = true;
-            disk = "/data";
-            cacheInterval = 5;
+          greeting = {
+            text_size = "4xl";
+            text = "— Asgard —";
+          };
+        }
+        {
+          openmeteo = {
+            label = "Sydney";
+            latitude = "-33.8688";
+            longitude = "151.2093";
+            timezone = "Australia/Sydney";
+            units = "metric";
+            cache = 5;
           };
         }
         {
@@ -303,7 +320,7 @@
             format = {
               timeStyle = "short";
               dateStyle = "long";
-              hour12 = false;
+              hour12 = true;
             };
           };
         }
@@ -311,17 +328,79 @@
 
       services = [
         {
+          "Asgard" = [
+            {
+              "Info" = {
+                widget = {
+                  type = "glances";
+                  url = "http://localhost:61208";
+                  version = 4;
+                  metric = "info";
+                  refreshInterval = 3000;
+                };
+              };
+            }
+            {
+              "CPU" = {
+                widget = {
+                  type = "glances";
+                  url = "http://localhost:61208";
+                  version = 4;
+                  metric = "cpu";
+                  refreshInterval = 3000;
+                };
+              };
+            }
+            {
+              "Memory" = {
+                widget = {
+                  type = "glances";
+                  url = "http://localhost:61208";
+                  version = 4;
+                  metric = "memory";
+                  chart = true;
+                  refreshInterval = 3000;
+                };
+              };
+            }
+            {
+              "Network" = {
+                widget = {
+                  type = "glances";
+                  url = "http://localhost:61208";
+                  version = 4;
+                  metric = "network:enp10s0";  # update interface name for Asgard
+                  chart = true;
+                  refreshInterval = 3000;
+                };
+              };
+            }
+            {
+              "Disk" = {
+                widget = {
+                  type = "glances";
+                  url = "http://localhost:61208";
+                  version = 4;
+                  metric = "fs:/data";
+                  refreshInterval = 3000;
+                };
+              };
+            }
+          ];
+        }
+        {
           # columns = 2 → items fill left-to-right, so odd positions = left col (arr),
           # even positions = right col (media). Interleave to achieve the desired layout:
           #   Sonarr    | Jellyfin
           #   Radarr    | Jellyseerr
-          #   Lidarr    | Readarr
+          #   Shelfarr  | Immich
           "Services" = [
             {
               "Sonarr" = {
                 href = "http://sisyphus:8989";
                 description = "TV Shows";
                 icon = "sonarr.png";
+                ping = "http://localhost:8989";
                 widget = {
                   type = "sonarr";
                   url = "http://localhost:8989";
@@ -334,11 +413,12 @@
                 href = "http://sisyphus:8096";
                 description = "Media Server";
                 icon = "jellyfin.png";
+                ping = "http://localhost:8096";
                 widget = {
                   type = "jellyfin";
                   url = "http://localhost:8096";
                   key = "{{HOMEPAGE_VAR_JELLYFIN_API_KEY}}";
-                  enableBlocks = true;
+                  enableBlocks = false;
                 };
               };
             }
@@ -347,6 +427,7 @@
                 href = "http://sisyphus:7878";
                 description = "Movies";
                 icon = "radarr.png";
+                ping = "http://localhost:7878";
                 widget = {
                   type = "radarr";
                   url = "http://localhost:7878";
@@ -359,6 +440,7 @@
                 href = "http://sisyphus:5055";
                 description = "Media Requests";
                 icon = "jellyseerr.png";
+                ping = "http://localhost:5055";
                 widget = {
                   type = "overseerr";
                   url = "http://localhost:5055";
@@ -367,27 +449,19 @@
               };
             }
             {
-              "Readarr" = {
-                href = "http://sisyphus:8787";
-                description = "Books";
-                icon = "readarr.png";
-                widget = {
-                  type = "readarr";
-                  url = "http://localhost:8787";
-                  key = "{{HOMEPAGE_VAR_READARR_API_KEY}}";
-                };
+              "Shelfarr" = {
+                href = "http://sisyphus:5056";
+                description = "Book Requests";
+                icon = "mdi-bookshelf-#a78bfa";
+                ping = "http://localhost:5056";
               };
             }
             {
-              "Lidarr" = {
-                href = "http://sisyphus:8686";
-                description = "Music";
-                icon = "lidarr.png";
-                widget = {
-                  type = "lidarr";
-                  url = "http://localhost:8686";
-                  key = "{{HOMEPAGE_VAR_LIDARR_API_KEY}}";
-                };
+              "Immich" = {
+                href = "http://sisyphus:2283";
+                description = "Photo Server";
+                icon = "immich.png";
+                ping = "http://localhost:2283";
               };
             }
           ];
@@ -399,6 +473,7 @@
                 href = "http://sisyphus:8080";
                 description = "Usenet Downloader";
                 icon = "sabnzbd.png";
+                ping = "http://localhost:8080";
                 widget = {
                   type = "sabnzbd";
                   url = "http://localhost:8080";
@@ -411,6 +486,7 @@
                 href = "http://sisyphus:9696";
                 description = "Indexer Manager";
                 icon = "prowlarr.png";
+                ping = "http://localhost:9696";
                 widget = {
                   type = "prowlarr";
                   url = "http://localhost:9696";
@@ -423,10 +499,16 @@
         {
           "Utilities" = [
             {
-              "Immich" = {
-                href = "http://sisyphus:2283";
-                description = "Photo Server";
-                icon = "immich.png";
+              "Lidarr" = {
+                href = "http://sisyphus:8686";
+                description = "Music";
+                icon = "lidarr.png";
+                ping = "http://localhost:8686";
+                widget = {
+                  type = "lidarr";
+                  url = "http://localhost:8686";
+                  key = "{{HOMEPAGE_VAR_LIDARR_API_KEY}}";
+                };
               };
             }
             {
@@ -434,13 +516,7 @@
                 href = "http://sisyphus:13378";
                 description = "Books & Audiobooks";
                 icon = "audiobookshelf.png";
-              };
-            }
-            {
-              "Shelfarr" = {
-                href = "http://sisyphus:5056";
-                description = "Book Requests";
-                icon = "shelfarr.png";
+                ping = "http://localhost:13378";
               };
             }
             {
@@ -448,6 +524,7 @@
                 href = "http://sisyphus:8888";
                 description = "Container Logs";
                 icon = "dozzle.png";
+                ping = "http://localhost:8888";
               };
             }
             {
@@ -455,58 +532,7 @@
                 href = "http://sisyphus:8081";
                 description = "File Manager";
                 icon = "filebrowser.png";
-              };
-            }
-          ];
-        }
-        {
-          "Network" = [
-            {
-              "Sisyphus" = {
-                icon = "tailscale.png";
-                description = "Linux Desktop";
-                widget = {
-                  type = "tailscale";
-                  deviceid = "8021612644818291";
-                  key = "{{HOMEPAGE_VAR_TAILSCALE_API_KEY}}";
-                  fields = [ "last_seen" "os" "authorized" ];
-                };
-              };
-            }
-            {
-              "Eclipse Pi" = {
-                icon = "tailscale.png";
-                description = "Raspberry Pi";
-                widget = {
-                  type = "tailscale";
-                  deviceid = "3166629277500775";
-                  key = "{{HOMEPAGE_VAR_TAILSCALE_API_KEY}}";
-                  fields = [ "last_seen" "os" "authorized" ];
-                };
-              };
-            }
-            {
-              "Caitlin's S25" = {
-                icon = "tailscale.png";
-                description = "Android";
-                widget = {
-                  type = "tailscale";
-                  deviceid = "6502532657979703";
-                  key = "{{HOMEPAGE_VAR_TAILSCALE_API_KEY}}";
-                  fields = [ "last_seen" "os" "authorized" ];
-                };
-              };
-            }
-            {
-              "Rhys's S25" = {
-                icon = "tailscale.png";
-                description = "Android";
-                widget = {
-                  type = "tailscale";
-                  deviceid = "5131325073312736";
-                  key = "{{HOMEPAGE_VAR_TAILSCALE_API_KEY}}";
-                  fields = [ "last_seen" "os" "authorized" ];
-                };
+                ping = "http://localhost:8081";
               };
             }
           ];
@@ -539,8 +565,6 @@
 #          RADARR_KEY=<key>
 #          LIDARR_URL=http://localhost:8686
 #          LIDARR_KEY=<key>
-#          READARR_URL=http://localhost:8787
-#          READARR_KEY=<key>
 #          SABNZBD_URL=http://localhost:8080
 #          SABNZBD_KEY=<key>
 #          REMOVE_STALLED=True
@@ -560,6 +584,226 @@
 # This fixes grab issues like "only getting Redux" — proper CF scoring applied.
 # ══════════════════════════════════════════════════════════════════════════════
 
+    # ── Missing content search ─────────────────────────────────────────────────
+    # Radarr: daily search for all monitored movies without files.
+    # Persistent = true → runs immediately on boot if the 4am window was missed.
+    systemd.services.radarr-missing-search = {
+      description = "Search all missing monitored movies in Radarr";
+      after    = [ "radarr.service" ];
+      requires = [ "radarr.service" ];
+      path     = [ pkgs.curl ];
+      serviceConfig = {
+        Type = "oneshot";
+        User = "root";
+      };
+      script = ''
+        RADARR_KEY=$(cat ${config.sops.secrets."radarr-api-key".path})
+        curl -sf -X POST \
+          -H "X-Api-Key: $RADARR_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{"name":"MissingMoviesSearch"}' \
+          http://localhost:7878/api/v3/command
+        echo "Radarr missing movies search triggered."
+      '';
+    };
+
+    systemd.timers.radarr-missing-search = {
+      description = "Radarr missing movies search — on boot + daily";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "10min";
+        OnCalendar = "04:00:00";
+        Persistent = true;
+      };
+    };
+
+    # Sonarr: daily search for all monitored episodes without files.
+    systemd.services.sonarr-missing-search = {
+      description = "Search all missing monitored episodes in Sonarr";
+      after    = [ "sonarr.service" ];
+      requires = [ "sonarr.service" ];
+      path     = [ pkgs.curl ];
+      serviceConfig = {
+        Type = "oneshot";
+        User = "root";
+      };
+      script = ''
+        SONARR_KEY=$(cat ${config.sops.secrets."sonarr-api-key".path})
+        curl -sf -X POST \
+          -H "X-Api-Key: $SONARR_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{"name":"MissingEpisodeSearch"}' \
+          http://localhost:8989/api/v3/command
+        echo "Sonarr missing episodes search triggered."
+      '';
+    };
+
+    systemd.timers.sonarr-missing-search = {
+      description = "Sonarr missing episodes search — on boot + daily";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "10min";
+        OnCalendar = "04:00:00";
+        Persistent = true;
+      };
+    };
+
+    # Sets Jellyseerr's default Radarr quality profile to "Remux + WEB 1080p"
+    # (created by Recyclarr). Runs 12min after boot so Recyclarr (5min) has
+    # had time to create the profile first. Idempotent — safe to re-run.
+    systemd.services.seerr-radarr-profile = {
+      description = "Set Jellyseerr default Radarr profile to Remux + WEB 1080p";
+      after    = [ "seerr.service" "seerr-setup.service" "radarr.service" "network.target" ];
+      wants    = [ "seerr.service" "seerr-setup.service" "radarr.service" ];
+      path     = [ pkgs.curl pkgs.jq ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        Restart = "on-failure";
+        RestartSec = 30;
+      };
+      script = ''
+        set -euo pipefail
+        SEERR="http://localhost:5055"
+        RADARR="http://localhost:7878"
+        COOKIE="/tmp/seerr-radarr-profile-cookie"
+        RADARR_KEY=$(cat ${config.sops.secrets."radarr-api-key".path})
+        ADMIN_PASS=$(cat ${config.sops.secrets."jellyfin-admin-password".path})
+
+        # Wait up to 2min for Jellyseerr
+        for i in $(seq 1 24); do
+          if curl -sf "$SEERR/api/v1/status" > /dev/null 2>&1; then break; fi
+          echo "Waiting for Jellyseerr... ($i/24)"
+          sleep 5
+        done
+
+        # Find the "Remux + WEB 1080p" profile ID in Radarr
+        PROFILE_ID=$(curl -s -H "X-Api-Key: $RADARR_KEY" "$RADARR/api/v3/qualityprofile" | \
+          jq -r '.[] | select(.name == "Remux + WEB 1080p") | .id')
+
+        if [ -z "$PROFILE_ID" ]; then
+          echo "Remux + WEB 1080p profile not found in Radarr — Recyclarr may not have run yet." >&2
+          exit 1
+        fi
+        echo "Found Radarr profile: Remux + WEB 1080p (ID: $PROFILE_ID)"
+
+        # Log into Jellyseerr (session cookie required for settings endpoints)
+        LOGIN_CODE=$(curl -s -c "$COOKIE" -X POST \
+          -H "Content-Type: application/json" \
+          -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}" \
+          -w "%{http_code}" -o /dev/null \
+          "$SEERR/api/v1/auth/jellyfin")
+        [ "$LOGIN_CODE" = "200" ] || [ "$LOGIN_CODE" = "201" ] || \
+          { echo "Jellyseerr login failed (HTTP $LOGIN_CODE)" >&2; exit 1; }
+
+        # Get current Radarr instance config and check if profile is already correct
+        RADARR_CFG=$(curl -s -b "$COOKIE" "$SEERR/api/v1/settings/radarr")
+        INSTANCE_ID=$(echo "$RADARR_CFG" | jq -r '.[0].id')
+        CURRENT_PROFILE=$(echo "$RADARR_CFG" | jq -r '.[0].activeProfileId')
+
+        if [ "$CURRENT_PROFILE" = "$PROFILE_ID" ]; then
+          echo "Jellyseerr already using correct profile — nothing to do."
+          rm -f "$COOKIE"
+          exit 0
+        fi
+
+        # Update the profile
+        UPDATED=$(echo "$RADARR_CFG" | jq --argjson pid "$PROFILE_ID" \
+          '.[0] | .activeProfileId = $pid | .activeProfileName = "Remux + WEB 1080p" | del(.id)')
+        curl -sf -b "$COOKIE" -X PUT \
+          -H "Content-Type: application/json" \
+          -d "$UPDATED" \
+          "$SEERR/api/v1/settings/radarr/$INSTANCE_ID" > /dev/null
+
+        rm -f "$COOKIE"
+        echo "Jellyseerr Radarr profile updated to Remux + WEB 1080p (ID: $PROFILE_ID)"
+      '';
+    };
+
+    systemd.timers.seerr-radarr-profile = {
+      description = "Set Jellyseerr Radarr profile after Recyclarr runs";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "12min";
+        Persistent = true;
+      };
+    };
+
+    systemd.services.seerr-sonarr-profile = {
+      description = "Set Jellyseerr default Sonarr profile to WEB-1080p";
+      after    = [ "seerr.service" "seerr-setup.service" "sonarr.service" "network.target" ];
+      wants    = [ "seerr.service" "seerr-setup.service" "sonarr.service" ];
+      path     = [ pkgs.curl pkgs.jq ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        Restart = "on-failure";
+        RestartSec = 30;
+      };
+      script = ''
+        set -euo pipefail
+        SEERR="http://localhost:5055"
+        SONARR="http://localhost:8989"
+        COOKIE="/tmp/seerr-sonarr-profile-cookie"
+        SONARR_KEY=$(cat ${config.sops.secrets."sonarr-api-key".path})
+        ADMIN_PASS=$(cat ${config.sops.secrets."jellyfin-admin-password".path})
+
+        for i in $(seq 1 24); do
+          if curl -sf "$SEERR/api/v1/status" > /dev/null 2>&1; then break; fi
+          echo "Waiting for Jellyseerr... ($i/24)"
+          sleep 5
+        done
+
+        PROFILE_ID=$(curl -s -H "X-Api-Key: $SONARR_KEY" "$SONARR/api/v3/qualityprofile" | \
+          jq -r '.[] | select(.name == "WEB-1080p") | .id')
+
+        if [ -z "$PROFILE_ID" ]; then
+          echo "WEB-1080p profile not found in Sonarr — Recyclarr may not have run yet." >&2
+          exit 1
+        fi
+        echo "Found Sonarr profile: WEB-1080p (ID: $PROFILE_ID)"
+
+        LOGIN_CODE=$(curl -s -c "$COOKIE" -X POST \
+          -H "Content-Type: application/json" \
+          -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}" \
+          -w "%{http_code}" -o /dev/null \
+          "$SEERR/api/v1/auth/jellyfin")
+        [ "$LOGIN_CODE" = "200" ] || [ "$LOGIN_CODE" = "201" ] || \
+          { echo "Jellyseerr login failed (HTTP $LOGIN_CODE)" >&2; exit 1; }
+
+        SONARR_CFG=$(curl -s -b "$COOKIE" "$SEERR/api/v1/settings/sonarr")
+        INSTANCE_ID=$(echo "$SONARR_CFG" | jq -r '.[0].id')
+        CURRENT_PROFILE=$(echo "$SONARR_CFG" | jq -r '.[0].activeProfileId')
+
+        if [ "$CURRENT_PROFILE" = "$PROFILE_ID" ]; then
+          echo "Jellyseerr already using correct Sonarr profile — nothing to do."
+          rm -f "$COOKIE"
+          exit 0
+        fi
+
+        UPDATED=$(echo "$SONARR_CFG" | jq --argjson pid "$PROFILE_ID" \
+          '.[0] | .activeProfileId = $pid | .activeProfileName = "WEB-1080p"
+               | .activeAnimeProfileId = $pid | .activeAnimeProfileName = "WEB-1080p"
+               | del(.id)')
+        curl -sf -b "$COOKIE" -X PUT \
+          -H "Content-Type: application/json" \
+          -d "$UPDATED" \
+          "$SEERR/api/v1/settings/sonarr/$INSTANCE_ID" > /dev/null
+
+        rm -f "$COOKIE"
+        echo "Jellyseerr Sonarr profile updated to WEB-1080p (ID: $PROFILE_ID)"
+      '';
+    };
+
+    systemd.timers.seerr-sonarr-profile = {
+      description = "Set Jellyseerr Sonarr profile after Recyclarr runs";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "12min";
+        Persistent = true;
+      };
+    };
+
     systemd.services.recyclarr-config = {
       description = "Generate Recyclarr config from sops secrets";
       before   = [ "recyclarr-sync.service" ];
@@ -574,7 +818,7 @@
         RADARR_KEY=$(cat ${config.sops.secrets."radarr-api-key".path})
         cat > /var/lib/recyclarr/recyclarr.yml << EOF
 sonarr:
-  main:
+  sonarr-main:
     base_url: http://localhost:8989
     api_key: $SONARR_KEY
     include:
@@ -584,15 +828,15 @@ sonarr:
       - template: sonarr-v4-quality-profile-web-2160p
       - template: sonarr-v4-custom-formats-web-2160p
 radarr:
-  main:
+  radarr-main:
     base_url: http://localhost:7878
     api_key: $RADARR_KEY
     include:
       - template: radarr-quality-definition-movie
-      - template: radarr-quality-profile-remux-1080p
-      - template: radarr-custom-formats-remux-1080p
-      - template: radarr-quality-profile-remux-2160p
-      - template: radarr-custom-formats-remux-2160p
+      - template: radarr-quality-profile-remux-web-1080p
+      - template: radarr-custom-formats-remux-web-1080p
+      - template: radarr-quality-profile-remux-web-2160p
+      - template: radarr-custom-formats-remux-web-2160p
 EOF
         chmod 600 /var/lib/recyclarr/recyclarr.yml
       '';
@@ -655,7 +899,7 @@ jobs:
   remove_failed_imports: true
   remove_failed_downloads: true
   remove_metadata_missing: true
-  remove_orphans: true
+  remove_orphans: false
 EOF
         chmod 600 /var/lib/decluttarr/config/config.yaml
       '';
@@ -693,6 +937,13 @@ EOF
       openFirewall = true;
     };
 
+    # Glances — system monitoring API for Homepage dashboard cards
+    # Binds to localhost:61208, queried by Homepage glances widgets
+    services.glances = {
+      enable = true;
+      extraArgs = [ "-w" "--bind" "127.0.0.1" ];
+    };
+
     services.cloudflared = {
       enable = true;
       tunnels = {
@@ -707,6 +958,15 @@ EOF
         };
       };
     };
+
+    # TODO: Mullvad VPN kill switch for SABnzbd — deferred.
+    # vpn-confinement (nixflix.vpn) works at the network namespace level but DNS
+    # resolution inside the sandbox fails: the 100.64.0.0/10 accessibleFrom route
+    # (needed for Tailscale return traffic) intercepts Mullvad's CGNAT DNS
+    # (100.64.0.55), and SABnzbd's glibc can't reach any alternative DNS through
+    # the tunnel from inside the systemd sandbox. /etc/hosts bypass was confirmed
+    # to work at the Python level but SABnzbd still reports "Server name does not
+    # resolve" — root cause not yet identified. Resume investigation later.
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -827,8 +1087,20 @@ EOF
     services.immich = {
       enable = true;
       mediaLocation = "/data/photos";
+      host = "0.0.0.0";
       openFirewall = false;
     };
+
+    # Immich 2.7+ expects .immich marker files in each subdirectory — create them
+    # before the service starts so verifyReadAccess doesn't fail on fresh /data.
+    systemd.services.immich-server.serviceConfig.ExecStartPre = lib.mkBefore [
+      (pkgs.writeShellScript "immich-init-dirs" ''
+        for dir in encoded-video thumbs upload backups library profile; do
+          mkdir -p /data/photos/$dir
+          touch /data/photos/$dir/.immich
+        done
+      '')
+    ];
 
     # Seeds the Immich admin account from sops on first boot.
     # /api/auth/admin-signup is only available before any admin exists — idempotent.
@@ -883,6 +1155,15 @@ EOF
     # Allow containers to reach host-bound services (arr, immich, etc.)
     # tailscale0 trusted so all services are reachable from any tailnet device by hostname
     networking.firewall.trustedInterfaces = [ "podman0" "cni-podman0" "tailscale0" ];
+
+    # DNS inside the VPN namespace (SABnzbd's sandbox) fails due to routing
+    # conflicts. Bypass it entirely for the usenet server — /etc/hosts is read
+    # first (nsswitch: files before dns), so getaddrinfo() never touches DNS.
+    # IPs confirmed reachable via the Mullvad tunnel on port 563.
+    networking.hosts = {
+      "45.125.247.68"  = [ "aunews.frugalusenet.com" ];
+      "45.125.247.108" = [ "aunews.frugalusenet.com" ];
+    };
 
     # --- Shared media group (GID 1001) ---
     # All service users and containers use this group for /data/media access.
@@ -950,7 +1231,7 @@ EOF
     sops.secrets."jellyfin-api-key"         = {};
     sops.secrets."jellyfin-admin-password"  = {};
     sops.secrets."cloudflare-tunnel"        = {};
-    sops.secrets."tailscale-api-key"        = {};
+    sops.secrets."mullvad-private-key"      = { mode = "0400"; };
     sops.secrets."admin-username"           = {};
     sops.secrets."admin-password"           = {};
 

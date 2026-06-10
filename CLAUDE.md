@@ -66,7 +66,7 @@ flake.nix                    # Entry point — flake-parts + import-tree
 │   ├── sunshine.nix         # Game streaming host (Sisyphus only)
 │   ├── tailscale.nix        # VPN (Sisyphus only)
 │   ├── rpcs3.nix            # RPCS3 + Ryubing emulators
-│   ├── sddm.nix             # SDDM video login theme
+│   ├── sddm.nix             # SDDM login theme (qylock — NieR: Automata)
 │   ├── base.nix             # Common packages and settings
 │   ├── grub.nix             # GRUB multi-system boot menu
 │   ├── plymouth.nix         # Boot splash (Sisyphus only)
@@ -82,7 +82,7 @@ flake.nix                    # Entry point — flake-parts + import-tree
 │   ├── Fonts/                           # Anurati-Regular.otf
 │   ├── Rain-Effect/                     # drop-shine.png
 │   ├── Terminal-Images/                 # Fastfetch logos
-│   └── Sddm/                           # SDDM video background
+│   └── Sddm/                           # Old silentSDDM video background (unused)
 ├── Claude/                  # Topic docs (read on demand)
 ├── Secrets/                 # Encrypted secrets
 │   ├── .sops.yaml           # Age key config
@@ -122,7 +122,7 @@ All three share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitt
 - `helium` — browser (github:amaanq/helium-flake, not in nixpkgs)
 - `spicetify-nix` — declarative Spotify theming
 - `plasma-manager` — KDE Plasma declarative config
-- `silentSDDM` — login screen theme
+- `qylock` — SDDM login theme (NieR: Automata)
 - `sops-nix` — encrypted secrets with age keys
 - `nix-citizen` / `nix-gaming` — Star Citizen, Proton
 - `disko` — declarative disk partitioning

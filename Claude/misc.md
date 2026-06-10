@@ -59,6 +59,10 @@ Fix (already in `discord.nix`): `xdg.configFile."vesktop/argv.json"` with `["--e
 
 **Discord noise suppression/echo cancellation** — these run as a separate processing thread that can disconnect mid-call. If dropouts persist after the above fix, turn them off in Discord Settings → Voice & Video. Not configurable declaratively (stored per-account server-side).
 
+**Steam Linux Runtime (pressure-vessel) — old libpipewire causing system-wide dropouts:**
+Games running in the Steam Linux Runtime container (e.g. CS2) use their own bundled old `libpipewire-0.3` (protocol v4). Pressure-vessel overrides `LD_LIBRARY_PATH` entirely, so the `extraLibraries` fix in `steam.nix` does NOT reach these games. CS2 connecting with the old protocol desynchs from the PipeWire server and causes dropouts for all other audio clients (Spotify, Discord, everything).
+Fix (already in `base.nix`): `environment.sessionVariables.SDL_AUDIODRIVER = "pulseaudio"` — forces all SDL apps to use the PulseAudio backend (routes through pipewire-pulse) instead of connecting to PipeWire directly with the old library. Propagates into pressure-vessel via Steam's inherited environment.
+
 ---
 
 ## Discord

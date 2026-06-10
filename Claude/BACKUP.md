@@ -84,7 +84,7 @@ flake.nix                    # Entry point using flake-parts + import-tree
 │   ├── rain-effect.nix      # GLSL rain overlay (Sisyphus, wlr-layer-shell bottom layer)
 │   ├── controller.nix       # DualSense desktop nav daemon (Sisyphus, Moonlight/Sunshine)
 │   ├── rpcs3.nix            # RPCS3 (PS3) + Ryubing (Switch) emulators with seeded config
-│   ├── sddm.nix             # SDDM video login theme
+│   ├── sddm.nix             # SDDM login theme (qylock — NieR: Automata)
 │   ├── base.nix             # Common packages and settings
 │   ├── grub.nix             # GRUB with multi-system boot menu
 │   ├── plymouth.nix         # Boot splash screen (Sisyphus only)
@@ -828,7 +828,7 @@ Eclipse is a Pi5 running **Raspberry Pi OS (64-bit graphical)** — not managed 
 - `spicetify-nix` - Declarative Spotify theming
 - `plasma-manager` - KDE Plasma declarative config
 - `niri` - Scrollable tiling Wayland compositor (niri-flake)
-- `silentSDDM` - Login screen theme
+- `qylock` - SDDM login theme (NieR: Automata)
 - `nix-citizen` / `nix-gaming` - Gaming packages (Star Citizen, Proton)
 - `sops-nix` - Encrypted secrets management with age keys
 - `disko` - Declarative disk partitioning (for nixos-anywhere on UEFI installs)
