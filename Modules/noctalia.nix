@@ -113,7 +113,7 @@ in {
               { id = "Workspace"; hideUnoccupied = true; labelMode = "name"; characterCount = 1; emptyColor = "primary"; focusedColor = "secondary"; occupiedColor = "primary"; }
             ];
             center = [
-              { id = "MediaMini"; hideMode = "hidden"; showAlbumArt = true; showArtistFirst = true; showVisualizer = true; visualizerType = "linear"; maxWidth = 500; useFixedWidth = false; showProgressRing = true; scrollingMode = "hover"; }
+              { id = "MediaMini"; hideMode = "hidden"; showAlbumArt = true; showArtistFirst = true; showVisualizer = false; visualizerType = "linear"; maxWidth = 500; useFixedWidth = false; showProgressRing = true; scrollingMode = "hover"; }
             ];
             right = [
               { id = "Volume"; displayMode = "onhover"; }
@@ -131,7 +131,7 @@ in {
               name = "HDMI-A-1";
               widgets = {
                 left = [ { id = "ControlCenter"; useDistroLogo = false; } ];
-                center = [ { id = "MediaMini"; hideMode = "hidden"; showAlbumArt = true; showArtistFirst = true; showVisualizer = true; visualizerType = "linear"; maxWidth = 500; useFixedWidth = false; showProgressRing = true; scrollingMode = "hover"; } ];
+                center = [ { id = "MediaMini"; hideMode = "hidden"; showAlbumArt = true; showArtistFirst = true; showVisualizer = false; visualizerType = "linear"; maxWidth = 500; useFixedWidth = false; showProgressRing = true; scrollingMode = "hover"; } ];
                 right = [
                   { id = "Volume"; displayMode = "onhover"; }
                   { id = "Network"; displayMode = "onhover"; icon = "plug-connected"; }

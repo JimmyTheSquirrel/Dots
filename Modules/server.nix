@@ -1,6 +1,216 @@
 { self, inputs, ... }: {
 
-  flake.nixosModules.server = { config, pkgs, lib, activeUser, ... }: {
+  flake.nixosModules.server = { config, pkgs, lib, activeUser, ... }:
+  let
+    # ── Glance YAML config (no secrets — reads Prometheus which has no auth) ──
+    # Baked into Nix store. Glance container mounts it read-only at /app/glance.yml.
+    # Uses --network=host so sisyphus resolves via the host's /etc/hosts, and all
+    # service health checks + browser links use the same http://sisyphus:port URL.
+    glanceConfig = pkgs.writeText "glance.yml" ''
+      server:
+        port: 8888
+
+      theme:
+        positive-color: hsl(142, 72%, 39%)
+        negative-color: hsl(0, 84%, 60%)
+
+      pages:
+        # ════════════════════════════════════════════════════════════════════
+        # PAGE 1 — Asgard (services + links)
+        # ════════════════════════════════════════════════════════════════════
+        - name: Asgard
+          columns:
+            - size: small
+              widgets:
+                - type: bookmarks
+                  title: Links
+                  groups:
+                    - title: Watch & Browse
+                      links:
+                        - title: Jellyfin
+                          url: http://sisyphus:8096
+                        - title: Jellyseerr
+                          url: http://sisyphus:5055
+                        - title: Immich
+                          url: http://sisyphus:2283
+                        - title: Audiobookshelf
+                          url: http://sisyphus:13378
+                    - title: Downloads
+                      links:
+                        - title: SABnzbd
+                          url: http://sisyphus:8080
+                        - title: Prowlarr
+                          url: http://sisyphus:9696
+                    - title: Arr Stack
+                      links:
+                        - title: Sonarr
+                          url: http://sisyphus:8989
+                        - title: Radarr
+                          url: http://sisyphus:7878
+                        - title: Lidarr
+                          url: http://sisyphus:8686
+                        - title: Shelfarr
+                          url: http://sisyphus:5056
+                    - title: Management
+                      links:
+                        - title: FileBrowser
+                          url: http://sisyphus:8081
+                        - title: Grafana
+                          url: http://sisyphus:3001
+
+            - size: full
+              widgets:
+                - type: group
+                  widgets:
+                    - type: iframe
+                      title: System Stats
+                      source: http://sisyphus:3001/d/asgard-system/system-stats?orgId=1&theme=dark&refresh=5s&kiosk&hide-controls
+                      height: 355
+                    - type: weather
+                      title: Weather
+                      location: Sydney, Australia
+
+                - type: monitor
+                  title: Downloads
+                  cache: 1m
+                  sites:
+                    - title: SABnzbd
+                      url: http://sisyphus:8080
+                      icon: sh:sabnzbd
+                    - title: Prowlarr
+                      url: http://sisyphus:9696
+                      icon: sh:prowlarr
+
+                - type: monitor
+                  title: Arr Stack
+                  cache: 1m
+                  sites:
+                    - title: Sonarr
+                      url: http://sisyphus:8989
+                      icon: sh:sonarr
+                    - title: Radarr
+                      url: http://sisyphus:7878
+                      icon: sh:radarr
+                    - title: Lidarr
+                      url: http://sisyphus:8686
+                      icon: sh:lidarr
+                    - title: Shelfarr
+                      url: http://sisyphus:5056
+                      icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/shelfarr.svg
+
+                - type: monitor
+                  title: Media
+                  cache: 1m
+                  sites:
+                    - title: Jellyfin
+                      url: http://sisyphus:8096
+                      icon: sh:jellyfin
+                    - title: Jellyseerr
+                      url: http://sisyphus:5055
+                      icon: sh:jellyseerr
+                    - title: Immich
+                      url: http://sisyphus:2283
+                      icon: sh:immich
+                    - title: Audiobookshelf
+                      url: http://sisyphus:13378
+                      icon: sh:audiobookshelf
+
+                - type: monitor
+                  title: Management
+                  cache: 1m
+                  sites:
+                    - title: FileBrowser
+                      url: http://sisyphus:8081
+                      icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/filebrowser.svg
+                    - title: Prometheus
+                      url: http://sisyphus:9090
+                      icon: sh:prometheus
+                    - title: Loki
+                      url: http://sisyphus:3100/ready
+                      icon: sh:loki
+                    - title: Grafana
+                      url: http://sisyphus:3001
+                      icon: sh:grafana
+
+        # ════════════════════════════════════════════════════════════════════
+        # PAGE 2 — Downloads (SABnzbd iframe + queue stats)
+        # ════════════════════════════════════════════════════════════════════
+        - name: Downloads
+          columns:
+            - size: small
+              widgets:
+                - type: custom-api
+                  title: Queue
+                  cache: 15s
+                  url: http://sisyphus:9090/api/v1/query
+                  parameters:
+                    query: sabnzbd_queue_size
+                  template: |
+                    <p class="size-h1">{{ .JSON.Int "data.result.0.value.1" }} <span class="size-h4 color-subtext">items</span></p>
+
+                - type: custom-api
+                  title: Remaining
+                  cache: 15s
+                  url: http://sisyphus:9090/api/v1/query
+                  parameters:
+                    query: sabnzbd_queue_remaining_bytes / 1073741824
+                  template: |
+                    <p class="size-h1 color-primary">{{ printf "%.2f" (.JSON.Float "data.result.0.value.1") }} <span class="size-h4 color-subtext">GB</span></p>
+
+                - type: monitor
+                  title: Status
+                  cache: 1m
+                  sites:
+                    - title: SABnzbd
+                      url: http://sisyphus:8080
+                      icon: sh:sabnzbd
+                    - title: Prowlarr
+                      url: http://sisyphus:9696
+                      icon: sh:prowlarr
+
+            - size: full
+              widgets:
+                - type: iframe
+                  title: SABnzbd
+                  source: http://sisyphus:8080
+                  height: 700
+    '';
+
+    # ── Alloy River config (no secrets — ships journald logs to Loki on localhost) ──
+    alloyConfig = pkgs.writeText "config.alloy" ''
+      // Collect all systemd journal entries
+      loki.source.journal "default" {
+        forward_to    = [loki.write.local.receiver]
+        relabel_rules = loki.relabel.journal_labels.rules
+        labels        = { job = "journald" }
+      }
+
+      // Extract useful labels from journal fields
+      loki.relabel "journal_labels" {
+        forward_to = []
+        rule {
+          source_labels = ["__journal__systemd_unit"]
+          target_label  = "unit"
+        }
+        rule {
+          source_labels = ["__journal__hostname"]
+          target_label  = "host"
+        }
+        rule {
+          source_labels = ["__journal_priority_keyword"]
+          target_label  = "level"
+        }
+      }
+
+      // Write to local Loki instance
+      loki.write "local" {
+        endpoint {
+          url = "http://localhost:3100/loki/api/v1/push"
+        }
+      }
+    '';
+  in
+  {
 
     imports = [ inputs.nixflix.nixosModules.default ];
 
@@ -100,6 +310,8 @@
             fail_hopeless_jobs = true;
             host_whitelist = "sisyphus,sisyphus.tailb54b82.ts.net,100.119.193.77";
             inet_exposure = 4;
+            x_frame_options = 0;
+            web_color = "Night";
           };
           servers = [
             {
@@ -239,316 +451,7 @@
     };
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# DASHBOARD — Homepage (declarative homelab dashboard)
-# Runs as a native NixOS service (not a container) so localhost works for all
-# arr/jellyfin widgets and /data is accessible for the disk widget.
-# API keys are injected from sops via an env file on every boot.
-# Kavita, Immich are links only (API keys not in sops yet).
-# Port: 3000 (Tailscale only)
-# ══════════════════════════════════════════════════════════════════════════════
-
-    # Writes sops API keys to an env file for {{HOMEPAGE_VAR_*}} substitution
-    systemd.services.homepage-env = {
-      description = "Generate Homepage env file from sops secrets";
-      wantedBy = [ "homepage-dashboard.service" ];
-      before   = [ "homepage-dashboard.service" ];
-      partOf   = [ "homepage-dashboard.service" ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-      };
-      script = ''
-        mkdir -p /var/lib/homepage
-        {
-          printf 'HOMEPAGE_VAR_SONARR_API_KEY=%s\n'     "$(cat ${config.sops.secrets."sonarr-api-key".path})"
-          printf 'HOMEPAGE_VAR_RADARR_API_KEY=%s\n'     "$(cat ${config.sops.secrets."radarr-api-key".path})"
-          printf 'HOMEPAGE_VAR_LIDARR_API_KEY=%s\n'     "$(cat ${config.sops.secrets."lidarr-api-key".path})"
-          printf 'HOMEPAGE_VAR_PROWLARR_API_KEY=%s\n'   "$(cat ${config.sops.secrets."prowlarr-api-key".path})"
-          printf 'HOMEPAGE_VAR_SABNZBD_API_KEY=%s\n'    "$(cat ${config.sops.secrets."sabnzbd-api-key".path})"
-          printf 'HOMEPAGE_VAR_JELLYFIN_API_KEY=%s\n'   "$(cat ${config.sops.secrets."jellyfin-api-key".path})"
-          printf 'HOMEPAGE_VAR_JELLYSEERR_API_KEY=%s\n' "$(cat ${config.sops.secrets."jellyseerr-api-key".path})"
-        } > /var/lib/homepage/homepage.env
-        chmod 600 /var/lib/homepage/homepage.env
-      '';
-    };
-
-    # Pass env file to the homepage-dashboard systemd service
-    systemd.services.homepage-dashboard.serviceConfig.EnvironmentFile =
-      lib.mkForce "/var/lib/homepage/homepage.env";
-
-    services.homepage-dashboard = {
-      enable = true;
-      listenPort = 3000;
-      allowedHosts = "sisyphus,sisyphus:3000,sisyphus.tailb54b82.ts.net,sisyphus.tailb54b82.ts.net:3000,100.119.193.77,100.119.193.77:3000,localhost,localhost:3000";
-
-      settings = {
-        title = "Asgard";
-        theme = "dark";
-        color = "neutral";
-        headerStyle = "clean";
-        statusStyle = "dot";
-        hideErrors = true;
-        layout = {
-          "Asgard"     = { style = "row"; columns = 5; };  # glances machine info cards
-          "Services"   = { style = "row"; columns = 2; };  # arr (left) + media (right), 2-col grid
-          "Downloads"  = { style = "row"; columns = 2; };
-          "Utilities"  = { style = "column"; };
-        };
-      };
-
-      widgets = [
-        {
-          greeting = {
-            text_size = "4xl";
-            text = "— Asgard —";
-          };
-        }
-        {
-          openmeteo = {
-            label = "Sydney";
-            latitude = "-33.8688";
-            longitude = "151.2093";
-            timezone = "Australia/Sydney";
-            units = "metric";
-            cache = 5;
-          };
-        }
-        {
-          datetime = {
-            text_size = "xl";
-            format = {
-              timeStyle = "short";
-              dateStyle = "long";
-              hour12 = true;
-            };
-          };
-        }
-      ];
-
-      services = [
-        {
-          "Asgard" = [
-            {
-              "Info" = {
-                widget = {
-                  type = "glances";
-                  url = "http://localhost:61208";
-                  version = 4;
-                  metric = "info";
-                  refreshInterval = 3000;
-                };
-              };
-            }
-            {
-              "CPU" = {
-                widget = {
-                  type = "glances";
-                  url = "http://localhost:61208";
-                  version = 4;
-                  metric = "cpu";
-                  refreshInterval = 3000;
-                };
-              };
-            }
-            {
-              "Memory" = {
-                widget = {
-                  type = "glances";
-                  url = "http://localhost:61208";
-                  version = 4;
-                  metric = "memory";
-                  chart = true;
-                  refreshInterval = 3000;
-                };
-              };
-            }
-            {
-              "Network" = {
-                widget = {
-                  type = "glances";
-                  url = "http://localhost:61208";
-                  version = 4;
-                  metric = "network:enp10s0";  # update interface name for Asgard
-                  chart = true;
-                  refreshInterval = 3000;
-                };
-              };
-            }
-            {
-              "Disk" = {
-                widget = {
-                  type = "glances";
-                  url = "http://localhost:61208";
-                  version = 4;
-                  metric = "fs:/data";
-                  refreshInterval = 3000;
-                };
-              };
-            }
-          ];
-        }
-        {
-          # columns = 2 → items fill left-to-right, so odd positions = left col (arr),
-          # even positions = right col (media). Interleave to achieve the desired layout:
-          #   Sonarr    | Jellyfin
-          #   Radarr    | Jellyseerr
-          #   Shelfarr  | Immich
-          "Services" = [
-            {
-              "Sonarr" = {
-                href = "http://sisyphus:8989";
-                description = "TV Shows";
-                icon = "sonarr.png";
-                ping = "http://localhost:8989";
-                widget = {
-                  type = "sonarr";
-                  url = "http://localhost:8989";
-                  key = "{{HOMEPAGE_VAR_SONARR_API_KEY}}";
-                };
-              };
-            }
-            {
-              "Jellyfin" = {
-                href = "http://sisyphus:8096";
-                description = "Media Server";
-                icon = "jellyfin.png";
-                ping = "http://localhost:8096";
-                widget = {
-                  type = "jellyfin";
-                  url = "http://localhost:8096";
-                  key = "{{HOMEPAGE_VAR_JELLYFIN_API_KEY}}";
-                  enableBlocks = false;
-                };
-              };
-            }
-            {
-              "Radarr" = {
-                href = "http://sisyphus:7878";
-                description = "Movies";
-                icon = "radarr.png";
-                ping = "http://localhost:7878";
-                widget = {
-                  type = "radarr";
-                  url = "http://localhost:7878";
-                  key = "{{HOMEPAGE_VAR_RADARR_API_KEY}}";
-                };
-              };
-            }
-            {
-              "Jellyseerr" = {
-                href = "http://sisyphus:5055";
-                description = "Media Requests";
-                icon = "jellyseerr.png";
-                ping = "http://localhost:5055";
-                widget = {
-                  type = "overseerr";
-                  url = "http://localhost:5055";
-                  key = "{{HOMEPAGE_VAR_JELLYSEERR_API_KEY}}";
-                };
-              };
-            }
-            {
-              "Shelfarr" = {
-                href = "http://sisyphus:5056";
-                description = "Book Requests";
-                icon = "mdi-bookshelf-#a78bfa";
-                ping = "http://localhost:5056";
-              };
-            }
-            {
-              "Immich" = {
-                href = "http://sisyphus:2283";
-                description = "Photo Server";
-                icon = "immich.png";
-                ping = "http://localhost:2283";
-              };
-            }
-          ];
-        }
-        {
-          "Downloads" = [
-            {
-              "SABnzbd" = {
-                href = "http://sisyphus:8080";
-                description = "Usenet Downloader";
-                icon = "sabnzbd.png";
-                ping = "http://localhost:8080";
-                widget = {
-                  type = "sabnzbd";
-                  url = "http://localhost:8080";
-                  key = "{{HOMEPAGE_VAR_SABNZBD_API_KEY}}";
-                };
-              };
-            }
-            {
-              "Prowlarr" = {
-                href = "http://sisyphus:9696";
-                description = "Indexer Manager";
-                icon = "prowlarr.png";
-                ping = "http://localhost:9696";
-                widget = {
-                  type = "prowlarr";
-                  url = "http://localhost:9696";
-                  key = "{{HOMEPAGE_VAR_PROWLARR_API_KEY}}";
-                };
-              };
-            }
-          ];
-        }
-        {
-          "Utilities" = [
-            {
-              "Lidarr" = {
-                href = "http://sisyphus:8686";
-                description = "Music";
-                icon = "lidarr.png";
-                ping = "http://localhost:8686";
-                widget = {
-                  type = "lidarr";
-                  url = "http://localhost:8686";
-                  key = "{{HOMEPAGE_VAR_LIDARR_API_KEY}}";
-                };
-              };
-            }
-            {
-              "Audiobookshelf" = {
-                href = "http://sisyphus:13378";
-                description = "Books & Audiobooks";
-                icon = "audiobookshelf.png";
-                ping = "http://localhost:13378";
-              };
-            }
-            {
-              "Dozzle" = {
-                href = "http://sisyphus:8888";
-                description = "Container Logs";
-                icon = "dozzle.png";
-                ping = "http://localhost:8888";
-              };
-            }
-            {
-              "File Browser" = {
-                href = "http://sisyphus:8081";
-                description = "File Manager";
-                icon = "filebrowser.png";
-                ping = "http://localhost:8081";
-              };
-            }
-          ];
-        }
-      ];
-
-      bookmarks = [
-        {
-          "Quick Links" = [
-            { "Nixpkgs Search"   = [{ abbr = "NX"; href = "https://search.nixos.org/packages"; }]; }
-            { "NixOS Options"    = [{ abbr = "NO"; href = "https://search.nixos.org/options"; }]; }
-            { "Tailscale Admin"  = [{ abbr = "TS"; href = "https://login.tailscale.com/admin/machines"; }]; }
-          ];
-        }
-      ];
-    };
+    # Homepage removed — replaced by Glance (port 8888)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -937,13 +840,6 @@ EOF
       openFirewall = true;
     };
 
-    # Glances — system monitoring API for Homepage dashboard cards
-    # Binds to localhost:61208, queried by Homepage glances widgets
-    services.glances = {
-      enable = true;
-      extraArgs = [ "-w" "--bind" "127.0.0.1" ];
-    };
-
     services.cloudflared = {
       enable = true;
       tunnels = {
@@ -970,20 +866,12 @@ EOF
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# UTILITIES — Dozzle (container log viewer) + File Browser
-# Port 8888: Dozzle      — live container logs, no auth needed (Tailscale-only)
+# UTILITIES — File Browser
 # Port 8081: FileBrowser — full filesystem browser (downloads, media, photos)
-#   Credentials managed via sops: filebrowser-username / filebrowser-password
+#   Credentials managed via sops: admin-username / admin-password
 #   filebrowser-credentials.service syncs them on every boot.
-# Both are Tailscale-only, not exposed via Cloudflare tunnel.
+# Tailscale-only, not exposed via Cloudflare tunnel.
 # ══════════════════════════════════════════════════════════════════════════════
-
-    virtualisation.oci-containers.containers.dozzle = {
-      image = "amir20/dozzle:latest";
-      ports = [ "8888:8080" ];
-      volumes = [ "/run/podman/podman.sock:/var/run/docker.sock:ro" ];
-      autoStart = true;
-    };
 
     # Always writes config.yaml on every rebuild — port and sources are
     # infrastructure, not user settings. User prefs live in the database.
@@ -1143,14 +1031,431 @@ EOF
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# OBSERVABILITY — Prometheus, Exporters, Glance, Loki + Alloy
+#
+# Architecture: Prometheus is the single collection layer.
+#   node_exporter, cAdvisor, Exportarr, SABnzbd exporter → Prometheus (9090)
+#   Glance (8888) reads Prometheus via custom-api widgets
+#   journald (all units) → Alloy → Loki (3100) → Glance/Grafana
+#
+# Exporter ports (internal only — Prometheus scrapes, not externally exposed):
+#   node_exporter 9100  |  cAdvisor      9101  |  sabnzbd-exporter 9387
+#   exportarr-sonarr  9708  |  exportarr-radarr  9709
+#   exportarr-lidarr  9710  |  exportarr-prowlarr 9711
+# ══════════════════════════════════════════════════════════════════════════════
+
+    # ── Prometheus ─────────────────────────────────────────────────────────────
+    services.prometheus = {
+      enable = true;
+      port = 9090;
+      listenAddress = "0.0.0.0";
+      retentionTime = "30d";
+
+      scrapeConfigs = [
+        {
+          job_name = "node";
+          scrape_interval = "5s";
+          static_configs = [{ targets = [ "localhost:9100" ]; }];
+        }
+        {
+          job_name = "cadvisor";
+          scrape_interval = "15s";
+          static_configs = [{ targets = [ "localhost:9101" ]; }];
+        }
+        {
+          job_name = "exportarr-sonarr";
+          static_configs = [{ targets = [ "localhost:9708" ]; }];
+        }
+        {
+          job_name = "exportarr-radarr";
+          static_configs = [{ targets = [ "localhost:9709" ]; }];
+        }
+        {
+          job_name = "exportarr-lidarr";
+          static_configs = [{ targets = [ "localhost:9710" ]; }];
+        }
+        {
+          job_name = "exportarr-prowlarr";
+          static_configs = [{ targets = [ "localhost:9711" ]; }];
+        }
+        {
+          job_name = "sabnzbd";
+          static_configs = [{ targets = [ "localhost:9387" ]; }];
+        }
+      ];
+    };
+
+    # ── node_exporter — host system metrics ────────────────────────────────────
+    services.prometheus.exporters.node = {
+      enable = true;
+      port = 9100;
+      enabledCollectors = [ "systemd" "processes" ];
+    };
+
+    # ── cAdvisor — per-container CPU / mem / net metrics ───────────────────────
+    # Runs as an oci-container; mounts Podman socket for container discovery.
+    # --privileged + /sys mount required for kernel-level cgroup stats.
+    virtualisation.oci-containers.containers.cadvisor = {
+      image = "gcr.io/cadvisor/cadvisor:latest";
+      ports = [ "9101:8080" ];
+      volumes = [
+        "/:/rootfs:ro"
+        "/var/run:/var/run:ro"
+        "/sys:/sys:ro"
+        "/run/podman/podman.sock:/run/podman/podman.sock:ro"
+      ];
+      extraOptions = [
+        "--privileged"
+        "--device=/dev/kmsg"
+      ];
+      cmd = [
+        "--docker=unix:///run/podman/podman.sock"
+        "--docker_only=true"
+        "--store_container_labels=false"
+      ];
+      autoStart = true;
+    };
+
+    # ── Exportarr — per-service metrics for the arr stack ──────────────────────
+    services.prometheus.exporters.exportarr-sonarr = {
+      enable = true;
+      port = 9708;
+      url = "http://localhost:8989";
+      apiKeyFile = config.sops.secrets."sonarr-api-key".path;
+    };
+
+    services.prometheus.exporters.exportarr-radarr = {
+      enable = true;
+      port = 9709;
+      url = "http://localhost:7878";
+      apiKeyFile = config.sops.secrets."radarr-api-key".path;
+    };
+
+    services.prometheus.exporters.exportarr-lidarr = {
+      enable = true;
+      port = 9710;
+      url = "http://localhost:8686";
+      apiKeyFile = config.sops.secrets."lidarr-api-key".path;
+    };
+
+    services.prometheus.exporters.exportarr-prowlarr = {
+      enable = true;
+      port = 9711;
+      url = "http://localhost:9696";
+      apiKeyFile = config.sops.secrets."prowlarr-api-key".path;
+    };
+
+    # ── SABnzbd exporter ────────────────────────────────────────────────────────
+    # Writes env file from sops before container starts (same pattern as Decluttarr).
+    systemd.services.sabnzbd-exporter-env = {
+      description = "Generate SABnzbd exporter env file from sops";
+      wantedBy  = [ "podman-sabnzbd-exporter.service" ];
+      before    = [ "podman-sabnzbd-exporter.service" ];
+      partOf    = [ "podman-sabnzbd-exporter.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        mkdir -p /var/lib/sabnzbd-exporter
+        {
+          printf 'SABNZBD_BASEURLS=http://host.containers.internal:8080\n'
+          printf 'SABNZBD_APIKEYS=%s\n' \
+            "$(cat ${config.sops.secrets."sabnzbd-api-key".path})"
+        } > /var/lib/sabnzbd-exporter/env
+        chmod 600 /var/lib/sabnzbd-exporter/env
+      '';
+    };
+
+    virtualisation.oci-containers.containers.sabnzbd-exporter = {
+      image = "docker.io/msroest/sabnzbd_exporter:latest";
+      ports = [ "9387:9387" ];
+      environmentFiles = [ "/var/lib/sabnzbd-exporter/env" ];
+      autoStart = true;
+    };
+
+    # ── Glance — observability dashboard (port 8888) ────────────────────────────
+    # Config baked into the Nix store (no secrets needed).
+    # Uses --network=host so:
+    #   - "sisyphus" resolves via the host's /etc/hosts for health checks
+    #   - Browser links (http://sisyphus:port) work from any tailnet client
+    #   - Prometheus at localhost:9090 is reachable without extra host mapping
+    virtualisation.oci-containers.containers.glance = {
+      image = "glanceapp/glance:latest";
+      volumes = [ "${glanceConfig}:/app/config/glance.yml:ro" ];
+      extraOptions = [ "--network=host" ];
+      autoStart = true;
+    };
+
+    # ── Loki — log storage ──────────────────────────────────────────────────────
+    services.loki = {
+      enable = true;
+      configuration = {
+        auth_enabled = false;
+        server.http_listen_port = 3100;
+
+        ingester = {
+          lifecycler = {
+            address = "127.0.0.1";
+            ring = {
+              kvstore.store = "inmemory";
+              replication_factor = 1;
+            };
+            final_sleep = "0s";
+          };
+          chunk_idle_period    = "1h";
+          max_chunk_age        = "1h";
+          chunk_target_size    = 1048576;
+          chunk_retain_period  = "30s";
+        };
+
+        schema_config.configs = [{
+          from         = "2024-01-01";
+          store        = "tsdb";
+          object_store = "filesystem";
+          schema       = "v13";
+          index = {
+            prefix = "index_";
+            period = "24h";
+          };
+        }];
+
+        storage_config = {
+          tsdb_shipper = {
+            active_index_directory = "/var/lib/loki/tsdb-index";
+            cache_location         = "/var/lib/loki/tsdb-cache";
+          };
+          filesystem.directory = "/var/lib/loki/chunks";
+        };
+
+        limits_config = {
+          reject_old_samples         = true;
+          reject_old_samples_max_age = "168h";
+        };
+
+        compactor.working_directory = "/var/lib/loki/compactor";
+      };
+    };
+
+    # ── Grafana — metrics and log viewer (port 3001) ───────────────────────────
+    # Loki (logs) + Prometheus (metrics) auto-provisioned as datasources.
+    # To explore logs: Explore → Loki → filter {unit="sonarr.service"} etc.
+    services.grafana = {
+      enable = true;
+      settings = {
+        server = {
+          http_port = 3001;
+          http_addr = "0.0.0.0";
+        };
+        security = {
+          admin_user  = "admin";
+          admin_password = "$__file{${config.sops.secrets."grafana-admin-password".path}}";
+          allow_embedding = true;
+        };
+        "auth.anonymous" = {
+          enabled  = true;
+          org_role = "Viewer";
+        };
+        analytics.reporting_enabled = false;
+        users.allow_sign_up = false;
+      };
+
+      provision.datasources.settings = {
+        apiVersion = 1;
+        datasources = [
+          {
+            name      = "Loki";
+            type      = "loki";
+            url       = "http://localhost:3100";
+            access    = "proxy";
+            isDefault = true;
+            jsonData.maxLines = 5000;
+          }
+          {
+            name   = "Prometheus";
+            type   = "prometheus";
+            url    = "http://localhost:9090";
+            access = "proxy";
+          }
+        ];
+      };
+
+      provision.dashboards.settings.providers = [{
+        name = "system";
+        options.path = pkgs.writeTextDir "system-stats.json" (builtins.toJSON {
+          uid = "asgard-system";
+          title = "System Stats";
+          timezone = "browser";
+          refresh = "1s";
+          time = { from = "now-1h"; to = "now"; };
+          schemaVersion = 42;
+          panels = [
+            # ── CPU % (time series, dark green) ──
+            {
+              id = 1; type = "timeseries"; title = "CPU";
+              gridPos = { h = 4; w = 12; x = 0; y = 0; };
+              datasource = "Prometheus";
+              targets = [{
+                refId = "A";
+                datasource = "Prometheus";
+                expr = ''100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m]))) * 100'';
+                legendFormat = "CPU %";
+              }];
+              fieldConfig.defaults = {
+                unit = "percent"; min = 0; max = 100;
+                color.mode = "fixed";
+                color.fixedColor = "dark-green";
+                custom = {
+                  fillOpacity = 20;
+                  lineWidth = 2;
+                  pointSize = 1;
+                  showPoints = "never";
+                  spanNulls = true;
+                };
+              };
+              options = {
+                legend.displayMode = "hidden";
+                tooltip.mode = "single";
+              };
+            }
+            # ── Memory (bar gauge: used / total GiB) ──
+            {
+              id = 2; type = "bargauge"; title = "Memory";
+              gridPos = { h = 4; w = 12; x = 12; y = 0; };
+              datasource = "Prometheus";
+              targets = [
+                {
+                  refId = "A"; datasource = "Prometheus";
+                  expr = "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)";
+                  legendFormat = "Used";
+                }
+                {
+                  refId = "B"; datasource = "Prometheus";
+                  expr = "node_memory_MemTotal_bytes";
+                  legendFormat = "Total";
+                }
+              ];
+              fieldConfig.defaults = {
+                unit = "bytes";
+                color.mode = "fixed";
+                color.fixedColor = "dark-yellow";
+                thresholds = {
+                  mode = "absolute";
+                  steps = [{ color = "dark-yellow"; value = null; }];
+                };
+              };
+              options = {
+                reduceOptions = { calcs = [ "lastNotNull" ]; fields = ""; values = false; };
+                displayMode = "gradient";
+                orientation = "horizontal";
+                valueMode = "color";
+                namePlacement = "auto";
+                showUnfilled = true;
+              };
+            }
+            # ── Disk /data (bar gauge: used / free / total) ──
+            {
+              id = 4; type = "bargauge"; title = "Disk /data";
+              gridPos = { h = 4; w = 12; x = 12; y = 4; };
+              datasource = "Prometheus";
+              targets = [
+                {
+                  refId = "A"; datasource = "Prometheus";
+                  expr = ''node_filesystem_size_bytes{mountpoint="/data"} - node_filesystem_avail_bytes{mountpoint="/data"}'';
+                  legendFormat = "Used";
+                }
+                {
+                  refId = "B"; datasource = "Prometheus";
+                  expr = ''node_filesystem_avail_bytes{mountpoint="/data"}'';
+                  legendFormat = "Free";
+                }
+                {
+                  refId = "C"; datasource = "Prometheus";
+                  expr = ''node_filesystem_size_bytes{mountpoint="/data"}'';
+                  legendFormat = "Total";
+                }
+              ];
+              fieldConfig.defaults = {
+                unit = "bytes";
+                color.mode = "fixed";
+                color.fixedColor = "dark-red";
+                thresholds = {
+                  mode = "absolute";
+                  steps = [{ color = "dark-red"; value = null; }];
+                };
+              };
+              options = {
+                reduceOptions = { calcs = [ "lastNotNull" ]; fields = ""; values = false; };
+                displayMode = "gradient";
+                orientation = "horizontal";
+                valueMode = "color";
+                namePlacement = "auto";
+                showUnfilled = true;
+              };
+            }
+            # ── Network (time series, purple) ──
+            {
+              id = 3; type = "timeseries"; title = "Network";
+              gridPos = { h = 4; w = 12; x = 0; y = 4; };
+              datasource = "Prometheus";
+              targets = [
+                {
+                  refId = "A"; datasource = "Prometheus";
+                  expr = ''rate(node_network_receive_bytes_total{device="enp10s0"}[2m]) * 8 / 1000000'';
+                  legendFormat = "Download";
+                }
+                {
+                  refId = "B"; datasource = "Prometheus";
+                  expr = ''rate(node_network_transmit_bytes_total{device="enp10s0"}[2m]) * 8 / 1000000'';
+                  legendFormat = "Upload";
+                }
+              ];
+              fieldConfig.defaults = {
+                unit = "Mbps"; min = 0;
+                custom = {
+                  fillOpacity = 15;
+                  lineWidth = 2;
+                  pointSize = 1;
+                  showPoints = "never";
+                  spanNulls = true;
+                };
+              };
+              fieldConfig.overrides = [
+                { matcher = { id = "byName"; options = "Download"; }; properties = [{ id = "color"; value = { mode = "fixed"; fixedColor = "dark-purple"; }; }]; }
+                { matcher = { id = "byName"; options = "Upload"; }; properties = [{ id = "color"; value = { mode = "fixed"; fixedColor = "light-purple"; }; }]; }
+              ];
+              options = {
+                legend.displayMode = "list";
+                legend.placement = "bottom";
+                tooltip.mode = "multi";
+              };
+            }
+          ];
+        });
+      }];
+    };
+
+    # ── Alloy — journald → Loki pipeline ───────────────────────────────────────
+    # Single journald scrape captures ALL units: native NixOS services (immich,
+    # sonarr, radarr, etc.) AND podman containers (podman-kavita.service, etc.).
+    # Config is static (no secrets) so it lives in the Nix store.
+    services.alloy = {
+      enable = true;
+      configPath = alloyConfig;
+    };
+    # Alloy needs read access to the systemd journal
+    systemd.services.alloy.serviceConfig.SupplementaryGroups = [ "systemd-journal" ];
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # INFRASTRUCTURE — Podman, media group, data directories, sops secrets
 # ══════════════════════════════════════════════════════════════════════════════
 
-    # --- Podman (OCI backend for Kavita, Dozzle, FileBrowser) ---
+    # --- Podman (OCI backend for containers: Kavita, FileBrowser, cAdvisor, exporters, Glance) ---
     virtualisation.oci-containers.backend = "podman";
     virtualisation.podman = {
       enable = true;
-      dockerSocket.enable = true; # compat socket for Dozzle
+      dockerSocket.enable = true; # activates podman.socket at /run/podman/podman.sock (used by cAdvisor)
     };
     # Allow containers to reach host-bound services (arr, immich, etc.)
     # tailscale0 trusted so all services are reachable from any tailnet device by hostname
@@ -1189,11 +1494,14 @@ EOF
       "d /var/lib/audiobookshelf/config      0775 root  media -"
       "d /var/lib/audiobookshelf/metadata    0775 root  media -"
       "d /var/lib/shelfarr                   0755 root  root  -"
-      "d /var/lib/homepage                   0755 root  root  -"
+
       "d /var/lib/filebrowser       0775 root  media -"
       "d /var/lib/decluttarr        0755 root  root  -"
       "d /var/lib/decluttarr/config 0755 root  root  -"
-      "d /var/lib/recyclarr         0700 root  root  -"
+      "d /var/lib/recyclarr              0700 root  root  -"
+      # Observability
+      "d /var/lib/sabnzbd-exporter       0700 root  root  -"
+      "d /var/lib/alloy                  0750 alloy alloy -"
     ];
 
     # --- Sops secrets ---
@@ -1231,7 +1539,8 @@ EOF
     sops.secrets."jellyfin-api-key"         = {};
     sops.secrets."jellyfin-admin-password"  = {};
     sops.secrets."cloudflare-tunnel"        = {};
-    sops.secrets."mullvad-private-key"      = { mode = "0400"; };
+    sops.secrets."mullvad-private-key"          = { mode = "0400"; };
+    sops.secrets."grafana-admin-password"       = { owner = "grafana"; };
     sops.secrets."admin-username"           = {};
     sops.secrets."admin-password"           = {};
 

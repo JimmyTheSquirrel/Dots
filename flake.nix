@@ -38,14 +38,7 @@
     # --- Wrapper Modules ---
     wrapper-modules.url = "github:BirdeeHub/nix-wrapper-modules";
 
-    # --- Star Citizen ---
-    nix-citizen = {
-      url = "github:LovingMelody/nix-citizen";
-      inputs.nix-gaming.follows = "nix-gaming";
-    };
-    nix-gaming.url = "github:fufexan/nix-gaming";
-
-    # --- SDDM Theme ---
+# --- SDDM Theme ---
     silentSDDM = {
       url = "github:uiriansan/SilentSDDM";
       inputs.nixpkgs.follows = "nixpkgs";

@@ -46,8 +46,8 @@
 EOF
             '';
             bitwarden-zip = pkgs.fetchzip {
-              url = "https://github.com/bitwarden/clients/releases/download/browser-v2026.3.0/dist-chrome-2026.3.0.zip";
-              hash = "sha256-L3KBQzecjBlc8YW+lGzhzD1AHD/KVpUkcq+tDVPeMSU=";
+              url = "https://github.com/bitwarden/clients/releases/download/browser-v2026.5.1/dist-chrome-2026.5.1.zip";
+              hash = "sha256-xmTQ9HMiGlHtVCkTkzfIVxYsJ3A+zj0VF5S+mTnSIr0=";
               stripRoot = false;
             };
             # Inject the RSA public key into manifest.json so --load-extension assigns the
@@ -118,8 +118,8 @@ EOF
               url = "https://www.protondb.com";
             }
             {
-              name = "Homepage";
-              url = "http://localhost:3000";
+              name = "Glance";
+              url = "http://localhost:8888";
             }
           ];
         }

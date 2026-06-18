@@ -2,16 +2,11 @@
   flake.nixosModules.base = {
     pkgs,
     activeUser,
-    inputs,
     ...
   }: {
     # Nix settings
     nix.settings = {
       experimental-features = ["nix-command" "flakes"];
-      substituters = ["https://nix-citizen.cachix.org"];
-      trusted-public-keys = [
-        "nix-citizen.cachix.org-1:lPMkWc2X8XD4/7YPEEwXKKBg+SVbYTVrAaLA2wQTKCo="
-      ];
     };
 
     nixpkgs.config.allowUnfree = true;
@@ -58,8 +53,7 @@
       claude-code
       wowup-cf
       (prismlauncher.override {jdks = [pkgs.jdk21];})
-      inputs.nix-citizen.packages.${pkgs.stdenv.hostPlatform.system}.rsi-launcher
-      moonlight-qt
+moonlight-qt
       nixos-anywhere
       mpv
       imv

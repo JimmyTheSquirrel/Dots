@@ -14,20 +14,19 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 
 ---
 
-## Current Status (as of 2026-06-02)
+## Current Status (as of 2026-06-18)
 
 ### Full stack working on Sisyphus
 - Nixflix arr stack (Sonarr/Radarr/Lidarr/Prowlarr) — Forms auth via `hostConfig.password._secret` → `admin-password`
-- Jellyfin, Jellyseerr, SABnzbd — all healthy, Homepage widgets showing data
+- Jellyfin, Jellyseerr, SABnzbd — all healthy
 - Prowlarr — 3 indexers pre-configured (Miatrix, NZBgeek, NzbPlanet) via sops secrets
 - SABnzbd — FrugalUsenet server pre-configured with dedicated username/password secrets
-- Readarr — working. Auth wizard completed manually once; API key pre-seeded. Homepage widget live.
-- Homepage dashboard — all service widgets live (including Readarr)
-- Homepage Network section — 4 Tailscale device cards (sisyphus, eclipse-pi, caitlins-s25, rhyss-s25)
-- FileBrowser, Immich, Kavita, Dozzle — running
+- Glance dashboard (port 8888) — service monitors, Grafana iframe panels, bookmarks
+- FileBrowser, Immich, Audiobookshelf, Shelfarr — running
 - Decluttarr — running, config auto-generated from individual arr/sabnzbd API key secrets
 - Recyclarr — runs on boot + daily, syncs TRaSH Guides quality profiles to Sonarr + Radarr
 - Tailscale networking — `tailscale0` trusted in firewall, all services reachable via `hostname:port` from any tailnet device
+- **Observability stack** — Glance (8888), Prometheus (9090, node scrape 5s), Loki (3100), Grafana (3001, anonymous viewing + iframe embedding), Alloy, Exportarr, cAdvisor, SABnzbd exporter
 
 ### Fresh Asgard deploy notes
 - Wipe arr state dirs before first build if any stale state exists:
@@ -36,27 +35,37 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
               /data/.state/services/lidarr /data/.state/services/prowlarr
   ```
 - After deploy: add Asgard's Tailscale device ID to the Network section in server.nix
-- Readarr: complete auth wizard once at localhost:8787 (API key is pre-seeded, auth is not)
+- Add `grafana-admin-password` to sops before first build
 
 ---
 
 ## Port Reference
 
-| Service       | Port | Access         | Notes |
-|---------------|------|----------------|-------|
-| Jellyfin      | 8096 | Tailscale + CF tunnel | jellyfin.bifrost-vault.com |
-| Jellyseerr    | 5055 | Tailscale + CF tunnel | requests.bifrost-vault.com |
-| Immich        | 2283 | Tailscale + CF tunnel | photos.bifrost-vault.com |
-| Sonarr        | 8989 | Tailscale only | |
-| Radarr        | 7878 | Tailscale only | |
-| Lidarr        | 8686 | Tailscale only | |
-| Prowlarr      | 9696 | Tailscale only | |
-| Readarr       | 8787 | Tailscale only | Native NixOS service, not nixflix |
-| SABnzbd       | 8080 | Tailscale only | |
-| Homepage      | 3000 | Tailscale only | Declarative dashboard |
-| Kavita        | 5000 | Tailscale only | Podman container |
-| Dozzle        | 8888 | Tailscale only | Container log viewer (Podman containers only) |
-| File Browser  | 8081 | Tailscale only | Quantum fork. Credentials synced from sops (admin-username/admin-password) |
+| Service            | Port | Access         | Notes |
+|--------------------|------|----------------|-------|
+| Jellyfin           | 8096 | Tailscale + CF tunnel | jellyfin.bifrost-vault.com |
+| Jellyseerr         | 5055 | Tailscale + CF tunnel | requests.bifrost-vault.com |
+| Immich             | 2283 | Tailscale + CF tunnel | photos.bifrost-vault.com |
+| Sonarr             | 8989 | Tailscale only | |
+| Radarr             | 7878 | Tailscale only | |
+| Lidarr             | 8686 | Tailscale only | |
+| Prowlarr           | 9696 | Tailscale only | |
+| SABnzbd            | 8080 | Tailscale only | Dark theme: `web_color = "Night"` in misc settings |
+| Audiobookshelf     | 13378 | Tailscale only | Podman container |
+| Shelfarr           | 5056 | Tailscale only | Podman container — book request portal |
+| ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
+| File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
+| **Glance**         | 8888 | Tailscale only | Main dashboard (replaces Homepage + Dozzle). Grafana iframes + service monitors |
+| **Grafana**        | 3001 | Tailscale only | System stats (bar gauge panels) + logs. Anonymous viewing enabled for iframe embedding |
+| **Prometheus**     | 9090 | Tailscale only | Metrics collection |
+| **Loki**           | 3100 | Tailscale only | Log storage. Health: `:3100/ready` |
+| node_exporter      | 9100 | internal only  | Host system metrics |
+| cAdvisor           | 9101 | internal only  | Per-container metrics (Podman socket) |
+| sabnzbd-exporter   | 9387 | internal only  | SABnzbd queue/speed metrics |
+| exportarr-sonarr   | 9708 | internal only  | Sonarr arr metrics |
+| exportarr-radarr   | 9709 | internal only  | Radarr arr metrics |
+| exportarr-lidarr   | 9710 | internal only  | Lidarr arr metrics |
+| exportarr-prowlarr | 9711 | internal only  | Prowlarr arr metrics |
 
 ---
 
@@ -68,22 +77,73 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 - All API keys pre-seeded from sops — no manual UI wiring needed
 
 ### Native NixOS services (not nixflix)
-- Readarr — `services.readarr`, user added to `media` group manually. Auth wizard must be completed once on fresh deploy (API key is pre-seeded, auth is not — `AuthenticationMethod=None` in config.xml causes a DryIoc crash same as env vars)
 - Immich — `services.immich`, manages its own PostgreSQL + Redis. `host = "0.0.0.0"` required — default `localhost` binds to `[::1]` (IPv6 only) making it unreachable. `ExecStartPre` script creates `.immich` marker files in all subdirs of `/data/photos/` (encoded-video, thumbs, upload, backups, library, profile) — Immich refuses to start without these.
 - Tailscale — `services.tailscale`
 - Cloudflared — `services.cloudflared`
-
-### Native NixOS service (declarative)
-- Homepage — `services.homepage-dashboard`, port 3000. API keys injected via `homepage-env` systemd service writing `/var/lib/homepage/homepage.env`. Uses `{{HOMEPAGE_VAR_*}}` substitution.
 
 ### Native NixOS service (background sync)
 - **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`. Radarr templates use `radarr-quality-profile-remux-*` / `radarr-custom-formats-remux-*` (no `-v9-` prefix — that naming was dropped from TRaSH Guides).
 
 ### Podman containers
-- Kavita, Dozzle, File Browser Quantum, Decluttarr
+- Audiobookshelf, Shelfarr, File Browser Quantum, Decluttarr, cAdvisor, SABnzbd exporter, Glance
 - Backend: `virtualisation.oci-containers.backend = "podman"`
-- Docker compat socket enabled for Dozzle
+- Docker compat socket (`podman.socket` at `/run/podman/podman.sock`) enabled for cAdvisor
 - **Decluttarr:** `decluttarr-config.service` generates `/var/lib/decluttarr/config/config.yaml` from individual arr + sabnzbd sops secrets before the container starts. No separate `decluttarr-env` secret — reuses existing API key secrets directly. `remove_orphans: false` — do NOT enable this, it kills newly queued downloads before SABnzbd picks them up (within 2 minutes).
+- **SABnzbd exporter:** `docker.io/msroest/sabnzbd_exporter:latest` (NOT ghcr.io — that's a private 403). Env file written by `sabnzbd-exporter-env.service` with `SABNZBD_BASEURLS` + `SABNZBD_APIKEYS`.
+- **Glance:** `glanceapp/glance:latest`, `--network=host` so `sisyphus` hostname resolves for health checks and browser links. Config baked into Nix store via `pkgs.writeText "glance.yml"`.
+- **cAdvisor:** `gcr.io/cadvisor/cadvisor:latest`, `--privileged`, mounts Podman socket. Port 9101.
+
+---
+
+## Observability Stack
+
+### Architecture
+```
+journald (all units) → Alloy → Loki (3100)
+node_exporter / cAdvisor / Exportarr / SABnzbd exporter → Prometheus (9090)
+Glance (8888) — reads Prometheus via custom-api widgets
+Grafana (3001) — reads Loki + Prometheus, provisioned datasources
+```
+
+### Glance Dashboard (port 8888)
+2-column layout: **Bookmarks** (left, small) | **Grafana iframes + Service monitors** (right, full)
+
+**Page 1 — Asgard (main):**
+
+Left column (small): Bookmarks grouped by Watch & Browse / Downloads / Arr Stack / Management
+
+Right column (full):
+- 4 Grafana solo panel iframes stacked vertically (no section headers/titles): CPU, Disk /data, Network, Memory
+- Service monitor groups: Downloads (SABnzbd, Prowlarr), Arr Stack (Sonarr, Radarr, Lidarr, Shelfarr), Media (Jellyfin, Jellyseerr, Immich, Audiobookshelf), Management (FileBrowser, Glance, Prometheus, Loki, Grafana)
+
+**Page 2 — Downloads:**
+- SABnzbd iframe: `type: iframe`, `source: http://sisyphus:8080`, `height: 450`
+
+**Grafana iframe URLs:** `http://sisyphus:3001/d-solo/asgard-system/system-stats?orgId=1&panelId=N&theme=dark&refresh=5s` where N = 1 (CPU), 2 (Memory), 3 (Network), 4 (Disk)
+
+**Theme:** `positive-color: hsl(142, 72%, 39%)` (green ticks for online), `negative-color: hsl(0, 84%, 60%)`
+
+**Icons:** Use `sh:` prefix (selfh.st colored icons). For apps not in selfh.st, use direct CDN URLs. Avoid `si:` — monochrome.
+
+**SABnzbd iframe requirements:** `x_frame_options = 0` in nixflix SABnzbd misc settings. Dark mode: `web_color = "Night"` (NOT "Dark").
+
+### Grafana (port 3001)
+- Admin password from sops `grafana-admin-password` (owner = grafana)
+- `allow_embedding = true` + anonymous auth (Viewer role) — enables Glance iframe embedding
+- Loki + Prometheus datasources auto-provisioned via `provision.datasources.settings`
+- **CRITICAL:** NixOS Grafana module does NOT support `uid` field in datasource provisioning (generates `uid: null` → crash). Always use name strings: `datasource = "Prometheus"`
+- **System Stats dashboard** (uid: `asgard-system`, provisioned via `pkgs.writeTextDir`):
+  - 4 bar gauge panels (Retro LCD display mode) in 2x2 grid, refresh 1s
+  - CPU (panelId=1, dark-green), Disk /data (panelId=4, dark-red), Network (panelId=3, dark-purple), Memory (panelId=2, dark-yellow)
+  - Prometheus node scrape interval: 5s for near-real-time data
+- **Logs dashboard:** `{job="journald", unit=~"$unit"}` with `$unit` variable
+  - Variable type: Query, Label values for label `unit`, filter `{job="journald"}`
+  - Regex: `/^(sonarr|radarr|lidarr|prowlarr|sabnzbd|jellyfin|seerr|recyclarr|decluttarr|immich|podman|loki|grafana|prometheus|alloy)/`
+  - Multi-value + Include All option enabled
+- **DB path:** `/var/lib/grafana/data/grafana.db` — wipe when fundamentally changing datasource/dashboard provisioning
+
+### Alloy journald → Loki pipeline
+Config in Nix store (`pkgs.writeText "config.alloy"`). Labels extracted: `unit` (systemd unit), `host`, `level`. Alloy service needs `SupplementaryGroups = ["systemd-journal"]` to read the journal.
 
 ---
 
@@ -183,39 +243,12 @@ curl -s -b /tmp/t.txt -X POST "http://localhost:5055/api/v1/settings/initialize"
 
 ---
 
-## Homepage Dashboard
+## Homepage Dashboard — REMOVED
 
-**Declarative approach:** Static YAML files built in Nix store, written to `/var/lib/homepage/config/` by `homepage-config.service` on every boot before the container starts.
-API keys injected via `/var/lib/homepage/homepage.env` using `{{HOMEPAGE_VAR_*}}` substitution.
+Homepage (`services.homepage-dashboard`) has been removed and replaced by Glance (port 8888).
+Glances (`services.glances`) was also removed — it was only used as a Homepage widget backend.
 
-**Remote access:** `href` links use `sisyphus:port` (not localhost) so clicking them works from any Tailscaled machine. Widget `url` fields stay as `localhost` (Homepage fetches those server-side). `allowedHosts` includes `sisyphus`, `sisyphus.tailb54b82.ts.net`, and `100.119.193.77` to prevent host validation errors from remote clients.
-
-**Disk widget:** Uses `metric = "fs:/data"` to show the NVMe data drive — not `fs:/` (root drive).
-
-**Services with live widgets (API keys in sops):**
-Jellyfin, Jellyseerr, Sonarr, Radarr, Lidarr, Prowlarr, SABnzbd, Readarr
-
-**Services as links only (no API key in sops):**
-Immich, Kavita, Dozzle, File Browser
-
-**To add a widget for Immich/Kavita later:** add `immich-api-key` / `kavita-api-key` to sops, add to `homepage-env` script and add widget block in `services.homepage-dashboard.services`.
-
-**Network section — Tailscale device widgets:**
-One card per device using `type: tailscale` with `deviceid` + `key`. Device IDs are hardcoded in server.nix (not secrets).
-Get all device IDs with:
-```bash
-curl -s -H "Authorization: Bearer $(sudo cat /run/secrets/tailscale-api-key)" \
-  "https://api.tailscale.com/api/v2/tailnet/tailb54b82.ts.net/devices" \
-  | jq '[.devices[] | {name: .name, id: .id}]'
-```
-Current devices hardcoded in server.nix:
-- sisyphus: `8021612644818291`
-- eclipse-pi: `3166629277500775`
-- caitlins-s25: `6502532657979703`
-- rhyss-s25: `5131325073312736`
-- asgard: add after first deploy (get ID from above command)
-
-`tailscale-api-key` expires every 90 days — regenerate at Tailscale admin → Settings → Keys.
+All service monitoring is now done via Glance monitor widgets + Grafana iframe panels for system stats.
 
 ---
 
@@ -228,7 +261,6 @@ sonarr-api-key
 radarr-api-key
 lidarr-api-key
 prowlarr-api-key
-readarr-api-key
 jellyseerr-api-key
 sabnzbd-api-key
 sabnzbd-nzb-key
@@ -244,7 +276,8 @@ jellyfin-admin-password
 cloudflare-tunnel                  # full credentials JSON from cloudflared tunnel create
 admin-username                     # shared admin username for FileBrowser, Immich seed (e.g. admin)
 admin-password                     # shared admin password for FileBrowser, Immich seed
-mullvad-private-key                # WireGuard private key from Mullvad account → WireGuard Keys → Generate key → download Linux .conf → Interface.PrivateKey
+grafana-admin-password             # Grafana admin password — sops owner = "grafana"
+mullvad-private-key                # WireGuard private key from Mullvad
 ```
 
 **Cloudflare tunnel UUID:** `804d54a8-e7ad-4f34-812d-3052cf862c47` (in server.nix)
@@ -268,8 +301,8 @@ Declared in `Hosts/Sisyphus/system.nix` via `fileSystems."/data"`. All media/dow
 
 /var/lib/
   kavita/                    # Kavita container state
-  homepage/config/           # Homepage YAML (written by homepage-config.service)
   filebrowser/               # File Browser state
+  grafana/data/              # Grafana DB + state
 ```
 
 ---
@@ -289,10 +322,9 @@ GID 1001. All services that need `/data/media` access are in this group:
 2. Build: `system-rebuild rock Asgard`
 3. On first boot:
    - Run `sudo tailscale up` to authenticate Tailscale
-   - **Complete Readarr auth wizard once** — open `http://<tailscale-ip>:8787`, set Forms auth, save. Only needed once; API key is already seeded by `readarr-api-seed`.
    - Immich admin account is auto-created by `immich-admin-seed.service` (email: `<admin-username>@asgard.local`)
    - FileBrowser credentials auto-synced from sops by `filebrowser-credentials.service`
-4. Everything else (arr wiring, Jellyseerr setup, Homepage dashboard) is automatic
+4. Everything else (arr wiring, Jellyseerr setup, Glance dashboard, Grafana) is automatic
 
 ---
 
