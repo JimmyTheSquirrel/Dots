@@ -1,5 +1,6 @@
 {...}: {
   flake.nixosModules.base = {
+    config,
     pkgs,
     activeUser,
     ...
@@ -22,12 +23,21 @@
     programs.localsend.enable = true;
     programs.localsend.openFirewall = true;
     programs.ssh.startAgent = true;
+    programs.ssh.extraConfig = ''
+      Host asgard
+        HostName 100.64.0.1
+        User rock
+        SetEnv TERM=xterm-256color
+    '';
 
     # User
     users.users.${activeUser} = {
       isNormalUser = true;
       description = activeUser;
       extraGroups = ["networkmanager" "wheel" "video" "render" "input"];
+      openssh.authorizedKeys.keys = [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII8xJxKA/gdesYlTECQmBqvqZ0XhgmA08pagXZI95cKl jimmy"
+      ];
       shell = pkgs.zsh;
       packages = [];
     };
