@@ -25,12 +25,6 @@ let
       options = [ "fmask=0077" "dmask=0077" ];
     };
 
-    # Shared NVMe — all server media/downloads/state live here, off the root drive
-    fileSystems."/data" = {
-      device = "/dev/disk/by-uuid/bcb3be2b-3e76-41b4-9a08-748039214823";
-      fsType = "ext4";
-    };
-
     swapDevices = [
       { device = "/dev/disk/by-uuid/a0478bec-dbd0-4f91-8021-5a6dead6d769"; }
     ];
@@ -95,7 +89,6 @@ in {
       self.nixosModules.sunshine
       self.nixosModules.controller
       self.nixosModules.rpcs3
-      self.nixosModules.server
 
       # System-specific settings
       {
@@ -103,7 +96,7 @@ in {
         system.stateVersion = "25.05";
 
         # Allow building aarch64 (Pi5) packages and ISOs on this x86_64 machine
-        boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+        #boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
 
       }
     ];

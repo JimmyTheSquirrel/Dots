@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(echo:*)",
+      "Bash(coredumpctl list:*)",
+      "Bash(quickshell:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(ls:*)",
+      "Bash(matugen --version:*)",
+      "Bash(matugen:*)",
+      "Bash(xxd:*)",
+      "WebSearch",
+      "Bash(git add:*)",
+      "Bash(pgrep:*)",
+      "Bash(noctalia-shell:*)",
+      "Bash(skwd wall toggle:*)",
+      "Bash(cat:*)",
+      "Bash(nix flake show:*)",
+      "WebFetch(domain:birdeehub.github.io)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh api:*)",
+      "Bash(nix flake metadata:*)",
+      "Bash(systemctl:*)",
+      "Bash(journalctl:*)",
+      "Bash(md5sum:*)",
+      "Bash(uniq:*)",
+      "Read(//home/rock/.config/skwd-wall/**)",
+      "Read(//home/rock/.config/skwd-wall/data/matugen/templates/**)"
+    ]
+  }
+}

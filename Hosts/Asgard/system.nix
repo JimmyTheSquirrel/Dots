@@ -3,33 +3,70 @@ let
   activeUser = "rock";
   hostName = "Asgard";
 
-  # Hardware reused from Sisyphus (same physical machine).
-  # When moving to a dedicated box, replace the UUIDs from `nixos-generate-config`.
   hardwareConfig = { config, lib, modulesPath, ... }: {
     imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
 
     boot.initrd.availableKernelModules = [ "nvme" "xhci_pci" "ahci" "usbhid" "usb_storage" "sd_mod" ];
     boot.initrd.kernelModules = [ ];
-    boot.kernelModules = [ "kvm-amd" ];
+    boot.kernelModules = [ "kvm-intel" ];
     boot.extraModulePackages = [ ];
 
-    fileSystems."/" = {
-      device = "/dev/disk/by-uuid/ee6c7638-4daf-4f37-aa05-bd6068c113f1";
-      fsType = "ext4";
-    };
-
-    fileSystems."/boot" = {
-      device = "/dev/disk/by-uuid/21BA-2C3E";
-      fsType = "vfat";
-      options = [ "fmask=0077" "dmask=0077" ];
-    };
-
-    swapDevices = [
-      { device = "/dev/disk/by-uuid/a0478bec-dbd0-4f91-8021-5a6dead6d769"; }
-    ];
-
     nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
-    hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
+    hardware.cpu.intel.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
+  };
+
+  # Disko — declarative disk partitioning
+  # NVMe (nvme0n1, 1TB): boot + root (+ /downloads for SABnzbd temp)
+  # HDD (sda, 8TB): /data (media, photos, state)
+  diskoConfig = {
+    disko.devices = {
+      disk = {
+        nvme = {
+          type = "disk";
+          device = "/dev/nvme0n1";
+          content = {
+            type = "gpt";
+            partitions = {
+              ESP = {
+                size = "512M";
+                type = "EF00";
+                content = {
+                  type = "filesystem";
+                  format = "vfat";
+                  mountpoint = "/boot";
+                  mountOptions = [ "fmask=0077" "dmask=0077" ];
+                };
+              };
+              root = {
+                size = "100%";
+                content = {
+                  type = "filesystem";
+                  format = "ext4";
+                  mountpoint = "/";
+                };
+              };
+            };
+          };
+        };
+        hdd = {
+          type = "disk";
+          device = "/dev/sda";
+          content = {
+            type = "gpt";
+            partitions = {
+              data = {
+                size = "100%";
+                content = {
+                  type = "filesystem";
+                  format = "ext4";
+                  mountpoint = "/data";
+                };
+              };
+            };
+          };
+        };
+      };
+    };
   };
 in {
   flake.nixosConfigurations."${activeUser}-${hostName}" = inputs.nixpkgs.lib.nixosSystem {
@@ -37,6 +74,10 @@ in {
     specialArgs = { inherit inputs activeUser; };
     modules = [
       hardwareConfig
+
+      # Disko — declarative disk partitioning (NVMe + HDD)
+      inputs.disko.nixosModules.disko
+      diskoConfig
 
       inputs.home-manager.nixosModules.home-manager
       {
@@ -59,7 +100,6 @@ in {
 
       # Shared base modules (shell, git, fonts, nix settings, user setup)
       self.nixosModules.base
-      self.nixosModules.grub
       self.nixosModules.locale
       self.nixosModules.sops
       self.nixosModules.zsh
@@ -74,11 +114,30 @@ in {
         networking.hostName = hostName;
         system.stateVersion = "25.05";
 
-        # SSH for remote management (password auth disabled — use keys)
+        # Boot — systemd-boot (no GRUB on server, single system)
+        boot.loader.systemd-boot.enable = true;
+        boot.loader.efi.canTouchEfiVariables = true;
+
+        # Allow remote deploys from Sisyphus (nix-copy-closure needs trusted-users)
+        nix.settings.trusted-users = [ "rock" ];
+
+        # SSH for remote management
         services.openssh = {
           enable = true;
           settings.PasswordAuthentication = false;
         };
+
+        # Passwordless sudo for server management
+        security.sudo.wheelNeedsPassword = false;
+
+        # Fallback password (change with passwd after first login)
+        users.users.${activeUser}.initialPassword = "asgard";
+
+        # /downloads on NVMe for fast SABnzbd unpacking
+        systemd.tmpfiles.rules = [
+          "d /downloads              0775 root  media -"
+          "d /downloads/usenet       0775 root  media -"
+        ];
       }
     ];
   };

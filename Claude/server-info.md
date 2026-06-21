@@ -21,12 +21,12 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 - Jellyfin, Jellyseerr, SABnzbd — all healthy
 - Prowlarr — 3 indexers pre-configured (Miatrix, NZBgeek, NzbPlanet) via sops secrets
 - SABnzbd — FrugalUsenet server pre-configured with dedicated username/password secrets
-- Glance dashboard (port 8888) — service monitors, Grafana iframe panels, bookmarks
+- Glance dashboard (port 8888) — native `server-stats` widget + "System Info" custom-api (auto-refreshing via injected JS), service monitors, bookmarks
 - FileBrowser, Immich, Audiobookshelf, Shelfarr — running
 - Decluttarr — running, config auto-generated from individual arr/sabnzbd API key secrets
 - Recyclarr — runs on boot + daily, syncs TRaSH Guides quality profiles to Sonarr + Radarr
 - Tailscale networking — `tailscale0` trusted in firewall, all services reachable via `hostname:port` from any tailnet device
-- **Observability stack** — Glance (8888), Prometheus (9090, node scrape 5s), Loki (3100), Grafana (3001, anonymous viewing + iframe embedding), Alloy, Exportarr, cAdvisor, SABnzbd exporter
+- **Observability stack** — Glance (8888, native systemd service), Prometheus (9090, node scrape 5s, CORS enabled), Loki (3100), Grafana (3001, anonymous viewing + iframe embedding), Alloy, Exportarr, cAdvisor, SABnzbd exporter
 
 ### Fresh Asgard deploy notes
 - Wipe arr state dirs before first build if any stale state exists:
@@ -55,9 +55,9 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 | Shelfarr           | 5056 | Tailscale only | Podman container — book request portal |
 | ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
-| **Glance**         | 8888 | Tailscale only | Main dashboard (replaces Homepage + Dozzle). Grafana iframes + service monitors |
+| **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Native server-stats + auto-refreshing System Info widget |
 | **Grafana**        | 3001 | Tailscale only | System stats (bar gauge panels) + logs. Anonymous viewing enabled for iframe embedding |
-| **Prometheus**     | 9090 | Tailscale only | Metrics collection |
+| **Prometheus**     | 9090 | Tailscale only | Metrics collection. CORS enabled (`--web.cors.origin=.*`) for Glance JS polling |
 | **Loki**           | 3100 | Tailscale only | Log storage. Health: `:3100/ready` |
 | node_exporter      | 9100 | internal only  | Host system metrics |
 | cAdvisor           | 9101 | internal only  | Per-container metrics (Podman socket) |
@@ -85,12 +85,12 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 - **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`. Radarr templates use `radarr-quality-profile-remux-*` / `radarr-custom-formats-remux-*` (no `-v9-` prefix — that naming was dropped from TRaSH Guides).
 
 ### Podman containers
-- Audiobookshelf, Shelfarr, File Browser Quantum, Decluttarr, cAdvisor, SABnzbd exporter, Glance
+- Audiobookshelf, Shelfarr, File Browser Quantum, Decluttarr, cAdvisor, SABnzbd exporter
 - Backend: `virtualisation.oci-containers.backend = "podman"`
 - Docker compat socket (`podman.socket` at `/run/podman/podman.sock`) enabled for cAdvisor
 - **Decluttarr:** `decluttarr-config.service` generates `/var/lib/decluttarr/config/config.yaml` from individual arr + sabnzbd sops secrets before the container starts. No separate `decluttarr-env` secret — reuses existing API key secrets directly. `remove_orphans: false` — do NOT enable this, it kills newly queued downloads before SABnzbd picks them up (within 2 minutes).
 - **SABnzbd exporter:** `docker.io/msroest/sabnzbd_exporter:latest` (NOT ghcr.io — that's a private 403). Env file written by `sabnzbd-exporter-env.service` with `SABNZBD_BASEURLS` + `SABNZBD_APIKEYS`.
-- **Glance:** `glanceapp/glance:latest`, `--network=host` so `sisyphus` hostname resolves for health checks and browser links. Config baked into Nix store via `pkgs.writeText "glance.yml"`.
+- **Glance:** Moved from container to native systemd service (`pkgs.glance`) — needed for `server-stats` widget to access host `/proc`/`/sys`. Config baked into Nix store via `pkgs.writeText "glance.yml"`. Uses `DynamicUser = true`.
 - **cAdvisor:** `gcr.io/cadvisor/cadvisor:latest`, `--privileged`, mounts Podman socket. Port 9101.
 
 ---
@@ -106,20 +106,21 @@ Grafana (3001) — reads Loki + Prometheus, provisioned datasources
 ```
 
 ### Glance Dashboard (port 8888)
-2-column layout: **Bookmarks** (left, small) | **Grafana iframes + Service monitors** (right, full)
+2-column layout: **Bookmarks** (left, small) | **System stats + Service monitors** (right, full)
 
 **Page 1 — Asgard (main):**
 
 Left column (small): Bookmarks grouped by Watch & Browse / Downloads / Arr Stack / Management
 
 Right column (full):
-- 4 Grafana solo panel iframes stacked vertically (no section headers/titles): CPU, Disk /data, Network, Memory
-- Service monitor groups: Downloads (SABnzbd, Prowlarr), Arr Stack (Sonarr, Radarr, Lidarr, Shelfarr), Media (Jellyfin, Jellyseerr, Immich, Audiobookshelf), Management (FileBrowser, Glance, Prometheus, Loki, Grafana)
+- Native `server-stats` widget: CPU/RAM/Disk bars, `/data` mountpoint shown, others hidden
+- "System Info" `custom-api` widget: Disk /data GB free, Download Mbps, Upload Mbps — queries Prometheus with combined PromQL (`node_filesystem_free_bytes` + `rate(node_network_*_bytes_total{device=~"enp.*|wlp.*"}[15s])`). Auto-refreshed every 5s via injected JavaScript in `document.head` that polls Prometheus directly (requires CORS enabled on Prometheus)
+- Service monitor groups: Downloads (SABnzbd, Prowlarr), Arr Stack (Sonarr, Radarr, Lidarr, Shelfarr), Media (Jellyfin, Jellyseerr, Immich, Audiobookshelf), Management (FileBrowser, Prometheus, Loki, Grafana)
 
 **Page 2 — Downloads:**
-- SABnzbd iframe: `type: iframe`, `source: http://sisyphus:8080`, `height: 450`
-
-**Grafana iframe URLs:** `http://sisyphus:3001/d-solo/asgard-system/system-stats?orgId=1&panelId=N&theme=dark&refresh=5s` where N = 1 (CPU), 2 (Memory), 3 (Network), 4 (Disk)
+- SABnzbd iframe: `type: iframe`, `source: http://sisyphus:8080`, `height: 700`
+- SABnzbd auth removed — iframe loads without login (tailnet-only access)
+- UI prefs (compact/fullscreen/tabbed) set server-side via `web_compact/web_fullscreen/web_tabbed = true`, but iframe needs "Use global interface settings" ticked within its own browser context
 
 **Theme:** `positive-color: hsl(142, 72%, 39%)` (green ticks for online), `negative-color: hsl(0, 84%, 60%)`
 
@@ -160,8 +161,10 @@ Forms auth with the `admin-password` sops secret. No manual wizard step needed o
 - `par2_multicore = 1` + `par2_threads = 12` — use all cores for par2 verification
 - `abort_max_missing = 10` — abort download if >10% articles missing
 - `fail_hopeless_jobs = 1` — fail (not pause) job if par2 can't repair after download; Radarr/Sonarr will blacklist and grab next release
-- `host_whitelist = "sisyphus,sisyphus.tailb54b82.ts.net,100.119.193.77"` — allows access by hostname from Tailscale
+- `host_whitelist = "sisyphus,sisyphus.tailb54b82.ts.net,100.119.193.77,host.containers.internal"` — allows access by hostname from Tailscale + Podman containers (SABnzbd exporter)
 - `inet_exposure = 4` — allows connections from any IP (safe, only reachable via Tailscale)
+- Auth removed (no `username`/`password` in misc) — only reachable via tailnet
+- `web_compact = true`, `web_fullscreen = true`, `web_tabbed = true` — compact UI with tabbed queue/history
 
 **CRITICAL — do NOT use `settings.auth` env vars:**
 Setting `SONARR__AUTH__METHOD=None` (or any Disabled/None combo) via nixflix `settings.auth`
@@ -248,7 +251,7 @@ curl -s -b /tmp/t.txt -X POST "http://localhost:5055/api/v1/settings/initialize"
 Homepage (`services.homepage-dashboard`) has been removed and replaced by Glance (port 8888).
 Glances (`services.glances`) was also removed — it was only used as a Homepage widget backend.
 
-All service monitoring is now done via Glance monitor widgets + Grafana iframe panels for system stats.
+All service monitoring is now done via Glance native `server-stats` widget + auto-refreshing "System Info" custom-api widget (Prometheus-backed).
 
 ---
 

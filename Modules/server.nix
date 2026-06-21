@@ -3,12 +3,103 @@
   flake.nixosModules.server = { config, pkgs, lib, activeUser, ... }:
   let
     # ── Glance YAML config (no secrets — reads Prometheus which has no auth) ──
-    # Baked into Nix store. Glance container mounts it read-only at /app/glance.yml.
-    # Uses --network=host so sisyphus resolves via the host's /etc/hosts, and all
-    # service health checks + browser links use the same http://sisyphus:port URL.
+    # Runs as native systemd service (not container) so server-stats widget
+    # can read host CPU/memory/disk directly from /proc and /sys.
     glanceConfig = pkgs.writeText "glance.yml" ''
       server:
         port: 8888
+
+      document:
+        head: |
+          <script>
+          (() => {
+            const q = 'node_filesystem_free_bytes{mountpoint="/data"} / 1073741824 or label_replace(sum(rate(node_network_receive_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "download", "", "") or label_replace(sum(rate(node_network_transmit_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "upload", "", "")';
+            const url = 'http://localhost:9090/api/v1/query?query=' + encodeURIComponent(q);
+            setInterval(async () => {
+              const el = document.querySelector('.widget-type-custom-api .widget-content');
+              if (!el) return;
+              try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+                const r = data.data.result;
+                if (!r || r.length < 3) return;
+                const disk = Math.round(parseFloat(r[0].value[1]));
+                const down = parseFloat(r[1].value[1]).toFixed(1);
+                const up = parseFloat(r[2].value[1]).toFixed(1);
+                el.innerHTML =
+                  '<p class="size-h4"><span class="color-subtext">Disk /data:</span> <span class="color-primary">' + disk + ' GB</span> free</p>' +
+                  '<p class="size-h4"><span class="color-subtext">Download:</span> <span class="color-primary">' + down + ' Mbps</span></p>' +
+                  '<p class="size-h4"><span class="color-subtext">Upload:</span> <span class="color-primary">' + up + ' Mbps</span></p>';
+              } catch(e) {}
+            }, 5000);
+          })();
+          </script>
+          <style>
+            /* ── Global polish ── */
+            .widget {
+              border: 1px solid hsla(160, 40%, 40%, 0.15);
+              border-radius: 12px;
+              backdrop-filter: blur(4px);
+              transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            }
+            .widget:hover {
+              border-color: hsla(160, 50%, 50%, 0.3);
+              box-shadow: 0 0 15px hsla(160, 50%, 40%, 0.08);
+            }
+            .widget-header .widget-title {
+              letter-spacing: 0.08em;
+            }
+
+            /* ── Monitor widget tweaks ── */
+            .widget-type-monitor .monitor-site {
+              border-radius: 8px;
+              transition: background-color 0.2s ease;
+            }
+
+            /* ── Yggdrasil tree banner ── */
+            .ygg-widget {
+              position: relative;
+            }
+            .ygg-widget::before {
+              content: "";
+              display: block;
+              width: 100%;
+              height: 200px;
+              margin-bottom: 8px;
+              background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Cdefs%3E%3CradialGradient id='bg' cx='50%25' cy='45%25' r='42%25'%3E%3Cstop offset='0%25' stop-color='hsla(160,30%25,25%25,0.12)'/%3E%3Cstop offset='100%25' stop-color='hsla(160,30%25,15%25,0)'/%3E%3C/radialGradient%3E%3CradialGradient id='canopy' cx='50%25' cy='40%25' r='35%25'%3E%3Cstop offset='0%25' stop-color='hsla(140,50%25,40%25,0.18)'/%3E%3Cstop offset='70%25' stop-color='hsla(140,40%25,30%25,0.08)'/%3E%3Cstop offset='100%25' stop-color='hsla(140,30%25,25%25,0)'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='200' cy='190' r='160' fill='url(%23bg)'/%3E%3Cg fill='none' stroke='hsla(160,35%25,55%25,0.35)' stroke-width='1.5'%3E%3Ccircle cx='200' cy='190' r='158'/%3E%3Ccircle cx='200' cy='190' r='150'/%3E%3C/g%3E%3Cg fill='hsla(160,40%25,60%25,0.45)' font-family='serif' font-size='14' font-weight='bold'%3E%3Ctext x='200' y='38' text-anchor='middle'%3E%E1%9A%A0%20%E1%9A%B1%20%E1%9A%A6%20%E1%9A%B2%20%E1%9A%A8%20%E1%9A%B7%20%E1%9A%A2%E1%9A%B3%20%E1%9A%BE%20%E1%9A%A9%3C/text%3E%3Ctext transform='translate(355,100) rotate(72)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%3C/text%3E%3Ctext transform='translate(370,220) rotate(90)' text-anchor='middle'%3E%E1%9A%A2%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%3C/text%3E%3Ctext transform='translate(330,330) rotate(115)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B7%E1%9A%A8%E1%9A%B2%3C/text%3E%3Ctext x='200' y='370' text-anchor='middle'%3E%E1%9A%BE%20%E1%9A%A9%20%E1%9A%A0%20%E1%9A%B1%20%E1%9A%A6%20%E1%9A%B2%20%E1%9A%A8%20%E1%9A%B7%20%E1%9A%A2%3C/text%3E%3Ctext transform='translate(70,330) rotate(-115)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3Ctext transform='translate(30,220) rotate(-90)' text-anchor='middle'%3E%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%E1%9A%A2%3C/text%3E%3Ctext transform='translate(45,100) rotate(-72)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3C/g%3E%3Cg fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M200 310 L200 160' stroke='hsla(30,30%25,45%25,0.7)' stroke-width='7'/%3E%3Cpath d='M196 310 L196 165' stroke='hsla(30,25%25,35%25,0.3)' stroke-width='2'/%3E%3Cpath d='M204 310 L204 165' stroke='hsla(30,25%25,35%25,0.3)' stroke-width='2'/%3E%3Cpath d='M200 260 Q175 240 140 225' stroke='hsla(30,28%25,42%25,0.65)' stroke-width='4.5'/%3E%3Cpath d='M200 260 Q225 240 260 225' stroke='hsla(30,28%25,42%25,0.65)' stroke-width='4.5'/%3E%3Cpath d='M200 235 Q168 215 125 195' stroke='hsla(30,28%25,42%25,0.6)' stroke-width='3.5'/%3E%3Cpath d='M200 235 Q232 215 275 195' stroke='hsla(30,28%25,42%25,0.6)' stroke-width='3.5'/%3E%3Cpath d='M200 210 Q178 190 145 170' stroke='hsla(30,28%25,42%25,0.55)' stroke-width='3'/%3E%3Cpath d='M200 210 Q222 190 255 170' stroke='hsla(30,28%25,42%25,0.55)' stroke-width='3'/%3E%3Cpath d='M200 190 Q185 170 160 148' stroke='hsla(30,25%25,40%25,0.5)' stroke-width='2.5'/%3E%3Cpath d='M200 190 Q215 170 240 148' stroke='hsla(30,25%25,40%25,0.5)' stroke-width='2.5'/%3E%3Cpath d='M200 175 Q200 150 200 120' stroke='hsla(30,25%25,40%25,0.5)' stroke-width='2.5'/%3E%3Cpath d='M140 225 Q125 218 108 215' stroke='hsla(30,22%25,38%25,0.45)' stroke-width='2'/%3E%3Cpath d='M260 225 Q275 218 292 215' stroke='hsla(30,22%25,38%25,0.45)' stroke-width='2'/%3E%3Cpath d='M125 195 Q108 185 90 178' stroke='hsla(30,22%25,38%25,0.4)' stroke-width='1.8'/%3E%3Cpath d='M275 195 Q292 185 310 178' stroke='hsla(30,22%25,38%25,0.4)' stroke-width='1.8'/%3E%3Cpath d='M145 170 Q130 158 115 150' stroke='hsla(30,22%25,38%25,0.4)' stroke-width='1.5'/%3E%3Cpath d='M255 170 Q270 158 285 150' stroke='hsla(30,22%25,38%25,0.4)' stroke-width='1.5'/%3E%3Cpath d='M160 148 Q148 138 135 130' stroke='hsla(30,20%25,36%25,0.35)' stroke-width='1.3'/%3E%3Cpath d='M240 148 Q252 138 265 130' stroke='hsla(30,20%25,36%25,0.35)' stroke-width='1.3'/%3E%3Cpath d='M140 225 Q130 230 118 228' stroke='hsla(30,22%25,38%25,0.35)' stroke-width='1.5'/%3E%3Cpath d='M260 225 Q270 230 282 228' stroke='hsla(30,22%25,38%25,0.35)' stroke-width='1.5'/%3E%3Cpath d='M125 195 Q115 200 102 198' stroke='hsla(30,20%25,36%25,0.3)' stroke-width='1.3'/%3E%3Cpath d='M275 195 Q285 200 298 198' stroke='hsla(30,20%25,36%25,0.3)' stroke-width='1.3'/%3E%3C/g%3E%3Ccircle cx='200' cy='155' r='62' fill='url(%23canopy)'/%3E%3Cg fill='hsla(140,45%25,35%25,0.22)' stroke='hsla(140,40%25,48%25,0.28)' stroke-width='0.8'%3E%3Cellipse cx='200' cy='118' rx='22' ry='16'/%3E%3Cellipse cx='178' cy='128' rx='18' ry='14'/%3E%3Cellipse cx='222' cy='128' rx='18' ry='14'/%3E%3Cellipse cx='158' cy='142' rx='16' ry='12'/%3E%3Cellipse cx='242' cy='142' rx='16' ry='12'/%3E%3Cellipse cx='140' cy='160' rx='14' ry='11'/%3E%3Cellipse cx='260' cy='160' rx='14' ry='11'/%3E%3Cellipse cx='165' cy='125' rx='14' ry='11'/%3E%3Cellipse cx='235' cy='125' rx='14' ry='11'/%3E%3Cellipse cx='200' cy='105' rx='16' ry='12'/%3E%3Cellipse cx='185' cy='110' rx='13' ry='10'/%3E%3Cellipse cx='215' cy='110' rx='13' ry='10'/%3E%3Cellipse cx='148' cy='150' rx='12' ry='10'/%3E%3Cellipse cx='252' cy='150' rx='12' ry='10'/%3E%3Cellipse cx='125' cy='178' rx='12' ry='9'/%3E%3Cellipse cx='275' cy='178' rx='12' ry='9'/%3E%3Cellipse cx='108' cy='198' rx='11' ry='8'/%3E%3Cellipse cx='292' cy='198' rx='11' ry='8'/%3E%3Cellipse cx='118' cy='215' rx='10' ry='8'/%3E%3Cellipse cx='282' cy='215' rx='10' ry='8'/%3E%3Cellipse cx='145' cy='135' rx='11' ry='9'/%3E%3Cellipse cx='255' cy='135' rx='11' ry='9'/%3E%3Cellipse cx='135' cy='168' rx='10' ry='8'/%3E%3Cellipse cx='265' cy='168' rx='10' ry='8'/%3E%3Cellipse cx='115' cy='188' rx='10' ry='8'/%3E%3Cellipse cx='285' cy='188' rx='10' ry='8'/%3E%3Cellipse cx='90' cy='175' rx='9' ry='7'/%3E%3Cellipse cx='310' cy='175' rx='9' ry='7'/%3E%3Cellipse cx='115' cy='148' rx='9' ry='7'/%3E%3Cellipse cx='285' cy='148' rx='9' ry='7'/%3E%3Cellipse cx='135' cy='128' rx='9' ry='7'/%3E%3Cellipse cx='265' cy='128' rx='9' ry='7'/%3E%3Cellipse cx='200' cy='95' rx='12' ry='8'/%3E%3C/g%3E%3Cg fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M200 310 Q170 315 138 325 Q115 332 88 328 Q65 322 50 330' stroke='hsla(30,30%25,40%25,0.6)' stroke-width='3.5'/%3E%3Cpath d='M200 310 Q230 315 262 325 Q285 332 312 328 Q335 322 350 330' stroke='hsla(30,30%25,40%25,0.6)' stroke-width='3.5'/%3E%3Cpath d='M195 305 Q165 312 130 320 Q108 325 82 318' stroke='hsla(30,25%25,38%25,0.5)' stroke-width='2.5'/%3E%3Cpath d='M205 305 Q235 312 270 320 Q292 325 318 318' stroke='hsla(30,25%25,38%25,0.5)' stroke-width='2.5'/%3E%3Cpath d='M88 328 Q75 325 62 328 Q55 332 45 338' stroke='hsla(30,25%25,36%25,0.4)' stroke-width='2'/%3E%3Cpath d='M312 328 Q325 325 338 328 Q345 332 355 338' stroke='hsla(30,25%25,36%25,0.4)' stroke-width='2'/%3E%3Cpath d='M138 325 Q128 330 115 340' stroke='hsla(30,25%25,36%25,0.4)' stroke-width='2'/%3E%3Cpath d='M262 325 Q272 330 285 340' stroke='hsla(30,25%25,36%25,0.4)' stroke-width='2'/%3E%3Cpath d='M130 320 Q118 322 105 330 Q98 336 88 345' stroke='hsla(30,22%25,34%25,0.35)' stroke-width='1.8'/%3E%3Cpath d='M270 320 Q282 322 295 330 Q302 336 312 345' stroke='hsla(30,22%25,34%25,0.35)' stroke-width='1.8'/%3E%3Cpath d='M82 318 Q68 312 58 315 Q50 320 42 328' stroke='hsla(30,22%25,34%25,0.35)' stroke-width='1.8'/%3E%3Cpath d='M318 318 Q332 312 342 315 Q350 320 358 328' stroke='hsla(30,22%25,34%25,0.35)' stroke-width='1.8'/%3E%3Cpath d='M192 308 Q178 318 162 335 Q155 345 145 355' stroke='hsla(30,22%25,34%25,0.3)' stroke-width='1.5'/%3E%3Cpath d='M208 308 Q222 318 238 335 Q245 345 255 355' stroke='hsla(30,22%25,34%25,0.3)' stroke-width='1.5'/%3E%3Cpath d='M50 330 Q42 328 35 332' stroke='hsla(30,20%25,32%25,0.3)' stroke-width='1.3'/%3E%3Cpath d='M350 330 Q358 328 365 332' stroke='hsla(30,20%25,32%25,0.3)' stroke-width='1.3'/%3E%3Cpath d='M200 315 Q200 330 198 345 Q196 355 200 360' stroke='hsla(30,22%25,34%25,0.3)' stroke-width='1.5'/%3E%3Cpath d='M88 328 Q80 335 72 345 Q68 350 60 358' stroke='hsla(30,20%25,32%25,0.28)' stroke-width='1.3'/%3E%3Cpath d='M312 328 Q320 335 328 345 Q332 350 340 358' stroke='hsla(30,20%25,32%25,0.28)' stroke-width='1.3'/%3E%3C/g%3E%3Cg fill='none' stroke='hsla(160,35%25,55%25,0.2)' stroke-width='0.6'%3E%3Cpath d='M200 310 Q180 312 165 318 Q155 322 150 330 Q148 338 155 342 Q165 345 175 340 Q182 335 185 325 Q188 318 200 310Z'/%3E%3Cpath d='M200 310 Q220 312 235 318 Q245 322 250 330 Q252 338 245 342 Q235 345 225 340 Q218 335 215 325 Q212 318 200 310Z'/%3E%3C/g%3E%3Cg fill='hsla(160,40%25,50%25,0.15)' stroke='hsla(160,35%25,55%25,0.25)' stroke-width='0.5'%3E%3Cpath d='M180 190 L190 185 L200 190 L190 195Z'/%3E%3Cpath d='M200 190 L210 185 L220 190 L210 195Z'/%3E%3Cpath d='M190 195 L200 190 L210 195 L200 200Z'/%3E%3C/g%3E%3C/svg%3E");
+              background-repeat: no-repeat;
+              background-position: center;
+              background-size: contain;
+              opacity: 0.8;
+              filter: drop-shadow(0 0 12px hsla(160, 50%, 45%, 0.25));
+              transition: opacity 0.3s ease, filter 0.3s ease;
+            }
+            .ygg-widget:hover::before {
+              opacity: 1;
+              filter: drop-shadow(0 0 18px hsla(160, 55%, 50%, 0.4));
+            }
+
+            /* ── Bookmarks styling ── */
+            .widget-type-bookmarks .bookmarks-group .title {
+              letter-spacing: 0.05em;
+            }
+
+            /* ── Subtle divider between widget sections ── */
+            .column-full .widget + .widget {
+              border-top: 1px solid hsla(160, 30%, 50%, 0.08);
+              padding-top: 4px;
+            }
+
+            /* ── Page header ── */
+            .page-navigation-item.page-navigation-item-current {
+              text-shadow: 0 0 10px hsla(160, 60%, 50%, 0.4);
+            }
+
+            /* ── Clock styling ── */
+            .widget-type-clock .clock-time {
+              text-shadow: 0 0 12px hsla(160, 50%, 50%, 0.25);
+            }
+          </style>
 
       theme:
         positive-color: hsl(142, 72%, 39%)
@@ -28,57 +119,73 @@
                     - title: Watch & Browse
                       links:
                         - title: Jellyfin
-                          url: http://sisyphus:8096
+                          url: http://asgard:8096
                         - title: Jellyseerr
-                          url: http://sisyphus:5055
+                          url: http://asgard:5055
                         - title: Immich
-                          url: http://sisyphus:2283
+                          url: http://asgard:2283
                         - title: Audiobookshelf
-                          url: http://sisyphus:13378
+                          url: http://asgard:13378
                     - title: Downloads
                       links:
                         - title: SABnzbd
-                          url: http://sisyphus:8080
+                          url: http://asgard:8080
                         - title: Prowlarr
-                          url: http://sisyphus:9696
+                          url: http://asgard:9696
                     - title: Arr Stack
                       links:
                         - title: Sonarr
-                          url: http://sisyphus:8989
+                          url: http://asgard:8989
                         - title: Radarr
-                          url: http://sisyphus:7878
+                          url: http://asgard:7878
                         - title: Lidarr
-                          url: http://sisyphus:8686
+                          url: http://asgard:8686
                         - title: Shelfarr
-                          url: http://sisyphus:5056
+                          url: http://asgard:5056
                     - title: Management
                       links:
                         - title: FileBrowser
-                          url: http://sisyphus:8081
+                          url: http://asgard:8081
+                        - title: Headscale UI
+                          url: http://asgard:8443
                         - title: Grafana
-                          url: http://sisyphus:3001
+                          url: http://asgard:3001
 
             - size: full
               widgets:
-                - type: group
-                  widgets:
-                    - type: iframe
-                      title: System Stats
-                      source: http://sisyphus:3001/d/asgard-system/system-stats?orgId=1&theme=dark&refresh=5s&kiosk&hide-controls
-                      height: 355
-                    - type: weather
-                      title: Weather
-                      location: Sydney, Australia
+                - type: server-stats
+                  servers:
+                    - type: local
+                      name: Asgard
+                      hide-mountpoints-by-default: true
+                      mountpoints:
+                        "/data":
+                          name: Data
+                          hide: false
+
+                - type: custom-api
+                  title: System Info
+                  cache: 5s
+                  url: http://localhost:9090/api/v1/query
+                  parameters:
+                    query: node_filesystem_free_bytes{mountpoint="/data"} / 1073741824 or label_replace(sum(rate(node_network_receive_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "download", "", "") or label_replace(sum(rate(node_network_transmit_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "upload", "", "")
+                  template: |
+                    {{ $disk := printf "%.0f" (.JSON.Float "data.result.0.value.1") }}
+                    {{ $down := printf "%.1f" (.JSON.Float "data.result.1.value.1") }}
+                    {{ $up := printf "%.1f" (.JSON.Float "data.result.2.value.1") }}
+                    <p class="size-h4"><span class="color-subtext">Disk /data:</span> <span class="color-primary">{{ $disk }} GB</span> free</p>
+                    <p class="size-h4"><span class="color-subtext">Download:</span> <span class="color-primary">{{ $down }} Mbps</span></p>
+                    <p class="size-h4"><span class="color-subtext">Upload:</span> <span class="color-primary">{{ $up }} Mbps</span></p>
 
                 - type: monitor
                   title: Downloads
                   cache: 1m
                   sites:
                     - title: SABnzbd
-                      url: http://sisyphus:8080
+                      url: http://asgard:8080
                       icon: sh:sabnzbd
                     - title: Prowlarr
-                      url: http://sisyphus:9696
+                      url: http://asgard:9696
                       icon: sh:prowlarr
 
                 - type: monitor
@@ -86,16 +193,16 @@
                   cache: 1m
                   sites:
                     - title: Sonarr
-                      url: http://sisyphus:8989
+                      url: http://asgard:8989
                       icon: sh:sonarr
                     - title: Radarr
-                      url: http://sisyphus:7878
+                      url: http://asgard:7878
                       icon: sh:radarr
                     - title: Lidarr
-                      url: http://sisyphus:8686
+                      url: http://asgard:8686
                       icon: sh:lidarr
                     - title: Shelfarr
-                      url: http://sisyphus:5056
+                      url: http://asgard:5056
                       icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/shelfarr.svg
 
                 - type: monitor
@@ -103,16 +210,16 @@
                   cache: 1m
                   sites:
                     - title: Jellyfin
-                      url: http://sisyphus:8096
+                      url: http://asgard:8096
                       icon: sh:jellyfin
                     - title: Jellyseerr
-                      url: http://sisyphus:5055
+                      url: http://asgard:5055
                       icon: sh:jellyseerr
                     - title: Immich
-                      url: http://sisyphus:2283
+                      url: http://asgard:2283
                       icon: sh:immich
                     - title: Audiobookshelf
-                      url: http://sisyphus:13378
+                      url: http://asgard:13378
                       icon: sh:audiobookshelf
 
                 - type: monitor
@@ -120,17 +227,74 @@
                   cache: 1m
                   sites:
                     - title: FileBrowser
-                      url: http://sisyphus:8081
+                      url: http://asgard:8081
                       icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/filebrowser.svg
                     - title: Prometheus
-                      url: http://sisyphus:9090
+                      url: http://asgard:9090
                       icon: sh:prometheus
                     - title: Loki
-                      url: http://sisyphus:3100/ready
+                      url: http://asgard:3100/ready
                       icon: sh:loki
+                    - title: Headscale
+                      url: http://asgard:8085/health
+                      icon: sh:headscale
                     - title: Grafana
-                      url: http://sisyphus:3001
+                      url: http://asgard:3001
                       icon: sh:grafana
+
+            - size: small
+              widgets:
+                - type: clock
+                  hour-format: 12h
+
+                - type: custom-api
+                  title: Yggdrasil Network
+                  title-url: http://asgard:8443
+                  css-class: ygg-widget
+                  cache: 15s
+                  url: http://localhost:8085/api/v1/node
+                  headers:
+                    Authorization: Bearer lUSP-6K.ZsUeNDkPEE7BOScNsi29L0T2J1nmoMYC
+                  template: |
+                    <style>
+                      .hs-online {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background-color: hsl(142, 72%, 39%);
+                        display: inline-block;
+                        margin-left: 4px;
+                        vertical-align: middle;
+                      }
+                      .hs-offline {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background-color: var(--color-negative);
+                        display: inline-block;
+                        margin-left: 4px;
+                        vertical-align: middle;
+                      }
+                    </style>
+                    <ul class="list list-gap-10 collapsible-container" data-collapse-after="10">
+                      {{ range .JSON.Array "nodes" }}
+                      <li>
+                        <div class="flex items-center gap-10">
+                          <div class="grow flex items-center gap-8">
+                            <span class="size-h4 block text-truncate color-primary">
+                              {{ .String "givenName" }}
+                            </span>
+                            {{ if .Bool "online" }}
+                              <span class="hs-online" data-popover-type="text" data-popover-text="Online"></span>
+                            {{ else }}
+                              <span class="hs-offline" data-popover-type="text" data-popover-text="Offline - Last seen {{ .String "lastSeen" }}"></span>
+                            {{ end }}
+                          </div>
+                          <span class="size-h5 color-subtext">{{ .String "ipAddresses.0" }}</span>
+                        </div>
+                      </li>
+                      {{ end }}
+                    </ul>
 
         # ════════════════════════════════════════════════════════════════════
         # PAGE 2 — Downloads (SABnzbd iframe + queue stats)
@@ -142,7 +306,7 @@
                 - type: custom-api
                   title: Queue
                   cache: 15s
-                  url: http://sisyphus:9090/api/v1/query
+                  url: http://asgard:9090/api/v1/query
                   parameters:
                     query: sabnzbd_queue_size
                   template: |
@@ -151,7 +315,7 @@
                 - type: custom-api
                   title: Remaining
                   cache: 15s
-                  url: http://sisyphus:9090/api/v1/query
+                  url: http://asgard:9090/api/v1/query
                   parameters:
                     query: sabnzbd_queue_remaining_bytes / 1073741824
                   template: |
@@ -162,17 +326,17 @@
                   cache: 1m
                   sites:
                     - title: SABnzbd
-                      url: http://sisyphus:8080
+                      url: http://asgard:8080
                       icon: sh:sabnzbd
                     - title: Prowlarr
-                      url: http://sisyphus:9696
+                      url: http://asgard:9696
                       icon: sh:prowlarr
 
             - size: full
               widgets:
                 - type: iframe
                   title: SABnzbd
-                  source: http://sisyphus:8080
+                  source: http://asgard:8080
                   height: 700
     '';
 
@@ -229,7 +393,7 @@
     nixflix = {
       enable = true;
       mediaDir    = "/data/media";
-      downloadsDir = "/data/downloads";
+      downloadsDir = "/downloads";
       stateDir    = "/data/.state/services";
 
       sonarr = {
@@ -301,17 +465,18 @@
           misc = {
             api_key._secret  = config.sops.secrets."sabnzbd-api-key".path;
             nzb_key._secret  = config.sops.secrets."sabnzbd-nzb-key".path;
-            username._secret = config.sops.secrets."sabnzbd-username".path;
-            password._secret = config.sops.secrets."sabnzbd-password".path;
             port = 8080;
             par2_multicore = 1;
             par2_threads = 12;
             abort_max_missing = 10;
             fail_hopeless_jobs = true;
-            host_whitelist = "sisyphus,sisyphus.tailb54b82.ts.net,100.119.193.77";
+            host_whitelist = "asgard,asgard.tailb54b82.ts.net,100.119.193.77,host.containers.internal";
             inet_exposure = 4;
             x_frame_options = 0;
             web_color = "Night";
+            web_compact = true;
+            web_fullscreen = true;
+            web_tabbed = true;
           };
           servers = [
             {
@@ -439,7 +604,7 @@
         "/var/lib/shelfarr:/rails/storage"
         "/data/media/audiobooks:/audiobooks"
         "/data/media/books:/ebooks"
-        "/data/downloads:/downloads"
+        "/downloads:/downloads"
       ];
       environment = {
         PUID                = "1000";
@@ -835,9 +1000,69 @@ EOF
 #   photos.bifrost-vault.com    → localhost:2283
 # ══════════════════════════════════════════════════════════════════════════════
 
+    # --- Headscale (self-hosted Tailscale control plane) ---
+    # Replaces Tailscale cloud. All devices auth against this server.
+    # Accessible via Cloudflare tunnel at hs.bifrost-vault.com.
+    # Manage from any machine: headscale -u rock nodes list
+    services.headscale = {
+      enable = true;
+      port = 8085;
+      address = "0.0.0.0";
+      settings = {
+        server_url = "https://hs.bifrost-vault.com";
+        prefixes = {
+          v4 = "100.64.0.0/10";
+          v6 = "fd7a:115c:a1e0::/48";
+        };
+        dns = {
+          base_domain = "bifrost.net";
+          magic_dns = true;
+          nameservers.global = [ "1.1.1.1" "9.9.9.9" ];
+        };
+        # Disable key expiry — devices stay connected even if Asgard is down
+        disable_check_updates = true;
+      };
+    };
+
+    # Headscale CLI available system-wide for management
+    environment.systemPackages = [ pkgs.headscale pkgs.kitty.terminfo ];
+
+    # --- Headscale UI (web admin panel) ---
+    # headscale-admin by GoodiesHQ — supports Headscale 0.27+ API.
+    # Port 8443 — Nginx reverse proxy serves both UI and API on same origin (avoids CORS).
+    # / → headscale-admin container (8444), /api/ → headscale (8085)
+    virtualisation.oci-containers.containers.headscale-admin = {
+      image = "docker.io/goodieshq/headscale-admin:latest";
+      ports = [ "127.0.0.1:8444:80" ];
+    };
+
+    services.nginx = {
+      enable = true;
+      virtualHosts."headscale-ui" = {
+        listen = [{ addr = "0.0.0.0"; port = 8443; }];
+        locations."/" = {
+          return = "302 /admin/";
+        };
+        locations."/admin/" = {
+          proxyPass = "http://127.0.0.1:8444/admin/";
+        };
+        locations."/api/" = {
+          proxyPass = "http://127.0.0.1:8085/api/";
+          extraConfig = ''
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+          '';
+        };
+      };
+    };
+
+    # --- Tailscale (client — connects to our Headscale) ---
     services.tailscale = {
       enable = true;
       openFirewall = true;
+      extraUpFlags = [
+        "--login-server" "https://hs.bifrost-vault.com"
+      ];
     };
 
     services.cloudflared = {
@@ -847,6 +1072,7 @@ EOF
           credentialsFile = config.sops.secrets."cloudflare-tunnel".path;
           default = "http_status:404";
           ingress = {
+            "hs.bifrost-vault.com"       = "http://localhost:8085";
             "jellyfin.bifrost-vault.com"  = "http://localhost:8096";
             "requests.bifrost-vault.com"  = "http://localhost:5055";
             "photos.bifrost-vault.com"    = "http://localhost:2283";
@@ -894,7 +1120,7 @@ EOF
       image = "ghcr.io/gtsteffaniak/filebrowser:latest";
       ports = [ "8081:8080" ];
       volumes = [
-        "/data/downloads:/downloads"
+        "/downloads:/downloads"
         "/data/media:/media"
         "/data/photos:/photos"
         "/var/lib/filebrowser:/home/filebrowser/data"
@@ -1050,6 +1276,7 @@ EOF
       port = 9090;
       listenAddress = "0.0.0.0";
       retentionTime = "30d";
+      extraFlags = [ "--web.cors.origin=.*" ];
 
       scrapeConfigs = [
         {
@@ -1175,16 +1402,17 @@ EOF
     };
 
     # ── Glance — observability dashboard (port 8888) ────────────────────────────
-    # Config baked into the Nix store (no secrets needed).
-    # Uses --network=host so:
-    #   - "sisyphus" resolves via the host's /etc/hosts for health checks
-    #   - Browser links (http://sisyphus:port) work from any tailnet client
-    #   - Prometheus at localhost:9090 is reachable without extra host mapping
-    virtualisation.oci-containers.containers.glance = {
-      image = "glanceapp/glance:latest";
-      volumes = [ "${glanceConfig}:/app/config/glance.yml:ro" ];
-      extraOptions = [ "--network=host" ];
-      autoStart = true;
+    # ── Glance — native systemd service for host-level server-stats ──
+    systemd.services.glance = {
+      description = "Glance Dashboard";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        ExecStart = "${pkgs.glance}/bin/glance --config ${glanceConfig}";
+        Restart = "on-failure";
+        DynamicUser = true;
+      };
     };
 
     # ── Loki — log storage ──────────────────────────────────────────────────────
@@ -1460,6 +1688,9 @@ EOF
     # Allow containers to reach host-bound services (arr, immich, etc.)
     # tailscale0 trusted so all services are reachable from any tailnet device by hostname
     networking.firewall.trustedInterfaces = [ "podman0" "cni-podman0" "tailscale0" ];
+    networking.firewall.allowedTCPPorts = [ 8085 ]; # Headscale
+
+
 
     # DNS inside the VPN namespace (SABnzbd's sandbox) fails due to routing
     # conflicts. Bypass it entirely for the usenet server — /etc/hosts is read
@@ -1484,8 +1715,8 @@ EOF
       "d /data/media/movies         0775 root  media -"
       "d /data/media/music          0775 root  media -"
       "d /data/media/books          0777 root  media -"
-      "d /data/downloads            0775 root  media -"
-      "d /data/downloads/usenet     0775 root  media -"
+      "d /downloads                 0775 root  media -"
+      "d /downloads/usenet          0775 root  media -"
       "d /data/photos               0775 root  media -"
       "d /data/.state/services      0775 root  media -"
       "d /data/media/audiobooks               0777 root  media -"
@@ -1501,7 +1732,6 @@ EOF
       "d /var/lib/recyclarr              0700 root  root  -"
       # Observability
       "d /var/lib/sabnzbd-exporter       0700 root  root  -"
-      "d /var/lib/alloy                  0750 alloy alloy -"
     ];
 
     # --- Sops secrets ---
