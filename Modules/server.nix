@@ -5,7 +5,7 @@
     # ── Glance assets (served at /assets/) ──
     glanceAssets = pkgs.runCommand "glance-assets" {} ''
       mkdir -p $out
-      cp ${../Resources/yggdrasil-banner.jpeg} $out/yggdrasil.jpeg
+      cp ${../Resources/yggdrasil-banner.png} $out/yggdrasil.png
     '';
 
     # ── Glance YAML config (no secrets — reads Prometheus which has no auth) ──
@@ -67,23 +67,43 @@
             .ygg-widget {
               position: relative;
             }
-            .ygg-widget::before {
+            .ygg-widget::before,
+            .ygg-widget::after {
               content: "";
               display: block;
-              width: 100%;
+              position: absolute;
+              top: 0;
+              left: 50%;
+              transform: translateX(-50%);
+              width: 200px;
               height: 200px;
-              margin-bottom: 8px;
-              background-image: url("/assets/yggdrasil.jpeg");
               background-repeat: no-repeat;
               background-position: center;
               background-size: contain;
+              pointer-events: none;
+            }
+            /* Ring — SVG behind the tree */
+            .ygg-widget::before {
+              background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Cdefs%3E%3CradialGradient id='bg' cx='50%25' cy='50%25' r='45%25'%3E%3Cstop offset='0%25' stop-color='hsla(160,30%25,25%25,0.12)'/%3E%3Cstop offset='100%25' stop-color='hsla(160,30%25,15%25,0)'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='200' cy='200' r='180' fill='url(%23bg)'/%3E%3Cg fill='none' stroke='hsla(160,35%25,55%25,0.35)' stroke-width='1.5'%3E%3Ccircle cx='200' cy='200' r='178'/%3E%3Ccircle cx='200' cy='200' r='170'/%3E%3C/g%3E%3Cg fill='hsla(160,40%25,60%25,0.45)' font-family='serif' font-size='14' font-weight='bold'%3E%3Ctext x='200' y='28' text-anchor='middle'%3E%E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%E1%9A%B3 %E1%9A%BE %E1%9A%A9%3C/text%3E%3Ctext transform='translate(375,100) rotate(72)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%3C/text%3E%3Ctext transform='translate(390,240) rotate(90)' text-anchor='middle'%3E%E1%9A%A2%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%3C/text%3E%3Ctext transform='translate(350,350) rotate(115)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B7%E1%9A%A8%E1%9A%B2%3C/text%3E%3Ctext x='200' y='390' text-anchor='middle'%3E%E1%9A%BE %E1%9A%A9 %E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%3C/text%3E%3Ctext transform='translate(50,350) rotate(-115)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3Ctext transform='translate(10,240) rotate(-90)' text-anchor='middle'%3E%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%E1%9A%A2%3C/text%3E%3Ctext transform='translate(25,100) rotate(-72)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3C/g%3E%3Cg fill='none' stroke='hsla(160,35%25,55%25,0.2)' stroke-width='0.6'%3E%3Cpath d='M160,340 Q175,330 190,340 Q195,350 190,360 Q180,365 170,358 Q162,350 160,340Z'/%3E%3Cpath d='M240,340 Q225,330 210,340 Q205,350 210,360 Q220,365 230,358 Q238,350 240,340Z'/%3E%3C/g%3E%3C/svg%3E");
               opacity: 0.8;
               filter: drop-shadow(0 0 12px hsla(160, 50%, 45%, 0.25));
               transition: opacity 0.3s ease, filter 0.3s ease;
             }
-            .ygg-widget:hover::before {
+            /* Tree image — on top of ring */
+            .ygg-widget::after {
+              background-image: url("/assets/yggdrasil.png");
+              opacity: 0.85;
+              filter: drop-shadow(0 0 8px hsla(160, 50%, 40%, 0.3));
+              transition: opacity 0.3s ease, filter 0.3s ease;
+            }
+            .ygg-widget:hover::before,
+            .ygg-widget:hover::after {
               opacity: 1;
               filter: drop-shadow(0 0 18px hsla(160, 55%, 50%, 0.4));
+            }
+            /* Reserve space for the absolutely positioned banner */
+            .ygg-widget {
+              padding-top: 208px;
             }
 
             /* ── Bookmarks styling ── */
