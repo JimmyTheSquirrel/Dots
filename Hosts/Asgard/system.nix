@@ -124,7 +124,7 @@ in {
         # SSH for remote management
         services.openssh = {
           enable = true;
-          settings.PasswordAuthentication = true;
+          settings.PasswordAuthentication = false;
         };
 
         # Passwordless sudo for server management
