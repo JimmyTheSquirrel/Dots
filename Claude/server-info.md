@@ -2,40 +2,26 @@
 
 ## Overview
 
-Asgard is a NixOS media server configuration defined in `Modules/server.nix`.
-Currently running on Sisyphus hardware for testing — will move to a dedicated machine via nixos-anywhere.
+Asgard is a NixOS media server running on dedicated hardware (Intel i5-14400, 1TB NVMe, 8TB HDD).
+Configuration defined in `Modules/server.nix`, host in `Hosts/Asgard/system.nix`.
 Everything is declarative. A fresh deploy needs only the sops secrets populated before building.
 
 ---
 
-## TODO
+## Current Status (as of 2026-06-21)
 
-- **Headscale (self-hosted Tailscale control plane)** — Replace Tailscale cloud with Headscale on Asgard for full control + non-expiring keys. Prerequisites already done: `bifrost-vault.com` domain + Cloudflare tunnel. Steps: add `services.headscale` to server.nix, add `"hs.bifrost-vault.com" = "http://localhost:8085"` to CF tunnel ingress, create DNS entry in Cloudflare, add sops secret for pre-auth key, re-auth all devices once pointing at new server. Set key expiry to never/very long.
-
----
-
-## Current Status (as of 2026-06-18)
-
-### Full stack working on Sisyphus
+### Deployed on dedicated Asgard hardware
 - Nixflix arr stack (Sonarr/Radarr/Lidarr/Prowlarr) — Forms auth via `hostConfig.password._secret` → `admin-password`
 - Jellyfin, Jellyseerr, SABnzbd — all healthy
-- Prowlarr — 3 indexers pre-configured (Miatrix, NZBgeek, NzbPlanet) via sops secrets
+- Prowlarr — 3 indexers pre-configured (Miatrix, NZBgeek, NzbPlanet) via sops secrets, app sync configured to push to all arrs
 - SABnzbd — FrugalUsenet server pre-configured with dedicated username/password secrets
-- Glance dashboard (port 8888) — native `server-stats` widget + "System Info" custom-api (auto-refreshing via injected JS), service monitors, bookmarks
+- Glance dashboard (port 8888) — native `server-stats` widget + "System Info" custom-api (auto-refreshing via injected JS), service monitors, bookmarks, Yggdrasil Network widget
 - FileBrowser, Immich, Audiobookshelf, Shelfarr — running
 - Decluttarr — running, config auto-generated from individual arr/sabnzbd API key secrets
 - Recyclarr — runs on boot + daily, syncs TRaSH Guides quality profiles to Sonarr + Radarr
-- Tailscale networking — `tailscale0` trusted in firewall, all services reachable via `hostname:port` from any tailnet device
+- **Headscale** — self-hosted Tailscale control plane (port 8085), user `yggdrasil`, Asgard (100.64.0.1) + Sisyphus (100.64.0.2) + rhys-phone (100.64.0.3)
+- **Networking** — Headscale tailnet, `tailscale0` trusted in firewall, all services reachable via `asgard:port` from tailnet devices
 - **Observability stack** — Glance (8888, native systemd service), Prometheus (9090, node scrape 5s, CORS enabled), Loki (3100), Grafana (3001, anonymous viewing + iframe embedding), Alloy, Exportarr, cAdvisor, SABnzbd exporter
-
-### Fresh Asgard deploy notes
-- Wipe arr state dirs before first build if any stale state exists:
-  ```bash
-  sudo rm -rf /data/.state/services/sonarr /data/.state/services/radarr \
-              /data/.state/services/lidarr /data/.state/services/prowlarr
-  ```
-- After deploy: add Asgard's Tailscale device ID to the Network section in server.nix
-- Add `grafana-admin-password` to sops before first build
 
 ---
 
@@ -55,7 +41,9 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 | Shelfarr           | 5056 | Tailscale only | Podman container — book request portal |
 | ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
-| **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Native server-stats + auto-refreshing System Info widget |
+| Headscale          | 8085 | Tailscale + CF tunnel | hs.bifrost-vault.com — CF tunnel works for HTTP only, NOT for Tailscale client connections (WebSocket POST broken) |
+| Headscale Admin    | 8443 | Tailscale only | Nginx reverse proxy → headscale-admin (goodieshq) + Headscale API (same-origin CORS fix) |
+| **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Native server-stats + auto-refreshing System Info widget + Yggdrasil Network widget |
 | **Grafana**        | 3001 | Tailscale only | System stats (bar gauge panels) + logs. Anonymous viewing enabled for iframe embedding |
 | **Prometheus**     | 9090 | Tailscale only | Metrics collection. CORS enabled (`--web.cors.origin=.*`) for Glance JS polling |
 | **Loki**           | 3100 | Tailscale only | Log storage. Health: `:3100/ready` |
@@ -78,14 +66,17 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 
 ### Native NixOS services (not nixflix)
 - Immich — `services.immich`, manages its own PostgreSQL + Redis. `host = "0.0.0.0"` required — default `localhost` binds to `[::1]` (IPv6 only) making it unreachable. `ExecStartPre` script creates `.immich` marker files in all subdirs of `/data/photos/` (encoded-video, thumbs, upload, backups, library, profile) — Immich refuses to start without these.
-- Tailscale — `services.tailscale`
+- Headscale — `services.headscale` (port 8085, `address = "0.0.0.0"`). **Cloudflare tunnel breaks Tailscale client connections** (WebSocket POST not supported) — clients must connect via LAN or direct IP.
+- Headscale Admin — Nginx on port 8443 reverse-proxies `goodieshq/headscale-admin` container (port 8444) + Headscale API (port 8085) on same origin to avoid CORS. Settings stored in browser localStorage.
+- Tailscale — `services.tailscale` (connected to Headscale via `--login-server`)
 - Cloudflared — `services.cloudflared`
+- Nginx — `services.nginx` (port 8443 only — Headscale Admin reverse proxy)
 
 ### Native NixOS service (background sync)
 - **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`. Radarr templates use `radarr-quality-profile-remux-*` / `radarr-custom-formats-remux-*` (no `-v9-` prefix — that naming was dropped from TRaSH Guides).
 
 ### Podman containers
-- Audiobookshelf, Shelfarr, File Browser Quantum, Decluttarr, cAdvisor, SABnzbd exporter
+- Audiobookshelf, Shelfarr, File Browser Quantum, Decluttarr, cAdvisor, SABnzbd exporter, Headscale Admin
 - Backend: `virtualisation.oci-containers.backend = "podman"`
 - Docker compat socket (`podman.socket` at `/run/podman/podman.sock`) enabled for cAdvisor
 - **Decluttarr:** `decluttarr-config.service` generates `/var/lib/decluttarr/config/config.yaml` from individual arr + sabnzbd sops secrets before the container starts. No separate `decluttarr-env` secret — reuses existing API key secrets directly. `remove_orphans: false` — do NOT enable this, it kills newly queued downloads before SABnzbd picks them up (within 2 minutes).
@@ -106,19 +97,30 @@ Grafana (3001) — reads Loki + Prometheus, provisioned datasources
 ```
 
 ### Glance Dashboard (port 8888)
-2-column layout: **Bookmarks** (left, small) | **System stats + Service monitors** (right, full)
+3-column layout: **Bookmarks** (left, small) | **System stats + Service monitors** (center, full) | **Clock + Network** (right, small)
 
 **Page 1 — Asgard (main):**
 
 Left column (small): Bookmarks grouped by Watch & Browse / Downloads / Arr Stack / Management
 
-Right column (full):
+Center column (full):
 - Native `server-stats` widget: CPU/RAM/Disk bars, `/data` mountpoint shown, others hidden
 - "System Info" `custom-api` widget: Disk /data GB free, Download Mbps, Upload Mbps — queries Prometheus with combined PromQL (`node_filesystem_free_bytes` + `rate(node_network_*_bytes_total{device=~"enp.*|wlp.*"}[15s])`). Auto-refreshed every 5s via injected JavaScript in `document.head` that polls Prometheus directly (requires CORS enabled on Prometheus)
-- Service monitor groups: Downloads (SABnzbd, Prowlarr), Arr Stack (Sonarr, Radarr, Lidarr, Shelfarr), Media (Jellyfin, Jellyseerr, Immich, Audiobookshelf), Management (FileBrowser, Prometheus, Loki, Grafana)
+- Service monitor groups: Downloads (SABnzbd, Prowlarr), Arr Stack (Sonarr, Radarr, Lidarr, Shelfarr), Media (Jellyfin, Jellyseerr, Immich, Audiobookshelf), Management (FileBrowser, Prometheus, Loki, Grafana, Headscale)
+
+Right column (small):
+- Clock widget (12h format)
+- Yggdrasil tree banner (SVG via CSS `::before` pseudo-element on `.ygg-widget` class — Glance `html` widget strips SVG/class attrs)
+- Yggdrasil Network `custom-api` widget: queries Headscale API (`/api/v1/node`), 15s cache, shows device names + online/offline dots + IPs. Title links to Headscale Admin UI.
+
+**Custom CSS (injected via `document.head` `<style>`):**
+- Widget borders: subtle green-tinted rounded corners, hover glow effect
+- Yggdrasil tree SVG banner as data URI background-image on `::before`
+- Active page tab + clock text glow
+- Widget title letter-spacing
 
 **Page 2 — Downloads:**
-- SABnzbd iframe: `type: iframe`, `source: http://sisyphus:8080`, `height: 700`
+- SABnzbd iframe: `type: iframe`, `source: http://asgard:8080`, `height: 700`
 - SABnzbd auth removed — iframe loads without login (tailnet-only access)
 - UI prefs (compact/fullscreen/tabbed) set server-side via `web_compact/web_fullscreen/web_tabbed = true`, but iframe needs "Use global interface settings" ticked within its own browser context
 
@@ -161,7 +163,7 @@ Forms auth with the `admin-password` sops secret. No manual wizard step needed o
 - `par2_multicore = 1` + `par2_threads = 12` — use all cores for par2 verification
 - `abort_max_missing = 10` — abort download if >10% articles missing
 - `fail_hopeless_jobs = 1` — fail (not pause) job if par2 can't repair after download; Radarr/Sonarr will blacklist and grab next release
-- `host_whitelist = "sisyphus,sisyphus.tailb54b82.ts.net,100.119.193.77,host.containers.internal"` — allows access by hostname from Tailscale + Podman containers (SABnzbd exporter)
+- `host_whitelist` — includes `asgard`, Headscale hostname, Headscale IPs, `host.containers.internal` — allows access by hostname from tailnet + Podman containers (SABnzbd exporter)
 - `inet_exposure = 4` — allows connections from any IP (safe, only reachable via Tailscale)
 - Auth removed (no `username`/`password` in misc) — only reachable via tailnet
 - `web_compact = true`, `web_fullscreen = true`, `web_tabbed = true` — compact UI with tabbed queue/history
@@ -281,6 +283,8 @@ admin-username                     # shared admin username for FileBrowser, Immi
 admin-password                     # shared admin password for FileBrowser, Immich seed
 grafana-admin-password             # Grafana admin password — sops owner = "grafana"
 mullvad-private-key                # WireGuard private key from Mullvad
+user-password-hash                 # bcrypt password hash ($ signs get mangled by sops --set)
+headscale-api-key                  # Headscale API bearer token for Glance widget
 ```
 
 **Cloudflare tunnel UUID:** `804d54a8-e7ad-4f34-812d-3052cf862c47` (in server.nix)
@@ -290,22 +294,26 @@ mullvad-private-key                # WireGuard private key from Mullvad
 
 ## Data Layout
 
-`/data` is mounted from the Shared NVMe (`nvme1n1p1`, 931.5G ext4, UUID `bcb3be2b-3e76-41b4-9a08-748039214823`).
-Declared in `Hosts/Sisyphus/system.nix` via `fileSystems."/data"`. All media/downloads/state live here, off the root drive.
+**NVMe** (`/dev/nvme0n1`): ESP (`/boot`) + root (`/`). Fast storage for OS + downloads.
+**HDD** (`/dev/sda`): `/data` (8TB ext4). All media, photos, and service state.
+Disko partitioning declared inline in `Hosts/Asgard/system.nix`.
 
 ```
 /data/
   media/
     tv/        movies/        music/        books/
-  downloads/
-    usenet/
   photos/                    # Immich
   .state/services/           # nixflix state (arr configs, API keys)
 
+/downloads/                  # On NVMe for fast SABnzbd unpacking
+  usenet/
+    complete/
+      sonarr/  radarr/  lidarr/
+
 /var/lib/
-  kavita/                    # Kavita container state
   filebrowser/               # File Browser state
   grafana/data/              # Grafana DB + state
+  headscale/                 # Headscale state + DB
 ```
 
 ---
@@ -322,25 +330,31 @@ GID 1001. All services that need `/data/media` access are in this group:
 ## Fresh Deploy Checklist
 
 1. Populate sops secrets: `sops ~/Dots/Secrets/secrets.yaml`
-2. Build: `system-rebuild rock Asgard`
-3. On first boot:
-   - Run `sudo tailscale up` to authenticate Tailscale
-   - Immich admin account is auto-created by `immich-admin-seed.service` (email: `<admin-username>@asgard.local`)
+2. Install NixOS: `nixos-install --flake .#rock-Asgard` (nixos-anywhere had issues, manual install worked)
+3. Set partition labels to match disko: `disk-nvme-ESP`, `disk-nvme-root`, `disk-hdd-data`
+4. On first boot:
+   - Create Headscale user: `sudo headscale users create yggdrasil`
+   - Create pre-auth key: `sudo headscale preauthkeys create -u 1 --reusable --expiration 24h`
+   - Join Asgard: `sudo tailscale up --login-server https://hs.bifrost-vault.com --auth-key <key>`
+   - Join other devices with same `--login-server` flag (or use LAN IP `http://<asgard-lan-ip>:8085` for Android — Cloudflare tunnel breaks WebSocket POST)
+   - Android Tailscale app: force-stop, clear data, set alternate server to LAN IP, log in, then register with `sudo headscale nodes register --key <mkey> --user yggdrasil`
+   - Headscale Admin UI at `http://asgard:8443` — set API URL to `http://asgard:8443` + API key from sops
+   - Immich admin account is auto-created by `immich-admin-seed.service`
    - FileBrowser credentials auto-synced from sops by `filebrowser-credentials.service`
-4. Everything else (arr wiring, Jellyseerr setup, Glance dashboard, Grafana) is automatic
+5. Everything else (arr wiring, Jellyseerr setup, Glance dashboard, Grafana) is automatic
 
 ---
 
 ## Cloudflare Tunnel Setup (one-time)
 
 ```bash
-cloudflared login                          # authenticate
+cloudflared login                          # authenticate (creates ~/.cloudflared/cert.pem)
 cloudflared tunnel create asgard          # creates credentials JSON
 # Copy the credentials JSON into sops as cloudflare-tunnel
-# Add DNS CNAME records in Cloudflare dashboard pointing to <tunnel-uuid>.cfargotunnel.com
+# DNS records auto-created by: cloudflared tunnel route dns <uuid> <hostname>
 ```
 
-Public routes: jellyfin.bifrost-vault.com, requests.bifrost-vault.com, photos.bifrost-vault.com
+Public routes: jellyfin.bifrost-vault.com, requests.bifrost-vault.com, photos.bifrost-vault.com, hs.bifrost-vault.com
 
 ---
 

@@ -285,6 +285,10 @@
         % Edit Secrets
         # Open encrypted secrets file in editor (decrypts, re-encrypts on save)
         sops ~/Dots/Secrets/secrets.yaml
+
+        % Asgard
+        # SSH into Asgard server (via Tailscale)
+        ssh asgard
       '';
     };
   };

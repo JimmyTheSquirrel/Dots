@@ -17,6 +17,9 @@
       defaultSopsFile = ../Secrets/secrets.yaml;
       age.keyFile = "/home/rock/.config/sops/age/keys.txt";
       secrets.tailscale-auth-key = { };
+      secrets.user-password-hash = {
+        neededForUsers = true;
+      };
     };
   };
 }

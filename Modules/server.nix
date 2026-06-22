@@ -1065,6 +1065,36 @@ EOF
 
     services.nginx = {
       enable = true;
+
+      # --- Headscale reverse proxy for Cloudflare tunnel (port 8086) ---
+      # Cloudflare's edge strips the custom "Upgrade: tailscale-control-protocol"
+      # header that Headscale's Noise/TS2021 protocol requires. This nginx sits
+      # between cloudflared and Headscale, re-injecting the Upgrade header on
+      # /ts2021 requests so the protocol handshake succeeds.
+      virtualHosts."headscale-cf-proxy" = {
+        listen = [{ addr = "127.0.0.1"; port = 8086; }];
+        locations."/ts2021" = {
+          proxyPass = "http://127.0.0.1:8085";
+          extraConfig = ''
+            # Re-inject the Upgrade header that Cloudflare strips
+            proxy_set_header Upgrade "tailscale-control-protocol";
+            proxy_set_header Connection "Upgrade";
+            proxy_http_version 1.1;
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+          '';
+        };
+        locations."/" = {
+          proxyPass = "http://127.0.0.1:8085";
+          extraConfig = ''
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_http_version 1.1;
+          '';
+        };
+      };
+
+      # --- Headscale Admin UI (port 8443) ---
       virtualHosts."headscale-ui" = {
         listen = [{ addr = "0.0.0.0"; port = 8443; }];
         locations."/" = {
@@ -1099,13 +1129,21 @@ EOF
           credentialsFile = config.sops.secrets."cloudflare-tunnel".path;
           default = "http_status:404";
           ingress = {
-            "hs.bifrost-vault.com"       = "http://localhost:8085";
+            # Route through nginx (8086) which re-injects the Upgrade header
+            # that Cloudflare's edge strips from TS2021 requests.
+            "hs.bifrost-vault.com"       = "http://localhost:8086";
             "jellyfin.bifrost-vault.com"  = "http://localhost:8096";
             "requests.bifrost-vault.com"  = "http://localhost:5055";
             "photos.bifrost-vault.com"    = "http://localhost:2283";
           };
         };
       };
+    };
+
+    # Force cloudflared to use HTTP/2 protocol to CF edge (instead of QUIC).
+    # This may help preserve Upgrade headers for the Tailscale Noise protocol.
+    systemd.services."cloudflared-tunnel-804d54a8-e7ad-4f34-812d-3052cf862c47" = {
+      environment.TUNNEL_TRANSPORT_PROTOCOL = "http2";
     };
 
     # TODO: Mullvad VPN kill switch for SABnzbd — deferred.

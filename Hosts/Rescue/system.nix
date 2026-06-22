@@ -31,17 +31,29 @@ in {
         };
       }
 
-      # Reuse config modules (no bloat)
+      # Your actual modules — keybinds, shell, browser, all work
+      self.nixosModules.niri
+      self.nixosModules.noctalia
+      self.nixosModules.helium
+      self.nixosModules.audio
       self.nixosModules.locale
       self.nixosModules.zsh
       self.nixosModules.starship
       self.nixosModules.kitty
       self.nixosModules.git
       self.nixosModules.fastfetch
+      self.nixosModules.polkit
 
-      # Niri + auto-login
-      {
-        programs.niri.enable = true;
+      # Rescue-specific overrides
+      ({ pkgs, lib, ... }: {
+        networking.hostName = hostName;
+        system.stateVersion = "25.05";
+        nixpkgs.config.allowUnfree = true;
+        nix.settings.experimental-features = [ "nix-command" "flakes" ];
+        networking.networkmanager.enable = true;
+
+        # Override niri module's SDDM — use greetd for auto-login instead
+        services.displayManager.sddm.enable = lib.mkForce false;
         services.greetd = {
           enable = true;
           settings.default_session = {
@@ -49,32 +61,11 @@ in {
             user = activeUser;
           };
         };
-        xdg.portal = {
-          enable = true;
-          extraPortals = with (import inputs.nixpkgs { system = "x86_64-linux"; }); [
-            xdg-desktop-portal-gnome
-            xdg-desktop-portal-gtk
-          ];
-          config.common.default = "gtk";
-        };
-      }
-
-      # Rescue system config
-      ({ pkgs, lib, ... }: {
-        networking.hostName = hostName;
-        system.stateVersion = "25.05";
-        nixpkgs.config.allowUnfree = true;
-
-        # Nix
-        nix.settings.experimental-features = [ "nix-command" "flakes" ];
-
-        # Networking
-        networking.networkmanager.enable = true;
 
         # User
         users.users.${activeUser} = {
           isNormalUser = true;
-          extraGroups = [ "networkmanager" "wheel" "video" "input" ];
+          extraGroups = [ "networkmanager" "wheel" "video" "render" "input" ];
           password = "rescue";
           shell = pkgs.zsh;
         };
@@ -82,23 +73,22 @@ in {
         programs.dconf.enable = true;
         security.sudo.wheelNeedsPassword = false;
 
-        # Packages — lean rescue toolkit
+        # Lean rescue toolkit
         environment.systemPackages = with pkgs; [
-          git
           vim
           btop
           home-manager
-          grim
-          slurp
-          wl-clipboard
           gparted
           parted
           ntfs3g
           nix-output-monitor
           claude-code
+          wl-clipboard
+          grim
+          slurp
         ];
 
-        # Fonts (kitty needs this)
+        # Fonts
         fonts = {
           fontconfig.enable = true;
           packages = with pkgs; [
@@ -109,8 +99,6 @@ in {
         # ISO config
         isoImage.isoName = "nixos-rescue-rock.iso";
         isoImage.volumeID = "NIXOS_RESCUE";
-
-        # Ventoy compatibility — squashfs is default and works great
         isoImage.squashfsCompression = "zstd -Xcompression-level 6";
       })
     ];

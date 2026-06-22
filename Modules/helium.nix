@@ -119,7 +119,7 @@ EOF
             }
             {
               name = "Glance";
-              url = "http://localhost:8888";
+              url = "http://asgard:8888";
             }
           ];
         }
