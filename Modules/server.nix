@@ -1063,8 +1063,41 @@ EOF
       ports = [ "127.0.0.1:8444:80" ];
     };
 
+    # Let's Encrypt for Headscale TLS
+    security.acme = {
+      acceptTerms = true;
+      defaults.email = "admin@bifrost-vault.com";
+    };
+
     services.nginx = {
       enable = true;
+      recommendedProxySettings = true;
+      recommendedTlsSettings = true;
+
+      # --- Headscale public HTTPS (port 443) ---
+      # Direct IPv6 access for Tailscale clients (bypasses Cloudflare tunnel).
+      # Let's Encrypt auto-TLS so clients can connect via https://hs.bifrost-vault.com
+      virtualHosts."hs.bifrost-vault.com" = {
+        listen = [
+          { addr = "[::0]"; port = 443; ssl = true; }
+          { addr = "0.0.0.0"; port = 443; ssl = true; }
+          { addr = "[::0]"; port = 80; }
+          { addr = "0.0.0.0"; port = 80; }
+        ];
+        enableACME = true;
+        forceSSL = true;
+        locations."/" = {
+          proxyPass = "http://127.0.0.1:8085";
+          proxyWebsockets = true;
+          extraConfig = ''
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "Upgrade";
+            proxy_buffering off;
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+          '';
+        };
+      };
 
       # --- Headscale Admin UI (port 8443) ---
       virtualHosts."headscale-ui" = {
@@ -1717,7 +1750,7 @@ EOF
     # Allow containers to reach host-bound services (arr, immich, etc.)
     # tailscale0 trusted so all services are reachable from any tailnet device by hostname
     networking.firewall.trustedInterfaces = [ "podman0" "cni-podman0" "tailscale0" ];
-    networking.firewall.allowedTCPPorts = [ 8085 ]; # Headscale
+    networking.firewall.allowedTCPPorts = [ 80 443 8085 ]; # ACME, Headscale HTTPS, Headscale HTTP
 
 
 
