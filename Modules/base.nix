@@ -67,6 +67,7 @@ moonlight-qt
       nixos-anywhere
       mpv
       imv
+      libreoffice-fresh
     ];
 
     home-manager.users.${activeUser} = {
@@ -90,6 +91,14 @@ moonlight-qt
           "image/webp"        = "imv.desktop";
           "image/bmp"         = "imv.desktop";
           "image/tiff"        = "imv.desktop";
+          # Documents
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document" = "writer.desktop";
+          "application/msword"            = "writer.desktop";
+          "application/vnd.oasis.opendocument.text" = "writer.desktop";
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" = "calc.desktop";
+          "application/vnd.ms-excel"      = "calc.desktop";
+          "application/vnd.oasis.opendocument.spreadsheet" = "calc.desktop";
+          "application/pdf"               = "writer.desktop";
         };
       };
     };

@@ -21,6 +21,7 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 - Recyclarr — runs on boot + daily, syncs TRaSH Guides quality profiles to Sonarr + Radarr
 - **Headscale** — self-hosted Tailscale control plane (port 8085), user `yggdrasil`, Asgard (100.64.0.1) + Sisyphus (100.64.0.2) + rhys-phone (100.64.0.3)
 - **Networking** — Headscale tailnet, `tailscale0` trusted in firewall, all services reachable via `asgard:port` from tailnet devices
+- **IPv6 + nginx TLS** — Headscale exposed to internet via IPv6 (CGNAT blocks IPv4 port forwarding). nginx on 443 with Let's Encrypt → proxy to 8085. AAAA record `hs.bifrost-vault.com` (grey cloud, DNS only)
 - **Observability stack** — Glance (8888, native systemd service), Prometheus (9090, node scrape 5s, CORS enabled), Loki (3100), Grafana (3001, anonymous viewing + iframe embedding), Alloy, Exportarr, cAdvisor, SABnzbd exporter
 
 ---
@@ -41,7 +42,8 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 | Shelfarr           | 5056 | Tailscale only | Podman container — book request portal |
 | ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
-| Headscale          | 8085 | Tailscale + CF tunnel | hs.bifrost-vault.com — CF tunnel works for HTTP only, NOT for Tailscale client connections (WebSocket POST broken) |
+| Headscale          | 8085 | IPv6 + nginx TLS (443) | hs.bifrost-vault.com — direct IPv6 with Let's Encrypt. CF tunnel kept for HTTP API only (breaks Tailscale client connections) |
+| nginx (Headscale)  | 443  | IPv6 public            | Let's Encrypt TLS termination → proxy to 8085 with WebSocket support |
 | Headscale Admin    | 8443 | Tailscale only | Nginx reverse proxy → headscale-admin (goodieshq) + Headscale API (same-origin CORS fix) |
 | **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Native server-stats + auto-refreshing System Info widget + Yggdrasil Network widget |
 | **Grafana**        | 3001 | Tailscale only | System stats (bar gauge panels) + logs. Anonymous viewing enabled for iframe embedding |
@@ -66,11 +68,11 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 
 ### Native NixOS services (not nixflix)
 - Immich — `services.immich`, manages its own PostgreSQL + Redis. `host = "0.0.0.0"` required — default `localhost` binds to `[::1]` (IPv6 only) making it unreachable. `ExecStartPre` script creates `.immich` marker files in all subdirs of `/data/photos/` (encoded-video, thumbs, upload, backups, library, profile) — Immich refuses to start without these.
-- Headscale — `services.headscale` (port 8085, `address = "0.0.0.0"`). **Cloudflare tunnel breaks Tailscale client connections** (WebSocket POST not supported) — clients must connect via LAN or direct IP.
+- Headscale — `services.headscale` (port 8085, `address = "0.0.0.0"`). **Cloudflare tunnel breaks Tailscale client connections** (WebSocket POST not supported). Exposed via **IPv6 + nginx TLS on port 443** instead.
 - Headscale Admin — Nginx on port 8443 reverse-proxies `goodieshq/headscale-admin` container (port 8444) + Headscale API (port 8085) on same origin to avoid CORS. Settings stored in browser localStorage.
 - Tailscale — `services.tailscale` (connected to Headscale via `--login-server`)
 - Cloudflared — `services.cloudflared`
-- Nginx — `services.nginx` (port 8443 only — Headscale Admin reverse proxy)
+- Nginx — `services.nginx` (port 443: Headscale HTTPS with Let's Encrypt + WebSocket proxy; port 8443: Headscale Admin reverse proxy)
 
 ### Native NixOS service (background sync)
 - **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`. Radarr templates use `radarr-quality-profile-remux-*` / `radarr-custom-formats-remux-*` (no `-v9-` prefix — that naming was dropped from TRaSH Guides).
@@ -110,12 +112,12 @@ Center column (full):
 
 Right column (small):
 - Clock widget (12h format)
-- Yggdrasil tree banner (SVG via CSS `::before` pseudo-element on `.ygg-widget` class — Glance `html` widget strips SVG/class attrs)
+- Yggdrasil tree banner (split CSS: Norse rune ring SVG as `::before`, tree PNG as `::after` via `/assets/yggdrasil.png` from `glanceAssets` derivation + `assets-path`)
 - Yggdrasil Network `custom-api` widget: queries Headscale API (`/api/v1/node`), 15s cache, shows device names + online/offline dots + IPs. Title links to Headscale Admin UI.
 
 **Custom CSS (injected via `document.head` `<style>`):**
 - Widget borders: subtle green-tinted rounded corners, hover glow effect
-- Yggdrasil tree SVG banner as data URI background-image on `::before`
+- Yggdrasil banner: ring SVG as `::before` data URI, tree PNG as `::after` via `/assets/yggdrasil.png`
 - Active page tab + clock text glow
 - Widget title letter-spacing
 
@@ -337,7 +339,7 @@ GID 1001. All services that need `/data/media` access are in this group:
    - Create pre-auth key: `sudo headscale preauthkeys create -u 1 --reusable --expiration 24h`
    - Join Asgard: `sudo tailscale up --login-server https://hs.bifrost-vault.com --auth-key <key>`
    - Join other devices with same `--login-server` flag (or use LAN IP `http://<asgard-lan-ip>:8085` for Android — Cloudflare tunnel breaks WebSocket POST)
-   - Android Tailscale app: force-stop, clear data, set alternate server to LAN IP, log in, then register with `sudo headscale nodes register --key <mkey> --user yggdrasil`
+   - Android Tailscale app: force-stop, clear data, set alternate server to `https://hs.bifrost-vault.com` (works via IPv6), log in, then register with `sudo headscale nodes register --key <mkey> --user yggdrasil`
    - Headscale Admin UI at `http://asgard:8443` — set API URL to `http://asgard:8443` + API key from sops
    - Immich admin account is auto-created by `immich-admin-seed.service`
    - FileBrowser credentials auto-synced from sops by `filebrowser-credentials.service`
@@ -355,6 +357,36 @@ cloudflared tunnel create asgard          # creates credentials JSON
 ```
 
 Public routes: jellyfin.bifrost-vault.com, requests.bifrost-vault.com, photos.bifrost-vault.com, hs.bifrost-vault.com
+
+**IMPORTANT:** Cloudflare tunnel does NOT work for Tailscale client connections to Headscale. Use the direct IPv6 path instead (see below).
+
+---
+
+## IPv6 + nginx TLS for Headscale (bypassing CGNAT)
+
+**Problem:** ISP assigns CGNAT IPv4 (100.91.x.x) — port forwarding impossible. Cloudflare tunnel strips WebSocket POST headers needed by TS2021.
+
+**Solution:** Direct IPv6 access with TLS termination.
+
+**Architecture:**
+```
+Phone (5G/remote) → hs.bifrost-vault.com (AAAA record) → Asgard IPv6:443 → nginx (TLS) → Headscale :8085
+```
+
+**Components:**
+- **Router:** TP-Link Archer AX55 — IPv6 PPPoE enabled (shared session with IPv4). Firewall: ports 80 + 443 open to Asgard's IPv6
+- **IPv6 prefix:** `2400:a844:44f4::/64` (DHCP lease ~296s — monitor stability)
+- **DNS:** AAAA record for `hs.bifrost-vault.com` → Asgard's IPv6 address (grey cloud / DNS only in Cloudflare — NOT proxied)
+- **nginx:** Port 443 with Let's Encrypt ACME (HTTP-01 challenge on port 80). Proxies to `127.0.0.1:8085` with WebSocket support (`proxy_set_header Upgrade/Connection`)
+- **ACME:** `security.acme` in server.nix, email `admin@bifrost-vault.com`
+- **Firewall:** `networking.firewall.allowedTCPPorts` includes 80, 443, 8085
+
+**Security posture:**
+- TLS on all external connections (Let's Encrypt auto-renewal)
+- WireGuard encryption for all tailnet traffic
+- Manual device registration required (no auto-approve)
+- All services only accessible via tailnet (not exposed to internet)
+- Only ports 80 (ACME) and 443 (Headscale HTTPS) open on router
 
 ---
 

@@ -13,7 +13,7 @@
     # can read host CPU/memory/disk directly from /proc and /sys.
     glanceConfig = pkgs.writeText "glance.yml" ''
       server:
-        port: 8888
+        port: 80
         assets-path: ${glanceAssets}
 
       document:
