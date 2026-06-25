@@ -269,17 +269,58 @@
                 - type: clock
                   hour-format: 12h
 
-                - type: monitor
+                - type: custom-api
                   title: Yggdrasil Network
                   css-class: ygg-widget
-                  cache: 30s
-                  sites:
-                    - title: asgard
-                      url: tcp://localhost:8080
-                      icon: sh:tailscale
-                    - title: sisyphus
-                      url: tcp://sisyphus:22
-                      icon: sh:tailscale
+                  cache: 15s
+                  url: http://localhost:9553/status
+                  template: |
+                    <style>
+                      .ts-online {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background-color: hsl(142, 72%, 39%);
+                        display: inline-block;
+                        margin-left: 4px;
+                        vertical-align: middle;
+                      }
+                      .ts-offline {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background-color: var(--color-negative);
+                        display: inline-block;
+                        margin-left: 4px;
+                        vertical-align: middle;
+                      }
+                    </style>
+                    <ul class="list list-gap-10 collapsible-container" data-collapse-after="10">
+                      <li>
+                        <div class="flex items-center gap-10">
+                          <div class="grow flex items-center gap-8">
+                            <span class="size-h4 block text-truncate color-primary">{{ .JSON.String "self.name" }}</span>
+                            <span class="ts-online"></span>
+                          </div>
+                          <span class="size-h5 color-subtext">{{ .JSON.String "self.ip" }}</span>
+                        </div>
+                      </li>
+                      {{ range .JSON.Array "peers" }}
+                      <li>
+                        <div class="flex items-center gap-10">
+                          <div class="grow flex items-center gap-8">
+                            <span class="size-h4 block text-truncate color-primary">{{ .String "name" }}</span>
+                            {{ if .Bool "online" }}
+                              <span class="ts-online" data-popover-type="text" data-popover-text="Online"></span>
+                            {{ else }}
+                              <span class="ts-offline" data-popover-type="text" data-popover-text="Offline"></span>
+                            {{ end }}
+                          </div>
+                          <span class="size-h5 color-subtext">{{ .String "ip" }}</span>
+                        </div>
+                      </li>
+                      {{ end }}
+                    </ul>
 
         # ════════════════════════════════════════════════════════════════════
         # PAGE 2 — Downloads (SABnzbd iframe + queue stats)
@@ -1014,6 +1055,62 @@ EOF
     services.tailscale = {
       enable = true;
       openFirewall = true;
+    };
+
+    # Tailscale status API proxy — exposes node status for Glance dashboard
+    # Queries tailscaled Unix socket and serves JSON on localhost:9553
+    systemd.services.tailscale-status-proxy = {
+      description = "Tailscale status HTTP proxy for Glance";
+      after = [ "tailscaled.service" ];
+      wantedBy = [ "multi-user.target" ];
+      path = [ pkgs.curl pkgs.jq pkgs.python3 ];
+      script = ''
+        python3 -c '
+import http.server, subprocess, json
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        try:
+            raw = subprocess.check_output([
+                "curl", "-sf", "--unix-socket",
+                "/var/run/tailscale/tailscaled.sock",
+                "http://local-tailscaled.sock/localapi/v0/status"
+            ])
+            data = json.loads(raw)
+            result = {
+                "self": {
+                    "name": data["Self"]["HostName"],
+                    "ip": data["Self"]["TailscaleIPs"][0],
+                    "online": data["Self"]["Online"]
+                },
+                "peers": [
+                    {
+                        "name": p["HostName"],
+                        "ip": p["TailscaleIPs"][0] if p.get("TailscaleIPs") else "",
+                        "online": p.get("Online", False)
+                    }
+                    for p in data.get("Peer", {}).values()
+                ]
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode())
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(str(e).encode())
+    def log_message(self, *args):
+        pass
+
+http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
+        '
+      '';
+      serviceConfig = {
+        Restart = "always";
+        RestartSec = 5;
+      };
     };
 
     environment.systemPackages = [ pkgs.kitty.terminfo ];
