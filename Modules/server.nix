@@ -504,6 +504,13 @@
             web_compact = true;
             web_fullscreen = true;
             web_tabbed = true;
+
+            # Performance — parallel downloading + unpacking
+            direct_unpack = true;          # unpack while still downloading
+            article_cache_size = "1G";     # RAM cache — reduces disk thrashing
+            pre_check = false;             # skip pre-check — backup server fills gaps instead
+            par_option = "N=A";            # skip verify when no repair needed
+            enable_par_cleanup = true;     # delete par2 files after successful repair
           };
           servers = [
             {
@@ -515,6 +522,16 @@
               connections = 200;
               ssl = true;
               priority = 0;
+            }
+            {
+              name = "Newshosting";
+              host = "news.newshosting.com";
+              port = 563;
+              username._secret = config.sops.secrets."usenet/newshosting/username".path;
+              password._secret = config.sops.secrets."usenet/newshosting/password".path;
+              connections = 30;
+              ssl = true;
+              priority = 1;
             }
           ];
         };
@@ -1825,6 +1842,8 @@ EOF
     sops.secrets."sabnzbd-password"             = {};
     sops.secrets."usenet/frugalusenet/username"    = {};
     sops.secrets."usenet/frugalusenet/password"    = {};
+    sops.secrets."usenet/newshosting/username"     = {};
+    sops.secrets."usenet/newshosting/password"     = {};
     sops.secrets."indexer-api-keys/Miatrix"        = {};
     sops.secrets."indexer-api-keys/NZBGeek"        = {};
     sops.secrets."indexer-api-keys/NZBPlanet"      = {};
