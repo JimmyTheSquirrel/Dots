@@ -1259,7 +1259,9 @@ EOF
 
         # NAT: forward host:8080 → vpn namespace:8080
         iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination 10.200.1.2:8080
+        iptables -t nat -A OUTPUT -p tcp --dport 8080 -j DNAT --to-destination 10.200.1.2:8080
         iptables -t nat -A POSTROUTING -s 10.200.1.0/24 -j MASQUERADE
+        iptables -t nat -A POSTROUTING -d 10.200.1.2 -j MASQUERADE
         iptables -A FORWARD -i veth-vpn-br -o veth-vpn-br -j ACCEPT
 
         # Allow namespace to reach host (for arr API callbacks on localhost)
@@ -1268,7 +1270,9 @@ EOF
       '';
       preStop = ''
         iptables -t nat -D PREROUTING -p tcp --dport 8080 -j DNAT --to-destination 10.200.1.2:8080 || true
+        iptables -t nat -D OUTPUT -p tcp --dport 8080 -j DNAT --to-destination 10.200.1.2:8080 || true
         iptables -t nat -D POSTROUTING -s 10.200.1.0/24 -j MASQUERADE || true
+        iptables -t nat -D POSTROUTING -d 10.200.1.2 -j MASQUERADE || true
         iptables -D FORWARD -i veth-vpn-br -o veth-vpn-br -j ACCEPT || true
         ${pkgs.iproute2}/bin/ip link del veth-vpn-br || true
       '';
