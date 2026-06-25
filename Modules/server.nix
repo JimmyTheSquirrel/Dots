@@ -505,12 +505,16 @@
             web_fullscreen = true;
             web_tabbed = true;
 
-            # Performance — parallel downloading + unpacking
+            # Performance
             direct_unpack = true;          # unpack while still downloading
             article_cache_size = "1G";     # RAM cache — reduces disk thrashing
             pre_check = false;             # skip pre-check — backup server fills gaps instead
             par_option = "N=A";            # skip verify when no repair needed
             enable_par_cleanup = true;     # delete par2 files after successful repair
+            pause_on_post_processing = false; # keep downloading while post-processing
+            unwanted_extensions = "";      # disable extension scanning (wastes CPU)
+            action_on_unwanted_ext = 0;    # no action on extensions
+            log_level = 1;                 # info level — debug kills performance
           };
           servers = [
             {
@@ -521,7 +525,9 @@
               password._secret = config.sops.secrets."usenet/frugalusenet/password".path;
               connections = 200;
               ssl = true;
+              ssl_ciphers = "AES128-SHA256";
               priority = 0;
+              required = true;
             }
             {
               name = "Newshosting";
@@ -531,7 +537,9 @@
               password._secret = config.sops.secrets."usenet/newshosting/password".path;
               connections = 30;
               ssl = true;
+              ssl_ciphers = "AES128-SHA256";
               priority = 1;
+              optional = true;
             }
           ];
         };
