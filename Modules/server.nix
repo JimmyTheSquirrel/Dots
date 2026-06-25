@@ -1281,9 +1281,9 @@ EOF
     systemd.services.sabnzbd = {
       bindsTo = [ "veth-vpn.service" ];
       after = [ "veth-vpn.service" ];
-      unitConfig.JoinsNamespaceOf = "netns-vpn.service";
       serviceConfig = {
-        PrivateNetwork = true;
+        PrivateNetwork = lib.mkForce false;  # disable nixflix's PrivateNetwork — we use NetworkNamespacePath instead
+        NetworkNamespacePath = "/var/run/netns/vpn";
         BindReadOnlyPaths = [ "/etc/netns/vpn/resolv.conf:/etc/resolv.conf" ];
       };
     };
