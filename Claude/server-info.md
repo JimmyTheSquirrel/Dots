@@ -8,20 +8,21 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 
 ---
 
-## Current Status (as of 2026-06-21)
+## Current Status (as of 2026-06-25)
 
 ### Deployed on dedicated Asgard hardware
 - Nixflix arr stack (Sonarr/Radarr/Lidarr/Prowlarr) — Forms auth via `hostConfig.password._secret` → `admin-password`
 - Jellyfin, Jellyseerr, SABnzbd — all healthy
 - Prowlarr — 3 indexers pre-configured (Miatrix, NZBgeek, NzbPlanet) via sops secrets, app sync configured to push to all arrs
-- SABnzbd — FrugalUsenet server pre-configured with dedicated username/password secrets
+- SABnzbd — FrugalUsenet (primary) + Newshosting (backup), dual Usenet backbone, running inside Mullvad VPN namespace with kill switch
 - Glance dashboard (port 8888) — native `server-stats` widget + "System Info" custom-api (auto-refreshing via injected JS), service monitors, bookmarks, Yggdrasil Network widget
 - FileBrowser, Immich, Audiobookshelf, Shelfarr — running
 - Decluttarr — running, config auto-generated from individual arr/sabnzbd API key secrets
 - Recyclarr — runs on boot + daily, syncs TRaSH Guides quality profiles to Sonarr + Radarr
-- **Headscale** — self-hosted Tailscale control plane (port 8085), user `yggdrasil`, Asgard (100.64.0.1) + Sisyphus (100.64.0.2) + rhys-phone (100.64.0.3)
-- **Networking** — Headscale tailnet, `tailscale0` trusted in firewall, all services reachable via `asgard:port` from tailnet devices
-- **IPv6 + nginx TLS** — Headscale exposed to internet via IPv6 (CGNAT blocks IPv4 port forwarding). nginx on 443 with Let's Encrypt → proxy to 8085. AAAA record `hs.bifrost-vault.com` (grey cloud, DNS only)
+- **Tailscale** — stock Tailscale (free plan), tailnet `tailb54b82.ts.net`. Asgard (100.126.205.100), Sisyphus (100.70.29.3), rhys-s25 (100.68.29.23)
+- **Networking** — stock Tailscale, `tailscale0` trusted in firewall, all services reachable via `asgard:port` from tailnet devices
+- **Mullvad VPN** — SABnzbd confined to WireGuard network namespace (`/var/run/netns/vpn`), Mullvad Sydney exit, socat proxy host:8080 → namespace
+- **tailscale-status-proxy** — Python HTTP service (port 9553) queries tailscaled Unix socket, serves simplified JSON for Glance Yggdrasil widget
 - **Observability stack** — Glance (8888, native systemd service), Prometheus (9090, node scrape 5s, CORS enabled), Loki (3100), Grafana (3001, anonymous viewing + iframe embedding), Alloy, Exportarr, cAdvisor, SABnzbd exporter
 
 ---
@@ -37,14 +38,12 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 | Radarr             | 7878 | Tailscale only | |
 | Lidarr             | 8686 | Tailscale only | |
 | Prowlarr           | 9696 | Tailscale only | |
-| SABnzbd            | 8080 | Tailscale only | Dark theme: `web_color = "Night"` in misc settings |
+| SABnzbd            | 8080 | Tailscale only | Inside Mullvad VPN namespace. socat proxy from host. Dark theme: `web_color = "Night"` |
 | Audiobookshelf     | 13378 | Tailscale only | Podman container |
 | Shelfarr           | 5056 | Tailscale only | Podman container — book request portal |
 | ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
-| Headscale          | 8085 | IPv6 + nginx TLS (443) | hs.bifrost-vault.com — direct IPv6 with Let's Encrypt. CF tunnel kept for HTTP API only (breaks Tailscale client connections) |
-| nginx (Headscale)  | 443  | IPv6 public            | Let's Encrypt TLS termination → proxy to 8085 with WebSocket support |
-| Headscale Admin    | 8443 | Tailscale only | Nginx reverse proxy → headscale-admin (goodieshq) + Headscale API (same-origin CORS fix) |
+| tailscale-status-proxy | 9553 | internal only | HTTP proxy for Glance Yggdrasil widget |
 | **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Native server-stats + auto-refreshing System Info widget + Yggdrasil Network widget |
 | **Grafana**        | 3001 | Tailscale only | System stats (bar gauge panels) + logs. Anonymous viewing enabled for iframe embedding |
 | **Prometheus**     | 9090 | Tailscale only | Metrics collection. CORS enabled (`--web.cors.origin=.*`) for Glance JS polling |
@@ -68,17 +67,23 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 
 ### Native NixOS services (not nixflix)
 - Immich — `services.immich`, manages its own PostgreSQL + Redis. `host = "0.0.0.0"` required — default `localhost` binds to `[::1]` (IPv6 only) making it unreachable. `ExecStartPre` script creates `.immich` marker files in all subdirs of `/data/photos/` (encoded-video, thumbs, upload, backups, library, profile) — Immich refuses to start without these.
-- Headscale — `services.headscale` (port 8085, `address = "0.0.0.0"`). **Cloudflare tunnel breaks Tailscale client connections** (WebSocket POST not supported). Exposed via **IPv6 + nginx TLS on port 443** instead.
-- Headscale Admin — Nginx on port 8443 reverse-proxies `goodieshq/headscale-admin` container (port 8444) + Headscale API (port 8085) on same origin to avoid CORS. Settings stored in browser localStorage.
-- Tailscale — `services.tailscale` (connected to Headscale via `--login-server`)
+- Tailscale — `services.tailscale` (stock, no login-server flag)
 - Cloudflared — `services.cloudflared`
-- Nginx — `services.nginx` (port 443: Headscale HTTPS with Let's Encrypt + WebSocket proxy; port 8443: Headscale Admin reverse proxy)
 
 ### Native NixOS service (background sync)
 - **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`. Radarr templates use `radarr-quality-profile-remux-*` / `radarr-custom-formats-remux-*` (no `-v9-` prefix — that naming was dropped from TRaSH Guides).
 
+### Mullvad VPN Namespace (SABnzbd)
+- `netns-vpn.service` — creates `/var/run/netns/vpn`
+- `wg-mullvad.service` — WireGuard interface inside vpn namespace, Mullvad Sydney endpoint (146.70.200.2:51820)
+- `veth-vpn.service` — veth pair bridging host ↔ vpn namespace (10.200.1.1/24 ↔ 10.200.1.2/24)
+- SABnzbd: `NetworkNamespacePath = "/var/run/netns/vpn"`, `bindsTo = wg-mullvad.service` (kill switch)
+- `sabnzbd-proxy.service` — socat TCP proxy, host 0.0.0.0:8080 → 10.200.1.2:8080
+- DNS: Mullvad 10.64.0.1 via bind-mounted resolv.conf + `/etc/hosts` for Usenet server IPs
+- VPN IP: 10.66.10.54, private key in sops: `mullvad-wg-private-key`
+
 ### Podman containers
-- Audiobookshelf, Shelfarr, File Browser Quantum, Decluttarr, cAdvisor, SABnzbd exporter, Headscale Admin
+- Audiobookshelf, Shelfarr, File Browser Quantum, Decluttarr, cAdvisor, SABnzbd exporter
 - Backend: `virtualisation.oci-containers.backend = "podman"`
 - Docker compat socket (`podman.socket` at `/run/podman/podman.sock`) enabled for cAdvisor
 - **Decluttarr:** `decluttarr-config.service` generates `/var/lib/decluttarr/config/config.yaml` from individual arr + sabnzbd sops secrets before the container starts. No separate `decluttarr-env` secret — reuses existing API key secrets directly. `remove_orphans: false` — do NOT enable this, it kills newly queued downloads before SABnzbd picks them up (within 2 minutes).
@@ -108,12 +113,12 @@ Left column (small): Bookmarks grouped by Watch & Browse / Downloads / Arr Stack
 Center column (full):
 - Native `server-stats` widget: CPU/RAM/Disk bars, `/data` mountpoint shown, others hidden
 - "System Info" `custom-api` widget: Disk /data GB free, Download Mbps, Upload Mbps — queries Prometheus with combined PromQL (`node_filesystem_free_bytes` + `rate(node_network_*_bytes_total{device=~"enp.*|wlp.*"}[15s])`). Auto-refreshed every 5s via injected JavaScript in `document.head` that polls Prometheus directly (requires CORS enabled on Prometheus)
-- Service monitor groups: Downloads (SABnzbd, Prowlarr), Arr Stack (Sonarr, Radarr, Lidarr, Shelfarr), Media (Jellyfin, Jellyseerr, Immich, Audiobookshelf), Management (FileBrowser, Prometheus, Loki, Grafana, Headscale)
+- Service monitor groups: Downloads (SABnzbd, Prowlarr), Arr Stack (Sonarr, Radarr, Lidarr, Shelfarr), Media (Jellyfin, Jellyseerr, Immich, Audiobookshelf), Management (FileBrowser, Prometheus, Loki, Grafana)
 
 Right column (small):
 - Clock widget (12h format)
 - Yggdrasil tree banner (split CSS: Norse rune ring SVG as `::before`, tree PNG as `::after` via `/assets/yggdrasil.png` from `glanceAssets` derivation + `assets-path`)
-- Yggdrasil Network `custom-api` widget: queries Headscale API (`/api/v1/node`), 15s cache, shows device names + online/offline dots + IPs. Title links to Headscale Admin UI.
+- Yggdrasil Network `custom-api` widget: queries `tailscale-status-proxy` (port 9553) which reads tailscaled Unix socket, 15s cache, shows device names + online/offline dots + IPs.
 
 **Custom CSS (injected via `document.head` `<style>`):**
 - Widget borders: subtle green-tinted rounded corners, hover glow effect
@@ -159,13 +164,17 @@ Forms auth with the `admin-password` sops secret. No manual wizard step needed o
 
 **Prowlarr indexers** are pre-configured via `nixflix.prowlarr.config.indexers`: Miatrix, NZBGeek, NzbPlanet. Each has an `apiKey._secret` pointing to `indexer-api-keys/<Name>` in sops.
 
-**SABnzbd usenet server** (FrugalUsenet) is pre-configured: host `aunews.frugalusenet.com`, port 563, SSL, 200 connections. Credentials from `usenet/frugalusenet/username` + `/password` sops secrets.
+**SABnzbd usenet servers:**
+- **FrugalUsenet** (primary, priority 0): `aunews.frugalusenet.com:563`, SSL, 200 connections, UsenetExpress backbone. Creds: `usenet/frugalusenet/username` + `/password`
+- **Newshosting** (backup, priority 1): `news.newshosting.com:563`, SSL, 30 connections, Highwinds backbone. Creds: `usenet/newshosting/username` + `/password`
+- Backup fills missing articles per-article during download (not per-job retry)
+- Performance: `direct_unpack`, `article_cache_size = 1G`, `ssl_ciphers = AES128-SHA256`, `par_option = N=A`
 
 **SABnzbd misc settings (all in `nixflix.sabnzbd.config.misc`):**
 - `par2_multicore = 1` + `par2_threads = 12` — use all cores for par2 verification
 - `abort_max_missing = 10` — abort download if >10% articles missing
 - `fail_hopeless_jobs = 1` — fail (not pause) job if par2 can't repair after download; Radarr/Sonarr will blacklist and grab next release
-- `host_whitelist` — includes `asgard`, Headscale hostname, Headscale IPs, `host.containers.internal` — allows access by hostname from tailnet + Podman containers (SABnzbd exporter)
+- `host_whitelist` — includes `asgard`, `host.containers.internal` — allows access by hostname from tailnet + Podman containers (SABnzbd exporter)
 - `inet_exposure = 4` — allows connections from any IP (safe, only reachable via Tailscale)
 - Auth removed (no `username`/`password` in misc) — only reachable via tailnet
 - `web_compact = true`, `web_fullscreen = true`, `web_tabbed = true` — compact UI with tabbed queue/history
@@ -284,9 +293,10 @@ cloudflare-tunnel                  # full credentials JSON from cloudflared tunn
 admin-username                     # shared admin username for FileBrowser, Immich seed (e.g. admin)
 admin-password                     # shared admin password for FileBrowser, Immich seed
 grafana-admin-password             # Grafana admin password — sops owner = "grafana"
-mullvad-private-key                # WireGuard private key from Mullvad
+mullvad-wg-private-key             # WireGuard private key from Mullvad (SABnzbd VPN namespace)
+usenet/newshosting/username        # Newshosting NNTP username
+usenet/newshosting/password        # Newshosting NNTP password
 user-password-hash                 # bcrypt password hash ($ signs get mangled by sops --set)
-headscale-api-key                  # Headscale API bearer token for Glance widget
 ```
 
 **Cloudflare tunnel UUID:** `804d54a8-e7ad-4f34-812d-3052cf862c47` (in server.nix)
@@ -315,7 +325,6 @@ Disko partitioning declared inline in `Hosts/Asgard/system.nix`.
 /var/lib/
   filebrowser/               # File Browser state
   grafana/data/              # Grafana DB + state
-  headscale/                 # Headscale state + DB
 ```
 
 ---
@@ -335,12 +344,7 @@ GID 1001. All services that need `/data/media` access are in this group:
 2. Install NixOS: `nixos-install --flake .#rock-Asgard` (nixos-anywhere had issues, manual install worked)
 3. Set partition labels to match disko: `disk-nvme-ESP`, `disk-nvme-root`, `disk-hdd-data`
 4. On first boot:
-   - Create Headscale user: `sudo headscale users create yggdrasil`
-   - Create pre-auth key: `sudo headscale preauthkeys create -u 1 --reusable --expiration 24h`
-   - Join Asgard: `sudo tailscale up --login-server https://hs.bifrost-vault.com --auth-key <key>`
-   - Join other devices with same `--login-server` flag (or use LAN IP `http://<asgard-lan-ip>:8085` for Android — Cloudflare tunnel breaks WebSocket POST)
-   - Android Tailscale app: force-stop, clear data, set alternate server to `https://hs.bifrost-vault.com` (works via IPv6), log in, then register with `sudo headscale nodes register --key <mkey> --user yggdrasil`
-   - Headscale Admin UI at `http://asgard:8443` — set API URL to `http://asgard:8443` + API key from sops
+   - Join Tailscale: `sudo tailscale up` on Asgard (stock Tailscale, no Headscale)
    - Immich admin account is auto-created by `immich-admin-seed.service`
    - FileBrowser credentials auto-synced from sops by `filebrowser-credentials.service`
 5. Everything else (arr wiring, Jellyseerr setup, Glance dashboard, Grafana) is automatic
@@ -356,64 +360,10 @@ cloudflared tunnel create asgard          # creates credentials JSON
 # DNS records auto-created by: cloudflared tunnel route dns <uuid> <hostname>
 ```
 
-Public routes: jellyfin.bifrost-vault.com, requests.bifrost-vault.com, photos.bifrost-vault.com, hs.bifrost-vault.com
-
-**IMPORTANT:** Cloudflare tunnel does NOT work for Tailscale client connections to Headscale. Use the direct IPv6 path instead (see below).
+Public routes: jellyfin.bifrost-vault.com, requests.bifrost-vault.com, photos.bifrost-vault.com
 
 ---
 
-## IPv6 + nginx TLS for Headscale (bypassing CGNAT)
+## Mullvad VPN for SABnzbd — Working
 
-**Problem:** ISP assigns CGNAT IPv4 (100.91.x.x) — port forwarding impossible. Cloudflare tunnel strips WebSocket POST headers needed by TS2021.
-
-**Solution:** Direct IPv6 access with TLS termination.
-
-**Architecture:**
-```
-Phone (5G/remote) → hs.bifrost-vault.com (AAAA record) → Asgard IPv6:443 → nginx (TLS) → Headscale :8085
-```
-
-**Components:**
-- **Router:** TP-Link Archer AX55 — IPv6 PPPoE enabled (shared session with IPv4). Firewall: ports 80 + 443 open to Asgard's IPv6
-- **IPv6 prefix:** `2400:a844:44f4::/64` (DHCP lease ~296s — monitor stability)
-- **DNS:** AAAA record for `hs.bifrost-vault.com` → Asgard's IPv6 address (grey cloud / DNS only in Cloudflare — NOT proxied)
-- **nginx:** Port 443 with Let's Encrypt ACME (HTTP-01 challenge on port 80). Proxies to `127.0.0.1:8085` with WebSocket support (`proxy_set_header Upgrade/Connection`)
-- **ACME:** `security.acme` in server.nix, email `admin@bifrost-vault.com`
-- **Firewall:** `networking.firewall.allowedTCPPorts` includes 80, 443, 8085
-
-**Security posture:**
-- TLS on all external connections (Let's Encrypt auto-renewal)
-- WireGuard encryption for all tailnet traffic
-- Manual device registration required (no auto-approve)
-- All services only accessible via tailnet (not exposed to internet)
-- Only ports 80 (ACME) and 443 (Headscale HTTPS) open on router
-
----
-
-## Mullvad VPN for SABnzbd — Deferred
-
-**Goal:** Route SABnzbd traffic through Mullvad WireGuard for a kill-switch / privacy layer.
-
-**Approach:** nixflix `nixflix.vpn.enable` + `nixflix.usenetClients.sabnzbd.vpn.enable = true` uses vpn-confinement (Maroka-chan) — creates a WireGuard network namespace and confines SABnzbd's systemd service to it via `NetworkNamespacePath`.
-
-**Root cause of failure:** DNS resolution inside the combined mount+network namespace environment fails with `EAI_AGAIN`.
-
-The critical conflict: `accessibleFrom = ["100.64.0.0/10"]` (needed for Tailscale return traffic from within the VPN namespace) creates a route `100.64.0.0/10 via veth-wg` inside the namespace. Mullvad's CGNAT DNS is at `100.64.0.55` — this route intercepts it and routes it via veth back to the host instead of through the WireGuard tunnel. All alternative DNS IPs also failed from inside SABnzbd's sandbox.
-
-`/etc/hosts` bypass was confirmed working at the Python+namespace level (`socket.getaddrinfo()` returned both FrugalUsenet IPs) but SABnzbd itself still reported "Server name does not resolve" — root cause not identified.
-
-**Current state:** VPN confinement removed. SABnzbd runs without VPN. `/etc/hosts` entries remain for FrugalUsenet as a DNS bypass:
-```nix
-networking.hosts = {
-  "45.125.247.68"  = [ "aunews.frugalusenet.com" ];
-  "45.125.247.108" = [ "aunews.frugalusenet.com" ];
-};
-```
-
-**Mullvad WireGuard config details (for future attempt):**
-- Endpoint: `146.70.200.2:51820` (AU server — regenerate key if resuming)
-- DNS: `100.64.0.55` (Mullvad CGNAT — conflicts with Tailscale accessibleFrom route)
-- FrugalUsenet IPs confirmed reachable on port 563 through tunnel: `45.125.247.68`, `45.125.247.108`
-- Private key in sops: `mullvad-private-key`
-
-**wg.service restart note:** `wg.service` does NOT automatically restart on rebuild when only the conf-generate script content changes. If DNS or config is stale, manually `sudo systemctl restart wg` then `sudo systemctl restart sabnzbd`.
+SABnzbd is now fully confined to a WireGuard network namespace. See the "Mullvad VPN Namespace" subsection under Stack Architecture for service details. Private key in sops: `mullvad-wg-private-key`. `/etc/hosts` entries for FrugalUsenet and Newshosting server IPs are used for DNS inside the namespace.

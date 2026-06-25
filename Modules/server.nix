@@ -513,6 +513,7 @@
             pause_on_post_processing = false; # keep downloading while post-processing
             unwanted_extensions = "";      # disable extension scanning (wastes CPU)
             action_on_unwanted_ext = 0;    # no action on extensions
+            max_art_tries = 3;             # max article retries — stop cycling on missing articles
             log_level = 1;                 # info level — debug kills performance
           };
           servers = [
@@ -526,6 +527,7 @@
               ssl = true;
               ssl_ciphers = "AES128-SHA256";
               priority = 0;
+              timeout = 30;
               required = true;
             }
             {
@@ -538,6 +540,7 @@
               ssl = true;
               ssl_ciphers = "AES128-SHA256";
               priority = 1;
+              timeout = 30;
               optional = true;
             }
           ];

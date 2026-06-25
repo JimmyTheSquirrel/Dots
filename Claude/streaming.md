@@ -16,7 +16,6 @@ Sisyphus runs **Sunshine** as a game streaming host, accessible remotely via **T
 - Runs as a **user service** (`autoStart = true`) — starts automatically on Niri login
 - `hardware.uinput.enable = true` — allows Sunshine to send virtual input to Linux
 - `openFirewall = true` + `trustedInterfaces = [ "tailscale0" ]` — reachable over Tailscale without extra firewall rules
-- Tailscale auth key stored in sops (`tailscale-auth-key`), auto-authenticates on rebuild
 
 **Web UI:** `https://localhost:47990` (self-signed cert, accept warning) — set credentials on first run
 
@@ -36,8 +35,9 @@ Sisyphus runs **Sunshine** as a game streaming host, accessible remotely via **T
 
 ## Tailscale
 
-- Tailscale IP: `100.119.193.77` (check current with `tailscale ip`)
-- Auth key in sops, auto-applied on rebuild
+- Stock Tailscale (no Headscale)
+- Sisyphus IP: `100.70.29.3`, Asgard IP: `100.126.205.100` (verify current with `tailscale ip`)
+- Auth is handled interactively — no auth key stored in sops
 
 ## Moonlight Setup (Android)
 
