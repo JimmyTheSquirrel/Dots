@@ -497,7 +497,7 @@
             par2_threads = 12;
             abort_max_missing = 10;
             fail_hopeless_jobs = true;
-            host_whitelist = "asgard,asgard.tailb54b82.ts.net,100.119.193.77,host.containers.internal";
+            host_whitelist = "asgard,asgard.tailb54b82.ts.net,100.119.193.77,host.containers.internal,10.200.1.2";
             inet_exposure = 4;
             x_frame_options = 0;
             web_color = "Night";
@@ -1168,14 +1168,125 @@ EOF
       };
     };
 
-    # TODO: Mullvad VPN kill switch for SABnzbd — deferred.
-    # vpn-confinement (nixflix.vpn) works at the network namespace level but DNS
-    # resolution inside the sandbox fails: the 100.64.0.0/10 accessibleFrom route
-    # (needed for Tailscale return traffic) intercepts Mullvad's CGNAT DNS
-    # (100.64.0.55), and SABnzbd's glibc can't reach any alternative DNS through
-    # the tunnel from inside the systemd sandbox. /etc/hosts bypass was confirmed
-    # to work at the Python level but SABnzbd still reports "Server name does not
-    # resolve" — root cause not yet identified. Resume investigation later.
+    # ── Mullvad VPN namespace for SABnzbd ──────────────────────────────────────
+    # Creates an isolated network namespace with a WireGuard tunnel to Mullvad.
+    # SABnzbd runs inside this namespace — all Usenet traffic goes through the VPN.
+    # A veth pair bridges the namespace to the host so the SABnzbd web UI (port 8080)
+    # remains accessible from Tailscale/LAN.
+    #
+    # If the VPN goes down, SABnzbd has no network — acts as a kill switch.
+
+    # 1. Create the "vpn" network namespace
+    systemd.services."netns-vpn" = {
+      description = "VPN network namespace";
+      before = [ "network.target" "wg-mullvad.service" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${pkgs.iproute2}/bin/ip netns add vpn";
+        ExecStop = "${pkgs.iproute2}/bin/ip netns del vpn";
+      };
+    };
+
+    # 2. WireGuard interface inside the namespace
+    systemd.services.wg-mullvad = {
+      description = "WireGuard tunnel (Mullvad) in vpn namespace";
+      bindsTo = [ "netns-vpn.service" ];
+      requires = [ "network-online.target" ];
+      after = [ "netns-vpn.service" "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        set -e
+        # Create WireGuard interface and move it into the namespace
+        ${pkgs.iproute2}/bin/ip link add wg0 type wireguard
+        ${pkgs.iproute2}/bin/ip link set wg0 netns vpn
+
+        # Configure WireGuard with Mullvad credentials
+        ${pkgs.iproute2}/bin/ip netns exec vpn \
+          ${pkgs.wireguard-tools}/bin/wg set wg0 \
+            private-key ${config.sops.secrets."mullvad-wg-private-key".path} \
+            peer 4JpfHBvthTFOhCK0f5HAbzLXAVcB97uAkuLx7E8kqW0= \
+            allowed-ips 0.0.0.0/0,::/0 \
+            endpoint 146.70.200.2:51820
+
+        # Assign addresses and bring up
+        ${pkgs.iproute2}/bin/ip -n vpn address add 10.66.10.54/32 dev wg0
+        ${pkgs.iproute2}/bin/ip -n vpn -6 address add fc00:bbbb:bbbb:bb01::3:a35/128 dev wg0
+        ${pkgs.iproute2}/bin/ip -n vpn link set wg0 up
+        ${pkgs.iproute2}/bin/ip -n vpn route add default dev wg0
+        ${pkgs.iproute2}/bin/ip -n vpn -6 route add default dev wg0
+
+        # Bring up loopback inside namespace
+        ${pkgs.iproute2}/bin/ip -n vpn link set lo up
+      '';
+      preStop = ''
+        ${pkgs.iproute2}/bin/ip -n vpn link del wg0 || true
+      '';
+    };
+
+    # 3. Veth pair — bridges SABnzbd web UI from vpn namespace to host
+    #    Host side: veth-vpn-br 10.200.1.1/24
+    #    VPN side:  veth-vpn    10.200.1.2/24
+    #    NAT + port forward so asgard:8080 reaches SABnzbd inside the namespace.
+    systemd.services.veth-vpn = {
+      description = "Veth bridge to vpn namespace (SABnzbd web UI)";
+      bindsTo = [ "wg-mullvad.service" ];
+      after = [ "wg-mullvad.service" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      path = [ pkgs.iptables ];
+      script = ''
+        set -e
+        # Create veth pair
+        ${pkgs.iproute2}/bin/ip link add veth-vpn-br type veth peer name veth-vpn
+        ${pkgs.iproute2}/bin/ip link set veth-vpn netns vpn
+
+        # Host side
+        ${pkgs.iproute2}/bin/ip address add 10.200.1.1/24 dev veth-vpn-br
+        ${pkgs.iproute2}/bin/ip link set veth-vpn-br up
+
+        # VPN namespace side
+        ${pkgs.iproute2}/bin/ip -n vpn address add 10.200.1.2/24 dev veth-vpn
+        ${pkgs.iproute2}/bin/ip -n vpn link set veth-vpn up
+
+        # NAT: forward host:8080 → vpn namespace:8080
+        iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination 10.200.1.2:8080
+        iptables -t nat -A POSTROUTING -s 10.200.1.0/24 -j MASQUERADE
+        iptables -A FORWARD -i veth-vpn-br -o veth-vpn-br -j ACCEPT
+
+        # Allow namespace to reach host (for arr API callbacks on localhost)
+        ${pkgs.iproute2}/bin/ip netns exec vpn \
+          ${pkgs.iproute2}/bin/ip route add 10.200.1.1/32 dev veth-vpn
+      '';
+      preStop = ''
+        iptables -t nat -D PREROUTING -p tcp --dport 8080 -j DNAT --to-destination 10.200.1.2:8080 || true
+        iptables -t nat -D POSTROUTING -s 10.200.1.0/24 -j MASQUERADE || true
+        iptables -D FORWARD -i veth-vpn-br -o veth-vpn-br -j ACCEPT || true
+        ${pkgs.iproute2}/bin/ip link del veth-vpn-br || true
+      '';
+    };
+
+    # 4. DNS inside the vpn namespace — Mullvad's DNS server
+    environment.etc."netns/vpn/resolv.conf".text = "nameserver 10.64.0.1\n";
+
+    # 5. Bind SABnzbd to the vpn namespace
+    systemd.services.sabnzbd = {
+      bindsTo = [ "veth-vpn.service" ];
+      after = [ "veth-vpn.service" ];
+      unitConfig.JoinsNamespaceOf = "netns-vpn.service";
+      serviceConfig = {
+        PrivateNetwork = true;
+        BindReadOnlyPaths = [ "/etc/netns/vpn/resolv.conf:/etc/resolv.conf" ];
+      };
+    };
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1786,7 +1897,11 @@ EOF
     networking.hosts = {
       "45.125.247.68"  = [ "aunews.frugalusenet.com" ];
       "45.125.247.108" = [ "aunews.frugalusenet.com" ];
+      "85.12.62.251"   = [ "news.newshosting.com" ];
     };
+
+    # IP forwarding — required for veth NAT (SABnzbd web UI from vpn namespace)
+    boot.kernel.sysctl."net.ipv4.ip_forward" = lib.mkDefault true;
 
     # --- Shared media group (GID 1001) ---
     # All service users and containers use this group for /data/media access.
@@ -1858,7 +1973,7 @@ EOF
     sops.secrets."jellyfin-api-key"         = {};
     sops.secrets."jellyfin-admin-password"  = {};
     sops.secrets."cloudflare-tunnel"        = {};
-    sops.secrets."mullvad-private-key"          = { mode = "0400"; };
+    sops.secrets."mullvad-wg-private-key"       = { mode = "0400"; };
     sops.secrets."grafana-admin-password"       = { owner = "grafana"; };
     sops.secrets."admin-username"           = {};
     sops.secrets."admin-password"           = {};
