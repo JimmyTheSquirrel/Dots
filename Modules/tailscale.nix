@@ -3,9 +3,6 @@
     services.tailscale = {
       enable = true;
       openFirewall = true;
-      extraUpFlags = [
-        "--login-server" "https://hs.bifrost-vault.com"
-      ];
     };
 
     # Trust the tailscale interface so traffic isn't blocked

@@ -1143,13 +1143,10 @@ EOF
       };
     };
 
-    # --- Tailscale (client — connects to our Headscale) ---
+    # --- Tailscale ---
     services.tailscale = {
       enable = true;
       openFirewall = true;
-      extraUpFlags = [
-        "--login-server" "https://hs.bifrost-vault.com"
-      ];
     };
 
     services.cloudflared = {
