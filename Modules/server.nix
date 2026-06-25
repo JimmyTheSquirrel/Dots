@@ -173,8 +173,6 @@
                       links:
                         - title: FileBrowser
                           url: http://asgard:8081
-                        - title: Headscale UI
-                          url: http://asgard:8443
                         - title: Grafana
                           url: http://asgard:3001
 
@@ -262,9 +260,6 @@
                     - title: Loki
                       url: http://asgard:3100/ready
                       icon: sh:loki
-                    - title: Headscale
-                      url: http://asgard:8085/health
-                      icon: sh:headscale
                     - title: Grafana
                       url: http://asgard:3001
                       icon: sh:grafana
@@ -274,54 +269,17 @@
                 - type: clock
                   hour-format: 12h
 
-                - type: custom-api
+                - type: monitor
                   title: Yggdrasil Network
-                  title-url: http://asgard:8443
                   css-class: ygg-widget
-                  cache: 15s
-                  url: http://localhost:8085/api/v1/node
-                  headers:
-                    Authorization: Bearer lUSP-6K.ZsUeNDkPEE7BOScNsi29L0T2J1nmoMYC
-                  template: |
-                    <style>
-                      .hs-online {
-                        width: 8px;
-                        height: 8px;
-                        border-radius: 50%;
-                        background-color: hsl(142, 72%, 39%);
-                        display: inline-block;
-                        margin-left: 4px;
-                        vertical-align: middle;
-                      }
-                      .hs-offline {
-                        width: 8px;
-                        height: 8px;
-                        border-radius: 50%;
-                        background-color: var(--color-negative);
-                        display: inline-block;
-                        margin-left: 4px;
-                        vertical-align: middle;
-                      }
-                    </style>
-                    <ul class="list list-gap-10 collapsible-container" data-collapse-after="10">
-                      {{ range .JSON.Array "nodes" }}
-                      <li>
-                        <div class="flex items-center gap-10">
-                          <div class="grow flex items-center gap-8">
-                            <span class="size-h4 block text-truncate color-primary">
-                              {{ .String "givenName" }}
-                            </span>
-                            {{ if .Bool "online" }}
-                              <span class="hs-online" data-popover-type="text" data-popover-text="Online"></span>
-                            {{ else }}
-                              <span class="hs-offline" data-popover-type="text" data-popover-text="Offline - Last seen {{ .String "lastSeen" }}"></span>
-                            {{ end }}
-                          </div>
-                          <span class="size-h5 color-subtext">{{ .String "ipAddresses.0" }}</span>
-                        </div>
-                      </li>
-                      {{ end }}
-                    </ul>
+                  cache: 30s
+                  sites:
+                    - title: asgard
+                      url: tcp://localhost:8080
+                      icon: sh:tailscale
+                    - title: sisyphus
+                      url: tcp://sisyphus:22
+                      icon: sh:tailscale
 
         # ════════════════════════════════════════════════════════════════════
         # PAGE 2 — Downloads (SABnzbd iframe + queue stats)
@@ -1052,102 +1010,13 @@ EOF
 #   photos.bifrost-vault.com    → localhost:2283
 # ══════════════════════════════════════════════════════════════════════════════
 
-    # --- Headscale (self-hosted Tailscale control plane) ---
-    # Replaces Tailscale cloud. All devices auth against this server.
-    # Accessible via Cloudflare tunnel at hs.bifrost-vault.com.
-    # Manage from any machine: headscale -u rock nodes list
-    services.headscale = {
-      enable = true;
-      port = 8085;
-      address = "0.0.0.0";
-      settings = {
-        server_url = "https://hs.bifrost-vault.com";
-        prefixes = {
-          v4 = "100.64.0.0/10";
-          v6 = "fd7a:115c:a1e0::/48";
-        };
-        dns = {
-          base_domain = "bifrost.net";
-          magic_dns = true;
-          nameservers.global = [ "1.1.1.1" "9.9.9.9" ];
-        };
-        # Disable key expiry — devices stay connected even if Asgard is down
-        disable_check_updates = true;
-      };
-    };
-
-    # Headscale CLI available system-wide for management
-    environment.systemPackages = [ pkgs.headscale pkgs.kitty.terminfo ];
-
-    # --- Headscale UI (web admin panel) ---
-    # headscale-admin by GoodiesHQ — supports Headscale 0.27+ API.
-    # Port 8443 — Nginx reverse proxy serves both UI and API on same origin (avoids CORS).
-    # / → headscale-admin container (8444), /api/ → headscale (8085)
-    virtualisation.oci-containers.containers.headscale-admin = {
-      image = "docker.io/goodieshq/headscale-admin:latest";
-      ports = [ "127.0.0.1:8444:80" ];
-    };
-
-    # Let's Encrypt for Headscale TLS
-    security.acme = {
-      acceptTerms = true;
-      defaults.email = "admin@bifrost-vault.com";
-    };
-
-    services.nginx = {
-      enable = true;
-      recommendedProxySettings = true;
-      recommendedTlsSettings = true;
-
-      # --- Headscale public HTTPS (port 443) ---
-      # Direct IPv6 access for Tailscale clients (bypasses Cloudflare tunnel).
-      # Let's Encrypt auto-TLS so clients can connect via https://hs.bifrost-vault.com
-      virtualHosts."hs.bifrost-vault.com" = {
-        listen = [
-          { addr = "[::0]"; port = 443; ssl = true; }
-          { addr = "0.0.0.0"; port = 443; ssl = true; }
-          { addr = "[::0]"; port = 80; }
-          { addr = "0.0.0.0"; port = 80; }
-        ];
-        enableACME = true;
-        forceSSL = true;
-        locations."/" = {
-          proxyPass = "http://127.0.0.1:8085";
-          proxyWebsockets = true;
-          extraConfig = ''
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "Upgrade";
-            proxy_buffering off;
-            proxy_read_timeout 86400s;
-            proxy_send_timeout 86400s;
-          '';
-        };
-      };
-
-      # --- Headscale Admin UI (port 8443) ---
-      virtualHosts."headscale-ui" = {
-        listen = [{ addr = "0.0.0.0"; port = 8443; }];
-        locations."/" = {
-          return = "302 /admin/";
-        };
-        locations."/admin/" = {
-          proxyPass = "http://127.0.0.1:8444/admin/";
-        };
-        locations."/api/" = {
-          proxyPass = "http://127.0.0.1:8085/api/";
-          extraConfig = ''
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-          '';
-        };
-      };
-    };
-
     # --- Tailscale ---
     services.tailscale = {
       enable = true;
       openFirewall = true;
     };
+
+    environment.systemPackages = [ pkgs.kitty.terminfo ];
 
     services.cloudflared = {
       enable = true;
@@ -1156,7 +1025,6 @@ EOF
           credentialsFile = config.sops.secrets."cloudflare-tunnel".path;
           default = "http_status:404";
           ingress = {
-            "hs.bifrost-vault.com"       = "http://localhost:8085";
             "jellyfin.bifrost-vault.com"  = "http://localhost:8096";
             "requests.bifrost-vault.com"  = "http://localhost:5055";
             "photos.bifrost-vault.com"    = "http://localhost:2283";
@@ -1886,7 +1754,7 @@ EOF
     # Allow containers to reach host-bound services (arr, immich, etc.)
     # tailscale0 trusted so all services are reachable from any tailnet device by hostname
     networking.firewall.trustedInterfaces = [ "podman0" "cni-podman0" "tailscale0" ];
-    networking.firewall.allowedTCPPorts = [ 80 443 8085 ]; # ACME, Headscale HTTPS, Headscale HTTP
+    networking.firewall.allowedTCPPorts = []; # all services accessed via Tailscale (trustedInterfaces)
 
 
 

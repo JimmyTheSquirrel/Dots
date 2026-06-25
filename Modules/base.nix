@@ -25,7 +25,7 @@
     programs.ssh.startAgent = true;
     programs.ssh.extraConfig = ''
       Host asgard
-        HostName 100.64.0.1
+        HostName 100.126.205.100
         User rock
         SetEnv TERM=xterm-256color
     '';
