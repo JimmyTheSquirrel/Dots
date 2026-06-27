@@ -478,10 +478,10 @@
               name = "NzbPlanet";
               apiKey._secret = config.sops.secrets."indexer-api-keys/NZBPlanet".path;
             }
-            # Public torrent trackers — Cloudflare-protected, routed via FlareSolverr
-            # (running inside the Mullvad netns so tracker access exits via VPN, not home IP).
-            { name = "EZTV";           tags = [ "flaresolverr" ]; }
-            { name = "1337x";          tags = [ "flaresolverr" ]; }
+            # Public torrent trackers — routed via FlareSolverr (in vpn netns) so
+            # tracker access exits via Mullvad, not the home IP.
+            # EZTV — disabled, Cloudflare Turnstile times out from Mullvad exit IPs.
+            # 1337x — disabled, FlareSolverr 3.4.6 + Chromium 147 crashes tab.
             { name = "The Pirate Bay"; tags = [ "flaresolverr" ]; }
           ];
         };
