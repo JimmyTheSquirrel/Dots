@@ -478,10 +478,10 @@
               name = "NzbPlanet";
               apiKey._secret = config.sops.secrets."indexer-api-keys/NZBPlanet".path;
             }
-            # Public torrent trackers (qBit fallback — fills Usenet gaps, old/DMCA'd content)
-            # EZTV omitted — Cloudflare-protected, needs FlareSolverr proxy to add.
-            { name = "1337x"; }           # broad TV + movies
-            { name = "The Pirate Bay"; }  # broad fallback
+            # Public torrent trackers — DEFERRED. EZTV / 1337x / TPB all sit behind
+            # Cloudflare; Prowlarr's "test on add" call fails with "blocked by Cloudflare".
+            # Adding any of them requires running FlareSolverr (headless-browser proxy).
+            # qBit currently sits idle for this reason.
           ];
         };
       };
