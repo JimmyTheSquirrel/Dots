@@ -157,6 +157,8 @@
                       links:
                         - title: SABnzbd
                           url: http://asgard:8080
+                        - title: qBittorrent
+                          url: http://asgard:8282
                         - title: Prowlarr
                           url: http://asgard:9696
                     - title: Arr Stack
@@ -209,6 +211,9 @@
                     - title: SABnzbd
                       url: http://asgard:8080
                       icon: sh:sabnzbd
+                    - title: qBittorrent
+                      url: http://asgard:8282
+                      icon: sh:qbittorrent
                     - title: Prowlarr
                       url: http://asgard:9696
                       icon: sh:prowlarr
@@ -354,6 +359,9 @@
                     - title: SABnzbd
                       url: http://asgard:8080
                       icon: sh:sabnzbd
+                    - title: qBittorrent
+                      url: http://asgard:8282
+                      icon: sh:qbittorrent
                     - title: Prowlarr
                       url: http://asgard:9696
                       icon: sh:prowlarr
@@ -1283,6 +1291,39 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
 
     # 4. DNS inside the vpn namespace — Mullvad's DNS server
     environment.etc."netns/vpn/resolv.conf".text = "nameserver 10.64.0.1\n";
+
+    # 4b. WG watchdog — wg-mullvad is a oneshot, so when Mullvad's peer route
+    # flaps it doesn't recover on its own (SAB sees "No route to host" until
+    # the upstream heals minutes later). This pings the VPN gateway every 60s
+    # inside the netns and restarts wg-mullvad on 3 consecutive failures.
+    systemd.services.wg-mullvad-watchdog = {
+      description = "Restart wg-mullvad when tunnel unreachable";
+      after = [ "wg-mullvad.service" ];
+      wants = [ "wg-mullvad.service" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Restart = "always";
+        RestartSec = 30;
+      };
+      script = ''
+        FAILS=0
+        while true; do
+          if ${pkgs.iproute2}/bin/ip netns exec vpn ${pkgs.iputils}/bin/ping -c1 -W3 10.64.0.1 > /dev/null 2>&1; then
+            FAILS=0
+          else
+            FAILS=$((FAILS + 1))
+            echo "wg-mullvad ping failed ($FAILS/3)"
+            if [ "$FAILS" -ge 3 ]; then
+              echo "wg-mullvad unreachable — restarting tunnel"
+              ${pkgs.systemd}/bin/systemctl restart wg-mullvad.service
+              FAILS=0
+              sleep 30
+            fi
+          fi
+          sleep 60
+        done
+      '';
+    };
 
     # 5. Bind SABnzbd to the vpn namespace
     systemd.services.sabnzbd = {
