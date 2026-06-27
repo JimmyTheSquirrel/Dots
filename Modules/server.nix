@@ -465,6 +465,7 @@
           apiKey._secret = config.sops.secrets."prowlarr-api-key".path;
           hostConfig.password._secret = config.sops.secrets."admin-password".path;
           indexers = [
+            # Usenet (primary)
             {
               name = "Miatrix";
               apiKey._secret = config.sops.secrets."indexer-api-keys/Miatrix".path;
@@ -477,6 +478,10 @@
               name = "NzbPlanet";
               apiKey._secret = config.sops.secrets."indexer-api-keys/NZBPlanet".path;
             }
+            # Public torrent trackers (qBit fallback — fills Usenet gaps, old/DMCA'd content)
+            { name = "EZTV"; }            # TV-specific — best for old shows like Elementary
+            { name = "1337x"; }           # broad TV + movies
+            { name = "The Pirate Bay"; }  # broad fallback
           ];
         };
       };
