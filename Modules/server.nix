@@ -372,6 +372,11 @@
                   title: SABnzbd
                   source: http://asgard:8080
                   height: 700
+
+                - type: iframe
+                  title: qBittorrent
+                  source: http://asgard:8282
+                  height: 700
     '';
 
     # ── Alloy River config (no secrets — ships journald logs to Loki on localhost) ──
@@ -583,6 +588,7 @@
             AuthSubnetWhitelist = "10.200.1.0/24"; # host-bridge subnet → arr bypasses auth
             HostHeaderValidation = false;
             CSRFProtection = false;
+            ClickjackingProtection = false;   # allow Glance iframe embed
           };
         };
       };
