@@ -475,6 +475,17 @@
           password._secret = config.sops.secrets."jellyfin-admin-password".path;
           policy.isAdministrator = true;
         };
+
+        # Intel QuickSync on i5-14400 (UHD 730) — /dev/dri/renderD128
+        encoding = {
+          hardwareAccelerationType = "qsv";
+          qsvDevice = "/dev/dri/renderD128";
+          enableHardwareEncoding = true;
+          allowHevcEncoding = true;
+          hardwareDecodingCodecs = [ "h264" "hevc" "mpeg2video" "vc1" "vp9" "av1" ];
+          enableTonemapping = true;
+          enableVppTonemapping = true;
+        };
       };
 
       # Jellyseerr — media request portal (exposed via Cloudflare tunnel)
@@ -505,7 +516,7 @@
             web_tabbed = true;
 
             # Performance
-            direct_unpack = true;          # unpack while still downloading
+            direct_unpack = false;         # disabled — caused cache backpressure stalls + memory peaks (25G/31G)
             article_cache_size = "1G";     # RAM cache — reduces disk thrashing
             pre_check = false;             # skip pre-check — backup server fills gaps instead
             par_option = "N=A";            # skip verify when no repair needed
