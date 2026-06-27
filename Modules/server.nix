@@ -557,6 +557,34 @@
           ];
         };
       };
+
+      # qBittorrent — torrent fallback for content Usenet can't deliver.
+      # Runs inside the same vpn netns as SABnzbd (Mullvad).
+      # Mullvad has no port forwarding → outbound-only seeding, no incoming peers.
+      torrentClients.qbittorrent = {
+        enable = true;
+        vpn.enable = false;          # nixflix's vpn module not used — custom netns wired below
+        webuiPort = 8282;
+        downloadsDir = "/downloads/torrent";
+        reverseProxy.expose = false; # accessed only via Tailscale, no Cloudflare tunnel
+
+        serverConfig.Preferences = {
+          WebUI = {
+            Address = "0.0.0.0";                # bind on every iface inside netns
+            AuthSubnetWhitelistEnabled = true;
+            AuthSubnetWhitelist = "10.200.1.0/24"; # host-bridge subnet → arr bypasses auth
+            HostHeaderValidation = false;
+            CSRFProtection = false;
+          };
+        };
+      };
+
+      # Wire qBit into arr stack as backup (SAB default priority is 1; higher = lower)
+      downloadarr.qbittorrent = {
+        host = "127.0.0.1"; # the socat proxy
+        port = 8282;
+        priority = 50;      # SABnzbd wins on every release — qBit only used if SAB has nothing
+      };
     };
 
 
@@ -1264,6 +1292,30 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
         PrivateNetwork = lib.mkForce false;  # disable nixflix's PrivateNetwork — we use NetworkNamespacePath instead
         NetworkNamespacePath = "/var/run/netns/vpn";
         BindReadOnlyPaths = [ "/etc/netns/vpn/resolv.conf:/etc/resolv.conf" ];
+      };
+    };
+
+    # 6. Bind qBittorrent to the same vpn namespace (same kill-switch story as SAB)
+    systemd.services.qbittorrent = {
+      bindsTo = [ "wg-mullvad.service" ];
+      after = [ "veth-vpn.service" "wg-mullvad.service" ];
+      serviceConfig = {
+        PrivateNetwork = lib.mkForce false;
+        NetworkNamespacePath = "/var/run/netns/vpn";
+        BindReadOnlyPaths = [ "/etc/netns/vpn/resolv.conf:/etc/resolv.conf" ];
+      };
+    };
+
+    # 7. qBittorrent proxy — exposes WebUI (inside vpn netns) on host:8282
+    systemd.services.qbittorrent-proxy = {
+      description = "qBittorrent proxy (host:8282 → vpn namespace)";
+      bindsTo = [ "veth-vpn.service" ];
+      after = [ "veth-vpn.service" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:8282,fork,reuseaddr,bind=0.0.0.0 TCP:10.200.1.2:8282";
+        Restart = "always";
+        RestartSec = 2;
       };
     };
 
