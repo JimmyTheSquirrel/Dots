@@ -542,7 +542,7 @@
               port = 563;
               username._secret = config.sops.secrets."usenet/frugalusenet/username".path;
               password._secret = config.sops.secrets."usenet/frugalusenet/password".path;
-              connections = 200;
+              connections = 60;
               ssl = true;
               ssl_ciphers = "AES128-SHA256";
               priority = 0;
@@ -558,9 +558,9 @@
               connections = 30;
               ssl = true;
               ssl_ciphers = "AES128-SHA256";
-              priority = 1;
+              priority = 0;
               timeout = 30;
-              optional = true;
+              optional = false;
             }
           ];
         };
@@ -1224,7 +1224,8 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
             private-key ${config.sops.secrets."mullvad-wg-private-key".path} \
             peer 4JpfHBvthTFOhCK0f5HAbzLXAVcB97uAkuLx7E8kqW0= \
             allowed-ips 0.0.0.0/0,::/0 \
-            endpoint 146.70.200.2:51820
+            endpoint 146.70.200.2:51820 \
+            persistent-keepalive 25
 
         # Assign addresses and bring up
         ${pkgs.iproute2}/bin/ip -n vpn address add 10.66.10.54/32 dev wg0
