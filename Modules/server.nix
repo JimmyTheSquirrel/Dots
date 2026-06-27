@@ -1165,6 +1165,22 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
 
     environment.systemPackages = [ pkgs.kitty.terminfo ];
 
+    # Intel QSV / VAAPI runtime for Jellyfin hardware transcoding (UHD 730 / Gen13).
+    # Without these, ffmpeg's "vaapi=va:/dev/dri/renderD128,driver=iHD" fails with
+    # "unknown libva error" and clients see "fatal playback error".
+    hardware.graphics = {
+      enable = true;
+      enable32Bit = true;
+      extraPackages = with pkgs; [
+        intel-media-driver        # iHD VAAPI driver (required by QSV)
+        intel-compute-runtime     # OpenCL — needed for tonemapping filters
+        vpl-gpu-rt                # Intel oneVPL runtime (modern QSV)
+        libvdpau-va-gl
+      ];
+    };
+
+    users.users.jellyfin.extraGroups = [ "render" "video" ];
+
     services.cloudflared = {
       enable = true;
       tunnels = {
