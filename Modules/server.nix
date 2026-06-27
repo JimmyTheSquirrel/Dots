@@ -1179,8 +1179,6 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       ];
     };
 
-    users.users.jellyfin.extraGroups = [ "render" "video" ];
-
     services.cloudflared = {
       enable = true;
       tunnels = {
@@ -1996,7 +1994,7 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     # All service users and containers use this group for /data/media access.
     users.groups.media = { gid = 1001; };
     users.users.${activeUser}.extraGroups = [ "media" ];
-    users.users.jellyfin.extraGroups = [ "media" ];
+    users.users.jellyfin.extraGroups = [ "media" "render" "video" ];
 
     # --- Data directories ---
     systemd.tmpfiles.rules = [
