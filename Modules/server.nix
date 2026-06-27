@@ -479,7 +479,7 @@
               apiKey._secret = config.sops.secrets."indexer-api-keys/NZBPlanet".path;
             }
             # Public torrent trackers (qBit fallback — fills Usenet gaps, old/DMCA'd content)
-            { name = "EZTV"; }            # TV-specific — best for old shows like Elementary
+            # EZTV omitted — Cloudflare-protected, needs FlareSolverr proxy to add.
             { name = "1337x"; }           # broad TV + movies
             { name = "The Pirate Bay"; }  # broad fallback
           ];
