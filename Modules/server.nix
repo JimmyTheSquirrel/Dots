@@ -478,13 +478,19 @@
               name = "NzbPlanet";
               apiKey._secret = config.sops.secrets."indexer-api-keys/NZBPlanet".path;
             }
-            # Public torrent trackers — DEFERRED. EZTV / 1337x / TPB all sit behind
-            # Cloudflare; Prowlarr's "test on add" call fails with "blocked by Cloudflare".
-            # Adding any of them requires running FlareSolverr (headless-browser proxy).
-            # qBit currently sits idle for this reason.
+            # Public torrent trackers — Cloudflare-protected, routed via FlareSolverr
+            # (running inside the Mullvad netns so tracker access exits via VPN, not home IP).
+            { name = "EZTV";           tags = [ "flaresolverr" ]; }
+            { name = "1337x";          tags = [ "flaresolverr" ]; }
+            { name = "The Pirate Bay"; tags = [ "flaresolverr" ]; }
           ];
         };
       };
+
+      # FlareSolverr — Cloudflare-bypass proxy used by Prowlarr's torrent indexers.
+      # Runs inside the vpn netns (same Mullvad tunnel as SAB/qBit) so tracker
+      # access exits via Mullvad, not the home IP.
+      flaresolverr.enable = true;
 
       jellyfin = {
         enable = true;
@@ -1381,6 +1387,34 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
         ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:8282,fork,reuseaddr,bind=0.0.0.0 TCP:10.200.1.2:8282";
+        Restart = "always";
+        RestartSec = 2;
+      };
+    };
+
+    # 8. Bind FlareSolverr to the vpn namespace — same kill-switch story as SAB/qBit.
+    # FlareSolverr binds 0.0.0.0:8191 by default, so it's reachable at 10.200.1.2:8191
+    # via the veth bridge from the host.
+    systemd.services.flaresolverr = {
+      bindsTo = [ "wg-mullvad.service" ];
+      after = [ "veth-vpn.service" "wg-mullvad.service" ];
+      serviceConfig = {
+        PrivateNetwork = lib.mkForce false;
+        NetworkNamespacePath = "/var/run/netns/vpn";
+        BindReadOnlyPaths = [ "/etc/netns/vpn/resolv.conf:/etc/resolv.conf" ];
+      };
+    };
+
+    # 9. FlareSolverr proxy — Prowlarr (on host) calls 127.0.0.1:8191; this socat
+    # bridge forwards into the netns where FlareSolverr listens. nixflix's
+    # auto-created indexer-proxy entry uses 127.0.0.1, so this keeps that working.
+    systemd.services.flaresolverr-proxy = {
+      description = "FlareSolverr proxy (host:8191 → vpn namespace)";
+      bindsTo = [ "veth-vpn.service" ];
+      after = [ "veth-vpn.service" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:8191,fork,reuseaddr,bind=127.0.0.1 TCP:10.200.1.2:8191";
         Restart = "always";
         RestartSec = 2;
       };
