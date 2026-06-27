@@ -157,8 +157,6 @@
                       links:
                         - title: SABnzbd
                           url: http://asgard:8080
-                        - title: qBittorrent
-                          url: http://asgard:8282
                         - title: Prowlarr
                           url: http://asgard:9696
                     - title: Arr Stack
@@ -211,9 +209,6 @@
                     - title: SABnzbd
                       url: http://asgard:8080
                       icon: sh:sabnzbd
-                    - title: qBittorrent
-                      url: http://asgard:8282
-                      icon: sh:qbittorrent
                     - title: Prowlarr
                       url: http://asgard:9696
                       icon: sh:prowlarr
@@ -359,9 +354,6 @@
                     - title: SABnzbd
                       url: http://asgard:8080
                       icon: sh:sabnzbd
-                    - title: qBittorrent
-                      url: http://asgard:8282
-                      icon: sh:qbittorrent
                     - title: Prowlarr
                       url: http://asgard:9696
                       icon: sh:prowlarr
@@ -371,11 +363,6 @@
                 - type: iframe
                   title: SABnzbd
                   source: http://asgard:8080
-                  height: 700
-
-                - type: iframe
-                  title: qBittorrent
-                  source: http://asgard:8282
                   height: 700
     '';
 
@@ -478,19 +465,9 @@
               name = "NzbPlanet";
               apiKey._secret = config.sops.secrets."indexer-api-keys/NZBPlanet".path;
             }
-            # Public torrent trackers — routed via FlareSolverr (in vpn netns) so
-            # tracker access exits via Mullvad, not the home IP.
-            # EZTV — disabled, Cloudflare Turnstile times out from Mullvad exit IPs.
-            # 1337x — disabled, FlareSolverr 3.4.6 + Chromium 147 crashes tab.
-            { name = "The Pirate Bay"; tags = [ "flaresolverr" ]; }
           ];
         };
       };
-
-      # FlareSolverr — Cloudflare-bypass proxy used by Prowlarr's torrent indexers.
-      # Runs inside the vpn netns (same Mullvad tunnel as SAB/qBit) so tracker
-      # access exits via Mullvad, not the home IP.
-      flaresolverr.enable = true;
 
       jellyfin = {
         enable = true;
@@ -582,34 +559,6 @@
         };
       };
 
-      # qBittorrent — torrent fallback for content Usenet can't deliver.
-      # Runs inside the same vpn netns as SABnzbd (Mullvad).
-      # Mullvad has no port forwarding → outbound-only seeding, no incoming peers.
-      torrentClients.qbittorrent = {
-        enable = true;
-        vpn.enable = false;          # nixflix's vpn module not used — custom netns wired below
-        webuiPort = 8282;
-        downloadsDir = "/downloads/torrent";
-        reverseProxy.expose = false; # accessed only via Tailscale, no Cloudflare tunnel
-
-        serverConfig.Preferences = {
-          WebUI = {
-            Address = "0.0.0.0";                # bind on every iface inside netns
-            AuthSubnetWhitelistEnabled = true;
-            AuthSubnetWhitelist = "10.200.1.0/24"; # host-bridge subnet → arr bypasses auth
-            HostHeaderValidation = false;
-            CSRFProtection = false;
-            ClickjackingProtection = false;   # allow Glance iframe embed
-          };
-        };
-      };
-
-      # Wire qBit into arr stack as backup (SAB default priority is 1; higher = lower)
-      downloadarr.qbittorrent = {
-        host = "127.0.0.1"; # the socat proxy
-        port = 8282;
-        priority = 50;      # SABnzbd wins on every release — qBit only used if SAB has nothing
-      };
     };
 
 
@@ -1368,57 +1317,6 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       };
     };
 
-    # 6. Bind qBittorrent to the same vpn namespace (same kill-switch story as SAB)
-    systemd.services.qbittorrent = {
-      bindsTo = [ "wg-mullvad.service" ];
-      after = [ "veth-vpn.service" "wg-mullvad.service" ];
-      serviceConfig = {
-        PrivateNetwork = lib.mkForce false;
-        NetworkNamespacePath = "/var/run/netns/vpn";
-        BindReadOnlyPaths = [ "/etc/netns/vpn/resolv.conf:/etc/resolv.conf" ];
-      };
-    };
-
-    # 7. qBittorrent proxy — exposes WebUI (inside vpn netns) on host:8282
-    systemd.services.qbittorrent-proxy = {
-      description = "qBittorrent proxy (host:8282 → vpn namespace)";
-      bindsTo = [ "veth-vpn.service" ];
-      after = [ "veth-vpn.service" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:8282,fork,reuseaddr,bind=0.0.0.0 TCP:10.200.1.2:8282";
-        Restart = "always";
-        RestartSec = 2;
-      };
-    };
-
-    # 8. Bind FlareSolverr to the vpn namespace — same kill-switch story as SAB/qBit.
-    # FlareSolverr binds 0.0.0.0:8191 by default, so it's reachable at 10.200.1.2:8191
-    # via the veth bridge from the host.
-    systemd.services.flaresolverr = {
-      bindsTo = [ "wg-mullvad.service" ];
-      after = [ "veth-vpn.service" "wg-mullvad.service" ];
-      serviceConfig = {
-        PrivateNetwork = lib.mkForce false;
-        NetworkNamespacePath = "/var/run/netns/vpn";
-        BindReadOnlyPaths = [ "/etc/netns/vpn/resolv.conf:/etc/resolv.conf" ];
-      };
-    };
-
-    # 9. FlareSolverr proxy — Prowlarr (on host) calls 127.0.0.1:8191; this socat
-    # bridge forwards into the netns where FlareSolverr listens. nixflix's
-    # auto-created indexer-proxy entry uses 127.0.0.1, so this keeps that working.
-    systemd.services.flaresolverr-proxy = {
-      description = "FlareSolverr proxy (host:8191 → vpn namespace)";
-      bindsTo = [ "veth-vpn.service" ];
-      after = [ "veth-vpn.service" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:8191,fork,reuseaddr,bind=127.0.0.1 TCP:10.200.1.2:8191";
-        Restart = "always";
-        RestartSec = 2;
-      };
-    };
 
 
 # ══════════════════════════════════════════════════════════════════════════════
