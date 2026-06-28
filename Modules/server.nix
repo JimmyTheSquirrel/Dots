@@ -698,6 +698,158 @@
       };
     };
 
+    # ─────────────────────────────────────────────────────────────────────
+    # SAB unrar watchdog — SIGKILL hung unrar processes AND reap zombies
+    #
+    # Known SAB bug (GH #1273, #1282, #2948, forum t=23923): when unrar
+    # hits a corrupt RAR it can deadlock on stderr pipe_write because SAB
+    # stops draining the pipe. unrar then never exits, SAB shows the job
+    # as "Unpacking" forever, Decluttarr can't see it as Failed, and the
+    # queue stalls. Acknowledged unfixed upstream since 2018.
+    #
+    # Two failure modes handled:
+    #  1. Live hung unrar (state R/S/D, no write progress) → SIGTERM → SIGKILL
+    #  2. Zombie unrar (state Z) — SAB's post-processor never called wait()
+    #     on the dead child. SIGKILL is a no-op on zombies; only the parent
+    #     can reap it. We restart SAB after zombies are >60s old (rate-limited
+    #     to once per 30min to avoid restart loops).
+    #
+    # After kill/restart, SAB detects unrar died → marks job Failed →
+    # Decluttarr sees Failed in arr queue → Radarr/Sonarr blocklist + research.
+    # ─────────────────────────────────────────────────────────────────────
+    systemd.services.sabnzbd-unrar-watchdog = {
+      description = "Kill hung SAB unrar processes (corrupt-RAR pipe deadlock workaround)";
+      after = [ "sabnzbd.service" ];
+      wants = [ "sabnzbd.service" ];
+      path = [ pkgs.procps pkgs.util-linux pkgs.coreutils pkgs.gawk pkgs.systemd ];
+      serviceConfig = {
+        Type = "oneshot";
+        User = "root";
+      };
+      script = ''
+        set -euo pipefail
+
+        STATE_DIR=/var/lib/sabnzbd-unrar-watchdog
+        STATE_FILE=$STATE_DIR/state
+        SAB_RESTART_STAMP=$STATE_DIR/last-sab-restart
+        LOCKFILE=/var/lock/sab-unrar-watchdog.lock
+        STALL_RUNS=''${STALL_RUNS:-3}              # consecutive stalled runs before kill (~15 min at 5min cadence)
+        MIN_AGE_SEC=''${MIN_AGE_SEC:-180}          # don't touch unrars younger than this
+        ZOMBIE_MIN_AGE_SEC=''${ZOMBIE_MIN_AGE_SEC:-60}      # zombies older than this trigger SAB restart
+        SAB_RESTART_COOLDOWN=''${SAB_RESTART_COOLDOWN:-1800} # min seconds between SAB restarts (30min)
+        DRY_RUN=''${DRY_RUN:-0}
+
+        mkdir -p "$STATE_DIR"
+        touch "$STATE_FILE"
+
+        exec 9>"$LOCKFILE"
+        flock -n 9 || { echo "Another watchdog run in progress; exiting"; exit 0; }
+
+        NOW=$(date +%s)
+        CLK_TCK=100   # Linux default; getconf isn't in systemd unit PATH
+        BTIME=$(awk '/^btime/ {print $2}' /proc/stat)
+        NEW_STATE=""
+        NEED_SAB_RESTART=0
+        ZOMBIE_REASON=""
+
+        # Snapshot current unrar PIDs (pgrep -x avoids matching unrar-related but non-unrar names)
+        # -a also picks up zombies (defunct processes still appear in pgrep until reaped)
+        PIDS=$(pgrep -x unrar || true)
+
+        for PID in $PIDS; do
+          [ -d "/proc/$PID" ] || continue
+
+          # Process state from /proc/PID/stat field 3 (Z = zombie, R/S/D/T = alive)
+          STAT=$(cat "/proc/$PID/stat" 2>/dev/null || echo "")
+          [ -z "$STAT" ] && continue
+          PROC_STATE=$(awk '{print $3}' <<<"$STAT")
+          START_TICKS=$(awk '{print $22}' <<<"$STAT")
+          START_SEC=$((BTIME + START_TICKS / CLK_TCK))
+          AGE=$((NOW - START_SEC))
+
+          # Zombie path: SIGKILL won't work; only parent reaping can clear it
+          if [ "$PROC_STATE" = "Z" ]; then
+            if [ "$AGE" -ge "$ZOMBIE_MIN_AGE_SEC" ]; then
+              echo "ZOMBIE: pid=$PID age=''${AGE}s — needs SAB restart to reap"
+              NEED_SAB_RESTART=1
+              ZOMBIE_REASON+="pid=$PID age=''${AGE}s "
+            else
+              echo "zombie pid=$PID age=''${AGE}s — young, parent may still wait()"
+            fi
+            continue
+          fi
+
+          # Live process path: track write_bytes for stall detection
+          [ -r "/proc/$PID/io" ] || continue
+          WB=$(awk '/^write_bytes:/ {print $2}' "/proc/$PID/io" 2>/dev/null || echo 0)
+
+          PREV_LINE=$(grep "^$PID " "$STATE_FILE" 2>/dev/null || true)
+          PREV_WB=$(awk '{print $2}' <<<"$PREV_LINE")
+          PREV_COUNT=$(awk '{print $3}' <<<"$PREV_LINE")
+          [ -z "$PREV_COUNT" ] && PREV_COUNT=0
+
+          if [ -n "$PREV_WB" ] && [ "$WB" = "$PREV_WB" ]; then
+            COUNT=$((PREV_COUNT + 1))
+          else
+            COUNT=0
+          fi
+
+          NEW_STATE+="$PID $WB $COUNT"$'\n'
+
+          if [ "$AGE" -lt "$MIN_AGE_SEC" ]; then
+            echo "pid=$PID age=''${AGE}s — too young, skipping"
+            continue
+          fi
+
+          if [ "$COUNT" -ge "$STALL_RUNS" ]; then
+            CMDLINE=$(tr '\0' ' ' < "/proc/$PID/cmdline" 2>/dev/null | cut -c1-200)
+            echo "HUNG: pid=$PID age=''${AGE}s write_bytes=$WB stalled=''${COUNT} runs — killing"
+            echo "  cmdline: $CMDLINE"
+            if [ "$DRY_RUN" = "1" ]; then
+              echo "  DRY_RUN=1, would SIGTERM then SIGKILL"
+            else
+              kill -TERM "$PID" 2>/dev/null || true
+              sleep 10
+              if kill -0 "$PID" 2>/dev/null; then
+                echo "  SIGTERM ignored, sending SIGKILL"
+                kill -KILL "$PID" 2>/dev/null || true
+              fi
+            fi
+          else
+            echo "pid=$PID age=''${AGE}s state=$PROC_STATE write_bytes=$WB stalled=$COUNT/''${STALL_RUNS}"
+          fi
+        done
+
+        printf '%s' "$NEW_STATE" > "$STATE_FILE"
+
+        # SAB restart: only when zombies present, rate-limited
+        if [ "$NEED_SAB_RESTART" = "1" ]; then
+          LAST_RESTART=0
+          [ -f "$SAB_RESTART_STAMP" ] && LAST_RESTART=$(cat "$SAB_RESTART_STAMP")
+          SINCE=$((NOW - LAST_RESTART))
+          if [ "$SINCE" -lt "$SAB_RESTART_COOLDOWN" ]; then
+            echo "SAB restart needed ($ZOMBIE_REASON) but cooldown active (last restart ''${SINCE}s ago, need ''${SAB_RESTART_COOLDOWN}s)"
+          elif [ "$DRY_RUN" = "1" ]; then
+            echo "DRY_RUN=1, would restart sabnzbd.service to reap zombies ($ZOMBIE_REASON)"
+          else
+            echo "Restarting sabnzbd.service to reap zombies ($ZOMBIE_REASON)"
+            systemctl restart sabnzbd.service
+            echo "$NOW" > "$SAB_RESTART_STAMP"
+          fi
+        fi
+      '';
+    };
+
+    systemd.timers.sabnzbd-unrar-watchdog = {
+      description = "Poll for hung SAB unrar processes every 5 min";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "10min";
+        OnUnitActiveSec = "5min";
+        Persistent = true;
+      };
+    };
+
     # Completes the Jellyseerr setup wizard declaratively:
     # logs in via Jellyfin creds, syncs + enables all libraries, marks initialized.
     # Uses session cookie auth (same as nixflix's seerr-setup) — idempotent.
@@ -1840,6 +1992,9 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
           admin_user  = "admin";
           admin_password = "$__file{${config.sops.secrets."grafana-admin-password".path}}";
           allow_embedding = true;
+          # 26.05 removed the default secret_key; pin the historical default so
+          # existing DB-encrypted values (if any) remain decryptable.
+          secret_key = "SW2YcwTIb9zpOOhoPsMm";
         };
         "auth.anonymous" = {
           enabled  = true;
@@ -2097,6 +2252,7 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       "d /var/lib/recyclarr              0700 root  root  -"
       # Observability
       "d /var/lib/sabnzbd-exporter       0700 root  root  -"
+      "d /var/lib/sabnzbd-unrar-watchdog 0700 root  root  -"
     ];
 
     # --- Sops secrets ---
