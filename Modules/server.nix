@@ -522,6 +522,14 @@
             enable_par_cleanup = true;     # delete par2 files after successful repair
             pause_on_post_processing = false; # keep downloading while post-processing
 
+            # Direct Unpack — KEEP OFF. Known SAB bug: starts unrar before deobfuscation
+            # completes on obfuscated NZBs → partial extracts → jobs marked failed with full
+            # MKV sitting in _FAILED_ folder (forum t=27128). Must set BOTH keys: SAB's
+            # test_disk_performance() in directunpacker.py forces direct_unpack=True on any
+            # disk >100 MB/s when direct_unpack_tested=False. Setting tested=True skips that.
+            direct_unpack = false;
+            direct_unpack_tested = true;
+
             # Cleanup hygiene — SAB doesn't auto-delete partial files by default.
             # delete_failed makes SAB nuke incomplete folder when job transitions to failed
             # (won't catch .1 races or _FAILED_ bug #2840 — the zombie sweeper handles those).
