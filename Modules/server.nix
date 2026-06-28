@@ -518,16 +518,9 @@
             web_tabbed = true;
 
             # Performance
-            direct_unpack = false;         # disabled — caused cache backpressure stalls + memory peaks (25G/31G)
             article_cache_size = "1G";     # RAM cache — reduces disk thrashing
-            pre_check = false;             # skip pre-check — backup server fills gaps instead
-            par_option = "N=A";            # skip verify when no repair needed
             enable_par_cleanup = true;     # delete par2 files after successful repair
             pause_on_post_processing = false; # keep downloading while post-processing
-            unwanted_extensions = "";      # disable extension scanning (wastes CPU)
-            action_on_unwanted_ext = 0;    # no action on extensions
-            max_art_tries = 3;             # max article retries — stop cycling on missing articles
-            log_level = 1;                 # info level — debug kills performance
 
             # Cleanup hygiene — SAB doesn't auto-delete partial files by default.
             # delete_failed makes SAB nuke incomplete folder when job transitions to failed
@@ -545,7 +538,6 @@
               password._secret = config.sops.secrets."usenet/frugalusenet/password".path;
               connections = 60;
               ssl = true;
-              ssl_ciphers = "AES128-SHA256";
               priority = 0;
               timeout = 30;
               required = true;
@@ -558,7 +550,6 @@
               password._secret = config.sops.secrets."usenet/newshosting/password".path;
               connections = 30;
               ssl = true;
-              ssl_ciphers = "AES128-SHA256";
               priority = 0;
               timeout = 30;
               optional = false;
@@ -573,282 +564,6 @@
     # unrar in SABnzbd service PATH — required for RAR-packed NZBs
     systemd.services.sabnzbd.path = [ pkgs.unrar ];
 
-    # ── SAB zombie-folder sweeper ────────────────────────────────────────────────
-    # SAB never auto-deletes orphaned incomplete folders (the .1 race, _FAILED_
-    # bug #2840, abandoned partials after Sonarr/Radarr re-grabs). This service
-    # cross-references /downloads/usenet/incomplete against SAB's live queue +
-    # history via API, deletes folders with no active match.
-    #
-    # Safety: bails if SAB up < 5 min (API may be mid-rebuild); requires folder
-    # mtime > 60 min AND no descendant file written in last 60 min; flock prevents
-    # concurrent runs. Set DRY_RUN=1 in env to log without deleting.
-    systemd.services.sabnzbd-zombie-sweep = {
-      description = "Sweep orphaned SAB incomplete folders";
-      after = [ "sabnzbd.service" ];
-      wants = [ "sabnzbd.service" ];
-      path = [ pkgs.curl pkgs.jq pkgs.util-linux pkgs.coreutils pkgs.findutils pkgs.systemd ];
-      serviceConfig = {
-        Type = "oneshot";
-        User = "root";
-      };
-      script = ''
-        set -euo pipefail
-
-        INCOMPLETE=/downloads/usenet/incomplete
-        LOCKFILE=/var/lock/sab-zombie-sweep.lock
-        DRY_RUN=''${DRY_RUN:-0}
-        MIN_AGE_MIN=''${MIN_AGE_MIN:-60}
-        SAB_MIN_UP_SEC=''${SAB_MIN_UP_SEC:-300}
-
-        [[ -d "$INCOMPLETE" ]] || { echo "no incomplete dir, skipping"; exit 0; }
-
-        exec 200>"$LOCKFILE"
-        flock -n 200 || { echo "another sweep running"; exit 0; }
-
-        # Bail if SAB just restarted — its in-memory queue may not be loaded
-        SAB_START_NS=$(systemctl show sabnzbd -p ActiveEnterTimestampMonotonic --value)
-        if [[ -z "$SAB_START_NS" || "$SAB_START_NS" = "0" ]]; then
-          echo "SAB not active, skipping"; exit 0
-        fi
-        BOOT_UP_SEC=$(cut -d. -f1 /proc/uptime)
-        SAB_START_SEC=$(( SAB_START_NS / 1000000 ))
-        SAB_UP_SEC=$(( BOOT_UP_SEC - SAB_START_SEC ))
-        if (( SAB_UP_SEC < SAB_MIN_UP_SEC )); then
-          echo "SAB only up ''${SAB_UP_SEC}s, need ''${SAB_MIN_UP_SEC}s — skipping"
-          exit 0
-        fi
-
-        APIKEY=$(grep '^api_key' /var/lib/sabnzbd/sabnzbd.ini | head -1 | cut -d= -f2 | tr -d ' ')
-        [[ -n "$APIKEY" ]] || { echo "no api key found"; exit 1; }
-
-        Q=$(curl -fsS "http://localhost:8080/api?mode=queue&output=json&apikey=$APIKEY&limit=500" || echo '{}')
-        H=$(curl -fsS "http://localhost:8080/api?mode=history&output=json&apikey=$APIKEY&limit=500" || echo '{}')
-
-        ACTIVE=$(mktemp)
-        trap 'rm -f "$ACTIVE"' EXIT
-        {
-          echo "$Q" | jq -r '.queue.slots[]? | .filename, .nzo_id' 2>/dev/null || true
-          echo "$H" | jq -r '.history.slots[]? | select(.status | test("Downloading|Queued|Extracting|Verifying|Repairing|Running|Grabbing")) | .name, .nzo_id' 2>/dev/null || true
-        } | grep -v '^$' | sort -u > "$ACTIVE"
-
-        ACTIVE_COUNT=$(wc -l < "$ACTIVE")
-        if (( ACTIVE_COUNT == 0 )) && [[ "$DRY_RUN" != 1 ]]; then
-          echo "SAB API returned zero active jobs — refusing to sweep (safety)"
-          exit 0
-        fi
-        echo "Active jobs: $ACTIVE_COUNT"
-
-        DELETED=0; SKIPPED=0; FREED_KB=0
-        shopt -s nullglob
-        for folder in "$INCOMPLETE"/*/; do
-          name=$(basename "$folder")
-
-          # folder mtime guard
-          if [[ -n "$(find "$folder" -maxdepth 0 -mmin -$MIN_AGE_MIN 2>/dev/null)" ]]; then
-            SKIPPED=$((SKIPPED + 1)); continue
-          fi
-          # descendant file mtime guard — catches active writes
-          if [[ -n "$(find "$folder" -type f -mmin -$MIN_AGE_MIN -print -quit 2>/dev/null)" ]]; then
-            SKIPPED=$((SKIPPED + 1)); continue
-          fi
-
-          # Identity check: nzo_id from __ADMIN__ is authoritative (handles the .1 race
-          # where two folders share a name but only one is SAB's current job). If no
-          # __ADMIN__ marker exists (very old or corrupted folder), fall back to name match.
-          nzo_id=""
-          if [[ -d "''${folder}__ADMIN__" ]]; then
-            nzo_id=$(ls "''${folder}__ADMIN__" 2>/dev/null | grep -oE 'SABnzbd_nzo_[a-zA-Z0-9_]+' | head -1 || true)
-          fi
-
-          if [[ -n "$nzo_id" ]]; then
-            # Trust nzo_id only — name collisions with active jobs are the zombie's signature
-            if grep -Fxq "$nzo_id" "$ACTIVE"; then
-              SKIPPED=$((SKIPPED + 1)); continue
-            fi
-          else
-            # No nzo_id — name match is the only signal we have
-            if grep -Fxq "$name" "$ACTIVE"; then
-              SKIPPED=$((SKIPPED + 1)); continue
-            fi
-          fi
-
-          # zombie
-          SIZE_KB=$(du -sk "$folder" 2>/dev/null | cut -f1)
-          if [[ "$DRY_RUN" = 1 ]]; then
-            echo "[DRY] would delete ($(numfmt --to=iec --from-unit=1024 "$SIZE_KB")): $name"
-          else
-            rm -rf "$folder"
-            echo "deleted ($(numfmt --to=iec --from-unit=1024 "$SIZE_KB")): $name"
-          fi
-          DELETED=$((DELETED + 1))
-          FREED_KB=$(( FREED_KB + SIZE_KB ))
-        done
-
-        echo "Sweep done: deleted=$DELETED skipped=$SKIPPED freed=$(numfmt --to=iec --from-unit=1024 "$FREED_KB")"
-      '';
-    };
-
-    systemd.timers.sabnzbd-zombie-sweep = {
-      description = "Hourly SAB zombie folder sweep";
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
-        OnBootSec = "15min";
-        OnUnitActiveSec = "1h";
-        Persistent = true;
-      };
-    };
-
-    # ─────────────────────────────────────────────────────────────────────
-    # SAB unrar watchdog — SIGKILL hung unrar processes AND reap zombies
-    #
-    # Known SAB bug (GH #1273, #1282, #2948, forum t=23923): when unrar
-    # hits a corrupt RAR it can deadlock on stderr pipe_write because SAB
-    # stops draining the pipe. unrar then never exits, SAB shows the job
-    # as "Unpacking" forever, Decluttarr can't see it as Failed, and the
-    # queue stalls. Acknowledged unfixed upstream since 2018.
-    #
-    # Two failure modes handled:
-    #  1. Live hung unrar (state R/S/D, no write progress) → SIGTERM → SIGKILL
-    #  2. Zombie unrar (state Z) — SAB's post-processor never called wait()
-    #     on the dead child. SIGKILL is a no-op on zombies; only the parent
-    #     can reap it. We restart SAB after zombies are >60s old (rate-limited
-    #     to once per 30min to avoid restart loops).
-    #
-    # After kill/restart, SAB detects unrar died → marks job Failed →
-    # Decluttarr sees Failed in arr queue → Radarr/Sonarr blocklist + research.
-    # ─────────────────────────────────────────────────────────────────────
-    systemd.services.sabnzbd-unrar-watchdog = {
-      description = "Kill hung SAB unrar processes (corrupt-RAR pipe deadlock workaround)";
-      after = [ "sabnzbd.service" ];
-      wants = [ "sabnzbd.service" ];
-      path = [ pkgs.procps pkgs.util-linux pkgs.coreutils pkgs.gawk pkgs.systemd ];
-      serviceConfig = {
-        Type = "oneshot";
-        User = "root";
-      };
-      script = ''
-        set -euo pipefail
-
-        STATE_DIR=/var/lib/sabnzbd-unrar-watchdog
-        STATE_FILE=$STATE_DIR/state
-        SAB_RESTART_STAMP=$STATE_DIR/last-sab-restart
-        LOCKFILE=/var/lock/sab-unrar-watchdog.lock
-        STALL_RUNS=''${STALL_RUNS:-3}              # consecutive stalled runs before kill (~15 min at 5min cadence)
-        MIN_AGE_SEC=''${MIN_AGE_SEC:-180}          # don't touch unrars younger than this
-        ZOMBIE_MIN_AGE_SEC=''${ZOMBIE_MIN_AGE_SEC:-60}      # zombies older than this trigger SAB restart
-        SAB_RESTART_COOLDOWN=''${SAB_RESTART_COOLDOWN:-1800} # min seconds between SAB restarts (30min)
-        DRY_RUN=''${DRY_RUN:-0}
-
-        mkdir -p "$STATE_DIR"
-        touch "$STATE_FILE"
-
-        exec 9>"$LOCKFILE"
-        flock -n 9 || { echo "Another watchdog run in progress; exiting"; exit 0; }
-
-        NOW=$(date +%s)
-        CLK_TCK=100   # Linux default; getconf isn't in systemd unit PATH
-        BTIME=$(awk '/^btime/ {print $2}' /proc/stat)
-        NEW_STATE=""
-        NEED_SAB_RESTART=0
-        ZOMBIE_REASON=""
-
-        # Snapshot current unrar PIDs (pgrep -x avoids matching unrar-related but non-unrar names)
-        # -a also picks up zombies (defunct processes still appear in pgrep until reaped)
-        PIDS=$(pgrep -x unrar || true)
-
-        for PID in $PIDS; do
-          [ -d "/proc/$PID" ] || continue
-
-          # Process state from /proc/PID/stat field 3 (Z = zombie, R/S/D/T = alive)
-          STAT=$(cat "/proc/$PID/stat" 2>/dev/null || echo "")
-          [ -z "$STAT" ] && continue
-          PROC_STATE=$(awk '{print $3}' <<<"$STAT")
-          START_TICKS=$(awk '{print $22}' <<<"$STAT")
-          START_SEC=$((BTIME + START_TICKS / CLK_TCK))
-          AGE=$((NOW - START_SEC))
-
-          # Zombie path: SIGKILL won't work; only parent reaping can clear it
-          if [ "$PROC_STATE" = "Z" ]; then
-            if [ "$AGE" -ge "$ZOMBIE_MIN_AGE_SEC" ]; then
-              echo "ZOMBIE: pid=$PID age=''${AGE}s — needs SAB restart to reap"
-              NEED_SAB_RESTART=1
-              ZOMBIE_REASON+="pid=$PID age=''${AGE}s "
-            else
-              echo "zombie pid=$PID age=''${AGE}s — young, parent may still wait()"
-            fi
-            continue
-          fi
-
-          # Live process path: track write_bytes for stall detection
-          [ -r "/proc/$PID/io" ] || continue
-          WB=$(awk '/^write_bytes:/ {print $2}' "/proc/$PID/io" 2>/dev/null || echo 0)
-
-          PREV_LINE=$(grep "^$PID " "$STATE_FILE" 2>/dev/null || true)
-          PREV_WB=$(awk '{print $2}' <<<"$PREV_LINE")
-          PREV_COUNT=$(awk '{print $3}' <<<"$PREV_LINE")
-          [ -z "$PREV_COUNT" ] && PREV_COUNT=0
-
-          if [ -n "$PREV_WB" ] && [ "$WB" = "$PREV_WB" ]; then
-            COUNT=$((PREV_COUNT + 1))
-          else
-            COUNT=0
-          fi
-
-          NEW_STATE+="$PID $WB $COUNT"$'\n'
-
-          if [ "$AGE" -lt "$MIN_AGE_SEC" ]; then
-            echo "pid=$PID age=''${AGE}s — too young, skipping"
-            continue
-          fi
-
-          if [ "$COUNT" -ge "$STALL_RUNS" ]; then
-            CMDLINE=$(tr '\0' ' ' < "/proc/$PID/cmdline" 2>/dev/null | cut -c1-200)
-            echo "HUNG: pid=$PID age=''${AGE}s write_bytes=$WB stalled=''${COUNT} runs — killing"
-            echo "  cmdline: $CMDLINE"
-            if [ "$DRY_RUN" = "1" ]; then
-              echo "  DRY_RUN=1, would SIGTERM then SIGKILL"
-            else
-              kill -TERM "$PID" 2>/dev/null || true
-              sleep 10
-              if kill -0 "$PID" 2>/dev/null; then
-                echo "  SIGTERM ignored, sending SIGKILL"
-                kill -KILL "$PID" 2>/dev/null || true
-              fi
-            fi
-          else
-            echo "pid=$PID age=''${AGE}s state=$PROC_STATE write_bytes=$WB stalled=$COUNT/''${STALL_RUNS}"
-          fi
-        done
-
-        printf '%s' "$NEW_STATE" > "$STATE_FILE"
-
-        # SAB restart: only when zombies present, rate-limited
-        if [ "$NEED_SAB_RESTART" = "1" ]; then
-          LAST_RESTART=0
-          [ -f "$SAB_RESTART_STAMP" ] && LAST_RESTART=$(cat "$SAB_RESTART_STAMP")
-          SINCE=$((NOW - LAST_RESTART))
-          if [ "$SINCE" -lt "$SAB_RESTART_COOLDOWN" ]; then
-            echo "SAB restart needed ($ZOMBIE_REASON) but cooldown active (last restart ''${SINCE}s ago, need ''${SAB_RESTART_COOLDOWN}s)"
-          elif [ "$DRY_RUN" = "1" ]; then
-            echo "DRY_RUN=1, would restart sabnzbd.service to reap zombies ($ZOMBIE_REASON)"
-          else
-            echo "Restarting sabnzbd.service to reap zombies ($ZOMBIE_REASON)"
-            systemctl restart sabnzbd.service
-            echo "$NOW" > "$SAB_RESTART_STAMP"
-          fi
-        fi
-      '';
-    };
-
-    systemd.timers.sabnzbd-unrar-watchdog = {
-      description = "Poll for hung SAB unrar processes every 5 min";
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
-        OnBootSec = "10min";
-        OnUnitActiveSec = "5min";
-        Persistent = true;
-      };
-    };
 
     # Completes the Jellyseerr setup wizard declaratively:
     # logs in via Jellyfin creds, syncs + enables all libraries, marks initialized.
@@ -2252,7 +1967,6 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       "d /var/lib/recyclarr              0700 root  root  -"
       # Observability
       "d /var/lib/sabnzbd-exporter       0700 root  root  -"
-      "d /var/lib/sabnzbd-unrar-watchdog 0700 root  root  -"
     ];
 
     # --- Sops secrets ---
