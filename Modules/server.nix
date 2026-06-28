@@ -508,6 +508,7 @@
             par2_threads = 12;
             abort_max_missing = 10;
             fail_hopeless_jobs = true;
+            pause_on_pwrar = 2;            # 0=warn, 1=pause, 2=abort. Abort → Failed status → Decluttarr blocklists + Sonarr/Radarr re-search. Prevents jobs stalling forever on encrypted/corrupt RARs.
             host_whitelist = "asgard,asgard.tailb54b82.ts.net,100.119.193.77,host.containers.internal,10.200.1.2";
             inet_exposure = 4;
             x_frame_options = 0;
