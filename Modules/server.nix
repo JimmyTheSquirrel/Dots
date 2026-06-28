@@ -527,6 +527,13 @@
             action_on_unwanted_ext = 0;    # no action on extensions
             max_art_tries = 3;             # max article retries — stop cycling on missing articles
             log_level = 1;                 # info level — debug kills performance
+
+            # Cleanup hygiene — SAB doesn't auto-delete partial files by default.
+            # delete_failed makes SAB nuke incomplete folder when job transitions to failed
+            # (won't catch .1 races or _FAILED_ bug #2840 — the zombie sweeper handles those).
+            delete_failed = true;
+            history_retention = "30";
+            history_retention_option = "days-archive";
           };
           servers = [
             {
@@ -564,6 +571,131 @@
 
     # unrar in SABnzbd service PATH — required for RAR-packed NZBs
     systemd.services.sabnzbd.path = [ pkgs.unrar ];
+
+    # ── SAB zombie-folder sweeper ────────────────────────────────────────────────
+    # SAB never auto-deletes orphaned incomplete folders (the .1 race, _FAILED_
+    # bug #2840, abandoned partials after Sonarr/Radarr re-grabs). This service
+    # cross-references /downloads/usenet/incomplete against SAB's live queue +
+    # history via API, deletes folders with no active match.
+    #
+    # Safety: bails if SAB up < 5 min (API may be mid-rebuild); requires folder
+    # mtime > 60 min AND no descendant file written in last 60 min; flock prevents
+    # concurrent runs. Set DRY_RUN=1 in env to log without deleting.
+    systemd.services.sabnzbd-zombie-sweep = {
+      description = "Sweep orphaned SAB incomplete folders";
+      after = [ "sabnzbd.service" ];
+      wants = [ "sabnzbd.service" ];
+      path = [ pkgs.curl pkgs.jq pkgs.util-linux pkgs.coreutils pkgs.findutils pkgs.systemd ];
+      serviceConfig = {
+        Type = "oneshot";
+        User = "root";
+      };
+      script = ''
+        set -euo pipefail
+
+        INCOMPLETE=/downloads/usenet/incomplete
+        LOCKFILE=/var/lock/sab-zombie-sweep.lock
+        DRY_RUN=''${DRY_RUN:-0}
+        MIN_AGE_MIN=''${MIN_AGE_MIN:-60}
+        SAB_MIN_UP_SEC=''${SAB_MIN_UP_SEC:-300}
+
+        [[ -d "$INCOMPLETE" ]] || { echo "no incomplete dir, skipping"; exit 0; }
+
+        exec 200>"$LOCKFILE"
+        flock -n 200 || { echo "another sweep running"; exit 0; }
+
+        # Bail if SAB just restarted — its in-memory queue may not be loaded
+        SAB_START_NS=$(systemctl show sabnzbd -p ActiveEnterTimestampMonotonic --value)
+        if [[ -z "$SAB_START_NS" || "$SAB_START_NS" = "0" ]]; then
+          echo "SAB not active, skipping"; exit 0
+        fi
+        BOOT_UP_SEC=$(cut -d. -f1 /proc/uptime)
+        SAB_START_SEC=$(( SAB_START_NS / 1000000 ))
+        SAB_UP_SEC=$(( BOOT_UP_SEC - SAB_START_SEC ))
+        if (( SAB_UP_SEC < SAB_MIN_UP_SEC )); then
+          echo "SAB only up ''${SAB_UP_SEC}s, need ''${SAB_MIN_UP_SEC}s — skipping"
+          exit 0
+        fi
+
+        APIKEY=$(grep '^api_key' /var/lib/sabnzbd/sabnzbd.ini | head -1 | cut -d= -f2 | tr -d ' ')
+        [[ -n "$APIKEY" ]] || { echo "no api key found"; exit 1; }
+
+        Q=$(curl -fsS "http://localhost:8080/api?mode=queue&output=json&apikey=$APIKEY&limit=500" || echo '{}')
+        H=$(curl -fsS "http://localhost:8080/api?mode=history&output=json&apikey=$APIKEY&limit=500" || echo '{}')
+
+        ACTIVE=$(mktemp)
+        trap 'rm -f "$ACTIVE"' EXIT
+        {
+          echo "$Q" | jq -r '.queue.slots[]? | .filename, .nzo_id' 2>/dev/null || true
+          echo "$H" | jq -r '.history.slots[]? | select(.status | test("Downloading|Queued|Extracting|Verifying|Repairing|Running|Grabbing")) | .name, .nzo_id' 2>/dev/null || true
+        } | grep -v '^$' | sort -u > "$ACTIVE"
+
+        ACTIVE_COUNT=$(wc -l < "$ACTIVE")
+        if (( ACTIVE_COUNT == 0 )) && [[ "$DRY_RUN" != 1 ]]; then
+          echo "SAB API returned zero active jobs — refusing to sweep (safety)"
+          exit 0
+        fi
+        echo "Active jobs: $ACTIVE_COUNT"
+
+        DELETED=0; SKIPPED=0; FREED_KB=0
+        shopt -s nullglob
+        for folder in "$INCOMPLETE"/*/; do
+          name=$(basename "$folder")
+
+          # folder mtime guard
+          if [[ -n "$(find "$folder" -maxdepth 0 -mmin -$MIN_AGE_MIN 2>/dev/null)" ]]; then
+            SKIPPED=$((SKIPPED + 1)); continue
+          fi
+          # descendant file mtime guard — catches active writes
+          if [[ -n "$(find "$folder" -type f -mmin -$MIN_AGE_MIN -print -quit 2>/dev/null)" ]]; then
+            SKIPPED=$((SKIPPED + 1)); continue
+          fi
+
+          # Identity check: nzo_id from __ADMIN__ is authoritative (handles the .1 race
+          # where two folders share a name but only one is SAB's current job). If no
+          # __ADMIN__ marker exists (very old or corrupted folder), fall back to name match.
+          nzo_id=""
+          if [[ -d "''${folder}__ADMIN__" ]]; then
+            nzo_id=$(ls "''${folder}__ADMIN__" 2>/dev/null | grep -oE 'SABnzbd_nzo_[a-zA-Z0-9_]+' | head -1 || true)
+          fi
+
+          if [[ -n "$nzo_id" ]]; then
+            # Trust nzo_id only — name collisions with active jobs are the zombie's signature
+            if grep -Fxq "$nzo_id" "$ACTIVE"; then
+              SKIPPED=$((SKIPPED + 1)); continue
+            fi
+          else
+            # No nzo_id — name match is the only signal we have
+            if grep -Fxq "$name" "$ACTIVE"; then
+              SKIPPED=$((SKIPPED + 1)); continue
+            fi
+          fi
+
+          # zombie
+          SIZE_KB=$(du -sk "$folder" 2>/dev/null | cut -f1)
+          if [[ "$DRY_RUN" = 1 ]]; then
+            echo "[DRY] would delete ($(numfmt --to=iec --from-unit=1024 "$SIZE_KB")): $name"
+          else
+            rm -rf "$folder"
+            echo "deleted ($(numfmt --to=iec --from-unit=1024 "$SIZE_KB")): $name"
+          fi
+          DELETED=$((DELETED + 1))
+          FREED_KB=$(( FREED_KB + SIZE_KB ))
+        done
+
+        echo "Sweep done: deleted=$DELETED skipped=$SKIPPED freed=$(numfmt --to=iec --from-unit=1024 "$FREED_KB")"
+      '';
+    };
+
+    systemd.timers.sabnzbd-zombie-sweep = {
+      description = "Hourly SAB zombie folder sweep";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "15min";
+        OnUnitActiveSec = "1h";
+        Persistent = true;
+      };
+    };
 
     # Completes the Jellyseerr setup wizard declaratively:
     # logs in via Jellyfin creds, syncs + enables all libraries, marks initialized.
