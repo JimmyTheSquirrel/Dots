@@ -14,6 +14,7 @@ Chromium-based privacy browser (de-googled, built on ungoogled-chromium) used al
 - **Bitwarden pinned** — `ExtensionSettings` policy with `toolbar_pin = "force_pinned"` targets the correct ID
 - **Bookmarks** — two managed folders (Work: Outlook, Personal: GitHub/Reddit/ProtonDB) via `ManagedBookmarks` policy
 - **New tab page** — blank via `NewTabPageLocation = "about:blank"`
+- **Widevine DRM** — `pkgs.widevine-cdm` symlinked into the profile via `home.file` (Crunchyroll etc.). Helium is ungoogled so it can't component-update the CDM itself. Layout: `~/.config/net.imput.helium/WidevineCdm/<version>/` (symlink to the nix store CDM dir) + hint file `WidevineCdm/latest-component-updated-widevine-cdm` containing `{"Path": "<version dir>"}`. Netflix still won't work (requires VMP browser certification); Crunchyroll and YouTube do. Restart Helium after rebuild for the CDM to load. The hint file has `force = true` — Helium rewrites it at runtime, which otherwise breaks HM's backup step on every rebuild.
 
 ## Theme Colors
 

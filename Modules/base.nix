@@ -2,9 +2,15 @@
   flake.nixosModules.base = {
     config,
     pkgs,
+    inputs,
     activeUser,
     ...
-  }: {
+  }: let
+    pkgs-unstable = import inputs.nixpkgs-unstable {
+      system = pkgs.system;
+      config.allowUnfree = true;
+    };
+  in {
     # Nix settings
     nix.settings = {
       experimental-features = ["nix-command" "flakes"];
@@ -60,7 +66,7 @@
       discord
       spotify
       gparted
-      claude-code
+      pkgs-unstable.claude-code
       wowup-cf
       (prismlauncher.override {jdks = [pkgs.jdk21];})
 moonlight-qt

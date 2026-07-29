@@ -34,10 +34,12 @@ Custom cheatsheet at `~/.config/navi/cheats/rhys.cheat`:
 - **Git Sync** — `git-sync "message"` for quick commits
 - **Edit Secrets** — `sops ~/Dots/Secrets/secrets.yaml`
 
-Wrapper scripts provided:
-- `system-rebuild` — Interactive or CLI system rebuild
+Wrapper scripts provided (as `writeShellScriptBin` — the ONLY definition of these commands):
+- `system-rebuild` — Interactive or CLI system rebuild (menu includes Asgard + Test action)
 - `git-sync` — Stash, pull --rebase, push workflow
 - `nix-gc` — Full cleanup (GC + optimise + journal + podman prune)
+
+These were once duplicated as zsh functions in `Resources/Zsh-Scripts/zsh-helpers.sh`, which caused the two copies to drift (navi ran a stale menu without Asgard). That file was deleted (July 2026) — do not reintroduce shell-function copies; edit the binaries here instead.
 
 ## Audio
 

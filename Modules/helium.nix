@@ -8,7 +8,28 @@
     activeUser,
     ...
   }: {
-    home-manager.users.${activeUser} = {
+    home-manager.users.${activeUser} = {config, ...}: {
+      # Widevine CDM for DRM video (Crunchyroll etc). Helium is ungoogled-chromium
+      # based — it has no component updater to fetch the CDM itself, so provide it
+      # in the profile using the component-updater layout Chromium scans on Linux,
+      # plus the hint file telling it which version directory to load.
+      # Note: works for Crunchyroll/YouTube; Netflix additionally requires browser
+      # certification (VMP) and will still refuse to play.
+      home.file = let
+        widevineProfileDir = "${config.home.homeDirectory}/.config/net.imput.helium/WidevineCdm";
+      in {
+        ".config/net.imput.helium/WidevineCdm/${pkgs.widevine-cdm.version}".source = "${pkgs.widevine-cdm}/share/google/chrome/WidevineCdm";
+        # Helium rewrites this hint file at runtime (resolving the symlink to the
+        # store path), which makes HM's backup step fail on every later rebuild.
+        # force = true: overwrite it instead of backing it up.
+        ".config/net.imput.helium/WidevineCdm/latest-component-updated-widevine-cdm" = {
+          text = builtins.toJSON {
+            Path = "${widevineProfileDir}/${pkgs.widevine-cdm.version}";
+          };
+          force = true;
+        };
+      };
+
       xdg.mimeApps = {
         enable = true;
         defaultApplications = {

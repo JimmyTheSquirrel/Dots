@@ -57,6 +57,8 @@ The `skwd-wall` built-in integration (`quickshell-colors.json`) is **required** 
 
 ## Important Gotchas
 
+- **KDE (Elektra): daemon calls `qdbus6`**, but NixOS ships the Qt6 tool as plain `qdbus`. Without the `qdbus6-shim` (added to `home.packages` when compositor is `kde` in `Modules/skwd-wall.nix`), `apply_kde_static` silently fails at spawn and Plasma keeps its old wallpaper — the daemon log still shows a successful-looking "setting wallpaper via plasmashell evaluateScript" INFO line because it's logged before the call.
+
 - Noctalia must use `outOfStoreConfig = "/home/rock/.config/noctalia"` — without this, noctalia reads from the Nix store instead of where matugen writes.
 - Do NOT use `pkill -9 quickshell` to reload colors — it kills skwd-wall's quickshell UI too. Use `noctalia-shell ipc call wallpaper refresh` instead.
 - **`colorScheme refresh` was removed** from noctalia's IPC — the reload command is now `noctalia-shell ipc call wallpaper refresh`.
@@ -66,6 +68,10 @@ The `skwd-wall` built-in integration (`quickshell-colors.json`) is **required** 
 ## Troubleshooting
 
 **Matugen errors:** `journalctl --user -u skwd-daemon`
+
+**New videos/images missing from selector:** the daemon only lists items with a generated thumbnail. Check `journalctl --user -u skwd-daemon | grep "thumb FAILED"` — thumbnail generation (ffmpeg) can fail transiently during session-startup rush and the item is skipped without retry. Fix: `skwd wall cache_rebuild` (re-processes anything missing a thumb; `skwd wall cache_status` shows progress).
+
+**Gray screen when applying a video wallpaper:** `skwd-paper` (the renderer) opens videos with a tiny ffmpeg probe window (`probesize=65536`). On mp4s whose metadata sits at the end of the file, the pixel format probes as `unknown`, the scaler init aborts (SIGABRT, visible in `coredumpctl list`), and the daemon respawn-loops leaving a gray backdrop. It also corrupts the transition state, so subsequent wallpaper changes flash the old image. Diagnose: `ffprobe -v error -probesize 65536 -analyzeduration 500000 -select_streams v:0 -show_entries stream=pix_fmt <file>` → `unknown` = affected. Fix (lossless remux, moves metadata to front): `ffmpeg -i in.mp4 -c copy -movflags +faststart out.mp4`. Upstream bug in liixini/skwd-daemon (`VideoSource::new` should error, not abort).
 
 **Blank/duplicated thumbnails or stale cache:**
 ```bash

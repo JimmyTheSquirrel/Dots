@@ -1,16 +1,40 @@
 { inputs, ... }: {
   flake.nixosModules.skwd-wall = { pkgs, activeUser, ... }:
   let
-    skwdPackage = inputs.skwd-wall.packages.${pkgs.stdenv.hostPlatform.system}.default;
+    # Selector opens with the favourites filter pre-enabled — upstream hardcodes
+    # the default to false and offers no config knob for it
+    skwdPackage = (inputs.skwd-wall.packages.${pkgs.stdenv.hostPlatform.system}.default).overrideAttrs (old: {
+      postPatch = (old.postPatch or "") + ''
+        # Upstream file contains stray NUL bytes, which substituteInPlace refuses
+        # to process — strip them first
+        tr -d '\0' < qml/wallpaper/WallpaperSelectorService.qml > wss.tmp
+        mv wss.tmp qml/wallpaper/WallpaperSelectorService.qml
+        substituteInPlace qml/wallpaper/WallpaperSelectorService.qml \
+          --replace-fail "property bool favouriteFilterActive: false" \
+                         "property bool favouriteFilterActive: true"
+      '';
+    });
+    # skwd-daemon applies KDE wallpapers via `qdbus6`, but NixOS ships the Qt6
+    # tool as plain `qdbus` — without this shim the plasmashell evaluateScript
+    # call silently fails and Plasma keeps its previous wallpaper
+    qdbus6Shim = pkgs.runCommand "qdbus6-shim" {} ''
+      mkdir -p $out/bin
+      ln -s ${pkgs.kdePackages.qttools}/bin/qdbus $out/bin/qdbus6
+    '';
   in {
-    home-manager.users.${activeUser} = { config, lib, ... }:
+    home-manager.users.${activeUser} = { config, lib, hostName, ... }:
     let
       configPath = "${config.home.homeDirectory}/.config/skwd-wall";
+      compositor = {
+        Sisyphus = "niri";
+        Elektra = "kde";
+        Odysseus = "hyprland";
+      }.${hostName} or "niri";
     in {
       # ============================================================
       # PACKAGE
       # ============================================================
-      home.packages = [ skwdPackage ];
+      home.packages = [ skwdPackage ] ++ lib.optional (compositor == "kde") qdbus6Shim;
 
       # Hide from app launchers — skwd-wall is keybind-driven (Meta+W)
       xdg.desktopEntries."skwd-wall" = {
@@ -48,7 +72,7 @@
         if [ ! -f "${configPath}/config.json" ]; then
           cat > "${configPath}/config.json" << 'EOF'
 {
-  "compositor": "niri",
+  "compositor": "${compositor}",
   "monitor": "DP-2",
   "paths": {
     "wallpaper": "~/Pictures/Wallpapers",
@@ -115,6 +139,10 @@ EOF
         # Always patch integrations: ensure skwd-wall built-in + noctalia reload
         if [ -f "${configPath}/config.json" ]; then
           ${pkgs.jq}/bin/jq '
+            # Compositor is host-determined (niri/kde/hyprland) — keep existing configs in sync
+            .compositor = "${compositor}" |
+            # Persist last position when reopening selector (saves cursor across show/hide)
+            .general = ((.general // {}) | .reopenAtLastSelection = true) |
             # Remove zen integrations (broken paths cause matugen TOML parse errors)
             .integrations = ((.integrations // []) | map(select(.name != "zen" and .name != "zen-content"))) |
             # Fix noctalia reload (colorScheme refresh was removed; wallpaper refresh triggers re-read)

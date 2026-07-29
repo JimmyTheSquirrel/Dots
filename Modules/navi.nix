@@ -25,6 +25,8 @@
           cd "$HOME/Dots" || { echo "❌ ~/Dots not found"; exit 1; }
 
           user="rock"
+          system=""
+          action="switch"
 
           # If no args, interactive mode
           if [[ -z "''${1:-}" ]]; then
@@ -36,13 +38,15 @@
             echo "  1) Sisyphus  (Niri)"
             echo "  2) Odysseus  (Hyprland)"
             echo "  3) Elektra   (KDE Plasma)"
+            echo "  4) Asgard    (Media Server)"
             echo ""
-            read -p "System [1-3]: " sys_choice
+            read -p "System [1-4]: " sys_choice
 
             case "$sys_choice" in
               1) system="Sisyphus" ;;
               2) system="Odysseus" ;;
               3) system="Elektra" ;;
+              4) system="Asgard" ;;
               *) echo "Invalid choice"; exit 1 ;;
             esac
 
@@ -50,19 +54,20 @@
             echo -e "\033[1;33mSelect Action:\033[0m"
             echo "  1) Switch  (rebuild & activate now)"
             echo "  2) Boot    (rebuild for GRUB menu)"
+            echo "  3) Test    (test the build)"
             echo ""
-            read -p "Action [1-2]: " action_choice
+            read -p "Action [1-3]: " action_choice
 
             case "$action_choice" in
               1) action="switch" ;;
               2) action="boot" ;;
+              3) action="build" ;;
               *) echo "Invalid choice"; exit 1 ;;
             esac
           else
             # CLI mode: system-rebuild USER SYSTEM [--boot]
             user="''${1:-}"
             system="''${2:-}"
-            action="switch"
             [[ "''${3:-}" == "--boot" ]] && action="boot"
 
             if [[ -z "$system" ]]; then
@@ -81,8 +86,15 @@
             echo -e "\n\033[1;34m==> Building ''${system} (select from GRUB)...\033[0m"
           fi
 
-          sudo nixos-rebuild "''${action}" -p "''${profile}" --flake ".#''${flake_key}"
-          echo -e "\n\033[1;32m==> Done!\033[0m"
+          if sudo nixos-rebuild "''${action}" -p "''${profile}" --flake ".#''${flake_key}"; then
+            echo -e "\n\033[1;32m==> Done!\033[0m"
+            if [[ "$action" == "boot" ]]; then
+              echo -e "\033[1;33m==> Reboot and select ''${system} from GRUB.\033[0m"
+            fi
+          else
+            echo -e "\n\033[1;31m==> Build failed.\033[0m"
+            exit 1
+          fi
         '')
 
         (pkgs.writeShellScriptBin "git-sync" ''

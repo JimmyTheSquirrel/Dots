@@ -418,6 +418,7 @@
             "Mod+D".spawn-sh = "noctalia-shell ipc call launcher toggle";
             "Mod+W".spawn-sh = "skwd wall toggle";
             "Mod+Shift+Delete".spawn-sh = "noctalia-shell ipc call sessionMenu toggle";
+            "Mod+M".spawn-sh = "noctalia-shell ipc call desktopWidgets edit";
             "Mod+Q".close-window = _: {};
             "Mod+V".toggle-window-floating = _: {};
             "Mod+Shift+F".fullscreen-window = _: {};

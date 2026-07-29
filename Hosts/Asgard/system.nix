@@ -114,6 +114,11 @@ in {
         networking.hostName = hostName;
         system.stateVersion = "25.05";
 
+        # LAN advertises IPv6 (router RA) but has no working v6 upstream.
+        # .NET apps (Jellyfin/arrs) try AAAA first and hang 100s per request —
+        # broke TMDb metadata/poster fetching. Everything here is IPv4/Tailscale.
+        networking.enableIPv6 = false;
+
         # Boot — systemd-boot (no GRUB on server, single system)
         boot.loader.systemd-boot.enable = true;
         boot.loader.efi.canTouchEfiVariables = true;

@@ -17,6 +17,9 @@
       defaultSopsFile = ../Secrets/secrets.yaml;
       age.keyFile = "/home/rock/.config/sops/age/keys.txt";
       secrets.tailscale-auth-key = { };
+      secrets.anthropic-api-key = {
+        owner = "rock";
+      };
       secrets.user-password-hash = {
         neededForUsers = true;
       };

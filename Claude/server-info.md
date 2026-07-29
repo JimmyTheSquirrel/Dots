@@ -45,6 +45,7 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
 | tailscale-status-proxy | 9553 | internal only | HTTP proxy for Glance Yggdrasil widget |
 | **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Native server-stats + auto-refreshing System Info widget + Yggdrasil Network widget |
+| **ttyd**           | 7681 | Tailscale only | Web terminal (Glance "Terminal" page iframe + Management bookmark). Login prompt (root `login` entrypoint) — log in as `rock`, passwordless sudo for reboot/shutdown |
 | **Grafana**        | 3001 | Tailscale only | System stats (bar gauge panels) + logs. Anonymous viewing enabled for iframe embedding |
 | **Prometheus**     | 9090 | Tailscale only | Metrics collection. CORS enabled (`--web.cors.origin=.*`) for Glance JS polling |
 | **Loki**           | 3100 | Tailscale only | Log storage. Health: `:3100/ready` |
@@ -69,6 +70,7 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 - Immich — `services.immich`, manages its own PostgreSQL + Redis. `host = "0.0.0.0"` required — default `localhost` binds to `[::1]` (IPv6 only) making it unreachable. `ExecStartPre` script creates `.immich` marker files in all subdirs of `/data/photos/` (encoded-video, thumbs, upload, backups, library, profile) — Immich refuses to start without these.
 - Tailscale — `services.tailscale` (stock, no login-server flag)
 - Cloudflared — `services.cloudflared`
+- **WAN egress shaping** — `wan-egress-shaping.service` (in `Modules/server.nix`) caps WAN-bound upload on enp3s0 at 30 Mbit via HTB + fq_codel. Home uplink is 50 Mbit; Jellyfin transcode segments burst at full line rate every ~3s, spiking latency ~180ms and rubber-banding LAN game sessions. RFC1918 destinations bypass the cap (LAN direct-play unaffected). Inspect with `tc -s qdisc show dev enp3s0`.
 
 ### Native NixOS service (background sync)
 - **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`. Radarr templates use `radarr-quality-profile-remux-*` / `radarr-custom-formats-remux-*` (no `-v9-` prefix — that naming was dropped from TRaSH Guides).
@@ -164,20 +166,30 @@ Forms auth with the `admin-password` sops secret. No manual wizard step needed o
 
 **Prowlarr indexers** are pre-configured via `nixflix.prowlarr.config.indexers`: Miatrix, NZBGeek, NzbPlanet. Each has an `apiKey._secret` pointing to `indexer-api-keys/<Name>` in sops.
 
-**SABnzbd usenet servers:**
-- **FrugalUsenet** (primary, priority 0): `aunews.frugalusenet.com:563`, SSL, 200 connections, UsenetExpress backbone. Creds: `usenet/frugalusenet/username` + `/password`
-- **Newshosting** (backup, priority 1): `news.newshosting.com:563`, SSL, 30 connections, Highwinds backbone. Creds: `usenet/newshosting/username` + `/password`
-- Backup fills missing articles per-article during download (not per-job retry)
-- Performance: `direct_unpack`, `article_cache_size = 1G`, `ssl_ciphers = AES128-SHA256`, `par_option = N=A`
+**SABnzbd usenet servers (both priority 0, load-balanced):**
+- **FrugalUsenet**: `aunews.frugalusenet.com:563`, SSL, 60 connections, UsenetExpress backbone. Creds: `usenet/frugalusenet/username` + `/password`
+- **Newshosting**: `news.newshosting.com:563`, SSL, 30 connections, Highwinds backbone. Creds: `usenet/newshosting/username` + `/password`
+- Both at priority 0 = parallel load-balancing. NOT priority-1 backup — user confirmed this preference (backup only fills 430-missing articles anyway, doesn't help with corrupt bytes).
 
-**SABnzbd misc settings (all in `nixflix.sabnzbd.config.misc`):**
-- `par2_multicore = 1` + `par2_threads = 12` — use all cores for par2 verification
-- `abort_max_missing = 10` — abort download if >10% articles missing
-- `fail_hopeless_jobs = 1` — fail (not pause) job if par2 can't repair after download; Radarr/Sonarr will blacklist and grab next release
-- `host_whitelist` — includes `asgard`, `host.containers.internal` — allows access by hostname from tailnet + Podman containers (SABnzbd exporter)
-- `inet_exposure = 4` — allows connections from any IP (safe, only reachable via Tailscale)
-- Auth removed (no `username`/`password` in misc) — only reachable via tailnet
-- `web_compact = true`, `web_fullscreen = true`, `web_tabbed = true` — compact UI with tabbed queue/history
+**SABnzbd misc settings (all in `nixflix.usenetClients.sabnzbd.settings.misc`):**
+- `par2_multicore = 1` + `par2_threads = 12` — par2cmdline-turbo uses all cores
+- `abort_max_missing = 10` + `fail_hopeless_jobs = 1` — fail (not pause) hopeless jobs so decluttarr + arrs can blocklist and re-search
+- `pause_on_pwrar = 2` — abort on encrypted RAR (prevents stalls)
+- `delete_failed = 1` + `history_retention = "30" days-archive` — cleanup + retention
+- `article_cache_size = "1G"` — RAM cache
+- `direct_unpack = false` + `direct_unpack_tested = true` — **BOTH keys required.** SAB's `directunpacker.py:test_disk_performance()` auto-enables direct_unpack on any disk >100 MB/s unless `tested=true`. Direct unpack races with obfuscated-NZB deobfuscation (SAB forum t=27128) → mislabeled _FAILED_ folders.
+- `pre_check = 0` — skips SAB's pre-download article verification (the slow "Checking" phase in the queue UI). **Applied via SAB HTTP API, NOT nix** — nixflix's override for this specific key doesn't land in the generated template (mystery, TBD).
+- `host_whitelist` — asgard, container.internal, VPN namespace IP
+- `inet_exposure = 4` — safe because tailnet-only
+- `x_frame_options = 0` — needed for Glance iframe
+- `web_color = "Night"`, `web_compact`, `web_fullscreen`, `web_tabbed` — UI
+
+**KNOWN DO-NOT-ADD keys (from 2026-06 incident, see [memory/sab-corruption-postmortem.md](../.claude/projects/-home-rock-Dots/memory/sab-corruption-postmortem.md)):**
+- ❌ `par_option = "N=A"` — invalid syntax, silently breaks par2 verify
+- ❌ `ssl_ciphers = "AES128-SHA256"` — no benefit, breaks TLS with newer Usenet providers
+- ❌ Direct Unpack on (default) — the auto-enable bug requires both `direct_unpack = false` AND `direct_unpack_tested = true`
+
+**When SAB corruption reappears:** run `sudo nix-store --verify --check-contents` + `memtester` BEFORE touching SAB config. The 2026-06 "corrupt RAR" saga was actually failing RAM, not any SAB knob.
 
 **CRITICAL — do NOT use `settings.auth` env vars:**
 Setting `SONARR__AUTH__METHOD=None` (or any Disabled/None combo) via nixflix `settings.auth`
@@ -347,6 +359,8 @@ GID 1001. All services that need `/data/media` access are in this group:
    - Join Tailscale: `sudo tailscale up` on Asgard (stock Tailscale, no Headscale)
    - Immich admin account is auto-created by `immich-admin-seed.service`
    - FileBrowser credentials auto-synced from sops by `filebrowser-credentials.service`
+   - Jellyfin branding CSS (hides seek-bar chapter tick marks; lives in Jellyfin state, not Nix):
+     `curl -X POST http://localhost:8096/System/Configuration/branding -H "Authorization: MediaBrowser Token=$(sudo cat /run/secrets/jellyfin-api-key)" -H "Content-Type: application/json" -d '{"LoginDisclaimer":"","CustomCss":".sliderMarker { display: none !important; }","SplashscreenEnabled":false}'`
 5. Everything else (arr wiring, Jellyseerr setup, Glance dashboard, Grafana) is automatic
 
 ---

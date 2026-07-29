@@ -175,6 +175,8 @@
                           url: http://asgard:8081
                         - title: Grafana
                           url: http://asgard:3001
+                        - title: Terminal
+                          url: http://asgard:7681
 
             - size: full
               widgets:
@@ -364,6 +366,18 @@
                   title: SABnzbd
                   source: http://asgard:8080
                   height: 700
+
+        # ════════════════════════════════════════════════════════════════════
+        # PAGE 3 — Terminal (ttyd web console — login as rock, sudo works)
+        # ════════════════════════════════════════════════════════════════════
+        - name: Terminal
+          columns:
+            - size: full
+              widgets:
+                - type: iframe
+                  title: Asgard Terminal
+                  source: http://asgard:7681
+                  height: 700
     '';
 
     # ── Alloy River config (no secrets — ships journald logs to Loki on localhost) ──
@@ -536,6 +550,15 @@
             delete_failed = true;
             history_retention = "30";
             history_retention_option = "days-archive";
+
+            # Skip pre-download article verification. With pre_check=1 SAB scans every
+            # article on the server before download starts — adds the "Checking" phase
+            # that clogs the queue UI for minutes. Real download already checks article
+            # CRCs (verify_xff_header path), pre_check is redundant.
+            pre_check = false;
+
+            # SAB upstream default. Was set to 3 from a now-rolled-back perf-tuning attempt.
+            max_art_tries = 5;
           };
           servers = [
             {
@@ -1651,6 +1674,16 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       };
     };
 
+    # ── ttyd — web terminal (port 7681, Tailscale-only) ─────────────────────────
+    # Embedded as the "Terminal" page in Glance. Default entrypoint is `login`
+    # (runs as root), so the browser gets a real login prompt — no unauthenticated
+    # shell exposed to the tailnet.
+    services.ttyd = {
+      enable = true;
+      port = 7681;
+      writeable = true;
+    };
+
     # ── Loki — log storage ──────────────────────────────────────────────────────
     services.loki = {
       enable = true;
@@ -1927,9 +1960,41 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     # Allow containers to reach host-bound services (arr, immich, etc.)
     # tailscale0 trusted so all services are reachable from any tailnet device by hostname
     networking.firewall.trustedInterfaces = [ "podman0" "cni-podman0" "tailscale0" ];
-    networking.firewall.allowedTCPPorts = []; # all services accessed via Tailscale (trustedInterfaces)
+    networking.firewall.allowedTCPPorts = [
+      8096 # Jellyfin — open to LAN so home devices connect directly (no CF tunnel / upload round-trip)
+    ]; # everything else accessed via Tailscale (trustedInterfaces)
 
-
+    # --- WAN egress shaping ---
+    # Jellyfin's transcoder delivers segments in on/off bursts that momentarily
+    # saturate the full 50 Mbit uplink (~180ms latency spikes every ~3s, which
+    # rubber-bands game sessions on the LAN). Cap WAN-bound traffic at 30 Mbit
+    # so it flows smoothly below line rate; LAN/tailnet destinations (RFC1918)
+    # bypass the cap so local direct-play of high-bitrate remuxes is unaffected.
+    systemd.services.wan-egress-shaping = {
+      description = "Cap WAN-bound upload at 30 Mbit (smooth Jellyfin transcode bursts)";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        tc=${pkgs.iproute2}/bin/tc
+        dev=enp3s0
+        # htb doesn't support in-place change, so "replace" fails on an existing
+        # root — tear down and rebuild from scratch (also clears classes/filters)
+        $tc qdisc del dev $dev root 2>/dev/null || true
+        $tc qdisc add dev $dev root handle 1: htb default 20
+        $tc class add dev $dev parent 1: classid 1:1 htb rate 940mbit
+        $tc class add dev $dev parent 1:1 classid 1:10 htb rate 910mbit ceil 940mbit
+        $tc class add dev $dev parent 1:1 classid 1:20 htb rate 30mbit ceil 30mbit
+        $tc qdisc add dev $dev parent 1:20 fq_codel
+        $tc filter add dev $dev parent 1: protocol ip prio 1 u32 match ip dst 192.168.0.0/16 flowid 1:10
+        $tc filter add dev $dev parent 1: protocol ip prio 1 u32 match ip dst 10.0.0.0/8 flowid 1:10
+        $tc filter add dev $dev parent 1: protocol ip prio 1 u32 match ip dst 172.16.0.0/12 flowid 1:10
+      '';
+    };
 
     # DNS inside the VPN namespace (SABnzbd's sandbox) fails due to routing
     # conflicts. Bypass it entirely for the usenet server — /etc/hosts is read
@@ -1943,6 +2008,10 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
 
     # IP forwarding — required for veth NAT (SABnzbd web UI from vpn namespace)
     boot.kernel.sysctl."net.ipv4.ip_forward" = lib.mkDefault true;
+
+    # --- Claude Code auth ---
+    # OAuth credentials live in ~/.claude/.credentials.json (set up via `claude login`).
+    # managed-settings intentionally left empty so OAuth takes precedence.
 
     # --- Shared media group (GID 1001) ---
     # All service users and containers use this group for /data/media access.

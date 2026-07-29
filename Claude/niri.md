@@ -47,6 +47,7 @@ output "HDMI-A-1" { position x=320 y=0 }
 | `Mod+V` | Toggle floating |
 | `Mod+Shift+F` | Fullscreen |
 | `Mod+Shift+Delete` | Noctalia power menu |
+| `Mod+M` | Noctalia desktop widget edit mode |
 | `Mod+Shift+R` | Toggle rain effect |
 | `Mod+Left/Right` | Focus column |
 | `Mod+Up/Down` | Focus workspace |
@@ -56,6 +57,7 @@ output "HDMI-A-1" { position x=320 y=0 }
 IPC actions used by keybinds:
 - App launcher: `noctalia-shell ipc call launcher toggle`
 - Power menu: `noctalia-shell ipc call sessionMenu toggle`
+- Widget edit mode: `noctalia-shell ipc call desktopWidgets edit`
 - Wallpaper: `skwd wall toggle`
 
 ## Startup Sequence

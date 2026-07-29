@@ -5,11 +5,6 @@
         EDITOR = "codium --wait";
       };
 
-      home.file.".config/zsh/zsh-helpers.sh" = {
-        source = ../Resources/Zsh-Scripts/zsh-helpers.sh;
-        executable = true;
-      };
-
       programs.zsh = {
         enable = true;
         enableCompletion = true;
@@ -37,10 +32,6 @@
         ];
 
         initContent = ''
-          if [ -f "${config.home.homeDirectory}/.config/zsh/zsh-helpers.sh" ]; then
-            source "${config.home.homeDirectory}/.config/zsh/zsh-helpers.sh"
-          fi
-
           if [[ $- == *i* ]] && [[ -n "$KITTY_WINDOW_ID" ]]; then
             command -v fastfetch >/dev/null && fastfetch
           fi

@@ -41,7 +41,7 @@ system-rebuild rock Elektra --boot    # Build for GRUB, don't switch
 nix flake update                      # Update flake inputs
 ```
 
-Helper defined in `Resources/Zsh-Scripts/zsh-helpers.sh`. Uses named profiles (`-p ${system}`) at `/nix/var/nix/profiles/system-profiles/`. Script uses `echo -n` + `read` (not `read -p`) for zsh compatibility.
+Helper is a `writeShellScriptBin` in `Modules/navi.nix` (single source of truth — works in interactive shells, navi, and scripts alike). Uses named profiles (`-p ${system}`) at `/nix/var/nix/profiles/system-profiles/`.
 
 ## Directory Structure
 
@@ -78,7 +78,6 @@ flake.nix                    # Entry point — flake-parts + import-tree
 ├── Resources/               # Static files (not Nix modules)
 │   ├── Noctalia-Plugins/desktop-clock/  # Desktop clock widget + Anurati font
 │   ├── Spicetify-Text-Theme/            # Spicetify CSS/color theme
-│   ├── Zsh-Scripts/                     # Shell helper scripts
 │   ├── Fonts/                           # Anurati-Regular.otf
 │   ├── Rain-Effect/                     # drop-shine.png
 │   ├── Terminal-Images/                 # Fastfetch logos
