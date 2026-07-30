@@ -13,7 +13,7 @@
       "WebSearch",
       "Bash(git add:*)",
       "Bash(pgrep:*)",
-      "Bash(noctalia-shell:*)",
+      "Bash(noctalia:*)",
       "Bash(skwd wall toggle:*)",
       "Bash(cat:*)",
       "Bash(nix flake show:*)",

@@ -47,10 +47,10 @@
       # Button press -> shell command
       BUTTON_COMMANDS = {
           e.BTN_NORTH: "niri msg action close-window",
-          e.BTN_WEST:  "noctalia-shell ipc call launcher toggle",
+          e.BTN_WEST:  "noctalia msg panel-toggle launcher",
           e.BTN_TL:    "skwd wall toggle",
           e.BTN_TR:    "niri msg action toggle-overview",
-          e.BTN_START: "noctalia-shell ipc call sessionMenu toggle",
+          e.BTN_START: "noctalia msg panel-toggle session",
       }
 
       # Face buttons -> key presses

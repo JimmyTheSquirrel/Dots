@@ -174,7 +174,7 @@
 
           spawn-at-startup = [
             # Launch shell/bar first for instant visual feedback
-            (lib.getExe self'.packages.wrappedNoctalia)
+            "noctalia"
             # D-Bus environment setup runs in background (& at end)
             "sh -c 'dbus-update-activation-environment --systemd --all &'"
             "sh -c 'systemctl --user import-environment --all &'"
@@ -415,10 +415,10 @@
             "Mod+Return".spawn-sh = lib.getExe pkgs.kitty;
             "Mod+E".spawn-sh = lib.getExe pkgs.xfce.thunar;
             "Mod+F".spawn-sh = "helium";
-            "Mod+D".spawn-sh = "noctalia-shell ipc call launcher toggle";
+            "Mod+D".spawn-sh = "noctalia msg panel-toggle launcher";
             "Mod+W".spawn-sh = "skwd wall toggle";
-            "Mod+Shift+Delete".spawn-sh = "noctalia-shell ipc call sessionMenu toggle";
-            "Mod+M".spawn-sh = "noctalia-shell ipc call desktopWidgets edit";
+            "Mod+Shift+Delete".spawn-sh = "noctalia msg panel-toggle session";
+            "Mod+M".spawn-sh = "noctalia msg desktop-widgets-edit";
             "Mod+Q".close-window = _: {};
             "Mod+V".toggle-window-floating = _: {};
             "Mod+Shift+F".fullscreen-window = _: {};

@@ -74,7 +74,7 @@
 
           "$terminal" = "kitty";
           "$fileManager" = "thunar";
-          "$menu" = "noctalia-shell ipc call sessionMenu toggle";
+          "$menu" = "noctalia msg panel-toggle session";
 
           env = [
             "XCURSOR_SIZE,24"
@@ -172,17 +172,17 @@
           bind = [
             "${mainMod}, RETURN, exec, $terminal"
             "${mainMod}, Q, killactive,"
-            "${mainMod}, D, exec, noctalia-shell ipc call launcher toggle"
+            "${mainMod}, D, exec, noctalia msg panel-toggle launcher"
             "${mainMod}, W, exec, skwd wall toggle"
-            "${mainMod}, M, exec, noctalia-shell ipc call sessionMenu toggle"
+            "${mainMod}, M, exec, noctalia msg panel-toggle session"
             "${mainMod}, E, exec, thunar"
             "${mainMod}, V, togglefloating,"
             "${mainMod}, P, pseudo,"
             "${mainMod}, J, togglesplit,"
             "${mainMod}, F, exec, brave"
             "${mainMod} SHIFT, F, fullscreen"
-            "${mainMod} SHIFT, B, exec, noctalia-shell ipc call bar toggle"
-            "${mainMod} SHIFT, DELETE, exec, noctalia-shell ipc call sessionMenu toggle"
+            "${mainMod} SHIFT, B, exec, noctalia msg bar-toggle"
+            "${mainMod} SHIFT, DELETE, exec, noctalia msg panel-toggle session"
             "${mainMod}, left, movefocus, l"
             "${mainMod}, right, movefocus, r"
             "${mainMod}, up, movefocus, u"
@@ -293,7 +293,7 @@
             "systemctl --user import-environment --all"
             "gnome-keyring-daemon --start --components=secrets,ssh,pkcs11"
             "polkit-gnome-authentication-agent-1"
-            "noctalia-shell"
+            "noctalia"
           ];
         };
       };

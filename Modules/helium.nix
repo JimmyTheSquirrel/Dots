@@ -42,7 +42,9 @@
       home.packages = [
         (
           let
-            helium-pkg = inputs.helium.packages.${pkgs.stdenv.hostPlatform.system}.default;
+            helium-pkg = (inputs.helium.packages.${pkgs.stdenv.hostPlatform.system}.default).override {
+              widevine-cdm = pkgs.widevine-cdm;
+            };
             helium-dark-theme = pkgs.runCommand "helium-dark-theme" {} ''
               mkdir -p $out
               cat > $out/manifest.json <<'EOF'

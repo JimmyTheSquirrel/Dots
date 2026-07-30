@@ -34,7 +34,7 @@
       # ============================================================
       # PACKAGE
       # ============================================================
-      home.packages = [ skwdPackage ] ++ lib.optional (compositor == "kde") qdbus6Shim;
+      home.packages = [ skwdPackage pkgs.matugen ] ++ lib.optional (compositor == "kde") qdbus6Shim;
 
       # Hide from app launchers — skwd-wall is keybind-driven (Meta+W)
       xdg.desktopEntries."skwd-wall" = {
@@ -111,12 +111,6 @@
       "name": "skwd-wall",
       "template": "quickshell-colors.json",
       "output": "colors.json"
-    },
-    {
-      "name": "noctalia",
-      "template": "noctalia-colors.json",
-      "output": "~/.config/noctalia/colors.json",
-      "reload": "noctalia-shell ipc call colorScheme refresh"
     }
   ],
   "wallpaperMute": true,
@@ -143,19 +137,26 @@ EOF
             .compositor = "${compositor}" |
             # Persist last position when reopening selector (saves cursor across show/hide)
             .general = ((.general // {}) | .reopenAtLastSelection = true) |
-            # Remove zen integrations (broken paths cause matugen TOML parse errors)
+            # Remove zen integrations (their output paths contain literal \n which corrupts generated TOML)
             .integrations = ((.integrations // []) | map(select(.name != "zen" and .name != "zen-content"))) |
-            # Fix noctalia reload (colorScheme refresh was removed; wallpaper refresh triggers re-read)
-            .integrations = (
-              .integrations |
-              map(if .name == "noctalia" then
-                .reload = "noctalia-shell ipc call wallpaper refresh"
-              else . end)
-            ) |
             # Add skwd-wall built-in integration if missing (needed for UI colors)
             if (.integrations | map(.name) | contains(["skwd-wall"])) | not then
               .integrations = [{"name": "skwd-wall", "template": "quickshell-colors.json", "output": "colors.json"}] + .integrations
             else . end
+          ' "${configPath}/config.json" > "${configPath}/config.json.tmp" \
+            && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
+        fi
+
+        # Add noctalia integration or patch reload command
+        if [ -f "${configPath}/config.json" ]; then
+          ${pkgs.jq}/bin/jq '
+            if (.integrations | map(.name) | contains(["noctalia"])) then
+              .integrations = (.integrations | map(if .name == "noctalia" then
+                .reload = "noctalia-shell ipc call wallpaper refresh"
+              else . end))
+            else
+              .integrations += [{"name": "noctalia", "template": "noctalia-colors.json", "output": "~/.config/noctalia/colors.json", "reload": "noctalia-shell ipc call wallpaper refresh"}]
+            end
           ' "${configPath}/config.json" > "${configPath}/config.json.tmp" \
             && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
         fi
@@ -179,6 +180,34 @@ EOF
         fi
 
         # Always sync matugen templates (managed by Nix)
+        cat > "${configPath}/data/matugen/templates/noctalia-colors.json" << 'EOF'
+{
+  "mPrimary": "{{colors.primary.default.hex}}",
+  "mOnPrimary": "{{colors.on_primary.default.hex}}",
+
+  "mSecondary": "{{colors.secondary.default.hex}}",
+  "mOnSecondary": "{{colors.on_secondary.default.hex}}",
+
+  "mTertiary": "{{colors.tertiary.default.hex}}",
+  "mOnTertiary": "{{colors.on_tertiary.default.hex}}",
+
+  "mError": "{{colors.error.default.hex}}",
+  "mOnError": "{{colors.on_error.default.hex}}",
+
+  "mSurface": "#0a0a0a",
+  "mOnSurface": "#e0e0e0",
+
+  "mSurfaceVariant": "#1a1a1a",
+  "mOnSurfaceVariant": "#c0c0c0",
+
+  "mOutline": "#333333",
+  "mShadow": "#000000",
+
+  "mHover": "{{colors.tertiary.default.hex}}",
+  "mOnHover": "{{colors.on_tertiary.default.hex}}"
+}
+EOF
+
         cat > "${configPath}/data/matugen/templates/spicetify-colors.json" << 'EOF'
 {
   "--spice-text": "{{colors.on_primary_container.default.hex}}",
@@ -214,33 +243,6 @@ subtext            = {{colors.on_surface_variant.default.hex_stripped}}
 text               = {{colors.on_primary_container.default.hex_stripped}}
 EOF
 
-        cat > "${configPath}/data/matugen/templates/noctalia-colors.json" << 'EOF'
-{
-  "mPrimary": "{{colors.primary.default.hex}}",
-  "mOnPrimary": "{{colors.on_primary.default.hex}}",
-
-  "mSecondary": "{{colors.secondary.default.hex}}",
-  "mOnSecondary": "{{colors.on_secondary.default.hex}}",
-
-  "mTertiary": "{{colors.tertiary.default.hex}}",
-  "mOnTertiary": "{{colors.on_tertiary.default.hex}}",
-
-  "mError": "{{colors.error.default.hex}}",
-  "mOnError": "{{colors.on_error.default.hex}}",
-
-  "mSurface": "#0a0a0a",
-  "mOnSurface": "#e0e0e0",
-
-  "mSurfaceVariant": "#1a1a1a",
-  "mOnSurfaceVariant": "#c0c0c0",
-
-  "mOutline": "#333333",
-  "mShadow": "#000000",
-
-  "mHover": "{{colors.tertiary.default.hex}}",
-  "mOnHover": "{{colors.on_tertiary.default.hex}}"
-}
-EOF
       '';
     };
   };
