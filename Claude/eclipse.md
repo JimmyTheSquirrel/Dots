@@ -67,8 +67,8 @@ round-trip entirely.
 
 Asgard serves a button panel at **`http://asgard:9554`**, embedded as an iframe on Glance's
 **Eclipse** page. Buttons: restart Kodi, sync Jellyfin Movies, sync TV Shows, reboot (double-tap to
-confirm). A status row polls every 10s — Eclipse reachable, Kodi state, HDMI link, EDID bytes,
-active output mode, uptime.
+confirm). A status row polls every 10s — Eclipse reachable, Kodi state, HDMI link, active output
+mode, uptime. `/status` also returns `edid` and `needs_kodi_restart`.
 
 - Service: `systemd.services.eclipse-control` in `Modules/server.nix`
 - Implementation: `Resources/Eclipse-Control/eclipse-control.py`
@@ -82,6 +82,25 @@ Kodi, and a wedged Kodi cannot answer its own API. Kodi's HTTP server is disable
 The status row encodes the "no signal on a healthy box" trap: HDMI `connected` + Kodi `active` +
 **no output mode** lights an amber hint to restart Kodi. Re-flashing the SD card means re-appending
 the public key, or the panel goes dark with `reachable: false`.
+
+### Making an iframe widget look native in Glance
+
+Glance renders in **JetBrains Mono**, but the font is embedded in its Go binary — there is no file
+to point at in `${pkgs.glance}` — and the panel is a *different origin* (9554 vs 8888), so the font
+cannot be borrowed cross-origin. The service therefore serves its own copy from
+`pkgs.jetbrains-mono` (`ECLIPSE_FONT_DIR` → `share/fonts/WOFF2`, routes `/font/{regular,medium,bold}.woff2`).
+Without this the panel silently falls back to the device's mono font and reads subtly foreign,
+especially on a phone.
+
+Design tokens are lifted from the custom CSS in `Modules/server.nix`, not eyeballed — border
+`hsla(160,40%,40%,.15)`, radius `12px`, hover glow `hsla(160,50%,40%,.10)`, title letter-spacing
+`0.08em`. Theme accents are `positive-color hsl(142,72%,39%)` / `negative-color hsl(0,84%,60%)`.
+
+**Glance iframes are a fixed height** (`height: 300`) and cannot self-size — cross-origin means no
+resize handshake. Pick a height that fits the *phone* layout, where the button grid drops to two
+columns and the status cells wrap; desktop then carries some slack. Buttons use a centred
+`auto-fit, minmax(150px, 1fr)` grid inside a `max-width: 1020px` wrapper, otherwise they stretch
+into full-width bars on a 2560px display.
 
 ## Rebuild from scratch
 
