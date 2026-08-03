@@ -378,6 +378,32 @@
                   title: Asgard Terminal
                   source: http://asgard:7681
                   height: 700
+
+        # ════════════════════════════════════════════════════════════════════
+        # PAGE 4 — Eclipse (TV box: fix-it buttons + live status)
+        # Panel served by the eclipse-control service (port 9554), which drives
+        # the LibreELEC box over SSH. iframe because Glance's html widget
+        # sanitises everything — see Claude/eclipse.md.
+        # ════════════════════════════════════════════════════════════════════
+        - name: Eclipse
+          columns:
+            - size: full
+              widgets:
+                - type: iframe
+                  title: Eclipse Control
+                  source: http://asgard:9554
+                  height: 430
+
+                - type: monitor
+                  title: Media Endpoints
+                  cache: 1m
+                  sites:
+                    - title: Jellyfin
+                      url: http://asgard:8096
+                      icon: sh:jellyfin
+                    - title: Jellyseerr
+                      url: http://asgard:5055
+                      icon: sh:jellyseerr
     '';
 
     # ── Alloy River config (no secrets — ships journald logs to Loki on localhost) ──
@@ -1155,6 +1181,29 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
         '
       '';
       serviceConfig = {
+        Restart = "always";
+        RestartSec = 5;
+      };
+    };
+
+    # Eclipse control endpoint — button panel + status JSON, embedded in Glance
+    # as an iframe. Drives the LibreELEC TV box (100.80.62.3) over SSH.
+    #
+    # SSH not Kodi JSON-RPC on purpose: the headline action is "restart Kodi when
+    # it has wedged", and a wedged Kodi cannot answer its own API. Kodi's HTTP
+    # server is disabled on Eclipse anyway. See Claude/eclipse.md.
+    systemd.services.eclipse-control = {
+      description = "Eclipse (LibreELEC) control endpoint for Glance";
+      after = [ "network-online.target" "tailscaled.service" ];
+      wantedBy = [ "multi-user.target" ];
+      path = [ pkgs.openssh ];
+      environment = {
+        ECLIPSE_HOST = "100.80.62.3";
+        ECLIPSE_KEY = config.sops.secrets."eclipse-ssh-key".path;
+        ECLIPSE_PORT = "9554";
+      };
+      serviceConfig = {
+        ExecStart = "${pkgs.python3}/bin/python3 ${../Resources/Eclipse-Control/eclipse-control.py}";
         Restart = "always";
         RestartSec = 5;
       };
@@ -2087,6 +2136,9 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     sops.secrets."grafana-admin-password"       = { owner = "grafana"; };
     sops.secrets."admin-username"           = {};
     sops.secrets."admin-password"           = {};
+    # Private half of the dedicated Asgard→Eclipse key. Public half lives in
+    # Eclipse's /storage/.ssh/authorized_keys (imperative — see Claude/eclipse.md).
+    sops.secrets."eclipse-ssh-key"          = { mode = "0400"; };
 
     # Kernel UDP buffer tuning for smooth streaming over Tailscale
     boot.kernel.sysctl = {
