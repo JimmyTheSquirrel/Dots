@@ -115,6 +115,16 @@ Screenshots are the fastest way to verify UI work — don't infer from logs. Mai
 
 **`kodi-send` silently fails on `RunScript(...)` actions with `&` parameters** — no error, no log
 line. Skin Shortcuts' `buildxml` could not be triggered this way. Simple builtins work fine.
+(`RunPlugin(...)` with `&` *does* work — that's how the Jellyfin sync is triggered.)
+
+**`kodi-send` exit code only means "message delivered", never "action ran."** It returns 0 while
+the addon throws. Anything automated must confirm the outcome in `kodi.log` — the control panel
+watches for `Full sync completed` vs `PythonToCppException`.
+
+**Transient `synclib` failure:** after a dropped server connection the Jellyfin addon's
+`library_thread` is `None`, so a sync raises
+`AttributeError: 'NoneType' object has no attribute 'add_library'`. The exception path reconnects
+by itself, so **retrying once recovers it** — the panel does this automatically.
 
 ## Jellyfin
 
