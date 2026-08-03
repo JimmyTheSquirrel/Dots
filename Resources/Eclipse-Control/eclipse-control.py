@@ -30,6 +30,16 @@ SHOWS_ID = "a656b907eb3a73532e40e44b968d0225"
 CONNECTOR = "/sys/class/drm/card1-HDMI-A-1"
 KODI_SEND = "/usr/bin/kodi-send"
 
+# JetBrains Mono, served from our own origin so the panel matches Glance's
+# typography. Glance embeds the font in its Go binary and sits on a different
+# port, so it cannot be borrowed cross-origin.
+FONT_DIR = os.environ.get("ECLIPSE_FONT_DIR", "")
+FONTS = {
+    "font/regular.woff2": "JetBrainsMono-Regular.woff2",
+    "font/medium.woff2": "JetBrainsMono-Medium.woff2",
+    "font/bold.woff2": "JetBrainsMono-Bold.woff2",
+}
+
 # Jellyfin syncs must run one at a time - concurrent calls raise
 # "Exception: Sync is already running" (Claude/eclipse.md).
 sync_lock = threading.Lock()
@@ -160,114 +170,238 @@ ACTIONS = {
 }
 
 
-PAGE = """<!doctype html>
+PAGE = r"""<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Eclipse Control</title>
 <style>
-  :root { color-scheme: dark; }
+  @font-face { font-family:'JB'; src:url('font/regular.woff2') format('woff2');
+               font-weight:400; font-display:swap; }
+  @font-face { font-family:'JB'; src:url('font/medium.woff2') format('woff2');
+               font-weight:500; font-display:swap; }
+  @font-face { font-family:'JB'; src:url('font/bold.woff2') format('woff2');
+               font-weight:700; font-display:swap; }
+
+  :root {
+    color-scheme: dark;
+    --line:    hsla(160, 40%, 40%, .15);
+    --line-hi: hsla(160, 50%, 50%, .34);
+    --glow:    hsla(160, 50%, 40%, .10);
+    --fg:      #d2d5d3;
+    --dim:     hsl(160, 7%, 50%);
+    --ok:      hsl(142, 62%, 56%);
+    --bad:     hsl(0, 78%, 66%);
+    --warn:    hsl(38, 88%, 62%);
+  }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 14px;
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    background: transparent; color: #d8d8d8;
+    margin: 0; padding: 0;
+    font-family: 'JB', ui-monospace, 'JetBrains Mono', Menlo, monospace;
+    font-size: 13px; line-height: 1.4;
+    background: transparent; color: var(--fg);
+    -webkit-font-smoothing: antialiased;
   }
-  .status {
-    display: flex; flex-wrap: wrap; gap: 8px 18px;
-    padding: 10px 12px; margin-bottom: 14px;
-    border: 1px solid #ffffff1a; border-radius: 8px; background: #ffffff08;
+  .wrap { max-width: 1020px; margin: 0 auto; }
+
+  /* ── status bar ── */
+  .bar {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 6px 20px; padding: 11px 14px; margin-bottom: 12px;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: hsla(160, 30%, 50%, .035);
   }
-  .item { font-size: 13px; letter-spacing: .3px; }
-  .item .k { color: #8a8a8a; text-transform: uppercase; font-size: 11px; }
-  .item .v { font-weight: 600; }
-  .ok { color: hsl(142, 72%, 52%); }
-  .bad { color: hsl(0, 84%, 66%); }
-  .warn { color: hsl(38, 92%, 60%); }
-  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .cell { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--dim); flex: none;
+  }
+  .dot.ok   { background: var(--ok);   box-shadow: 0 0 7px hsla(142,62%,56%,.55); }
+  .dot.bad  { background: var(--bad);  box-shadow: 0 0 7px hsla(0,78%,66%,.55); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 7px hsla(38,88%,62%,.55); }
+  .k {
+    color: var(--dim); font-size: 10px; font-weight: 500;
+    letter-spacing: .09em; text-transform: uppercase;
+  }
+  .v { font-weight: 500; font-size: 12.5px; }
+  .v.ok { color: var(--ok); } .v.bad { color: var(--bad); } .v.warn { color: var(--warn); }
+
+  /* ── alert ── */
+  .alert {
+    display: none; align-items: center; gap: 9px;
+    padding: 9px 13px; margin-bottom: 12px; font-size: 12px;
+    border: 1px solid hsla(38, 88%, 62%, .3); border-left-width: 3px;
+    border-radius: 8px; background: hsla(38, 88%, 62%, .07); color: var(--warn);
+  }
+  .alert.show { display: flex; }
+
+  /* ── buttons ── */
+  .grid {
+    display: grid; gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
   button {
-    appearance: none; border: 1px solid #ffffff1f; border-radius: 8px;
-    background: #ffffff0d; color: #e6e6e6;
-    padding: 16px 12px; font-size: 15px; font-weight: 600;
-    letter-spacing: .3px; cursor: pointer; min-height: 58px;
-    transition: background .15s, border-color .15s, transform .05s;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 9px;
+    height: 78px; padding: 10px 8px;
+    font-family: inherit; font-size: 12.5px; font-weight: 500;
+    letter-spacing: .04em;
+    color: var(--fg); cursor: pointer;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: hsla(160, 30%, 50%, .035);
+    transition: background .18s, border-color .18s, box-shadow .18s, transform .06s;
   }
+  button svg { width: 19px; height: 19px; stroke-width: 1.6; opacity: .82; }
   button:hover:not(:disabled) {
-    background: hsl(142, 72%, 39%, .18); border-color: hsl(142, 72%, 45%, .55);
+    border-color: var(--line-hi);
+    background: hsla(160, 40%, 45%, .085);
+    box-shadow: 0 0 14px var(--glow);
   }
+  button:hover:not(:disabled) svg { opacity: 1; }
   button:active:not(:disabled) { transform: translateY(1px); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:disabled { opacity: .35; cursor: default; }
+  button.primary { border-color: hsla(142, 55%, 45%, .28); }
+  button.primary svg { color: var(--ok); opacity: .9; }
   button.danger:hover:not(:disabled) {
-    background: hsl(0, 84%, 60%, .16); border-color: hsl(0, 84%, 60%, .5);
+    border-color: hsla(0, 70%, 60%, .45);
+    background: hsla(0, 70%, 55%, .09);
+    box-shadow: 0 0 14px hsla(0, 70%, 50%, .1);
   }
-  .full { grid-column: 1 / -1; }
-  #log {
-    margin-top: 12px; padding: 9px 11px; min-height: 20px;
-    font-size: 12.5px; border-radius: 6px; background: #ffffff08;
-    border: 1px solid #ffffff14; color: #a8a8a8; white-space: pre-wrap;
+  button.danger:hover:not(:disabled) svg { color: var(--bad); }
+  button.armed {
+    border-color: hsla(0, 75%, 62%, .6);
+    background: hsla(0, 70%, 55%, .13); color: var(--bad);
   }
-  .hint { color: hsl(38, 92%, 60%); font-size: 12px; margin-bottom: 10px; display: none; }
+  button.armed svg { color: var(--bad); opacity: 1; }
+  button.busy { opacity: 1; border-color: var(--line-hi); }
+  button.busy svg { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── log ── */
+  .log {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 12px; padding: 8px 13px; min-height: 32px;
+    font-size: 11.5px; color: var(--dim);
+    border-radius: 8px; border: 1px solid transparent;
+  }
+  .log .glyph { color: hsla(160, 40%, 55%, .6); }
+  .log.good { color: var(--ok); border-color: hsla(142,55%,45%,.22);
+              background: hsla(142,55%,45%,.05); }
+  .log.err  { color: var(--bad); border-color: hsla(0,70%,60%,.25);
+              background: hsla(0,70%,55%,.05); }
+
+  @media (max-width: 560px) {
+    button { height: 64px; gap: 7px; font-size: 11.5px; }
+    .bar { gap: 5px 14px; padding: 10px 12px; }
+  }
 </style></head><body>
-  <div class="status" id="status"><span class="item">loading...</span></div>
-  <div class="hint" id="hint">Link is up but Kodi is not driving it - restart Kodi.</div>
-  <div class="grid">
-    <button class="full" onclick="act('restart-kodi', this)">Restart Kodi</button>
-    <button onclick="act('sync-movies', this)">Sync Movies</button>
-    <button onclick="act('sync-shows', this)">Sync TV Shows</button>
-    <button class="full danger" onclick="confirmAct('reboot', this)">Reboot Pi</button>
+<div class="wrap">
+  <div class="bar" id="status"><span class="k">connecting</span></div>
+  <div class="alert" id="hint">
+    <span>&#9888;</span><span>Link is up but Kodi is not driving it &mdash; restart Kodi</span>
   </div>
-  <div id="log">ready</div>
+  <div class="grid">
+    <button class="primary" data-act="restart-kodi">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
+           stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      <span class="lbl">Restart Kodi</span>
+    </button>
+    <button data-act="sync-movies">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
+           stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/>
+        <line x1="7" y1="3" x2="7" y2="21"/><line x1="17" y1="3" x2="17" y2="21"/>
+        <line x1="2" y1="12" x2="22" y2="12"/></svg>
+      <span class="lbl">Sync Movies</span>
+    </button>
+    <button data-act="sync-shows">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
+           stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/>
+        <polyline points="17 2 12 7 7 2"/></svg>
+      <span class="lbl">Sync TV Shows</span>
+    </button>
+    <button class="danger" data-act="reboot" data-confirm="1">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
+           stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
+        <line x1="12" y1="2" x2="12" y2="12"/></svg>
+      <span class="lbl">Reboot Pi</span>
+    </button>
+  </div>
+  <div class="log" id="log"><span class="glyph">&rsaquo;</span><span id="logtext">ready</span></div>
+</div>
 <script>
+var buttons = Array.prototype.slice.call(document.querySelectorAll('button[data-act]'));
+
 function fmtUptime(s) {
-  if (!s) return "-";
+  if (!s) return '-';
   var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  if (d) return d + "d " + h + "h";
-  if (h) return h + "h " + m + "m";
-  return m + "m";
+  if (d) return d + 'd ' + h + 'h';
+  if (h) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+function fmtMode(s) {
+  if (!s) return null;
+  var m = s.match(/(\d+)x(\d+) @ ([\d.]+)/);
+  return m ? m[1] + '×' + m[2] + ' @ ' + Math.round(parseFloat(m[3])) + 'Hz' : s;
 }
 function cell(k, v, cls) {
-  return '<span class="item"><span class="k">' + k + '</span> ' +
+  return '<span class="cell"><span class="dot ' + (cls || '') + '"></span>' +
+         '<span class="k">' + k + '</span>' +
          '<span class="v ' + (cls || '') + '">' + v + '</span></span>';
 }
 function refresh() {
   fetch('status').then(function (r) { return r.json(); }).then(function (s) {
-    var h = '';
+    var h;
     if (!s.reachable) {
       h = cell('Eclipse', 'unreachable', 'bad');
     } else {
-      h += cell('Eclipse', 'online', 'ok');
-      h += cell('Kodi', s.kodi, s.kodi === 'active' ? 'ok' : 'bad');
-      h += cell('HDMI', s.hdmi, s.hdmi === 'connected' ? 'ok' : 'bad');
-      h += cell('EDID', s.edid ? s.edid + 'B' : 'none', s.edid ? 'ok' : 'bad');
-      h += cell('Output', s.mode || 'not driving', s.mode ? 'ok' : 'warn');
-      h += cell('Uptime', fmtUptime(s.uptime), '');
+      var mode = fmtMode(s.mode);
+      h = cell('Eclipse', 'online', 'ok') +
+          cell('Kodi', s.kodi, s.kodi === 'active' ? 'ok' : 'bad') +
+          cell('HDMI', s.hdmi, s.hdmi === 'connected' ? 'ok' : 'bad') +
+          cell('Output', mode || 'not driving', mode ? 'ok' : 'warn') +
+          cell('Uptime', fmtUptime(s.uptime), '');
     }
     document.getElementById('status').innerHTML = h;
-    document.getElementById('hint').style.display = s.needs_kodi_restart ? 'block' : 'none';
+    document.getElementById('hint').className = s.needs_kodi_restart ? 'alert show' : 'alert';
   }).catch(function () {
     document.getElementById('status').innerHTML = cell('Panel', 'offline', 'bad');
   });
 }
-function setBusy(b) {
-  var bs = document.querySelectorAll('button');
-  for (var i = 0; i < bs.length; i++) bs[i].disabled = b;
+function say(text, cls) {
+  document.getElementById('logtext').textContent = text;
+  document.getElementById('log').className = 'log' + (cls ? ' ' + cls : '');
 }
-function act(name, btn) {
-  var log = document.getElementById('log');
-  log.textContent = 'running ' + name + '...';
-  setBusy(true);
+function run(btn) {
+  var name = btn.dataset.act;
+  buttons.forEach(function (b) { if (b !== btn) b.disabled = true; });
+  btn.classList.add('busy');
+  say('running ' + name + '…', '');
   fetch('act/' + name, { method: 'POST' })
     .then(function (r) { return r.json(); })
-    .then(function (j) { log.textContent = (j.ok ? 'OK  ' : 'FAILED  ') + j.message; })
-    .catch(function (e) { log.textContent = 'FAILED  ' + e; })
-    .then(function () { setBusy(false); setTimeout(refresh, 2500); });
+    .then(function (j) { say(j.message, j.ok ? 'good' : 'err'); })
+    .catch(function (e) { say(String(e), 'err'); })
+    .then(function () {
+      btn.classList.remove('busy');
+      buttons.forEach(function (b) { b.disabled = false; });
+      setTimeout(refresh, 2000);
+    });
 }
-function confirmAct(name, btn) {
-  if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = 'Reboot Pi'; act(name, btn); return; }
-  btn.dataset.armed = '1'; btn.textContent = 'Tap again to confirm';
-  setTimeout(function () {
-    if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = 'Reboot Pi'; }
-  }, 4000);
-}
+buttons.forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    if (!btn.dataset.confirm) { run(btn); return; }
+    var lbl = btn.querySelector('.lbl');
+    if (btn.classList.contains('armed')) {
+      btn.classList.remove('armed'); lbl.textContent = btn.dataset.label; run(btn); return;
+    }
+    btn.dataset.label = lbl.textContent;
+    btn.classList.add('armed'); lbl.textContent = 'Tap to confirm';
+    setTimeout(function () {
+      if (btn.classList.contains('armed')) {
+        btn.classList.remove('armed'); lbl.textContent = btn.dataset.label;
+      }
+    }, 4000);
+  });
+});
 refresh();
 setInterval(refresh, 10000);
 </script></body></html>
@@ -286,12 +420,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def _send_bytes(self, code, raw, ctype, cache=False):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(raw)))
+        if cache:
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        self.end_headers()
+        self.wfile.write(raw)
+
     def do_GET(self):
         path = self.path.split("?")[0].strip("/")
         if path in ("", "index.html"):
             self._send(200, PAGE, "text/html; charset=utf-8")
         elif path == "status":
             self._send(200, json.dumps(get_status()), "application/json")
+        elif path in FONTS and FONT_DIR:
+            try:
+                with open(os.path.join(FONT_DIR, FONTS[path]), "rb") as fh:
+                    self._send_bytes(200, fh.read(), "font/woff2", cache=True)
+            except OSError:
+                self._send(404, "font missing", "text/plain")
         else:
             self._send(404, "not found", "text/plain")
 

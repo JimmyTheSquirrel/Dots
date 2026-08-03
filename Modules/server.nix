@@ -392,7 +392,7 @@
                 - type: iframe
                   title: Eclipse Control
                   source: http://asgard:9554
-                  height: 430
+                  height: 300
 
                 - type: monitor
                   title: Media Endpoints
@@ -1201,6 +1201,10 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
         ECLIPSE_HOST = "100.80.62.3";
         ECLIPSE_KEY = config.sops.secrets."eclipse-ssh-key".path;
         ECLIPSE_PORT = "9554";
+        # Glance renders in JetBrains Mono but embeds the font in its Go binary
+        # and lives on another port, so the iframe can't borrow it cross-origin.
+        # Serve our own copy to keep the panel typographically native.
+        ECLIPSE_FONT_DIR = "${pkgs.jetbrains-mono}/share/fonts/WOFF2";
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${../Resources/Eclipse-Control/eclipse-control.py}";
