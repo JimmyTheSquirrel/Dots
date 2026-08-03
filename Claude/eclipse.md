@@ -59,6 +59,30 @@ The CLI needs the socket path when called by full path:
 
 Verify healthy with `tailscale status` — the `# Health check:` block should be absent entirely.
 
+Eclipse was enrolled interactively (`tailscale up` prints a login URL to visit). For the next node,
+sops already holds a **`tailscale-auth-key`** — `tailscale up --authkey=...` skips the browser
+round-trip entirely.
+
+## Glance control panel
+
+Asgard serves a button panel at **`http://asgard:9554`**, embedded as an iframe on Glance's
+**Eclipse** page. Buttons: restart Kodi, sync Jellyfin Movies, sync TV Shows, reboot (double-tap to
+confirm). A status row polls every 10s — Eclipse reachable, Kodi state, HDMI link, EDID bytes,
+active output mode, uptime.
+
+- Service: `systemd.services.eclipse-control` in `Modules/server.nix`
+- Implementation: `Resources/Eclipse-Control/eclipse-control.py`
+- Auth: dedicated keypair, private half in sops as `eclipse-ssh-key`, public half appended to
+  Eclipse's `/storage/.ssh/authorized_keys` (backup at `authorized_keys.bak`)
+
+**Driven over SSH, not Kodi JSON-RPC** — deliberately. The headline action is restarting a *wedged*
+Kodi, and a wedged Kodi cannot answer its own API. Kodi's HTTP server is disabled here anyway
+(`services.webserver=false`; JSON-RPC binds `127.0.0.1:9090`).
+
+The status row encodes the "no signal on a healthy box" trap: HDMI `connected` + Kodi `active` +
+**no output mode** lights an amber hint to restart Kodi. Re-flashing the SD card means re-appending
+the public key, or the panel goes dark with `reachable: false`.
+
 ## Rebuild from scratch
 
 ```bash

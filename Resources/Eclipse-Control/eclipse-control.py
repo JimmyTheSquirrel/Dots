@@ -17,6 +17,7 @@ import os
 import socketserver
 import subprocess
 import threading
+import time
 
 ECLIPSE = os.environ.get("ECLIPSE_HOST", "100.80.62.3")
 KEY = os.environ.get("ECLIPSE_KEY", "/run/secrets/eclipse-ssh-key")
@@ -107,16 +108,46 @@ def act_reboot():
     return True, "reboot issued"
 
 
+KODI_LOG = "/storage/.kodi/temp/kodi.log"
+
+
+def _sync_once(lib_id):
+    """Fire a sync and watch the log for a real outcome.
+
+    kodi-send's exit code only means the message was delivered, never that the
+    action ran - so watch kodi.log for the addon's own verdict instead.
+    """
+    cmd = (
+        "N=$(wc -l < " + KODI_LOG + "); "
+        + KODI_SEND + ' --action="RunPlugin(plugin://plugin.video.jellyfin/'
+        "?mode=synclib&id=" + lib_id + ')" >/dev/null 2>&1; '
+        "for i in $(seq 1 20); do sleep 1; "
+        "T=$(tail -n +$((N+1)) " + KODI_LOG + "); "
+        'case "$T" in *"Full sync completed"*) echo SYNC_OK; exit 0;; esac; '
+        'case "$T" in *PythonToCppException*) echo SYNC_ERR; exit 1;; esac; '
+        "done; echo SYNC_TIMEOUT; exit 2"
+    )
+    return ssh(cmd, timeout=45)
+
+
 def _sync(lib_id, label):
     if not sync_lock.acquire(blocking=False):
         return False, "another sync is already running"
     try:
-        cmd = (
-            KODI_SEND + ' --action="RunPlugin(plugin://plugin.video.jellyfin/'
-            "?mode=synclib&id=" + lib_id + ')"'
-        )
-        ok, out = ssh(cmd, timeout=30)
-        return ok, (label + " sync triggered" if ok else out or "failed")
+        _, out = _sync_once(lib_id)
+        if "SYNC_OK" in out:
+            return True, label + " sync completed"
+        if "SYNC_ERR" in out:
+            # Known transient: the addon's library_thread is None after a
+            # dropped server connection, so synclib raises
+            # "'NoneType' object has no attribute 'add_library'". The exception
+            # path itself reconnects, so one retry normally succeeds.
+            time.sleep(10)
+            _, out2 = _sync_once(lib_id)
+            if "SYNC_OK" in out2:
+                return True, label + " sync completed (needed a retry)"
+            return False, label + " failed - addon threw twice, see kodi.log"
+        return False, label + " did not confirm within 20s"
     finally:
         sync_lock.release()
 
