@@ -73,7 +73,26 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 - **WAN egress shaping** — `wan-egress-shaping.service` (in `Modules/server.nix`) caps WAN-bound upload on enp3s0 at 30 Mbit via HTB + fq_codel. Home uplink is 50 Mbit; Jellyfin transcode segments burst at full line rate every ~3s, spiking latency ~180ms and rubber-banding LAN game sessions. RFC1918 destinations bypass the cap (LAN direct-play unaffected). Inspect with `tc -s qdisc show dev enp3s0`.
 
 ### Native NixOS service (background sync)
-- **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`. Radarr templates use `radarr-quality-profile-remux-*` / `radarr-custom-formats-remux-*` (no `-v9-` prefix — that naming was dropped from TRaSH Guides).
+- **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`.
+
+  **⚠ BROKEN as of 2026-08-11 — upstream restructure, not yet migrated.** Two separate upstream
+  breaks, discovered while verifying the storage work (pre-existing, unrelated to the pool):
+
+  1. **Fixed:** `RECYCLARR_APP_DATA` was removed upstream and recyclarr now hard-errors on it, so
+     the sync never even started. Renamed to `RECYCLARR_CONFIG_DIR` in `Modules/server.nix`.
+  2. **Outstanding:** TRaSH's config-templates repo dropped `includes.json` entirely and renamed
+     every template. **All 10 templates our config references no longer exist.** The granular
+     `*-quality-definition-*` / `*-quality-profile-*` / `*-custom-formats-*` includes were
+     replaced by all-in-one templates — e.g. `radarr-remux-web-1080p`, `radarr-remux-web-2160p`.
+     Recyclarr 8.6 also moved its data from `repositories/` to `resources/config-templates/git/`;
+     the old `repositories/` copy is stale and still contains the *old* ids, which is misleading
+     when debugging — always check `resources/config-templates/git/official/templates.json`.
+
+  **Impact: none right now.** Sonarr/Radarr still hold the profiles recyclarr last applied; they
+  are simply no longer being updated. **Do not migrate casually** — the new all-in-one templates
+  may not reproduce the current profiles, and Radarr's profiles are deliberately strict (see
+  `memory/feedback_quality_profiles.md`). Migrating needs a deliberate before/after comparison of
+  the resulting profiles.
 
 ### Mullvad VPN Namespace (SABnzbd)
 - `netns-vpn.service` — creates `/var/run/netns/vpn`
@@ -316,18 +335,211 @@ user-password-hash                 # bcrypt password hash ($ signs get mangled b
 
 ---
 
-## Data Layout
+## Storage Expansion — 12TB (installed & tested 2026-08-10)
 
-**NVMe** (`/dev/nvme0n1`): ESP (`/boot`) + root (`/`). Fast storage for OS + downloads.
-**HDD** (`/dev/sda`): `/data` (8TB ext4). All media, photos, and service state.
-Disko partitioning declared inline in `Hosts/Asgard/system.nix`.
+`/data` hit **98% full (142G free of 7.3T)**, so a second HDD was fitted.
+
+**New drive:** WD Red Pro 12TB, `WD122KFBX-68CCHN0`, serial `WD-B01NL0DD` — SATA 6Gb/s, CMR,
+7200rpm, 512e/4096p, firmware `83.00A83`, 12,000,138,625,024 bytes (10.9 TiB).
+
+**Status: LIVE.** Partitioned, formatted, and pooled with the 8TB via mergerfs into a single
+`/data/media` (~19 TB, 12 TB free). See "Media Pool" below.
+Stable path: `/dev/disk/by-id/ata-WDC_WD122KFBX-68CCHN0_WD-B01NL0DD`.
+
+**Root cause of the initial no-show: the SATA data cable was never connected.**
+The drive sits in a hot-swap cage, and **the bay LED lights from backplane power alone** — it
+indicates nothing about a data link. That LED is exactly what made the drive look connected. On a
+hot-swap cage one power feed lights the whole cage, while **each bay needs its own SATA data cable**
+run to a motherboard port. `SATA link down` on every free port is the signature of this.
+
+### SATA topology (established 2026-08-10)
+
+Single controller: `00:17.0 Intel Raptor Lake SATA AHCI [8086:7a62]`
 
 ```
-/data/
-  media/
-    tv/        movies/        music/        books/
-  photos/                    # Immich
-  .state/services/           # nixflix state (arr configs, API keys)
+AHCI vers 0001.0301, 4/4 ports implemented (port mask 0xf0)
+ata1-ata4:  DUMMY          — not in the port mask, never probed
+ata5:       link up 6 Gbps — WD122KFBX  (12TB) = /dev/sda
+ata6:       link up 6 Gbps — ST8000VN002 (8TB) = /dev/sdb, /dev/sdb1 = /data
+ata7:       link down      — free
+ata8:       link down      — free
+```
+
+**2 free SATA ports remain.** A port reporting `SATA link down (SStatus 4)` means the PHY sees
+nothing on the wire — the drive is not electrically present (no data cable, no power, or dead).
+
+**Device letters shuffled when the 12TB was added** — the 8TB moved `sda` → `sdb`. `/data` mounted
+correctly regardless because the mount is by partition label (`disk-hdd-data`), not `/dev/sdX`.
+**Always target these disks by `/dev/disk/by-id/...` for anything destructive.**
+
+### Re-probe SATA without rebooting
+
+```bash
+sudo sh -c 'for h in /sys/class/scsi_host/host*; do echo "- - -" > $h/scan; done'
+sudo dmesg | grep -iE "SATA link|\.00: ATA-"
+```
+
+Confirmed working — a live re-probe re-reports every port's link state. No reboot needed to
+re-test after reseating cables.
+
+### Diagnosis notes (for next time a disk doesn't appear)
+
+Check in this order — cheapest and most likely first:
+
+1. **Is a SATA data cable actually run to that drive/bay?** This was the answer. A lit bay LED is
+   not evidence of one.
+2. **Power** — link down looks identical whether power or data is missing.
+3. **Not SAS?** `WD122KFBX` (KFBX suffix) is the SATA Red Pro. SAS 12TB drives are common
+   secondhand, need an HBA, and are told apart by the connector: SATA has a **gap** between the
+   7-pin and 15-pin sections, SAS bridges them with solid plastic.
+4. **3.3V PWDIS trap** — only applies to *shucked* drives. Pin 3 of the SATA power connector held
+   high keeps the drive in permanent reset. Fix is Kapton over power pins 1-3, or a Molex→SATA
+   adapter (no 3.3V line). Check whether the PSU lead even *has* an orange wire first — many
+   modern PSUs omit 3.3V entirely, in which case this cannot be the fault.
+5. **BIOS-masked port** — a masked port shows as `DUMMY` and is never probed. Here all 4
+   implemented ports are probed every boot, so this was never in play.
+
+### Acceptance test results (2026-08-10)
+
+| Check | Result |
+|-------|--------|
+| `smartctl -H` overall-health | **PASSED** |
+| Power_On_Hours | **0** — genuinely new, not resold/shucked |
+| Power_Cycle_Count / Load_Cycle_Count | 5 / 1 (all from this install) |
+| Reallocated / Pending / Offline_Uncorrectable | 0 / 0 / 0 |
+| UDMA_CRC_Error_Count | 0 — clean data cable |
+| SMART short self-test | Completed without error |
+| Sequential write, 8 GB `oflag=direct` | **275 MB/s** |
+| Sequential read, 8 GB `iflag=direct` | **275 MB/s** |
+| Temperature under load | 23°C → 25°C |
+| SMART re-check after 16 GB I/O | all counters still 0 |
+
+275 MB/s is at spec for this drive (rated ~272 MB/s sustained on outer tracks).
+
+**No surface scan was run** — the quick check was chosen deliberately over `smartctl -t long`
+(~24h) or a `badblocks -wsv` burn-in (4-7 days). If this drive ever misbehaves, run the long test
+before assuming a software cause.
+
+**8TB health after the same power-cycling:** `PASSED` — 0 reallocated, 0 pending,
+**0 UDMA_CRC errors**, 43 power cycles, 22°C. Unharmed.
+
+---
+
+## Media Pool — mergerfs (live since 2026-08-10)
+
+The two HDDs are pooled into one `/data/media` so Jellyfin and the arrs see a single location.
+
+```
+/mnt/disk1   8TB  ext4  (partlabel disk-hdd-data)  ─┐
+                                                    ├─ mergerfs ──> /data/media   ~19 TB
+/mnt/disk2   12TB ext4  (partlabel disk-hdd2-data) ─┘
+
+/data/photos  <- bind mount /mnt/disk1/photos   (Immich)
+/data/.state  <- bind mount /mnt/disk1/.state   (arr SQLite DBs)
+/data itself is a plain directory on the NVMe root — no longer a mountpoint.
+```
+
+**mergerfs is a UNION filesystem — it merges the directory tree, not blocks.** Every file lives
+whole on exactly one disk, and the pool is a single namespace so each file appears exactly once.
+Losing a drive costs only that drive's files; the survivor keeps serving. This is why mergerfs and
+**not** LVM/btrfs-single/RAID0, which span one filesystem across both spindles and lose everything
+if either disk dies.
+
+**Only media is pooled.** `/data/.state` (arr SQLite, 3.6G) and `/data/photos` (Immich, 234M) stay
+on real ext4 via bind mounts — **SQLite on FUSE is a known source of locking corruption**, and
+there is no capacity reason to pool 3.8G.
+
+**No service paths changed.** `nixflix.mediaDir`, `stateDir`, the container bind mounts,
+`immich.mediaLocation` and the tmpfiles rules all still point at `/data/...`. No data was copied —
+the 8TB's `/data` simply became `/mnt/disk1`.
+
+**No redundancy — this is a deliberate choice.** A dead drive loses its own files, which are
+re-downloadable via the arrs. **Immich photos are NOT re-downloadable and still have no backup.**
+SnapRAID parity would need a third drive ≥12TB.
+
+### Pool options (`Modules/server.nix`)
+
+| Option | Why |
+|--------|-----|
+| `category.create=mfs` | New files go to the branch with most free space — i.e. the 12TB, until they converge. Matches the "let it fill naturally, no rebalance" decision. |
+| `moveonenospc=true` | A branch filling mid-write relocates the file instead of ENOSPC. |
+| `minfreespace=50G` | Stop choosing a branch below this. Replaces the ext4 root reserve as the "don't fill completely" guard. |
+| `allow_other` | **Required** — podman containers and non-root services must read the pool. Needs `programs.fuse.userAllowOther = true`. |
+| `cache.files=partial`, `dropcacheonclose=true` | Standard media-serving cache behaviour. |
+
+Omit `use_ino` — default and deprecated in mergerfs 2.x.
+
+### Gotchas discovered while building this
+
+- **Device letters shuffle constantly.** The 8TB has been `sda`, then `sdb`, then `sda` again
+  across three boots today. Nothing broke because every mount is by **partlabel**. Always address
+  these disks by `/dev/disk/by-partlabel/...` or `/dev/disk/by-id/...` — **never `/dev/sdX`**.
+  The old `device = "/dev/sda"` in disko silently came to point at the wrong disk.
+- **Sonarr/Radarr report `freeSpace: null`** for root folders on the pool, and the `/api/v3/diskspace`
+  endpoint returns empty. This is .NET's `DriveInfo` not classifying `fuse.mergerfs` as a fixed
+  drive. Harmless — `accessible: true` and imports work — but free-space pre-checks are skipped.
+  Use Glance/Grafana for pool capacity, not the arr UIs.
+- **Dashboards must query `/data/media`, not `/data`.** `/data` stopped being a mountpoint, so
+  `node_filesystem_*{mountpoint="/data"}` silently returns empty and the Glance "System Info"
+  widget plus the Grafana disk panel go blank. Both were repointed at `/data/media`.
+- **`/mnt/disk2/media` must exist before the pool can mount** — mergerfs errors on a missing branch
+  and tmpfiles runs too late to help. Created by hand at install time.
+- **Nix merge rule:** `systemd.services = lib.genAttrs ... ` collides with the many
+  `systemd.services.<name> = { ... }` definitions in `server.nix`. Dotted paths merge into attrset
+  *literals* only, never into a computed expression. The mount guards are therefore written as
+  individual `systemd.services.<name>.unitConfig.RequiresMountsFor = ...` lines.
+- **ext4 root reserve reclaimed:** `tune2fs -m 0` on the 8TB freed **373 GB** (142G → 515G, 98% →
+  94%). The 12TB was formatted `-m 0` from the start. A pure data disk needs no root reserve.
+
+### Verified after a cold boot
+
+All five mounts correct; pool 19T with 12T free; 160 movies / 13 series / 461 episodes in Jellyfin
+matching the on-disk counts exactly; Sonarr and Radarr queues both 0 (**no re-downloads**);
+filebrowser container reads the pool (confirms `allow_other`); zero failed units.
+
+---
+
+## ⚠ Missing-disk behaviour — `nofail` + `RequiresMountsFor`, never one without the other
+
+**The hazard (confirmed the hard way on 2026-08-10):** with the 8TB disconnected and no `nofail`,
+Asgard **would not finish booting** — systemd waited ~90s for the partition, `local-fs.target`
+failed, and it dropped to **emergency mode, which runs before networking**. No SSH,
+`No route to host` indefinitely, physical recovery only.
+
+**Current state: both HDD mounts are `nofail`, and every consuming service has
+`RequiresMountsFor`.** These two must always travel together:
+
+- `nofail` alone is dangerous: `systemd.tmpfiles.rules` in `Modules/server.nix` creates `/data`,
+  `/data/media` and `/data/.state/services` unconditionally, so a boot that continues without the
+  disk creates them *empty on the NVMe* and the arrs re-initialise on top.
+- `RequiresMountsFor` alone is what makes `nofail` safe: services **fail closed** instead of
+  running against an empty library.
+
+Guarded units (`Modules/server.nix`): `sonarr`, `radarr`, `lidarr`, `jellyfin`, the three
+`*-rootfolders`, `jellyfin-libraries`, `podman-{audiobookshelf,shelfarr,filebrowser}`,
+`immich-server`, and critically **`sonarr-missing-search` / `radarr-missing-search`** — those two
+would otherwise see an empty `/data/media`, conclude the whole library was missing, and trigger a
+mass re-download of everything.
+
+Net effect of a missing disk now: the box boots, stays reachable, and the media services refuse to
+start — diagnosable remotely instead of needing hands on the machine.
+
+---
+
+## Data Layout
+
+**NVMe** (`nvme0n1`): ESP (`/boot`) + root (`/`). Fast storage for OS + downloads.
+**HDD1** (8TB, partlabel `disk-hdd-data`): `/mnt/disk1` — mergerfs branch + photos + arr state.
+**HDD2** (12TB, partlabel `disk-hdd2-data`): `/mnt/disk2` — mergerfs branch.
+Disko partitioning declared inline in `Hosts/Asgard/system.nix`. **Never reference `/dev/sdX`** —
+the letters shuffle between boots.
+
+```
+/data/                       # plain dir on the NVMe root, NOT a mountpoint
+  media/                     # ← mergerfs pool of /mnt/disk{1,2}/media (~19 TB)
+    tv/        movies/        music/        books/        audiobooks/
+  photos/                    # ← bind mount of /mnt/disk1/photos (Immich)
+  .state/services/           # ← bind mount of /mnt/disk1/.state (nixflix state, arr SQLite)
 
 /downloads/                  # On NVMe for fast SABnzbd unpacking
   usenet/

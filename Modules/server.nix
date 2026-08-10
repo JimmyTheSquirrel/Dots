@@ -20,7 +20,7 @@
         head: |
           <script>
           (() => {
-            const q = 'node_filesystem_free_bytes{mountpoint="/data"} / 1073741824 or label_replace(sum(rate(node_network_receive_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "download", "", "") or label_replace(sum(rate(node_network_transmit_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "upload", "", "")';
+            const q = 'node_filesystem_free_bytes{mountpoint="/data/media"} / 1073741824 or label_replace(sum(rate(node_network_receive_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "download", "", "") or label_replace(sum(rate(node_network_transmit_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "upload", "", "")';
             const url = 'http://localhost:9090/api/v1/query?query=' + encodeURIComponent(q);
             setInterval(async () => {
               const el = document.querySelector('.widget-type-custom-api .widget-content');
@@ -34,7 +34,7 @@
                 const down = parseFloat(r[1].value[1]).toFixed(1);
                 const up = parseFloat(r[2].value[1]).toFixed(1);
                 el.innerHTML =
-                  '<p class="size-h4"><span class="color-subtext">Disk /data:</span> <span class="color-primary">' + disk + ' GB</span> free</p>' +
+                  '<p class="size-h4"><span class="color-subtext">Media pool:</span> <span class="color-primary">' + disk + ' GB</span> free</p>' +
                   '<p class="size-h4"><span class="color-subtext">Download:</span> <span class="color-primary">' + down + ' Mbps</span></p>' +
                   '<p class="size-h4"><span class="color-subtext">Upload:</span> <span class="color-primary">' + up + ' Mbps</span></p>';
               } catch(e) {}
@@ -186,8 +186,8 @@
                       name: Asgard
                       hide-mountpoints-by-default: true
                       mountpoints:
-                        "/data":
-                          name: Data
+                        "/data/media":
+                          name: Media Pool
                           hide: false
 
                 - type: custom-api
@@ -195,12 +195,12 @@
                   cache: 5s
                   url: http://localhost:9090/api/v1/query
                   parameters:
-                    query: node_filesystem_free_bytes{mountpoint="/data"} / 1073741824 or label_replace(sum(rate(node_network_receive_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "download", "", "") or label_replace(sum(rate(node_network_transmit_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "upload", "", "")
+                    query: node_filesystem_free_bytes{mountpoint="/data/media"} / 1073741824 or label_replace(sum(rate(node_network_receive_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "download", "", "") or label_replace(sum(rate(node_network_transmit_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "upload", "", "")
                   template: |
                     {{ $disk := printf "%.0f" (.JSON.Float "data.result.0.value.1") }}
                     {{ $down := printf "%.1f" (.JSON.Float "data.result.1.value.1") }}
                     {{ $up := printf "%.1f" (.JSON.Float "data.result.2.value.1") }}
-                    <p class="size-h4"><span class="color-subtext">Disk /data:</span> <span class="color-primary">{{ $disk }} GB</span> free</p>
+                    <p class="size-h4"><span class="color-subtext">Media pool:</span> <span class="color-primary">{{ $disk }} GB</span> free</p>
                     <p class="size-h4"><span class="color-subtext">Download:</span> <span class="color-primary">{{ $down }} Mbps</span></p>
                     <p class="size-h4"><span class="color-subtext">Upload:</span> <span class="color-primary">{{ $up }} Mbps</span></p>
 
@@ -783,6 +783,9 @@
       description = "Search all missing monitored movies in Radarr";
       after    = [ "radarr.service" ];
       requires = [ "radarr.service" ];
+      # Fail closed if the media pool is not mounted — an empty /data/media would make Radarr
+      # consider the entire library missing and trigger a mass re-download.
+      unitConfig.RequiresMountsFor = [ "/data/media" "/data/.state" ];
       path     = [ pkgs.curl ];
       serviceConfig = {
         Type = "oneshot";
@@ -814,6 +817,9 @@
       description = "Search all missing monitored episodes in Sonarr";
       after    = [ "sonarr.service" ];
       requires = [ "sonarr.service" ];
+      # Fail closed if the media pool is not mounted — an empty /data/media would make Sonarr
+      # consider the entire library missing and trigger a mass re-download.
+      unitConfig.RequiresMountsFor = [ "/data/media" "/data/.state" ];
       path     = [ pkgs.curl ];
       serviceConfig = {
         Type = "oneshot";
@@ -1041,7 +1047,9 @@ EOF
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${pkgs.recyclarr}/bin/recyclarr sync --config /var/lib/recyclarr/recyclarr.yml";
-        Environment = "RECYCLARR_APP_DATA=/var/lib/recyclarr";
+        # RECYCLARR_APP_DATA was removed upstream — recyclarr now hard-errors on it and the sync
+        # never runs. CONFIG_DIR replaces it; DATA_DIR is optional and defaults to CONFIG_DIR.
+        Environment = "RECYCLARR_CONFIG_DIR=/var/lib/recyclarr";
       };
     };
 
@@ -1213,7 +1221,8 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       };
     };
 
-    environment.systemPackages = [ pkgs.kitty.terminfo ];
+    # mergerfs provides mount.fuse.mergerfs, needed to mount the /data/media pool (see below)
+    environment.systemPackages = [ pkgs.kitty.terminfo pkgs.mergerfs pkgs.tmux ];
 
     # Intel QSV / VAAPI runtime for Jellyfin hardware transcoding (UHD 730 / Gen13).
     # Without these, ffmpeg's "vaapi=va:/dev/dri/renderD128,driver=iHD" fails with
@@ -1906,25 +1915,27 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
                 showUnfilled = true;
               };
             }
-            # ── Disk /data (bar gauge: used / free / total) ──
+            # ── Media pool /data/media (bar gauge: used / free / total) ──
+            # Queries /data/media, not /data — /data stopped being a mountpoint when the two HDDs
+            # were pooled by mergerfs. node_exporter reports the pool (~19.8 TB) at /data/media.
             {
-              id = 4; type = "bargauge"; title = "Disk /data";
+              id = 4; type = "bargauge"; title = "Media Pool";
               gridPos = { h = 4; w = 12; x = 12; y = 4; };
               datasource = "Prometheus";
               targets = [
                 {
                   refId = "A"; datasource = "Prometheus";
-                  expr = ''node_filesystem_size_bytes{mountpoint="/data"} - node_filesystem_avail_bytes{mountpoint="/data"}'';
+                  expr = ''node_filesystem_size_bytes{mountpoint="/data/media"} - node_filesystem_avail_bytes{mountpoint="/data/media"}'';
                   legendFormat = "Used";
                 }
                 {
                   refId = "B"; datasource = "Prometheus";
-                  expr = ''node_filesystem_avail_bytes{mountpoint="/data"}'';
+                  expr = ''node_filesystem_avail_bytes{mountpoint="/data/media"}'';
                   legendFormat = "Free";
                 }
                 {
                   refId = "C"; datasource = "Prometheus";
-                  expr = ''node_filesystem_size_bytes{mountpoint="/data"}'';
+                  expr = ''node_filesystem_size_bytes{mountpoint="/data/media"}'';
                   legendFormat = "Total";
                 }
               ];
@@ -2071,6 +2082,85 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     users.groups.media = { gid = 1001; };
     users.users.${activeUser}.extraGroups = [ "media" ];
     users.users.jellyfin.extraGroups = [ "media" "render" "video" ];
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Storage pool — mergerfs unites the 8TB + 12TB into one /data/media
+    # ══════════════════════════════════════════════════════════════════════════
+    #
+    #   /mnt/disk1   8TB  ext4   ─┐
+    #                             ├─ mergerfs ──> /data/media
+    #   /mnt/disk2   12TB ext4   ─┘
+    #
+    #   /data/photos  <- bind /mnt/disk1/photos   (Immich)
+    #   /data/.state  <- bind /mnt/disk1/.state   (arr SQLite DBs)
+    #
+    # mergerfs is a UNION filesystem: it merges the directory tree, not blocks. Every file lives
+    # whole on exactly one disk, and the pool is a single namespace so each file appears exactly
+    # once. Losing a drive costs only that drive's files — the survivor keeps serving. This is
+    # why mergerfs and NOT LVM/btrfs-single/RAID0, which span one filesystem across both spindles
+    # and lose everything if either disk dies.
+    #
+    # Only MEDIA is pooled. The arr databases (/data/.state) and Immich's library (/data/photos)
+    # stay on real ext4 via bind mounts — SQLite on FUSE is a known source of locking corruption,
+    # and those two are only ~3.8G combined, so there is no capacity reason to pool them.
+    #
+    # Every service path is unchanged by this: nixflix mediaDir/stateDir, the container bind
+    # mounts, immich mediaLocation and the tmpfiles rules below all still point at /data/...
+    #
+    # NOTE: /mnt/disk2/media must exist before the pool can mount — mergerfs errors on a missing
+    # branch, and tmpfiles runs too late to help. It was created by hand at install time.
+    # (pkgs.mergerfs is added to environment.systemPackages above, next to kitty.terminfo)
+    programs.fuse.userAllowOther = true;  # required for allow_other
+
+    fileSystems."/data/media" = {
+      device = "/mnt/disk1/media:/mnt/disk2/media";
+      fsType = "fuse.mergerfs";
+      options = [
+        "category.create=mfs"   # new files -> branch with most free space (the 12TB)
+        "moveonenospc=true"     # branch fills mid-write -> relocate rather than ENOSPC
+        "minfreespace=50G"      # stop choosing a branch below this
+        "cache.files=partial"
+        "dropcacheonclose=true"
+        "allow_other"           # podman containers + non-root services must read it
+        "fsname=mediapool"
+        "nofail"
+        "x-systemd.requires-mounts-for=/mnt/disk1"
+        "x-systemd.requires-mounts-for=/mnt/disk2"
+      ];
+    };
+
+    fileSystems."/data/photos" = {
+      device = "/mnt/disk1/photos";
+      fsType = "none";
+      options = [ "bind" "nofail" "x-systemd.requires-mounts-for=/mnt/disk1" ];
+    };
+
+    fileSystems."/data/.state" = {
+      device = "/mnt/disk1/.state";
+      fsType = "none";
+      options = [ "bind" "nofail" "x-systemd.requires-mounts-for=/mnt/disk1" ];
+    };
+
+    # Hard mount dependencies — SAFETY CRITICAL.
+    # If the pool fails to mount, /data/media is an empty directory on the NVMe. Services must
+    # refuse to start rather than run against an empty library: Jellyfin would blank the library,
+    # and the *-missing-search units would trigger a mass re-download of the entire collection.
+    # RequiresMountsFor makes each unit fail closed instead.
+    # NOTE: these must be written as dotted paths, not `systemd.services = lib.genAttrs ...`.
+    # Nix merges dotted paths into attrset *literals* only — a computed expression collides with
+    # the many `systemd.services.<name> = { ... }` definitions elsewhere in this file.
+    systemd.services.sonarr.unitConfig.RequiresMountsFor              = [ "/data/media" "/data/.state" ];
+    systemd.services.radarr.unitConfig.RequiresMountsFor              = [ "/data/media" "/data/.state" ];
+    systemd.services.lidarr.unitConfig.RequiresMountsFor              = [ "/data/media" "/data/.state" ];
+    systemd.services.jellyfin.unitConfig.RequiresMountsFor            = [ "/data/media" "/data/.state" ];
+    systemd.services.sonarr-rootfolders.unitConfig.RequiresMountsFor  = [ "/data/media" ];
+    systemd.services.radarr-rootfolders.unitConfig.RequiresMountsFor  = [ "/data/media" ];
+    systemd.services.lidarr-rootfolders.unitConfig.RequiresMountsFor  = [ "/data/media" ];
+    systemd.services.jellyfin-libraries.unitConfig.RequiresMountsFor  = [ "/data/media" ];
+    systemd.services.podman-audiobookshelf.unitConfig.RequiresMountsFor = [ "/data/media" ];
+    systemd.services.podman-shelfarr.unitConfig.RequiresMountsFor     = [ "/data/media" ];
+    systemd.services.podman-filebrowser.unitConfig.RequiresMountsFor  = [ "/data/media" "/data/photos" ];
+    systemd.services.immich-server.unitConfig.RequiresMountsFor       = [ "/data/photos" ];
 
     # --- Data directories ---
     systemd.tmpfiles.rules = [
