@@ -1014,27 +1014,65 @@
         mkdir -p /var/lib/recyclarr
         SONARR_KEY=$(cat ${config.sops.secrets."sonarr-api-key".path})
         RADARR_KEY=$(cat ${config.sops.secrets."radarr-api-key".path})
+        # TRaSH's config-templates repo deleted includes.json in 2026-07 and renamed everything;
+        # `include: - template: …` no longer resolves ANYTHING (there are no include templates any
+        # more) and recyclarr hard-errors, so the sync silently did nothing from 2026-07-11 until
+        # this was migrated on 2026-08-11.
+        #
+        # The replacements are whole-config templates, not includes, so their contents are inlined
+        # here by trash_id instead. That is deliberate: trash_ids are stable content hashes, whereas
+        # template *names* have now churned twice. Scores and CF definitions still come live from
+        # the guide on every sync — only the selection is pinned.
+        #
+        # Equivalent to the old templates: radarr-remux-web-1080p + radarr-remux-web-2160p and
+        # sonarr web-1080p + web-2160p, merged into one instance per service (matching how the old
+        # include list put both profiles on one instance).
+        #
+        # Verified 2026-08-11 by diffing every profile before/after: allowed qualities, cutoffs,
+        # cutoffFormatScore (10000), minUpgradeFormatScore (1) and upgradeAllowed are all
+        # IDENTICAL — the profiles did not get looser. The only change is a month of TRaSH audio
+        # scoring (TrueHD ATMOS +5000, DTS X +4500, FLAC/PCM/DD+ …) plus new negatives
+        # (Bad Dual Groups, Line/Mic Dubbed, Black and White Editions at -10000). Sonarr's manual
+        # "Any 1080p" profile is not managed here and was untouched.
         cat > /var/lib/recyclarr/recyclarr.yml << EOF
 sonarr:
   sonarr-main:
     base_url: http://localhost:8989
     api_key: $SONARR_KEY
-    include:
-      - template: sonarr-quality-definition-series
-      - template: sonarr-v4-quality-profile-web-1080p
-      - template: sonarr-v4-custom-formats-web-1080p
-      - template: sonarr-v4-quality-profile-web-2160p
-      - template: sonarr-v4-custom-formats-web-2160p
+    quality_definition:
+      type: series
+    quality_profiles:
+      - trash_id: 72dae194fc92bf828f32cde7744e51a1  # WEB-1080p
+        reset_unmatched_scores:
+          enabled: true
+      - trash_id: d1498e7d189fbe6c7110ceaabb7473e6  # WEB-2160p
+        reset_unmatched_scores:
+          enabled: true
+    custom_format_groups:
+      add:
+        - trash_id: 158188097a58d7687dee647e04af0da3  # [Optional] Golden Rule HD
+        - trash_id: e3f37512790f00d0e89e54fe5e790d1c  # [Optional] Golden Rule UHD
+        - trash_id: 74aff4168620ed49dcc67e92b2c2a5b4  # [Optional] Language Profiles
+        - trash_id: 85fae4a2294965b75710ef2989c850eb  # [Streaming Services] HD/UHD boost
+        - trash_id: 59c3af66780d08332fdc64e68297098f  # [Unwanted] Unwanted Formats
 radarr:
   radarr-main:
     base_url: http://localhost:7878
     api_key: $RADARR_KEY
-    include:
-      - template: radarr-quality-definition-movie
-      - template: radarr-quality-profile-remux-web-1080p
-      - template: radarr-custom-formats-remux-web-1080p
-      - template: radarr-quality-profile-remux-web-2160p
-      - template: radarr-custom-formats-remux-web-2160p
+    quality_definition:
+      type: movie
+    quality_profiles:
+      - trash_id: 9ca12ea80aa55ef916e3751f4b874151  # Remux + WEB 1080p
+        reset_unmatched_scores:
+          enabled: true
+      - trash_id: fd161a61e3ab826d3a22d53f935696dd  # Remux + WEB 2160p
+        reset_unmatched_scores:
+          enabled: true
+    custom_format_groups:
+      add:
+        - trash_id: f8bf8eab4617f12dfdbd16303d8da245  # [Optional] Golden Rule HD
+        - trash_id: ff204bbcecdd487d1cefcefdbf0c278d  # [Optional] Golden Rule UHD
+        - trash_id: a3ac6af01d78e4f21fcb75f601ac96df  # [Unwanted] Unwanted Formats
 EOF
         chmod 600 /var/lib/recyclarr/recyclarr.yml
       '';
