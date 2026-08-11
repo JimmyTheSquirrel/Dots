@@ -75,24 +75,38 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 ### Native NixOS service (background sync)
 - **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`.
 
-  **⚠ BROKEN as of 2026-08-11 — upstream restructure, not yet migrated.** Two separate upstream
-  breaks, discovered while verifying the storage work (pre-existing, unrelated to the pool):
+  **Was BROKEN 2026-07-11 → 2026-08-11, now FIXED.** Last successful sync had been 2026-07-10
+  22:10; it failed every nightly run for a month (36 failures of 40 runs) before being found while
+  verifying the storage work. Two separate upstream breaks:
 
   1. **Fixed:** `RECYCLARR_APP_DATA` was removed upstream and recyclarr now hard-errors on it, so
      the sync never even started. Renamed to `RECYCLARR_CONFIG_DIR` in `Modules/server.nix`.
-  2. **Outstanding:** TRaSH's config-templates repo dropped `includes.json` entirely and renamed
-     every template. **All 10 templates our config references no longer exist.** The granular
-     `*-quality-definition-*` / `*-quality-profile-*` / `*-custom-formats-*` includes were
-     replaced by all-in-one templates — e.g. `radarr-remux-web-1080p`, `radarr-remux-web-2160p`.
-     Recyclarr 8.6 also moved its data from `repositories/` to `resources/config-templates/git/`;
-     the old `repositories/` copy is stale and still contains the *old* ids, which is misleading
-     when debugging — always check `resources/config-templates/git/official/templates.json`.
+  2. **Fixed:** TRaSH's config-templates repo dropped `includes.json` entirely and renamed every
+     template, so `include: - template: …` resolves **nothing** — there are no include templates
+     any more, and all 10 ids the config used were dead. The replacements are *whole-config*
+     templates (`radarr-remux-web-1080p`, `radarr-remux-web-2160p`, sonarr `web-1080p`,
+     `web-2160p`) which **cannot be used with `include:` at all**. Their contents are now inlined
+     in `Modules/server.nix` by `trash_id` — trash_ids are stable content hashes, whereas template
+     names have churned twice. Scores and CF definitions still come live from the guide on every
+     sync; only the selection is pinned.
 
-  **Impact: none right now.** Sonarr/Radarr still hold the profiles recyclarr last applied; they
-  are simply no longer being updated. **Do not migrate casually** — the new all-in-one templates
-  may not reproduce the current profiles, and Radarr's profiles are deliberately strict (see
-  `memory/feedback_quality_profiles.md`). Migrating needs a deliberate before/after comparison of
-  the resulting profiles.
+  **Debugging trap:** recyclarr 8.6 moved its data from `repositories/` to
+  `resources/config-templates/git/`. The stale `repositories/` copy still lists the **old** ids, so
+  grepping it "proves" a template exists while recyclarr correctly reports it missing. Always read
+  `resources/config-templates/git/official/templates.json`. Handy: `recyclarr config create -t <id>`
+  writes a starter config to `configs/`, and `recyclarr sync --preview` is a dry run.
+
+  **The outage did no damage** — both failures happened during startup/config parsing, *before any
+  API call*, so nothing was ever partially applied or zeroed.
+
+  **Migration verified 2026-08-11 by diffing every profile before and after.** Allowed qualities,
+  cutoffs, `cutoffFormatScore` (10000), `minUpgradeFormatScore` (1) and `upgradeAllowed` are all
+  **identical** — the profiles did not get looser, which matters because Radarr's are deliberately
+  strict (see `memory/feedback_quality_profiles.md`). The only change was a month of TRaSH audio
+  scoring (TrueHD ATMOS +5000, DTS X +4500, FLAC/PCM/DD+/DTS) plus new negatives (Bad Dual Groups,
+  Line/Mic Dubbed, Black and White Editions at -10000): Radarr 22→39 and 23→40 scored CFs, Sonarr
+  31→37 and 33→38. Sonarr's manual "Any 1080p" profile is not recyclarr-managed and was untouched.
+  All queues were 0 afterwards — no upgrade wave.
 
 ### Mullvad VPN Namespace (SABnzbd)
 - `netns-vpn.service` — creates `/var/run/netns/vpn`
