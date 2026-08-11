@@ -1746,6 +1746,32 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       writeable = true;
     };
 
+    # ttyd sessions die when the browser tab loses focus or closes — the websocket
+    # drops and ttyd kills the shell. Detect a ttyd-spawned shell by walking up the
+    # process tree, then exec into a persistent tmux session: disconnecting then only
+    # kills the tmux client, not the session, so reconnecting reattaches exactly where
+    # it left off.
+    #
+    # This lives HERE, in the Asgard-only server module, and deliberately NOT in the
+    # shared Modules/zsh.nix — that one is imported by every host and this behaviour is
+    # only wanted on the server. `programs.zsh.initContent` is a `lines` option, so this
+    # concatenates with the shared definition rather than replacing it.
+    # tmux itself is installed via environment.systemPackages in this same module.
+    home-manager.users.${activeUser}.programs.zsh.initContent = lib.mkAfter ''
+      if [[ $- == *i* ]] && [[ -z "$TMUX" ]]; then
+        __pid=$$
+        for __i in 1 2 3 4 5 6; do
+          __ppid=$(ps -o ppid= -p "$__pid" 2>/dev/null | tr -d ' ')
+          [[ -z "$__ppid" || "$__ppid" -eq 1 ]] && break
+          if [[ "$(ps -o comm= -p "$__ppid" 2>/dev/null)" == "ttyd" ]]; then
+            exec tmux new-session -A -s ttyd
+          fi
+          __pid=$__ppid
+        done
+        unset __pid __ppid __i
+      fi
+    '';
+
     # ── Loki — log storage ──────────────────────────────────────────────────────
     services.loki = {
       enable = true;
