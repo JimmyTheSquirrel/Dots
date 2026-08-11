@@ -13,12 +13,14 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 | Spicetify | `Claude/spicetify.md` | Text theme, CDP color injection, CSS fixes |
 | Rain effect | `Claude/rain-effect.md` | GLSL shader, parameters, known bugs |
 | Helium browser | `Claude/helium.md` | Extensions, policies, dark theme, Bitwarden |
-| Game streaming | `Claude/streaming.md` | Sunshine, Moonlight, Tailscale, Eclipse Pi, DualSense daemon |
+| Game streaming | `Claude/streaming.md` | Sunshine, Moonlight, Tailscale, DualSense daemon |
+| Steam theming | `Claude/steam.md` | Millennium injector, Zehn theme, why opacity comes from Niri |
+| Eclipse TV box | `Claude/eclipse.md` | Pi 5 LibreELEC/Kodi, Jellyfin addon, skin menu, CEC, headless workflow |
 | KDE Plasma | `Claude/kde.md` | Elektra panel, keybinds, plasma-manager |
 | Emulators | `Claude/emulators.md` | RPCS3, Ryubing, PS3 game prep |
 | Secrets | `Claude/secrets.md` | sops-nix, adding secrets, key locations |
 | Architecture | `Claude/architecture.md` | Multi-boot GRUB, Plymouth, module patterns |
-| Shell/misc | `Claude/misc.md` | Starship, Fastfetch, Navi, Discord, media viewers, audio (PipeWire fixes) |
+| Shell/misc | `Claude/misc.md` | Starship, Fastfetch, btop, Navi, Discord, media viewers, audio (PipeWire fixes) |
 | Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Jellyseerr API, Homepage config |
 
 ## Core Principles
@@ -66,11 +68,12 @@ flake.nix                    # Entry point — flake-parts + import-tree
 │   ├── sunshine.nix         # Game streaming host (Sisyphus only)
 │   ├── tailscale.nix        # VPN (Sisyphus only)
 │   ├── rpcs3.nix            # RPCS3 + Ryubing emulators
-│   ├── sddm.nix             # SDDM login theme (qylock — NieR: Automata)
+│   ├── sddm.nix             # SDDM login theme (silentSDDM + video background)
 │   ├── base.nix             # Common packages and settings
 │   ├── grub.nix             # GRUB multi-system boot menu
 │   ├── plymouth.nix         # Boot splash (Sisyphus only)
 │   ├── starship.nix         # Shell prompt
+│   ├── btop.nix             # Resource monitor — transparent, matugen-themed
 │   ├── kitty.nix            # Terminal emulator
 │   ├── zsh.nix              # Shell config
 │   ├── navi.nix             # Cheatsheet + helper scripts
@@ -81,7 +84,8 @@ flake.nix                    # Entry point — flake-parts + import-tree
 │   ├── Fonts/                           # Anurati-Regular.otf
 │   ├── Rain-Effect/                     # drop-shine.png
 │   ├── Terminal-Images/                 # Fastfetch logos
-│   └── Sddm/                           # Old silentSDDM video background (unused)
+│   ├── Steam-Glass-Theme/               # Millennium theme for the Steam client
+│   └── Sddm/                           # silentSDDM video background (pixel-emerald.mp4 — live)
 ├── Claude/                  # Topic docs (read on demand)
 ├── Secrets/                 # Encrypted secrets
 │   ├── .sops.yaml           # Age key config
@@ -97,9 +101,11 @@ flake.nix                    # Entry point — flake-parts + import-tree
 | **Elektra** | KDE Plasma 6 | `Hosts/Elektra/system.nix` | kde, skwd-wall, spicetify, discord |
 | **Odysseus** | Hyprland | `Hosts/Odysseus/system.nix` | hyprland, noctalia, skwd-wall, spicetify |
 
-All three share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, git, navi, starship, fastfetch, moonlight-qt, rpcs3, helium, brave, discord
+All three share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, git, navi, starship, fastfetch, btop, moonlight-qt, rpcs3, helium, brave, discord
 
-**Displays:** DP-2 (2560x1080 @ 144Hz primary) + HDMI-A-1 (1920x1080 @ 60Hz secondary)
+**Displays:** DP-2 (2560x1080 @ 144Hz primary, 8-bit) + HDMI-A-1 (1920x1080 @ 60Hz secondary)
+
+DP-2's 144Hz needs an explicit `mode` line — its EDID advertises 60Hz as *preferred*. See `Claude/niri.md`.
 
 ## Module Patterns
 
@@ -111,8 +117,8 @@ All three share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitt
 
 ## Flake Inputs
 
-- `nixpkgs@nixos-25.11` (stable) + `nixpkgs-unstable`
-- `home-manager@release-25.11`
+- `nixpkgs@nixos-26.05` (stable) + `nixpkgs-unstable`
+- `home-manager@release-26.05`
 - `flake-parts` + `import-tree` — modular flake organization
 - `wrapper-modules` — wraps packages with settings baked in (niri, noctalia)
 - `noctalia` — desktop shell
@@ -120,8 +126,9 @@ All three share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitt
 - `skwd-wall` — wallpaper selector with matugen (github:liixini/skwd-wall)
 - `helium` — browser (github:amaanq/helium-flake, not in nixpkgs)
 - `spicetify-nix` — declarative Spotify theming
+- `millennium` — Steam client CSS/JS injector (`?dir=packages/nix`). **Never add `nixpkgs.follows`** — upstream's pinned nixpkgs is load-bearing for a Bun FOD hash
 - `plasma-manager` — KDE Plasma declarative config
-- `qylock` — SDDM login theme (NieR: Automata)
+- `silentSDDM` — SDDM login theme (github:uiriansan/SilentSDDM), consumed by `Modules/sddm.nix`
 - `sops-nix` — encrypted secrets with age keys
-- `nix-citizen` / `nix-gaming` — Star Citizen, Proton
+- `nixflix` — declarative media server (arr stack + Jellyfin), Asgard only
 - `disko` — declarative disk partitioning

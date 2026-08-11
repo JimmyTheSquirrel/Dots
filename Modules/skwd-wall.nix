@@ -1,4 +1,4 @@
-{ inputs, ... }: {
+{ self, inputs, ... }: {
   flake.nixosModules.skwd-wall = { pkgs, activeUser, ... }:
   let
     # Selector opens with the favourites filter pre-enabled — upstream hardcodes
@@ -30,6 +30,14 @@
         Elektra = "kde";
         Odysseus = "hyprland";
       }.${hostName} or "niri";
+      # btop's theme is generated from the same Material You palette as everything
+      # else. The template is built in Modules/btop.nix so the fallback theme baked
+      # into the store and this rendered one can't drift apart.
+      btopTemplate = pkgs.writeText "btop-theme.theme" self.lib.btop.matugenTemplate;
+      # Steam's Millennium Quick CSS — one accent triplet, from which the Zehn
+      # theme derives ~30 shades. Template lives in Modules/steam.nix alongside
+      # the static seed, same as btop's.
+      steamTemplate = pkgs.writeText "steam-quick.css" self.lib.steam.matugenTemplate;
     in {
       # ============================================================
       # PACKAGE
@@ -148,14 +156,16 @@ EOF
         fi
 
         # Add noctalia integration or patch reload command
+        # noctalia-sync-wallpaper: tells noctalia the actual skwd-wall wallpaper path so it
+        # generates Material You colors from the correct image, then re-applies theme templates.
         if [ -f "${configPath}/config.json" ]; then
           ${pkgs.jq}/bin/jq '
             if (.integrations | map(.name) | contains(["noctalia"])) then
               .integrations = (.integrations | map(if .name == "noctalia" then
-                .reload = "noctalia-shell ipc call wallpaper refresh"
+                .reload = "noctalia-sync-wallpaper"
               else . end))
             else
-              .integrations += [{"name": "noctalia", "template": "noctalia-colors.json", "output": "~/.config/noctalia/colors.json", "reload": "noctalia-shell ipc call wallpaper refresh"}]
+              .integrations += [{"name": "noctalia", "template": "noctalia-colors.json", "output": "~/.config/noctalia/colors.json", "reload": "noctalia-sync-wallpaper"}]
             end
           ' "${configPath}/config.json" > "${configPath}/config.json.tmp" \
             && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
@@ -179,7 +189,42 @@ EOF
             && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
         fi
 
+        # Add the btop integration, or patch its reload command.
+        # btop-reload-theme sends SIGUSR2, btop's hot-reload signal — a running
+        # instance re-reads the freshly rendered theme off disk without restarting.
+        if [ -f "${configPath}/config.json" ]; then
+          ${pkgs.jq}/bin/jq '
+            if (.integrations | map(.name) | contains(["btop"])) then
+              .integrations = (.integrations | map(if .name == "btop" then
+                .reload = "btop-reload-theme"
+              else . end))
+            else
+              .integrations += [{"name": "btop", "template": "btop-theme.theme", "output": "~/.config/btop/themes/${self.lib.btop.themeName}.theme", "reload": "btop-reload-theme"}]
+            end
+          ' "${configPath}/config.json" > "${configPath}/config.json.tmp" \
+            && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
+        fi
+
+        # Add the steam integration (Millennium Quick CSS -> Zehn accent).
+        # No reload command: Steam has no way to re-read Quick CSS from outside
+        # (Millennium's watcher is an editor-only toggle), so the new accent
+        # applies the next time Steam starts.
+        if [ -f "${configPath}/config.json" ]; then
+          ${pkgs.jq}/bin/jq '
+            if (.integrations | map(.name) | contains(["steam"])) | not then
+              .integrations += [{"name": "steam", "template": "steam-quick.css", "output": "~/${self.lib.steam.quickCssPath}"}]
+            else . end
+          ' "${configPath}/config.json" > "${configPath}/config.json.tmp" \
+            && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
+        fi
+
         # Always sync matugen templates (managed by Nix)
+        # Installed from the store rather than a heredoc so the template text lives
+        # in exactly one place (Modules/btop.nix). Mode 0644 — matugen only reads it,
+        # but a 0444 store copy would break the next rebuild's overwrite.
+        install -m 0644 ${btopTemplate} "${configPath}/data/matugen/templates/btop-theme.theme"
+        install -m 0644 ${steamTemplate} "${configPath}/data/matugen/templates/steam-quick.css"
+
         cat > "${configPath}/data/matugen/templates/noctalia-colors.json" << 'EOF'
 {
   "mPrimary": "{{colors.primary.default.hex}}",

@@ -1,0 +1,21 @@
+/* Millennium parses this file and exposes each :root variable in Steam's
+ * theme editor (Millennium settings -> Themes -> Edit). Keep every value a
+ * bare hex literal — the parser only recognises colours, and an rgba() or a
+ * calc() here is silently dropped. Translucent overlays therefore live in
+ * libraryroot.custom.css, not in this file.
+ *
+ * These are also the intended matugen target: rendering this file from the
+ * Material You palette would make Steam follow the wallpaper the way btop,
+ * noctalia and Spotify already do. Not wired up yet — see Claude/steam.md. */
+:root {
+  /* Base surface. Near-black rather than Steam's #1b2838 so the Niri opacity
+   * rule tints it with the wallpaper instead of muddying a blue-grey. */
+  --dots-surface: #0b0b0d;
+  --dots-surface-raised: #121216;
+
+  --dots-text: #e6e6e6;
+  --dots-text-dim: #9aa0a6;
+
+  --dots-accent: #7aa2f7;
+  --dots-accent-text: #0b0b0d;
+}

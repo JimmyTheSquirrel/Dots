@@ -1,0 +1,161 @@
+/* Dots Glass — main Steam client window. See Claude/steam.md.
+ *
+ * IMPORTANT: `background: transparent` here does NOT show the wallpaper.
+ * Steam's CEF surface has no alpha channel, so a transparent element just
+ * reveals Steam's own base surface underneath. The see-through effect comes
+ * entirely from the Niri window rule (`opacity 0.85` on app-id "steam") in
+ * Modules/Desktops/niri.nix — same arrangement Spotify and Helium use.
+ *
+ * So this file's job is not transparency, it is making Steam look right *at*
+ * 85%: flatten the stack of opaque blue-grey panels onto one near-black base,
+ * and re-separate them with translucent white overlays that stay glassy when
+ * the compositor fades the window.
+ *
+ * Only Steam's stable design-system classes are targeted (.DesktopUI,
+ * .Dialog*, .Modal*, .title-*). The library grid and store pages use per-build
+ * hashed class names (`._2H7sBdIRIS9AbCJmYyEMbz`) that change on every Steam
+ * client update — deliberately left alone so this theme does not rot. */
+
+/* ============================================================
+   BASE SURFACE
+   ============================================================ */
+
+body,
+.DesktopUI {
+  background: var(--dots-surface) !important;
+  color: var(--dots-text);
+}
+
+/* Steam paints several full-bleed wrappers over the body. Neutralise them so
+   the single base surface above is what actually shows through. */
+.DesktopUI .ModalPosition,
+.DesktopUI .ModalPosition_Content {
+  background: transparent !important;
+}
+
+/* ============================================================
+   TITLE BAR
+   ============================================================ */
+
+.title-area,
+.title-bar-actions {
+  background: transparent !important;
+}
+
+.title-area-icon,
+.title-area-icon-inner {
+  background: transparent !important;
+}
+
+.title-bar-actions .closeButton:hover {
+  background: #c44848 !important;
+}
+
+.title-bar-actions .minimizeButton:hover,
+.title-bar-actions .maximizeButton:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* ============================================================
+   DIALOGS + MODALS
+   ============================================================ */
+
+/* The scrim behind a modal. Steam's default is a heavy near-opaque black that
+   double-darkens once the compositor is already at 85%. */
+.FullModalOverlay {
+  background: rgba(0, 0, 0, 0.55) !important;
+  backdrop-filter: blur(12px);
+}
+
+.ModalDialogPopup,
+.DialogContent {
+  background: var(--dots-surface-raised) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  /* Matches geometry-corner-radius 12 in the Niri window rule. */
+  border-radius: 12px !important;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6) !important;
+}
+
+.DialogBody,
+.DialogContent_InnerWidth {
+  background: transparent !important;
+}
+
+.DialogLabel,
+.DialogLabelStrong {
+  color: var(--dots-text);
+}
+
+/* ============================================================
+   CONTROLS
+   ============================================================ */
+
+.DialogButton {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 8px !important;
+  color: var(--dots-text) !important;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.DialogButton:hover:not(.Disabled):not(.disabled) {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+.DialogButton.Primary,
+.DialogButton.GreenPlay {
+  background: var(--dots-accent) !important;
+  border-color: transparent !important;
+  color: var(--dots-accent-text) !important;
+}
+
+.DialogButton.Primary:hover:not(.Disabled),
+.DialogButton.GreenPlay:hover:not(.Disabled) {
+  filter: brightness(1.12);
+}
+
+.DialogButton.Disabled,
+.DialogButton.disabled {
+  opacity: 0.4 !important;
+}
+
+.DialogTextInputBase,
+.DialogDropDown {
+  background: rgba(0, 0, 0, 0.35) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 8px !important;
+  color: var(--dots-text) !important;
+}
+
+.DialogTextInputBase:focus-within,
+.DialogDropDown.gpfocus {
+  border-color: var(--dots-accent) !important;
+}
+
+.DialogCheckbox_Container,
+.DialogRoundCheckboxField_Container {
+  background: transparent !important;
+}
+
+/* ============================================================
+   SCROLLBARS
+   ============================================================ */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Dots Glass",
+  "description": "Collapses Steam's stacked blue-grey panels onto one near-black base so the Niri window-opacity rule reads as tinted glass.",
+  "author": "Dots",
+  "version": "1.0.0",
+  "source": "https://github.com/JimmyTheSquirrel/Dots",
+  "tags": ["dark", "minimal", "glass"],
+  "UseDefaultPatches": true,
+  "RootColors": "colors.css"
+}

@@ -53,6 +53,12 @@
     # --- Helium Browser ---
     helium.url = "github:amaanq/helium-flake";
 
+    # --- Millennium (Steam client CSS/JS injector — Steam theming) ---
+    # Deliberately no `inputs.nixpkgs.follows`: upstream pins an exact nixpkgs
+    # commit because the Bun dependency FOD hash is sensitive to version drift.
+    # Overriding it changes the bun version and breaks the fixed-output hash.
+    millennium.url = "github:SteamClientHomebrew/Millennium?dir=packages/nix";
+
     # --- Secrets Management ---
     sops-nix = {
       url = "github:Mic92/sops-nix";
