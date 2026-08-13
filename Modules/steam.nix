@@ -35,6 +35,23 @@ let
      * Anything typed into it is lost on the next wallpaper change or rebuild. */
 
     :root {
+      /* Our own handle, used by the rules further down so they don't care which
+       * theme is active. Always a literal triplet, never `var(...)` — see the
+       * SystemAccentColor note below for why indirection is not trusted here. */
+      --dots-accent-rgb: ${a.base};
+
+      /* --- SpaceTheme --- */
+      /* Its whole palette is bare R,G,B triplets in src/css/root.css, which is
+       * exactly matugen's output shape. Setting these is harmless when Zehn is
+       * the active theme and vice versa, so one Quick CSS drives either. */
+      /* accent-2 is SpaceTheme's hover/lighter variant. It must come from
+       * `lightest`, not `lighter` — for many wallpapers matugen's
+       * primary_fixed_dim resolves to the same value as primary, which would
+       * leave hover states visually identical to rest. */
+      --st-accent-1: ${a.base} !important;
+      --st-accent-2: ${a.lightest} !important;
+
+      /* --- Zehn --- */
       /* Set the derived variables DIRECTLY, with !important.
        *
        * The obvious route — defining --SystemAccentColor-RGB and letting Zehn's
@@ -93,8 +110,8 @@ let
        *
        * Knobs, in order: hairline alpha / blur radius / spread / glow alpha. */
       box-shadow:
-        inset 0 0 0 1px rgba(var(--zehn-rgb-accent), 0.30),
-        inset 0 0 18px 3px rgba(var(--zehn-rgb-accent), 0.28);
+        inset 0 0 0 1px rgba(var(--dots-accent-rgb), 0.30),
+        inset 0 0 18px 3px rgba(var(--dots-accent-rgb), 0.28);
     }
 
     /* Steam's OWN hardcoded blues, which Zehn does not recolour. These are
@@ -117,18 +134,18 @@ let
     button.DialogButton.Primary,
     button.DialogButton.Primary:hover,
     button.DialogButton.Primary.gpfocus {
-      background: rgb(var(--zehn-rgb-accent)) !important;
+      background: rgb(var(--dots-accent-rgb)) !important;
       color: rgb(${a.onAccent}) !important;
     }
 
     .DialogToggleField_Option.Active {
-      background: rgb(var(--zehn-rgb-accent)) !important;
+      background: rgb(var(--dots-accent-rgb)) !important;
       color: rgb(${a.onAccent}) !important;
     }
 
     .DialogSlider_Value,
     div.ModalPosition_TopBar {
-      background: rgb(var(--zehn-rgb-accent)) !important;
+      background: rgb(var(--dots-accent-rgb)) !important;
     }
   '';
 
@@ -371,11 +388,25 @@ in {
       # design-system classes, so it still works on a Steam release that Zehn
       # has not caught up with yet. Switch by editing activeTheme below, or
       # live in Steam via Millennium -> Settings -> Themes.
+      # SpaceTheme — dark, modular, the most-downloaded Millennium theme.
+      #
+      # Pinned to a COMMIT, not a tag: upstream stopped tagging (latest tag is
+      # v202505024 from May 2025) and ships straight to main, so a tag would pin
+      # something 15 months stale.
+      #   nix-prefetch-git --url https://github.com/SpaceTheme/Steam --rev <sha>
+      spaceTheme = pkgs.fetchFromGitHub {
+        owner = "SpaceTheme";
+        repo = "Steam";
+        rev = "cbf0213604316601ae554db5abbb76b9d0282af0"; # 2026-08-01
+        hash = "sha256-sefU4QmLJ5dgdPEXajmAxDwhAdIuRRhSb7Q6JuHrzvc=";
+      };
+
       themes = {
+        "SpaceTheme" = spaceTheme;
         "Zehn" = zehn;
         "dots-glass" = "${self}/Resources/Steam-Glass-Theme";
       };
-      activeTheme = "Zehn";
+      activeTheme = "SpaceTheme";
 
       # Zehn's own options, as shown under Millennium -> Settings -> Themes.
       #
@@ -388,16 +419,35 @@ in {
       # working after that first launch — declaring a key is the only way to
       # actually control it. Blanket-forcing the whole set would trample live
       # tweaks (e.g. Foreground Color Mix), hence the deliberate opt-in.
-      zehnConditionsForced = {
-        # Zehn defaults to "Auto", which can land on the light variant.
-        "Color Mode" = "Dark";
-        # The news/promo carousel above the library grid.
-        "Show What's New" = "no";
-        # Blends --option-rgb-blend-foreground (a cream, 193/180/146) into every
-        # foreground colour. This had drifted to 81, which desaturates the whole
-        # UI toward grey-cream and is a large part of why Steam looked colourless
-        # next to Zehn's own screenshots. Zehn's default is 0; back to 0.
-        "Foreground Color Mix" = "0";
+      # Keyed by theme name — each theme names its options differently, so a
+      # setting forced for Zehn does nothing under SpaceTheme and vice versa.
+      conditionsForced = {
+        "SpaceTheme" = {
+          # Values are Compact | Hide | Show (default Compact, i.e. still visible).
+          "What's New" = "Hide";
+          # Default "yes" keeps the game-list sidebar pinned across Store,
+          # Community and profile pages, where it is just dead space. "no"
+          # confines it to the Library. Upstream notes that with this off, the
+          # userpanel and download bar also become Library-only.
+          "Always show sidebar" = "no";
+          # Library game list on the left.
+          "Sidebar on right" = "no";
+          # NB: reads backwards. Upstream's description is "Hides the scrollbars
+          # in the SteamUI", so "yes" HIDES them; the default "no" shows them.
+          "Scrollbars" = "yes";
+        };
+
+        "Zehn" = {
+          # Zehn defaults to "Auto", which can land on the light variant.
+          "Color Mode" = "Dark";
+          # The news/promo carousel above the library grid.
+          "Show What's New" = "no";
+          # Blends --option-rgb-blend-foreground (a cream, 193/180/146) into
+          # every foreground colour. This had drifted to 81, which desaturates
+          # the whole UI toward grey-cream and was a large part of why Steam
+          # looked colourless next to Zehn's own screenshots. Default is 0.
+          "Foreground Color Mix" = "0";
+        };
       };
 
       # Millennium reads themes from <steam>/millennium/themes (get_steam_path()
@@ -456,11 +506,12 @@ in {
         # undeclared condition is preserved exactly as the Steam UI left it.
         # A plugin only loads if its name is in plugins.enabledPlugins, so add it
         # without disturbing any other entries.
-        ${pkgs.jq}/bin/jq --argjson forced ${lib.escapeShellArg (builtins.toJSON zehnConditionsForced)} '
+        ${pkgs.jq}/bin/jq --argjson forced ${lib.escapeShellArg (builtins.toJSON conditionsForced)} '
           .themes = (.themes // {}) |
           .themes.activeTheme = "${activeTheme}" |
           .themes.conditions = (.themes.conditions // {}) |
-          .themes.conditions.Zehn = ((.themes.conditions.Zehn // {}) + $forced) |
+          reduce ($forced | keys[]) as $t (.;
+            .themes.conditions[$t] = ((.themes.conditions[$t] // {}) + $forced[$t])) |
           .plugins = (.plugins // {}) |
           .plugins.enabledPlugins = (((.plugins.enabledPlugins // []) + ["${pluginName}"]) | unique)
         ' "${configFile}" > "${configFile}.tmp" && mv "${configFile}.tmp" "${configFile}"

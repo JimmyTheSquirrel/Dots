@@ -14,7 +14,7 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 | Rain effect | `Claude/rain-effect.md` | GLSL shader, parameters, known bugs |
 | Helium browser | `Claude/helium.md` | Extensions, policies, dark theme, Bitwarden |
 | Game streaming | `Claude/streaming.md` | Sunshine, Moonlight, Tailscale, DualSense daemon |
-| Steam theming | `Claude/steam.md` | Millennium injector, Zehn theme, why opacity comes from Niri |
+| Steam theming | `Claude/steam.md` | Millennium injector, SpaceTheme/Zehn, matugen colours, why opacity comes from Niri |
 | Eclipse TV box | `Claude/eclipse.md` | Pi 5 LibreELEC/Kodi, Jellyfin addon, skin menu, CEC, headless workflow |
 | KDE Plasma | `Claude/kde.md` | Elektra panel, keybinds, plasma-manager |
 | Emulators | `Claude/emulators.md` | RPCS3, Ryubing, PS3 game prep |

@@ -76,15 +76,82 @@ off XDG. Easy to get wrong.
 
 ## Themes
 
-Two are installed; `activeTheme` in `Modules/steam.nix` picks which renders.
+Three are installed; `activeTheme` in `Modules/steam.nix` picks which renders.
 
 | Theme | Source | Role |
 |-------|--------|------|
-| **Zehn** | `github:yurisuika/Zehn`, pinned to tag `2026.8.9` | **Active.** Windows 10 Fluent Design — full restyle incl. store/webkit pages |
-| `dots-glass` | `Resources/Steam-Glass-Theme/` | Fallback, see below |
+| **SpaceTheme** | `github:SpaceTheme/Steam`, pinned to commit `cbf0213` | **Active.** Dark, modular; the most-downloaded Millennium theme |
+| Zehn | `github:yurisuika/Zehn`, pinned to tag `2026.8.9` | Alternative — Windows 10 Fluent Design |
+| `dots-glass` | `Resources/Steam-Glass-Theme/` | Minimal fallback, see below |
 
 Switch by editing `activeTheme`, or live in Steam via Millennium → Settings →
 Themes (the activation script forces `activeTheme` back on the next rebuild).
+
+**One Quick CSS drives all of them.** The generator emits SpaceTheme's variables
+*and* Zehn's, plus a theme-neutral `--dots-accent-rgb` used by our own rules
+(window glow, blue overrides). Setting variables an inactive theme doesn't read
+is harmless, so switching themes keeps the matugen colours either way.
+
+### Theme options are forced per theme
+
+`conditionsForced` in `Modules/steam.nix` is keyed by theme name, because each
+theme names its options differently — a setting forced for Zehn does nothing
+under SpaceTheme. Currently forced:
+
+| Theme | Option | Value | Why |
+|-------|--------|-------|-----|
+| SpaceTheme | `What's New` | `Hide` | default `Compact` still shows it |
+| SpaceTheme | `Always show sidebar` | `no` | keeps the game list out of Store/Community |
+| SpaceTheme | `Sidebar on right` | `no` | game list on the left |
+| SpaceTheme | `Scrollbars` | `yes` | **reads backwards** — see below |
+| Zehn | `Color Mode` | `Dark` | default `Auto` can land on light |
+| Zehn | `Show What's New` | `no` | |
+| Zehn | `Foreground Color Mix` | `0` | had drifted to 81, greying the whole UI |
+
+Only declared options are forced; everything else stays yours to change in the
+Steam UI and survives rebuilds.
+
+**`Scrollbars` reads backwards.** Upstream's description is *"Hides the
+scrollbars in the SteamUI"*, so `yes` **hides** and the default `no` shows them.
+
+### SpaceTheme
+
+**Pinned to a COMMIT, not a tag.** Upstream stopped tagging — the newest tag is
+`v202505024` from May 2025 while development ships straight to `main` — so a tag
+would pin something 15 months stale.
+
+```bash
+nix-prefetch-git --url https://github.com/SpaceTheme/Steam --rev <sha>
+```
+
+Its colour system is **much better suited to matugen than Zehn's**: the whole
+palette is bare `R, G, B` triplets in an 18-line `src/css/root.css`, which is
+exactly matugen's output shape. No Windows-DWM indirection, no seven-variable
+ramp to reconstruct — just `--st-accent-1` and `--st-accent-2`.
+
+`--st-accent-2` (the hover/lighter variant) must come from matugen's
+`primary_fixed`, **not** `primary_fixed_dim`: for many wallpapers the latter
+resolves to the same value as `primary`, leaving hover states indistinguishable.
+
+49 options, vs Zehn's 24. Ones worth knowing: `Sidebar only on hover`,
+`Border radius`, `Window Controls` (Hide / Show / Show only on hover),
+`Max Width` (default 1200 — low for an ultrawide), `Game cover shiny effect`.
+Leave **`System accent colors` off** — it fights the matugen accent.
+
+### The "SpaceTheme" label in the title bar
+
+That is **Millennium**, not the theme — `SpaceTheme` appears nowhere in the
+theme's CSS or JS, only in `skin.json`, the LICENSE and the README. Millennium
+renders the active theme's name into Steam's title area, which is why no theme
+option turns it off.
+
+Two ways to deal with it, neither implemented yet:
+- **Hide it** in `quick.css`. Live, no restart, but needs a live probe to get
+  the selector (`steam -dev` makes this trivial).
+- **Colour it** via Millennium's own `general.accentColor` in `config.json`
+  (default `DEFAULT_ACCENT_COLOR`; it derives a light1..3 / dark1..3 ramp).
+  Downside: that file is written at rebuild, so the colour would be static and
+  would drift out of sync the first time the wallpaper palette changes.
 
 ### Zehn
 
@@ -296,6 +363,30 @@ into `themes.themeColors` and the cache wins over the file, so a matugen-rendere
 **No reload command** — Steam cannot re-read Quick CSS from outside (Millennium's
 watcher is an editor-only toggle), so a new accent applies at the next Steam
 start. Unlike Spicetify, which has CDP injection.
+
+### TRAP: a rebuild updates the template, NOT the rendered file
+
+This one bit three times in a single session — the border vanishing, the accent
+not applying, and SpaceTheme rendering blue.
+
+`quick.css` is **matugen-owned**. A rebuild copies the new template to
+`~/.config/skwd-wall/data/matugen/templates/steam-quick.css`, but the rendered
+`~/.config/millennium/quick.css` is only rewritten when matugen next runs — i.e.
+**on a wallpaper change**. So edits to the generator look like they did nothing,
+and it is tempting to go debugging CSS that is not actually loaded.
+
+Check which is which before assuming anything is broken:
+
+```bash
+grep -c st-accent ~/.config/skwd-wall/data/matugen/templates/steam-quick.css  # template
+grep -c st-accent ~/.config/millennium/quick.css                              # rendered
+```
+
+Mismatch = stale render, not a CSS bug. Change the wallpaper to force it.
+
+Worth fixing properly: a rebuild should re-render from the current palette
+(matugen can read a saved palette via its `json` subcommand) instead of waiting
+for a wallpaper change.
 
 ### quick.css must not be a home-manager symlink
 
