@@ -69,8 +69,8 @@
 EOF
             '';
             bitwarden-zip = pkgs.fetchzip {
-              url = "https://github.com/bitwarden/clients/releases/download/browser-v2026.5.1/dist-chrome-2026.5.1.zip";
-              hash = "sha256-xmTQ9HMiGlHtVCkTkzfIVxYsJ3A+zj0VF5S+mTnSIr0=";
+              url = "https://github.com/bitwarden/clients/releases/download/browser-v2026.7.0/dist-chrome-2026.7.0.zip";
+              hash = "sha256-6+q/iugfCIEFmX3cjZTJMqSfiBc4N4iWMAx7qjX9gDU=";
               stripRoot = false;
             };
             # Inject the RSA public key into manifest.json so --load-extension assigns the
