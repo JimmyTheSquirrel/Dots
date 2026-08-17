@@ -771,9 +771,18 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # QUALITY — Recyclarr (TRaSH Guides quality profile sync)
 # Syncs quality profiles + custom formats to Sonarr + Radarr on boot + daily.
-#   Sonarr: WEB-1080p + WEB-2160p (TV is web-sourced)
-#   Radarr: Remux-1080p + Remux-2160p (Remux → Bluray → WEB, best first)
+#   Sonarr: WEB-1080p + WEB-2160p + Asgard - TV (default, see below)
+#   Radarr: Remux-1080p + Remux-2160p + Asgard - Movies (default, see below)
 # This fixes grab issues like "only getting Redux" — proper CF scoring applied.
+#
+# "Asgard - Movies" / "Asgard - TV" (2026-08-16): custom (non-trash_id) merged
+# profiles — best compressed quality first (4K, no remux), falling back down
+# to whatever's actually available, in one ladder. Remuxes were causing real
+# problems (Eclipse's Pi decoder choking on 4K HDR remuxes, WAN bandwidth
+# saturation for remote streams — see Claude/eclipse.md) for negligible
+# perceptible quality gain. Set as Jellyseerr's default via
+# seerr-radarr-profile / seerr-sonarr-profile below, so every user's request
+# uses these without having to pick a profile manually.
 # ══════════════════════════════════════════════════════════════════════════════
 
     # ── Missing content search ─────────────────────────────────────────────────
@@ -846,11 +855,12 @@
       };
     };
 
-    # Sets Jellyseerr's default Radarr quality profile to "Remux + WEB 1080p"
-    # (created by Recyclarr). Runs 12min after boot so Recyclarr (5min) has
-    # had time to create the profile first. Idempotent — safe to re-run.
+    # Sets Jellyseerr's default Radarr quality profile to "Asgard - Movies"
+    # (created by Recyclarr — best-compressed-quality-first, remux excluded).
+    # Runs 12min after boot so Recyclarr (5min) has had time to create the
+    # profile first. Idempotent — safe to re-run.
     systemd.services.seerr-radarr-profile = {
-      description = "Set Jellyseerr default Radarr profile to Remux + WEB 1080p";
+      description = "Set Jellyseerr default Radarr profile to Asgard - Movies";
       after    = [ "seerr.service" "seerr-setup.service" "radarr.service" "network.target" ];
       wants    = [ "seerr.service" "seerr-setup.service" "radarr.service" ];
       path     = [ pkgs.curl pkgs.jq ];
@@ -875,15 +885,15 @@
           sleep 5
         done
 
-        # Find the "Remux + WEB 1080p" profile ID in Radarr
+        # Find the "Asgard - Movies" profile ID in Radarr
         PROFILE_ID=$(curl -s -H "X-Api-Key: $RADARR_KEY" "$RADARR/api/v3/qualityprofile" | \
-          jq -r '.[] | select(.name == "Remux + WEB 1080p") | .id')
+          jq -r '.[] | select(.name == "Asgard - Movies") | .id')
 
         if [ -z "$PROFILE_ID" ]; then
-          echo "Remux + WEB 1080p profile not found in Radarr — Recyclarr may not have run yet." >&2
+          echo "Asgard - Movies profile not found in Radarr — Recyclarr may not have run yet." >&2
           exit 1
         fi
-        echo "Found Radarr profile: Remux + WEB 1080p (ID: $PROFILE_ID)"
+        echo "Found Radarr profile: Asgard - Movies (ID: $PROFILE_ID)"
 
         # Log into Jellyseerr (session cookie required for settings endpoints)
         LOGIN_CODE=$(curl -s -c "$COOKIE" -X POST \
@@ -907,14 +917,14 @@
 
         # Update the profile
         UPDATED=$(echo "$RADARR_CFG" | jq --argjson pid "$PROFILE_ID" \
-          '.[0] | .activeProfileId = $pid | .activeProfileName = "Remux + WEB 1080p" | del(.id)')
+          '.[0] | .activeProfileId = $pid | .activeProfileName = "Asgard - Movies" | del(.id)')
         curl -sf -b "$COOKIE" -X PUT \
           -H "Content-Type: application/json" \
           -d "$UPDATED" \
           "$SEERR/api/v1/settings/radarr/$INSTANCE_ID" > /dev/null
 
         rm -f "$COOKIE"
-        echo "Jellyseerr Radarr profile updated to Remux + WEB 1080p (ID: $PROFILE_ID)"
+        echo "Jellyseerr Radarr profile updated to Asgard - Movies (ID: $PROFILE_ID)"
       '';
     };
 
@@ -928,7 +938,7 @@
     };
 
     systemd.services.seerr-sonarr-profile = {
-      description = "Set Jellyseerr default Sonarr profile to WEB-1080p";
+      description = "Set Jellyseerr default Sonarr profile to Asgard - TV";
       after    = [ "seerr.service" "seerr-setup.service" "sonarr.service" "network.target" ];
       wants    = [ "seerr.service" "seerr-setup.service" "sonarr.service" ];
       path     = [ pkgs.curl pkgs.jq ];
@@ -953,13 +963,13 @@
         done
 
         PROFILE_ID=$(curl -s -H "X-Api-Key: $SONARR_KEY" "$SONARR/api/v3/qualityprofile" | \
-          jq -r '.[] | select(.name == "WEB-1080p") | .id')
+          jq -r '.[] | select(.name == "Asgard - TV") | .id')
 
         if [ -z "$PROFILE_ID" ]; then
-          echo "WEB-1080p profile not found in Sonarr — Recyclarr may not have run yet." >&2
+          echo "Asgard - TV profile not found in Sonarr — Recyclarr may not have run yet." >&2
           exit 1
         fi
-        echo "Found Sonarr profile: WEB-1080p (ID: $PROFILE_ID)"
+        echo "Found Sonarr profile: Asgard - TV (ID: $PROFILE_ID)"
 
         LOGIN_CODE=$(curl -s -c "$COOKIE" -X POST \
           -H "Content-Type: application/json" \
@@ -980,8 +990,8 @@
         fi
 
         UPDATED=$(echo "$SONARR_CFG" | jq --argjson pid "$PROFILE_ID" \
-          '.[0] | .activeProfileId = $pid | .activeProfileName = "WEB-1080p"
-               | .activeAnimeProfileId = $pid | .activeAnimeProfileName = "WEB-1080p"
+          '.[0] | .activeProfileId = $pid | .activeProfileName = "Asgard - TV"
+               | .activeAnimeProfileId = $pid | .activeAnimeProfileName = "Asgard - TV"
                | del(.id)')
         curl -sf -b "$COOKIE" -X PUT \
           -H "Content-Type: application/json" \
@@ -989,7 +999,7 @@
           "$SEERR/api/v1/settings/sonarr/$INSTANCE_ID" > /dev/null
 
         rm -f "$COOKIE"
-        echo "Jellyseerr Sonarr profile updated to WEB-1080p (ID: $PROFILE_ID)"
+        echo "Jellyseerr Sonarr profile updated to Asgard - TV (ID: $PROFILE_ID)"
       '';
     };
 
@@ -1048,11 +1058,79 @@ sonarr:
       - trash_id: d1498e7d189fbe6c7110ceaabb7473e6  # WEB-2160p
         reset_unmatched_scores:
           enabled: true
+      # Custom (not trash_id-based) — mirrors "Asgard - Movies": one ladder,
+      # best quality first, remux excluded. Deeper fallback than the stock
+      # WEB-only profiles above (which allow WEB and nothing else) because
+      # older/catalog shows (Voyager, Kitchen Nightmares back-catalog) often
+      # only exist as Bluray-1080p, HDTV, or even DVD/SDTV — a WEB-only
+      # profile just never grabs them. Upgrading stays on, so anything
+      # grabbed low will get replaced automatically if a better release
+      # (still non-remux) shows up later.
+      - name: Asgard - TV
+        reset_unmatched_scores:
+          enabled: true
+        upgrade:
+          allowed: true
+          until_quality: WEB 2160p
+        quality_sort: bottom
+        qualities:
+          - name: WEB 2160p
+            qualities:
+              - WEBDL-2160p
+              - WEBRip-2160p
+          - name: Bluray-2160p
+          - name: WEB 1080p
+            qualities:
+              - WEBDL-1080p
+              - WEBRip-1080p
+          - name: Bluray-1080p
+          - name: HDTV-1080p
+          - name: WEB 720p
+            qualities:
+              - WEBDL-720p
+              - WEBRip-720p
+          - name: Bluray-720p
+          - name: HDTV-720p
+          - name: DVD
+          - name: SDTV
+      # Custom (not trash_id-based) — anime needs its own profile because
+      # scoring is fundamentally different: release quality is judged by
+      # FANSUB/BD GROUP reputation (the Anime Release Groups CFs below), not
+      # by resolution/source the way normal TV is. Structure mirrors TRaSH's
+      # own "[Anime] Remux-1080p" guide profile (1080p BD as the top tier,
+      # HDTV/WEB-1080p merged into a middle tier, 720p as final fallback) —
+      # deliberately DROPPING remux from the top tier (TRaSH merges
+      # "Bluray-1080p Remux" + "Bluray-1080p" into one tier and lets the
+      # Remux Tier custom format bias toward remux; we just don't allow
+      # remux at all, same as Asgard - Movies / Asgard - TV). Anime rarely
+      # has meaningful 2160p releases, so no 2160p tier here.
+      - name: Asgard - Anime
+        reset_unmatched_scores:
+          enabled: true
+        upgrade:
+          allowed: true
+          until_quality: Bluray-1080p
+        quality_sort: bottom
+        qualities:
+          - name: Bluray-1080p
+          - name: 1080p
+            qualities:
+              - HDTV-1080p
+              - WEBDL-1080p
+              - WEBRip-1080p
+          - name: 720p
+            qualities:
+              - HDTV-720p
+              - WEBDL-720p
+              - WEBRip-720p
     custom_format_groups:
       add:
         - trash_id: 158188097a58d7687dee647e04af0da3  # [Optional] Golden Rule HD
         - trash_id: e3f37512790f00d0e89e54fe5e790d1c  # [Optional] Golden Rule UHD
         - trash_id: 74aff4168620ed49dcc67e92b2c2a5b4  # [Optional] Language Profiles
+        - trash_id: f206572b1147d0221bb1c96765b349e8  # [Release Groups] Anime
+        - trash_id: 4d3dc16c3ab3adc640afb8d6e3dc2266  # [Optional] Anime Optional (dual audio, uncensored, 10bit)
+        - trash_id: 4b196eed652c65ea98d615212040ebe2  # [Required] Anime Versions (v0-v4)
         - trash_id: 85fae4a2294965b75710ef2989c850eb  # [Streaming Services] HD/UHD boost
         - trash_id: 59c3af66780d08332fdc64e68297098f  # [Unwanted] Unwanted Formats
 radarr:
@@ -1068,6 +1146,30 @@ radarr:
       - trash_id: fd161a61e3ab826d3a22d53f935696dd  # Remux + WEB 2160p
         reset_unmatched_scores:
           enabled: true
+      # Custom (not trash_id-based) — no official TRaSH profile spans both
+      # resolutions in one ladder. Merges HD Bluray + WEB (d1d67249…) and
+      # UHD Bluray + WEB (64fb5f98…) qualities into one profile, remux
+      # excluded entirely, so this can never grab/keep a remux release.
+      # Upgrading is allowed up to Bluray-2160p, so a 1080p grab will later
+      # get replaced by a 4K one if a clean (non-remux) release shows up.
+      - name: Asgard - Movies
+        reset_unmatched_scores:
+          enabled: true
+        upgrade:
+          allowed: true
+          until_quality: Bluray-2160p
+        quality_sort: bottom
+        qualities:
+          - name: Bluray-2160p
+          - name: WEB 2160p
+            qualities:
+              - WEBRip-2160p
+              - WEBDL-2160p
+          - name: Bluray-1080p
+          - name: WEB 1080p
+            qualities:
+              - WEBRip-1080p
+              - WEBDL-1080p
     custom_format_groups:
       add:
         - trash_id: f8bf8eab4617f12dfdbd16303d8da245  # [Optional] Golden Rule HD
