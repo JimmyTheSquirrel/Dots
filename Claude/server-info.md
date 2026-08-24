@@ -15,10 +15,11 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 - Jellyfin, Jellyseerr, SABnzbd — all healthy
 - Prowlarr — 3 indexers pre-configured (Miatrix, NZBgeek, NzbPlanet) via sops secrets, app sync configured to push to all arrs
 - SABnzbd — FrugalUsenet (primary) + Newshosting (backup), dual Usenet backbone, running inside Mullvad VPN namespace with kill switch
-- Glance dashboard (port 8888) — native `server-stats` widget + "System Info" custom-api (auto-refreshing via injected JS), service monitors, bookmarks, Yggdrasil Network widget
+- Glance dashboard (port 8888) — native `server-stats` widget, live network panel + speed test (JS-driven, see below), tabbed service monitors, Yggdrasil Network widget
 - FileBrowser, Immich, Audiobookshelf, Shelfarr — running
 - Decluttarr — running, config auto-generated from individual arr/sabnzbd API key secrets
-- Recyclarr — runs on boot + daily, syncs TRaSH Guides quality profiles to Sonarr + Radarr
+- Recyclarr — runs on boot + daily. **Only four quality profiles exist** (2026-08-23): "Asgard - Movies" (Radarr), "Asgard - TV" / "Asgard TV - 1080p" / "Asgard - Anime" (Sonarr). All TRaSH stock profiles were deleted so Jellyseerr shows a short list
+- `arr-policy.service` — applies what recyclarr cannot: series→profile mapping, `seriesType`, release profiles, Radarr collection repointing, profile deletion, Jellyfin per-user audio settings
 - **Tailscale** — stock Tailscale (free plan), tailnet `tailb54b82.ts.net`. Asgard (100.126.205.100), Sisyphus (100.70.29.3), rhys-s25 (100.68.29.23)
 - **Networking** — stock Tailscale, `tailscale0` trusted in firewall, all services reachable via `asgard:port` from tailnet devices
 - **Mullvad VPN** — SABnzbd confined to WireGuard network namespace (`/var/run/netns/vpn`), Mullvad Sydney exit, socat proxy host:8080 → namespace
@@ -44,7 +45,8 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 | ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
 | tailscale-status-proxy | 9553 | internal only | HTTP proxy for Glance Yggdrasil widget |
-| **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Native server-stats + auto-refreshing System Info widget + Yggdrasil Network widget |
+| **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Native server-stats + network panel + tabbed service monitors + Yggdrasil Network widget |
+| network-panel      | 9555 | Tailscale only | Live throughput from `/proc/net/dev` + last speed-test result; `POST /run` triggers a test. Backs the Glance Network group |
 | **ttyd**           | 7681 | Tailscale only | Web terminal (Glance "Terminal" page iframe + Management bookmark). Login prompt (root `login` entrypoint) — log in as `rock`, passwordless sudo for reboot/shutdown |
 | **Grafana**        | 3001 | Tailscale only | System stats (bar gauge panels) + logs. Anonymous viewing enabled for iframe embedding |
 | **Prometheus**     | 9090 | Tailscale only | Metrics collection. CORS enabled (`--web.cors.origin=.*`) for Glance JS polling |
@@ -73,7 +75,31 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 - **WAN egress shaping** — `wan-egress-shaping.service` (in `Modules/server.nix`) caps WAN-bound upload on enp3s0 at 30 Mbit via HTB + fq_codel. Home uplink is 50 Mbit; Jellyfin transcode segments burst at full line rate every ~3s, spiking latency ~180ms and rubber-banding LAN game sessions. RFC1918 destinations bypass the cap (LAN direct-play unaffected). Inspect with `tc -s qdisc show dev enp3s0`.
 
 ### Native NixOS service (background sync)
-- **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`.
+- **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Check with `journalctl -u recyclarr-sync`.
+
+  **Four profiles, all custom (non-trash_id).** They merge the resolution tiers into one ladder and exclude remux entirely (Eclipse's Pi decoder chokes on 4K HDR remuxes, and remux size saturates WAN for remote streams):
+
+  | Profile | Service | Tops out at | Used by |
+  |---|---|---|---|
+  | Asgard - Movies | Radarr | Bluray-2160p | all 237 movies |
+  | Asgard - TV | Sonarr | WEB 2160p | 42 series |
+  | Asgard TV - 1080p | Sonarr | WEB 1080p | Game of Thrones only |
+  | Asgard - Anime | Sonarr | Bluray-1080p | 5 anime series |
+
+  **The TRaSH stock profiles were deleted 2026-08-23** and their `trash_id` entries REMOVED from the
+  recyclarr config. Do not put them back — recyclarr recreates any profile it is told to manage, and
+  they only cluttered Jellyseerr's dropdown. Jellyseerr defaults are set by
+  `seerr-radarr-profile`/`seerr-sonarr-profile`.
+
+  **`Asgard TV - 1080p` exists only for Game of Thrones.** Its sole 4K source is a Blu-ray remaster,
+  ~17 GB/ep against 3.4 GB on disk — a 5x jump that would have added ~1 TB on its own, where the
+  other seven shows with real 4K cost only +1.6 to +8.8 GB/ep. Reusable for any show where 4K isn't
+  wanted; assign per-series in `arr-policy`.
+
+  **`Asgard - Anime` has no 2160p tier, deliberately.** TV anime is mastered at 1080p, so 2160p anime
+  releases are upscales — B-Global's "2160p" JJK files were 2.03 GB against 1.54 GB for the native
+  1080p Crunchyroll rips. TRaSH's own anime profile also tops out at Bluray-1080p. See *Anime must be
+  English dub* below.
 
   **Was BROKEN 2026-07-11 → 2026-08-11, now FIXED.** Last successful sync had been 2026-07-10
   22:10; it failed every nightly run for a month (36 failures of 40 runs) before being found while
@@ -105,7 +131,8 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
   strict (see `memory/feedback_quality_profiles.md`). The only change was a month of TRaSH audio
   scoring (TrueHD ATMOS +5000, DTS X +4500, FLAC/PCM/DD+/DTS) plus new negatives (Bad Dual Groups,
   Line/Mic Dubbed, Black and White Editions at -10000): Radarr 22→39 and 23→40 scored CFs, Sonarr
-  31→37 and 33→38. Sonarr's manual "Any 1080p" profile is not recyclarr-managed and was untouched.
+  31→37 and 33→38. Sonarr's manual "Any 1080p" profile was not recyclarr-managed and was untouched
+  at the time — **it has since been deleted (2026-08-23)** along with every other stock profile.
   All queues were 0 afterwards — no upgrade wave.
 
 ### Mullvad VPN Namespace (SABnzbd)
@@ -128,6 +155,111 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 
 ---
 
+## `arr-policy.service` — per-item state recyclarr can't express
+
+Recyclarr owns quality profiles and custom-format *scores*. It has no concept of which series uses
+which profile, series type, release profiles, Radarr collections, or Jellyfin user settings. Those
+are per-record database state, so `arr-policy.service` applies them over the APIs — idempotently, on
+every rebuild, so a fresh install converges. Config lives in Nix; nothing is clicked in a UI.
+
+What it does: series→profile mapping · `seriesType=anime` on the 5 anime · the
+`Asgard - fake dual audio` release profile · repoints Radarr collections · deletes stock quality
+profiles · sets Jellyfin `AudioLanguagePreference=eng` + `PlayDefaultAudioTrack=false` for every
+user except Rhys.
+
+Ordered **after** `seerr-*-profile` on purpose — Jellyseerr pointed at the stock "Any" profile,
+which this service deletes. Repoint first, then delete.
+
+Two things that block a profile delete and cost time if you don't know them:
+
+- **Radarr collections carry their own `qualityProfileId`.** Two profiles with **zero movies** still
+  refused to delete — 29 and 19 collections referenced them. Repoint collections first.
+- Profile deletion uses an explicit **NAME list**, never "everything unused", so a profile created
+  later on purpose is never silently destroyed.
+
+---
+
+## Anime — English dub is a HARD requirement
+
+Audited 2026-08-23: **28 of 162 anime files had no English track at all.** JUJUTSU KAISEN S1 was a
+**French** Blu-ray rip (`MULTi...SHiNiGAMi`); SAKAMOTO DAYS had 6 **Portuguese** (`DUAL-sh4down`)
+and 2 raw-Japanese files.
+
+`Asgard - Anime` now carries `Anime Dual Audio` = **2000**, `Dubs Only` = **2000**, and
+**`min_format_score: 2000`**.
+
+> **Scoring a custom format highly is NOT enough. Sonarr ranks QUALITY TIER ahead of custom-format
+> score.** Proved empirically: a Japanese `Bluray-1080p` (score 0) beat a `WEBDL-720p` dual-audio
+> release (score **4100**) and was grabbed. CF score only breaks ties *within* one quality tier.
+> `min_format_score` is the only lever that rejects non-dubs outright — and it is TRaSH's own
+> documented recipe: *"If you must have Dual Audio releases set the Minimum Custom Format Score to
+> 2000."* Their ladder: 0 = neutral (default), 10 = same-tier preference, 101 = above one tier,
+> 2000 = beats resolution tiers.
+
+**2000 works because of an arithmetic gap.** Best possible non-dub = WEB Tier 01 1700 + streaming
+boosts 150 + repack 7 = **1857**. Any dub starts at **2000**. ⚠️ **Raising tier scores above ~1990
+closes that gap and silently breaks the whole policy.**
+
+**Accepted consequence:** no dub available = the episode stays **MISSING**. There is no sub
+fallback. For a currently-airing season the dub can lag the sub by weeks.
+
+### Four rules that each silently defeated this
+
+1. **`Language: Not Original` (-10000) was applied to anime.** It rejects releases whose language
+   isn't the series' *original* — for anime the original IS Japanese, so it penalised the English
+   dub. Correct for live-action TV. Now TV-profiles-only.
+2. **`x265 (HD)` (-10000) was applied to anime.** TRaSH's anime unwanted list is only
+   `Anime Raws / Anime LQ Groups / AV1 / Dubs Only / VOSTFR / v0` — **no x265**. 10-bit x265 is the
+   normal format for anime groups. This scored genuine 1080p dual-audio releases at -8000 and forced
+   a 720p grab. Now TV-profiles-only.
+3. **`Anime Dual Audio` matches the release TITLE, not the audio.** A Portuguese
+   `...H.264.DUAL-sh4down` matched its `1080p.*DUAL` alternation and scored as if English.
+   `sh4down` is **not** in TRaSH's `Bad Dual Groups` (all 34 checked).
+4. **Dub-only releases don't match `Anime Dual Audio` at all** — e.g.
+   `Sakamoto Days - 03 [English Dub][1080p]` scored 0 and was rejected by the minimum. Fixed with
+   TRaSH's **`Dubs Only`** CF (`9c14d194486c4014d422adc64092d794`) at **+2000** — TRaSH scores it
+   **-10000** because their guide is written for sub-watchers; the sign is deliberately inverted.
+
+### `Asgard - fake dual audio` release profile
+
+Ignored terms: **`sh4down`, `AV1`**. A *release profile*, not a custom format, because recyclarr's
+`reset_unmatched_scores` zeroes locally-scored CFs on its next sync.
+
+**AV1 is blocked here as well as by the AV1 custom format, because the CF has a gap:** its regex is
+`\bAV1\b`, which does **not** match `[Breeze].Sakamoto.Days-S01E13.1080p.AV1Dual.Audio.weekly` —
+there's no word boundary between `AV1` and `Dual`. That release scored +2000 on `Anime Dual Audio`
+alone and was grabbed despite the CF sitting at -10000. Release-profile terms are plain substring
+matches, so they have no such gap. AV1 matters here because **Eclipse is a Pi 5 — HEVC hardware
+decode but no AV1 decoder**.
+
+### No 2160p tier — and don't re-add it
+
+TV anime is mastered at 1080p (often 720p); native 4K anime is essentially nonexistent, and a WEB-DL
+cannot exceed what the platform streamed. The B-Global "2160p" JJK files were **2.03 GB** against
+**1.54 GB** for the native 1080p Crunchyroll rips already on disk — 4x the pixels for 32% more data,
+i.e. an upscale. TRaSH's anime profile has no 2160p tier either.
+
+2160p was briefly added on 2026-08-23 because JJK *looked* like it only had dubs at 4K — that was an
+artefact of the x265 penalty (rule 2 above) suppressing the real 1080p releases. Once fixed, S01E02
+alone had 150 dual-audio releases including Bluray-1080p. **Don't re-add 2160p because a show "only
+has dubs at 4K" — check whether a scoring rule is hiding the 1080p ones first.**
+
+### Useful
+
+**You don't need to delete bad files.** Once they score below `min_format_score`, Sonarr treats them
+as cutoff-unmet and replaces them itself.
+
+```bash
+# what audio does each file actually have?
+curl -s -H "X-Api-Key: $KEY" "http://localhost:8989/api/v3/episodefile?seriesId=$ID" \
+  | jq -r '[.[]|.mediaInfo.audioLanguages]|group_by(.)[]|"\(length) x \(.[0])"'
+```
+
+Note `Dubs Only` releases are English-**only** (no Japanese track), unlike dual-audio. JJK S1 is
+mixed: 4 dual-audio Kitsune files, 20 English-only DSNP.
+
+---
+
 ## Observability Stack
 
 ### Architecture
@@ -139,18 +271,29 @@ Grafana (3001) — reads Loki + Prometheus, provisioned datasources
 ```
 
 ### Glance Dashboard (port 8888)
-3-column layout: **Bookmarks** (left, small) | **System stats + Service monitors** (center, full) | **Clock + Network** (right, small)
+2-column layout: **Stats + network + service health** (full) | **Clock + Yggdrasil** (small)
+
+**Glance renders each widget server-side exactly ONCE per page load.** `page.js`
+calls `fetchPageContent()` a single time from `setupPage()` — there is no
+client-side widget refresh in 0.8.5. Anything that has to move on screen must be
+driven by JavaScript injected through `document.head`. Don't add a `custom-api`
+widget with a short `cache:` expecting it to tick; the cache only affects the
+next page load.
 
 **Page 1 — Asgard (main):**
 
-Left column (small): Bookmarks grouped by Watch & Browse / Downloads / Arr Stack / Management
+There is deliberately **no bookmarks column**. Every link it held was also a
+monitor row, and monitor rows are already clickable — the page was listing the
+same thirteen services twice. Add new services to the monitors, not a sidebar.
 
-Center column (full):
-- Native `server-stats` widget: CPU/RAM/Disk bars, `/data` mountpoint shown, others hidden
-- "System Info" `custom-api` widget: Disk /data GB free, Download Mbps, Upload Mbps — queries Prometheus with combined PromQL (`node_filesystem_free_bytes` + `rate(node_network_*_bytes_total{device=~"enp.*|wlp.*"}[15s])`). Auto-refreshed every 5s via injected JavaScript in `document.head` that polls Prometheus directly (requires CORS enabled on Prometheus)
-- Service monitor groups: Downloads (SABnzbd, Prowlarr), Arr Stack (Sonarr, Radarr, Lidarr, Shelfarr), Media (Jellyfin, Jellyseerr, Immich, Audiobookshelf), Management (FileBrowser, Prometheus, Loki, Grafana)
+Full column:
+- Native `server-stats` widget: CPU/RAM/Disk bars, `/data/media` shown as "Media Pool", others hidden
+- **Network** `group` (tabs: Network / Speed test) — see below
+- **Service health** `group` (tabs: All / Media / Downloads / Arr / Management).
+  "All" is the default tab and repeats every site from the category tabs; the
+  duplicated checks are local HTTP GETs on a 1m cache and cost nothing.
 
-Right column (small):
+Small column:
 - Clock widget (12h format)
 - Yggdrasil tree banner (split CSS: Norse rune ring SVG as `::before`, tree PNG as `::after` via `/assets/yggdrasil.png` from `glanceAssets` derivation + `assets-path`)
 - Yggdrasil Network `custom-api` widget: queries `tailscale-status-proxy` (port 9553) which reads tailscaled Unix socket, 15s cache, shows device names + online/offline dots + IPs.
@@ -160,6 +303,9 @@ Right column (small):
 - Yggdrasil banner: ring SVG as `::before` data URI, tree PNG as `::after` via `/assets/yggdrasil.png`
 - Active page tab + clock text glow
 - Widget title letter-spacing
+- `.np-*` — the network panel (numbers, SVG sparklines, "Run now" button)
+- The section divider is `.column-full > .widget + .widget`. The child combinator
+  is load-bearing: as a descendant selector it drew a rule between group tab panes.
 
 **Page 2 — Downloads:**
 - SABnzbd iframe: `type: iframe`, `source: http://asgard:8080`, `height: 700`
@@ -171,6 +317,87 @@ Right column (small):
 **Icons:** Use `sh:` prefix (selfh.st colored icons). For apps not in selfh.st, use direct CDN URLs. Avoid `si:` — monochrome.
 
 **SABnzbd iframe requirements:** `x_frame_options = 0` in nixflix SABnzbd misc settings. Dark mode: `web_color = "Night"` (NOT "Dark").
+
+### Network panel + speed test (port 9555)
+
+`Resources/Network-Panel/network-panel.py`, run by `systemd.services.network-panel`.
+One process, two jobs:
+
+- **Live throughput** — a thread samples `/proc/net/dev` for `enp3s0` once a second
+  and keeps a 60s history, so the numbers *and* the sparklines are populated on the
+  first request rather than filling in over the next minute.
+- **Speed test** — serves the last result written by `speedtest.service`, and
+  `POST /run` starts a fresh one.
+
+`GET /api` is consumed twice: by Glance over localhost to server-render the first
+frame, and by the poller in `document.head` over the tailnet (every 2s) to keep it
+moving. Hence `Access-Control-Allow-Origin: *` and the `0.0.0.0` bind. Still
+tailnet-only — 9555 is not in `allowedTCPPorts` and `tailscale0` is trusted.
+The poller derives its base URL from `location.hostname`, so it survives being
+opened by IP instead of by name. It matches elements by `id` (`np-down`,
+`np-spark-up`, `np-st-*`, `np-run`) — **renaming an id in the widget template
+without editing the script silently breaks the live half.**
+
+Runs as root only so `POST /run` can `systemctl start speedtest.service`.
+
+**This replaced `flow` inside a second read-only ttyd on :7682.** That panel worked,
+but ttyd kills its child whenever the websocket drops — a backgrounded tab was
+enough — and xterm.js then painted its reconnect banner over the widget, which is
+what it spent most of its life showing. Don't reintroduce a terminal-in-an-iframe
+for this.
+
+#### speedtest.service / speedtest.timer
+
+Ookla's official CLI (`ookla-speedtest`, unfree — `allowUnfree` is already on),
+every 6h with `Persistent = true` and a 15m randomised delay. Two traps, both
+already handled, both of which cost a debugging round:
+
+- **`HOME` must be set.** The CLI does `std::string(getenv("HOME"))` unguarded and
+  aborts on `basic_string::_M_construct null not valid`, dumping core before it
+  touches the network. Set to `/var/lib/speedtest` (its `StateDirectory`), where it
+  also keeps its license-acceptance flag.
+- **The EULA goes to stdout ahead of the JSON on a fresh machine**, so the script
+  takes the first line matching `^{` rather than the whole stream — otherwise
+  `latest.json` is a licence notice. Result is written to a temp file and renamed,
+  so a failed run never replaces a good one.
+
+**Upload reads ~28-30 Mb/s and that is correct**, not a broken uplink:
+`wan-egress-shaping` puts every WAN-bound packet in a 30 Mbit htb class. The widget
+footnote says "shaped to 30" for exactly this reason. It shapes Asgard's own egress
+only, so a test from the desktop will legitimately show a much higher upload.
+Download is unshaped (~420 Mb/s measured 2026-08-22).
+
+**The run pauses SABnzbd first (added 2026-08-24).** Ookla measures spare capacity,
+not link capacity, so before this the timer fired mid-download and published the
+leftovers — one run read 47.8 Mb/s where the same link measured 421 twenty seconds
+later with the queue paused. The script pauses via `mode=config&name=set_pause&value=6`,
+waits 8s for in-flight NNTP connections to drain, and `ExecStopPost` resumes.
+
+Three details that matter if you touch it:
+
+- The resume lives in **`ExecStopPost`, not a trap in the script**, so it also runs
+  when the unit is killed on `TimeoutStartSec` — the one case a trap would miss.
+- `set_pause` takes **minutes** and is a pause with a deadline. It is set to 6, one
+  past the 5m `TimeoutStartSec`, so even a hard kill can't strand the queue.
+- The `/var/lib/speedtest/.sab-paused` marker is what authorises the resume, so a
+  queue you paused by hand is never silently restarted. The script deliberately does
+  **not** clear it on entry: a marker left behind means the last run died before
+  `ExecStopPost`, and carrying it forward is what gets the queue un-paused.
+
+The script logs `background traffic at test start: N Mb/s down` to the journal.
+SAB is the only thing it can pause — if that line isn't near zero, something else
+(a Jellyfin stream, an arr import) was running and the result is a headroom figure
+again. Check it before believing a bad number.
+
+**IPv6 is not a factor**, despite `enableIPv6 = false`: `enp3s0` still takes an RA
+and the test binds the GUA by default (`net.ipv6.conf.all.disable_ipv6 = 1` but
+`enp3s0` is `0`). Measured v4 vs v6 within 1.5% of each other. Note `speedtest -i
+<addr>` cannot be used to force a family — it fails `bind(3, …)` because the config
+fetch picks its family from DNS first; toggle
+`sysctl net.ipv6.conf.enp3s0.disable_ipv6` instead.
+
+Running the CLI by hand does **not** update the panel — only `speedtest.service`
+writes `latest.json`.
 
 ### Grafana (port 3001)
 - Admin password from sops `grafana-admin-password` (owner = grafana)
@@ -248,10 +475,33 @@ Use `hostConfig.password._secret` only.
 - `jellyfin-setup-wizard.service` — Jellyfin initial setup (creates admin user + libraries)
 
 **Custom Jellyseerr quality profile services (in server.nix):**
-- `seerr-radarr-profile.service` + timer — sets Radarr default quality profile to "Remux + WEB 1080p" in Jellyseerr
-- `seerr-sonarr-profile.service` + timer — sets Sonarr default quality profile to "WEB-1080p" in Jellyseerr
-- Both run after `seerr-setup.service`, have `Restart = on-failure` + `RestartSec = 30` for boot timing
-- Uses Jellyseerr session cookie auth (not API key) — logs in then PUTs to `/api/v1/settings/radarr/0` / `/api/v1/settings/sonarr/0`
+- `seerr-radarr-profile.service` + timer — sets Radarr default quality profile to "Asgard - Movies"
+- `seerr-sonarr-profile.service` + timer — sets Sonarr default to "Asgard - TV" **and the separate
+  `activeAnimeProfileId` to "Asgard - Anime"**. Jellyseerr keeps a distinct anime profile setting;
+  it previously pointed at the TV profile, so anime requests never got the fansub tier scoring.
+- Both run after `seerr-setup.service`, `Restart = on-failure` + `RestartSec = 30`, plus
+  `StartLimitBurst = 5` so a persistent failure gives up instead of looping.
+- **Auth is the `jellyseerr-api-key`, NOT a Jellyfin session cookie.** The older cookie flow is what
+  broke them — see below.
+
+> ### ⚠️ These failed silently for three weeks — the fix is not the error you see
+>
+> From 2026-07-31 to 2026-08-23 both units failed every 30s (**restart counter 2665**), which also
+> made every `nixos-rebuild switch` exit 4.
+>
+> The visible error was `jq: Cannot index object with number (0)` — misleading. The real cause: they
+> logged into Jellyseerr as the Jellyfin **`admin`** account, which Jellyseerr imported as an
+> ORDINARY user (`permissions: 32` = REQUEST only, **not** ADMIN). Login returned HTTP 200, then
+> every `/api/v1/settings/` call returned a 403 **object**, and `.[0]` on an object threw.
+>
+> **The API key works fine on settings endpoints.** Any earlier note saying they require session
+> cookies is wrong. Verify with:
+> ```bash
+> curl -s -H "X-Api-Key: $(sudo cat /run/secrets/jellyseerr-api-key)" \
+>   http://localhost:5055/api/v1/settings/sonarr
+> ```
+>
+> Consequence while broken: Jellyseerr sat on the stock **"Any"** profile for everything.
 
 **Known nixflix bug (v1.2.0):** `seerr-setup.service` fails on library fetch step (`curl -sf` exits 22).
 The Jellyfin connection IS established on first run — only the library activation fails.
@@ -309,7 +559,7 @@ curl -s -b /tmp/t.txt -X POST "http://localhost:5055/api/v1/settings/initialize"
 Homepage (`services.homepage-dashboard`) has been removed and replaced by Glance (port 8888).
 Glances (`services.glances`) was also removed — it was only used as a Homepage widget backend.
 
-All service monitoring is now done via Glance native `server-stats` widget + auto-refreshing "System Info" custom-api widget (Prometheus-backed).
+All service monitoring is now done via Glance native `server-stats` widget + the network panel on :9555.
 
 ---
 
@@ -494,8 +744,8 @@ Omit `use_ino` — default and deprecated in mergerfs 2.x.
   drive. Harmless — `accessible: true` and imports work — but free-space pre-checks are skipped.
   Use Glance/Grafana for pool capacity, not the arr UIs.
 - **Dashboards must query `/data/media`, not `/data`.** `/data` stopped being a mountpoint, so
-  `node_filesystem_*{mountpoint="/data"}` silently returns empty and the Glance "System Info"
-  widget plus the Grafana disk panel go blank. Both were repointed at `/data/media`.
+  `node_filesystem_*{mountpoint="/data"}` silently returns empty and the Glance disk readout
+  plus the Grafana disk panel go blank. Both were repointed at `/data/media`.
 - **`/mnt/disk2/media` must exist before the pool can mount** — mergerfs errors on a missing branch
   and tmpfiles runs too late to help. Created by hand at install time.
 - **Nix merge rule:** `systemd.services = lib.genAttrs ... ` collides with the many
