@@ -837,6 +837,9 @@ GID 1001. All services that need `/data/media` access are in this group:
    - FileBrowser credentials auto-synced from sops by `filebrowser-credentials.service`
    - Jellyfin branding CSS (hides seek-bar chapter tick marks; lives in Jellyfin state, not Nix):
      `curl -X POST http://localhost:8096/System/Configuration/branding -H "Authorization: MediaBrowser Token=$(sudo cat /run/secrets/jellyfin-api-key)" -H "Content-Type: application/json" -d '{"LoginDisclaimer":"","CustomCss":".sliderMarker { display: none !important; }","SplashscreenEnabled":false}'`
+   - Jellyfin remote client bitrate limit — default 12 Mbps throttles any client Jellyfin doesn't
+     see as LAN (includes Eclipse over Tailscale, see `Claude/eclipse.md`). Also imperative state:
+     `curl -s -H "X-Emby-Token: $(sudo cat /run/secrets/jellyfin-api-key)" http://localhost:8096/System/Configuration | jq '.RemoteClientBitrateLimit = 40000000' | curl -s -X POST -H "X-Emby-Token: $(sudo cat /run/secrets/jellyfin-api-key)" -H "Content-Type: application/json" --data @- http://localhost:8096/System/Configuration`
 5. Everything else (arr wiring, Jellyseerr setup, Glance dashboard, Grafana) is automatic
 
 ---

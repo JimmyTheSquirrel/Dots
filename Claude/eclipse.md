@@ -182,8 +182,96 @@ by itself, so **retrying once recovers it** — the panel does this automaticall
 
 ## Jellyfin
 
-**Server:** `http://192.168.0.226:8096` (Asgard, LAN — Asgard's WAN egress shaping exempts
-RFC1918, so direct play is unthrottled). Signed in as **Caitlin**.
+**Server, as of 2026-09-11: `http://100.126.205.100:8096`** (Asgard's Tailscale IP). Eclipse moved
+to a second house and is no longer on Asgard's LAN (`192.168.0.226:8096`, still correct if it ever
+comes back). Signed in as **Caitlin**.
+
+### Switching between LAN and remote
+
+The addon's server address lives in **two places that must be kept in sync**:
+`addon_data/plugin.video.jellyfin/data.json` (`Servers[0].address`, what the addon actually
+connects with) and `addon_data/plugin.video.jellyfin/settings.xml` (`id="server"`, cosmetic — shows
+in the addon's own settings screen). Both, then `systemctl restart kodi` so the addon re-reads
+`data.json`.
+
+**There's a button for this now** — Glance → Eclipse page → "Jellyfin: switch to …". Backed by
+`act_jellyfin_toggle()` in `Resources/Eclipse-Control/eclipse-control.py`, which reads the current
+address out of `data.json`, flips it to whichever of `JELLYFIN_LAN` /`JELLYFIN_REMOTE` it *isn't*,
+sed-replaces both files, and restarts Kodi. The status row's "Jellyfin" cell (also new) reads the
+same field, so the button's label always reflects the actual current state rather than assuming one.
+
+**Bundled with the addon's own `maxBitrate` cap, not just the server address** (2026-09-12) — the
+same toggle also sed-replaces `settings.xml`'s `maxBitrate` between `JELLYFIN_BITRATE_LAN` (`"23"` =
+1000 Mbps, i.e. uncapped) and `JELLYFIN_BITRATE_REMOTE` (`"10"` = 8 Mbps). This addon has zero ABR —
+confirmed absent in its source and upstream's tracker — so on the remote link, direct play at full
+bitrate just stalls; an addon-side cap is what actually makes it watchable (distinct from and *on top
+of* the server-side `RemoteClientBitrateLimit` below, which only fires the moment the client no
+longer looks local). LAN stays uncapped since it's exempt from `wan-egress-shaping` and has gigabit
+headroom.
+
+**Speed Test button, same page** — `act_speedtest()` has Eclipse SSH-curl a 25MB zero-filled blob
+served by this same eclipse-control process (`/speedtest-data` route, chunked so it never buffers
+25MB in RAM) over `ASGARD_TAILSCALE_IP:9554` — the exact path real playback uses, not a generic
+speedtest server. Reads `curl -w '%{speed_download}'`, caches the last result in-process (resets on
+`eclipse-control.service` restart, by design — it's a point-in-time reading, not history). Confirmed
+the WiFi regdom bug's ceiling this way: consistently ~10-16 Mbps regardless of what's tried below.
+
+### Remote playback was capped to 12 Mbps and stuttering — fixed 2026-09-11
+
+Switching Eclipse's address off a `192.168.x.x` LAN IP onto the Tailscale IP has a side effect
+**server-side**: Jellyfin's `IsInLocalNetwork` check no longer matches
+(`RemoteClientBitrateLimit: 12000000, RemoteIP: "100.80.62.3", IsInLocalNetwork: False` in
+`log_YYYYMMDD.log`), so every stream now goes through Jellyfin's **remote client bitrate limit**
+(Dashboard → Playback), which was still at its 12 Mbps default. A 19.5 Mbps HEVC remux blew straight
+through that, forcing an HLS transcode (audio EAC3→AAC, video copy) instead of direct play. HLS's
+segment-by-segment delivery is what produced the "builds a chunk, plays it, stalls, builds the next
+chunk" pattern — direct play's progressive-HTTP + the filecache tuning above never sees that failure
+mode.
+
+**Fix applied:** raised `RemoteClientBitrateLimit` to 40,000,000 (40 Mbps) via
+`POST /System/Configuration` — comfortably above real-world remux bitrates, while still under the
+`wan-egress-shaping` 30 Mbit htb cap so the number isn't a promise the WAN link can't keep.
+**This is imperative Jellyfin state, not declared in Nix** — nixflix has no option for it. A fresh
+Jellyfin deploy needs this reapplied by hand (same category as the branding CSS in the Fresh Deploy
+Checklist, `Claude/server-info.md`):
+
+```bash
+KEY=$(sops -d --extract '["jellyfin-api-key"]' Secrets/secrets.yaml)
+curl -s -H "X-Emby-Token: $KEY" http://localhost:8096/System/Configuration \
+  | jq '.RemoteClientBitrateLimit = 40000000' \
+  | curl -s -X POST -H "X-Emby-Token: $KEY" -H "Content-Type: application/json" \
+      --data @- http://localhost:8096/System/Configuration
+```
+
+**Considered and rejected:** marking Tailscale's CGNAT range (`100.64.0.0/10`) as a
+`LocalNetworkSubnets` entry, which would have made `IsInLocalNetwork` true again and bypassed the
+remote cap entirely (closer to how it behaved on the old LAN). Left as the *raise-the-cap* fix
+instead — deliberate choice, not oversight — which keeps the cap meaningful for the actually-public
+CF-tunnel clients (`jellyfin.bifrost-vault.com`) rather than exempting all of the tailnet.
+
+### Still stuttered after the above — `wan-egress-shaping`'s burst was the real bug
+
+Raising the bitrate limit got `PlayMethod` to `DirectStream`, but playback kept pausing. Root cause
+was one level down: `wan-egress-shaping.service`'s 30 Mbit htb class had **no explicit burst**, so
+tc auto-computed one from the rate — **~1600 bytes, one packet**. `tc -s class show dev enp3s0` had
+190M cumulative overlimits and a token count sitting in permanent deficit. Kodi's aggressive
+read-ahead (filecache `readfactor` 20x, see *Cache* above) bursts far past one packet on every read,
+so the shaper itself was throttling every burst, not just capping the long-run average. Fixed by
+giving class `1:20` an explicit `burst 300k cburst 300k` (~80ms at 30 Mbit) — see the comment in
+`Modules/server.nix` next to `wan-egress-shaping`. Confirmed live: overlimits went from thousands
+per 15s to near-zero.
+
+**This alone didn't fully fix it either.** Live Kodi telemetry (`Player.GetProperties` →
+`cachepercentage`) showed the buffer climbing at almost exactly the playback consumption rate — no
+safety margin — while `tailscale ping eclipse` from Asgard's side showed RTT jumping 96–314ms. Same
+signature as the *old* house's 2.4 GHz congestion writeup above, on a **different** SSID
+(`QB-Guest`, 2.4 GHz, -57 dBm) — strongly points at Eclipse's own WiFi at the new house (a guest
+network) as the remaining bottleneck, not anything server-side. Not yet resolved from that end;
+mitigated for now by capping the addon's `maxBitrate` to index `10` (~8 Mbps) so Jellyfin transcodes
+down to something that reliably fits a jittery link instead of attempting a ~20 Mbps direct stream.
+**This is imperative Eclipse-side state** (`addon_data/plugin.video.jellyfin/settings.xml`), reset to
+default `23` (uncapped) if Eclipse ever gets a better link (5 GHz / non-guest network / ethernet) at
+the new house — worth revisiting before assuming the guest-WiFi theory is the final answer.
 
 **`plugin.video.jellyfin` is a sync backend, NOT an app.** It copies server metadata into Kodi's
 own DB so content appears under Kodi's native Movies/TV Shows. There is no Jellyfin screen to
@@ -402,7 +490,147 @@ Demand-side lever if it regresses: the Jellyfin addon's `maxBitrate` is `23` = *
 i.e. uncapped. Values are indexes into a list (`6`=4 Mbps, `8`=6 Mbps, `10`=8 Mbps); capping makes
 Asgard transcode down instead of direct-playing a ~10 Mbps remux.
 
-## Skin — Arctic Zephyr Mod
+## Skin — Bingie (current, since 2026-09-12)
+
+Replaced Arctic Zephyr Mod. Titan Bingie Mod (`skin.bingie`), a Netflix-style skin. Installed via
+`kodi-send --action="InstallAddon(skin.bingie)"` + blind Left+Select confirm dance (matches the
+"Addons.InstallAddon JSON-RPC doesn't exist" pattern below). Automatic dependency resolution
+cascaded version-mismatch failures (`resource.images.studios.coloured`,
+`plugin.program.autocompletion`, …) — fixed by downloading each dependency's zip directly from the
+repo's `addons.xml`-listed URL and installing manually, one at a time, same "extract zip, enable via
+sqlite `installed.enabled`" method documented for KodiSeerr below.
+
+**Sidebar is Home / Movies / TV / Games / Requests only** — `shortcuts/mainmenu.DATA.xml`, same
+skinshortcuts mechanism as Zephyr (see historical section below for the general mechanics: rebuild
+after edits with `systemctl stop kodi; rm .../1080i/script-skinshortcuts-includes.xml;
+rm .../addon_data/script.skinshortcuts/skin.bingie.hash; systemctl start kodi` twice). Movies/TV go
+straight to `ActivateWindow(Videos,library://video/movies|tvshows/titles.xml,return)` — no Netflix-
+style category rows, direct to a scrollable poster grid (user preference: "just want all my stuff
+going down the page, I don't need categories"). No Trending/Categories/Music items.
+
+**Movies/TV grid forced to `View_526_BingieMainPoster.xml`** ("Bingie Poster", set via
+`skin.forcedview.movies` / `.tvshows` in `addon_data/skin.bingie/settings.xml`, same forced-views
+mechanism as Zephyr). Default tile size (240×340) only fit ~1.4 rows in the 474px grid area below the
+hero. Fixed by adding a **local, file-scoped copy** of the tile layout —
+`PosterPanelBingieLayoutCompact` / `PosterThumbBingieLayoutCompact` /
+`PosterPanelBingieLayoutFocusCompact`, defined inside `View_526_BingieMainPoster.xml` itself rather
+than editing the shared `PosterPanelBingieLayout` in `IncludesViewsLayoutPoster.xml` (which every
+*other* poster view — home widgets, seasons, etc. — also uses at full size). The compact version
+drops `Poster_New_Episodes_Tag_Overlay` entirely (a fixed 150px-wide ribbon sized for a 240px tile —
+would overflow onto the neighbouring poster at a smaller size) and scales `WatchedIndicatorLayoutBingie`
+down proportionally (44×44 inset 4px, vs default 80×80 inset 8px — that one *is* already
+parametrized by the skin, safe to just pass smaller numbers). Current tile: 132×187 content /
+131×186 cell, itemgap 0, giving ~2.5 rows in the same 474px space. **Tried pushing further** (moving
+the grid's `top` from 600→500 to steal 100px from the hero, tiles up to 145×206) — collided visibly
+with the hero's tagline row ("Titles" header overlapping "Come undone."); reverted. Safe headroom
+above the existing tile size is only ~7% (40px), nowhere near the 20% that would need — not attempted
+since 7% wasn't judged worth the added complexity.
+
+**TV show unwatched-episode-count badge removed** — `Skin.HasSetting(WatchedIndicator.Episodes)`
+gates the "Episodes count Overlay" block in `WatchedIndicatorLayoutBingie` (`IncludesViews.xml`), a
+normal toggleable skin setting, not a code change: `kodi-send --action="Skin.Reset(WatchedIndicator.Episodes)"`.
+
+**Home is minimal** (user: "basically just an entry screen, almost nothing" — then corrected to
+"not nothing at all, I still want a poster/colour" after a too-aggressive first pass). New skin
+setting `HomeMinimal`, gating six elements in `IncludesHomeBingie.xml`'s `HomeBingie` include as
+*additional* `<visible>` tags (Kodi ANDs multiple `<visible>` on one control) rather than restructuring
+anything: Widgets BG tint, Details Section (logo/plot/cast/buttons/footer, all nested inside one
+group), and the MPAA flags group are hidden. **Left un-hidden:** Spotlight BG (the actual rotating
+backdrop image/video preview) and its diffuse vignette — hiding those was the first-pass mistake,
+because the backdrop's data source (`BingieSpotlightWidget`, control id 1508) lives *inside* the
+same `grouplist id="77777"` as the browsable widget rows, so blanket-hiding that whole grouplist also
+killed the backdrop, producing a plain black screen. Fix: leave `77777` itself visible, and instead
+add the `HomeMinimal` exclusion only to the specific row-template includes inside it
+(`skinshortcuts-template-Widgets` etc.) — keeps the ambient rotating backdrop+colour, drops the
+Continue-Watching/Recently-Added row carousels and all text/logo/buttons. Also had to redirect
+`Home.xml` control 1000's default-focus fallback from `SetFocus(77777)` to `SetFocus(900)` (the
+sidebar) when `HomeMinimal` is set, since focusing into the now-row-less widget container had nowhere
+sensible to land.
+
+**Bingie logo removed**: `Skin.ToggleSetting(DisableBingieLogo)` — `Skin.SetBool` does *not* work for
+this one, has to be `ToggleSetting`. Needs a full `systemctl restart kodi` after, not just the
+builtin call, for the `<visible>` conditions gating the logo images to re-evaluate.
+
+**Accent colour is red** (`ffe50914`, Netflix red) — was changed red→blue→purple during the initial
+build-out, then reverted back to red per user request. Colour lives in **two layers that both had to
+be fixed**: (1) 17 `Skin.SetString` keys persisted in `addon_data/skin.bingie/settings.xml`
+(`BingieProgressBarColor`, `LineUnderMenuIconsColor`, `WatchedIndicator.*.Color`, etc. — full list
+worth grepping for `8a2be2` if this happens again) — these are what's actually live, fixed via
+`kodi-send --action="Skin.SetString(<id>,ffe50914)"` per key; and (2) the **addon's own default-value
+files** (`IncludesDefaultSkinSettings.xml`, `Custom_1101/1102_StartUp*.xml`,
+`Custom_1159_MPAATopBar.xml`, `IncludesVariables.xml`, `SettingsScreenCalibration.xml`,
+`extras/skinthemes/Reset.theme`) had the purple hex hard-baked into their `onload`
+`Skin.SetString(...,ff8a2be2)` fallback lines and inline `colordiffuse="ff8a2be2"` attributes — these
+only matter for a fresh profile/theme-reset, but were restored from their `.bak-red` backups anyway
+for consistency. **Gotcha**: the `.bak-red` backups for `Reset.theme` turned out to be misleading —
+their `.name` label fields said `"Red"` while the hex was already `8a2be2`, because the original
+find/replace only touched hex strings, not the adjacent human-readable name text; don't trust a
+`.name` field to identify which colour a backup actually contains, diff the hex against a known-good
+value instead.
+
+**Profile renamed to the signed-in Jellyfin user's name** (`profiles.xml`, `<name>` +
+`<thumbnail>` pointing at a `special://masterprofile/<file>.png`). **Critical gotcha: Kodi rewrites
+`profiles.xml` from its in-memory state on its own shutdown.** Editing the file while Kodi is running
+(even if you stop it *afterward*) gets silently clobbered — the running process flushes its stale
+in-memory profile name back over your edit the moment `systemctl stop kodi` runs. Correct order:
+`systemctl stop kodi` **first**, edit `profiles.xml`, *then* `systemctl start kodi`.
+
+**Second gotcha, same rename**: skinshortcuts bakes `String.IsEqual(System.ProfileName,<name>)` onto
+*every single menu item* in the generated `script-skinshortcuts-includes.xml` (its own per-profile
+menu-scoping feature — irrelevant here since the box only ever has one profile, but the skin's build
+process adds it unconditionally). Renaming the profile without also forcing a menu regen makes the
+*entire sidebar disappear* (every item's visibility condition now references the old name). Cached in
+`addon_data/script.skinshortcuts/skin.bingie.hash`'s `"::PROFILELIST::"` entry, which only picks up
+the new name on the *next full regen* — same stop-kodi / rm generated-includes+hash / start-twice
+dance as any other skinshortcuts template change.
+
+### Requests — KodiSeerr (Jellyseerr integration)
+
+`plugin.video.kodiseerr` + `repository.kodiseerr`, installed manually (LibreELEC has no Chromium/
+browser, so an embedded web view of Jellyseerr's own UI isn't an option — this addon is genuinely the
+only maintained Kodi↔Jellyseerr integration). Zips from
+`github.com/yocksers/KodiSeerr/releases`: extract, **rename the `Kodiseerr/` folder to
+`plugin.video.kodiseerr/`** (matches `addon.xml`'s `id`, the zip's own top-level folder name doesn't),
+drop both into `/storage/.kodi/addons/`, restart Kodi so `CAddonMgr::FindAddons` picks them up.
+
+**Addons dropped in over SSH land disabled** (see the general note below) — this one's no exception.
+Fixed via the same sqlite `UPDATE installed SET enabled = 1 WHERE addonID IN (...)` against
+`userdata/Database/Addons33.db` with Kodi stopped.
+
+**Sidebar entry must use `ActivateWindow(Videos,plugin://plugin.video.kodiseerr/,return)`, not
+`RunPlugin`.** `RunPlugin` is correct for program addons with no browsable UI (Moonlight) but doesn't
+switch to a Videos window for a `<provides>video</provides>` plugin — button just silently did
+nothing. Matches the Movies/TV hub pattern exactly.
+
+**Settings reachable via `kodi-send --action="Addon.OpenSettings(plugin.video.kodiseerr)"`** if
+navigating there on-screen is inconvenient (no in-addon settings entry in its own menu; the generic
+Kodi path is Settings → Add-ons → My Add-ons → Video add-ons → KodiSeerr → gear icon).
+`seerr_username` / `seerr_password` = the Jellyfin login (Jellyseerr's set up with Jellyfin sign-in,
+so it's the same credentials, not a separate Seerr-only account) — `seerr_url` =
+`http://100.126.205.100:5055` (Asgard's Tailscale IP, port 5055, same reasoning as the Jellyfin
+address).
+
+**`disable_browse_pagination` setting fixes the "next page" UX complaint** — off by default, each
+category shows one API page (~20 items) with "Page X of Y" / "Jump to Page..." tiles mixed into the
+grid. Turning it on makes `default.py` fetch and combine ~10 API pages (~200 items) into one
+continuous scrollable grid per category instead — addon-native fix, not a skin/theme workaround.
+
+**"Request entire collection" can pull in phantom unreleased entries** — TMDB collections include
+announced-but-unreleased placeholder movies (no release date). Jellyseerr auto-approves and forwards
+all of them to Radarr; Radarr adds them fine (`minimumAvailability: released` means it won't actually
+search until a real release date exists, so it's inert, not harmful) — but watch for genuine adds
+failing alongside it with `409 — UNIQUE constraint failed: MovieMetadata.TmdbId`. That's a Radarr-
+internal leftover-metadata collision (looking up the collection pre-populates `MovieMetadata` rows
+that then collide on the real add), **nothing to do with quality profiles** — confirmed the profile
+ID Jellyseerr sends matches Radarr's actual profile both times this happened. Fix: retry the failed
+request via Jellyseerr (`POST /api/v1/request/{id}/retry`) — succeeded on retry both times without
+any other change.
+
+## Skin — Arctic Zephyr Mod (historical — replaced by Bingie, 2026-09-12)
+
+Kept for the general Kodi-skinning lessons (skinshortcuts mechanics, forced views, per-path view
+memory) — none of the specific file paths below are live anymore. See "Skin — Bingie" above for the
+skin actually running on the box.
 
 Home menu is **Movies / TV Shows / Search / Other** as an icon-only rail down the left, a hero
 fanart panel with title/plot/year/runtime/rating, and a poster row of *all* items below

@@ -27,6 +27,31 @@ PORT = int(os.environ.get("ECLIPSE_PORT", "9554"))
 MOVIES_ID = "f137a2dd21bbc1b99aa5c0f6bf02a805"
 SHOWS_ID = "a656b907eb3a73532e40e44b968d0225"
 
+# Jellyfin server address the Kodi addon is pointed at. LAN is only reachable
+# when Eclipse is on Asgard's home network; ASGARD's Tailscale IP works from
+# anywhere, including Eclipse's current house (see Claude/eclipse.md).
+JELLYFIN_LAN = "http://192.168.0.226:8096"
+JELLYFIN_REMOTE = "http://100.126.205.100:8096"
+JELLYFIN_ADDON_DIR = "/storage/.kodi/userdata/addon_data/plugin.video.jellyfin"
+
+# maxBitrate is an index into the addon's own Mbps list (see Claude/eclipse.md).
+# 23 = "1000 Mbps" i.e. uncapped - safe on the LAN, which has gigabit headroom
+# and is exempt from wan-egress-shaping. 10 = 8 Mbps - matches the real ceiling
+# measured on Eclipse's remote link (WiFi regulatory-domain bug caps it around
+# 10-13 Mbps regardless of settings; 8 Mbps direct-streams cleanly under that).
+JELLYFIN_BITRATE_LAN = "23"
+JELLYFIN_BITRATE_REMOTE = "10"
+
+# Asgard's own tailnet address - Eclipse can't resolve the "asgard" hostname
+# (tailscaled runs with --accept-dns=false here, no MagicDNS, see
+# Claude/eclipse.md), so the speed test target below must be a bare IP.
+ASGARD_TAILSCALE_IP = "100.126.205.100"
+SPEEDTEST_SIZE_MB = 25
+
+# Cache of the last speed test result, so the panel keeps showing a number
+# across page reloads instead of resetting to "never tested" every time.
+LAST_SPEEDTEST = {"mbps": None, "when": 0.0}
+
 CONNECTOR = "/sys/class/drm/card1-HDMI-A-1"
 KODI_SEND = "/usr/bin/kodi-send"
 
@@ -73,14 +98,24 @@ STATUS_CMD = (
     'echo "edid=$(wc -c < ' + CONNECTOR + '/edid 2>/dev/null)"; '
     'echo "uptime=$(cut -d. -f1 /proc/uptime)"; '
     "echo \"mode=$(grep -oE 'Display [0-9]+x[0-9]+ @ [0-9.]+' "
-    '/storage/.kodi/temp/kodi.log 2>/dev/null | tail -1)"'
+    '/storage/.kodi/temp/kodi.log 2>/dev/null | tail -1)"; '
+    'echo "jellyfin=$(grep -oE \'"address": *"[^"]+"\' '
+    + JELLYFIN_ADDON_DIR + '/data.json 2>/dev/null | cut -d\'"\' -f4)"'
 )
+
+
+def _jellyfin_mode(address):
+    if address == JELLYFIN_REMOTE:
+        return "remote"
+    if address == JELLYFIN_LAN:
+        return "lan"
+    return "unknown"
 
 
 def get_status():
     ok, out = ssh(STATUS_CMD, timeout=15)
     st = {"reachable": ok, "kodi": "?", "hdmi": "?", "edid": 0,
-          "uptime": 0, "mode": "", "error": ""}
+          "uptime": 0, "mode": "", "jellyfin": "", "error": ""}
     if not ok:
         st["error"] = out
         return st
@@ -105,7 +140,33 @@ def get_status():
     st["needs_kodi_restart"] = (
         st["hdmi"] == "connected" and st["kodi"] == "active" and not st["mode"]
     )
+    st["jellyfin_mode"] = _jellyfin_mode(st["jellyfin"])
+    st["speed_mbps"] = LAST_SPEEDTEST["mbps"]
+    st["speed_when"] = LAST_SPEEDTEST["when"]
     return st
+
+
+def act_speedtest():
+    """Measure real download throughput from Eclipse's own vantage point.
+
+    Deliberately not a ping or a tiny request - this addon has no ABR (see
+    Claude/eclipse.md), so what matters is sustained throughput at the sizes
+    a real remux actually pulls. Downloads a fixed-size blob of zeros served
+    by this same process (see the speedtest-data route below), which sidesteps
+    needing a Jellyfin API key on Eclipse and measures the same Tailscale path
+    real playback uses.
+    """
+    url = "http://" + ASGARD_TAILSCALE_IP + ":" + str(PORT) + "/speedtest-data"
+    ok, out = ssh("curl -s -o /dev/null -w '%{speed_download}' '" + url + "'", timeout=60)
+    if not ok:
+        return False, "speed test failed: " + out
+    try:
+        mbps = float(out.strip()) * 8 / 1_000_000
+    except ValueError:
+        return False, "speed test failed: bad reading (" + out + ")"
+    LAST_SPEEDTEST["mbps"] = round(mbps, 1)
+    LAST_SPEEDTEST["when"] = time.time()
+    return True, "{:.1f} Mbps down".format(mbps)
 
 
 def act_restart_kodi():
@@ -116,6 +177,47 @@ def act_reboot():
     # Fire and forget - the box drops the connection as it goes down.
     ssh("(sleep 1; reboot) >/dev/null 2>&1 &", timeout=10)
     return True, "reboot issued"
+
+
+def act_jellyfin_toggle():
+    """Swap the Jellyfin addon between Asgard's LAN and Tailscale addresses.
+
+    Both data.json (session/server record) and settings.xml (addon settings
+    screen) carry the address independently - the addon reads data.json at
+    runtime, but settings.xml drifting out of sync would show the stale
+    address in its own settings UI. Restarting Kodi is what makes the addon
+    re-read data.json and reconnect.
+
+    Bundles the maxBitrate cap with the address on purpose: it's the same
+    decision either way. LAN = uncapped direct play (gigabit, no shaping).
+    Remote = capped to what the WiFi regulatory-domain bug actually allows
+    (see Claude/eclipse.md) - direct play at full bitrate over that link
+    just stalls, capping it is what makes it watchable.
+    """
+    ok, current = ssh(
+        'grep -oE \'"address": *"[^"]+"\' ' + JELLYFIN_ADDON_DIR
+        + "/data.json 2>/dev/null | cut -d'\"' -f4",
+        timeout=10,
+    )
+    if not ok or not current.strip():
+        return False, "could not read current Jellyfin address"
+    current = current.strip()
+    target = JELLYFIN_REMOTE if current != JELLYFIN_REMOTE else JELLYFIN_LAN
+    bitrate = JELLYFIN_BITRATE_REMOTE if target == JELLYFIN_REMOTE else JELLYFIN_BITRATE_LAN
+    cmd = (
+        "sed -i 's#" + current + "#" + target + "#' "
+        + JELLYFIN_ADDON_DIR + "/data.json " + JELLYFIN_ADDON_DIR + "/settings.xml"
+        + " && sed -i -E 's#<setting id=\"maxBitrate\"[^>]*>[0-9]+</setting>#"
+        + '<setting id="maxBitrate">' + bitrate + "</setting>#' "
+        + JELLYFIN_ADDON_DIR + "/settings.xml"
+        + " && systemctl restart kodi && echo SWAPPED"
+    )
+    ok, out = ssh(cmd, timeout=30)
+    if not ok or "SWAPPED" not in out:
+        return False, "swap failed: " + out
+    label = "Tailscale (remote)" if target == JELLYFIN_REMOTE else "LAN"
+    quality = "capped ~8 Mbps" if target == JELLYFIN_REMOTE else "uncapped direct play"
+    return True, "Jellyfin server switched to " + label + " (" + quality + ")"
 
 
 KODI_LOG = "/storage/.kodi/temp/kodi.log"
@@ -167,6 +269,8 @@ ACTIONS = {
     "reboot": ("Reboot Pi", act_reboot),
     "sync-movies": ("Movies", lambda: _sync(MOVIES_ID, "Movies")),
     "sync-shows": ("TV Shows", lambda: _sync(SHOWS_ID, "TV Shows")),
+    "jellyfin-toggle": ("Jellyfin server", act_jellyfin_toggle),
+    "speedtest": ("Speed test", act_speedtest),
 }
 
 
@@ -192,6 +296,7 @@ PAGE = r"""<!doctype html>
     --ok:      hsl(142, 62%, 56%);
     --bad:     hsl(0, 78%, 66%);
     --warn:    hsl(38, 88%, 62%);
+    --card:    hsla(160, 30%, 50%, .035);
   }
   * { box-sizing: border-box; }
   body {
@@ -203,40 +308,74 @@ PAGE = r"""<!doctype html>
   }
   .wrap { max-width: 1020px; margin: 0 auto; }
 
-  /* ── status bar ── */
-  .bar {
-    display: flex; flex-wrap: wrap; align-items: center;
-    gap: 6px 20px; padding: 11px 14px; margin-bottom: 12px;
-    border: 1px solid var(--line); border-radius: 10px;
-    background: hsla(160, 30%, 50%, .035);
+  /* ── header ── */
+  .head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 2px 2px 16px;
   }
-  .cell { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
-  .dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--dim); flex: none;
+  .head-left { display: flex; align-items: center; gap: 13px; }
+  .dot-lg {
+    width: 12px; height: 12px; border-radius: 50%; flex: none;
+    background: var(--dim); transition: background .2s, box-shadow .2s;
   }
-  .dot.ok   { background: var(--ok);   box-shadow: 0 0 7px hsla(142,62%,56%,.55); }
-  .dot.bad  { background: var(--bad);  box-shadow: 0 0 7px hsla(0,78%,66%,.55); }
-  .dot.warn { background: var(--warn); box-shadow: 0 0 7px hsla(38,88%,62%,.55); }
-  .k {
-    color: var(--dim); font-size: 10px; font-weight: 500;
-    letter-spacing: .09em; text-transform: uppercase;
-  }
-  .v { font-weight: 500; font-size: 12.5px; }
-  .v.ok { color: var(--ok); } .v.bad { color: var(--bad); } .v.warn { color: var(--warn); }
+  .dot-lg.ok  { background: var(--ok);  box-shadow: 0 0 13px hsla(142,62%,56%,.65); }
+  .dot-lg.bad { background: var(--bad); box-shadow: 0 0 13px hsla(0,78%,66%,.65); }
+  .head-title { font-size: 17px; font-weight: 700; letter-spacing: .01em; }
+  .head-sub   { font-size: 11.5px; color: var(--dim); margin-top: 3px; }
+  .head-right { font-size: 10.5px; color: var(--dim); text-align: right; white-space: nowrap; }
 
   /* ── alert ── */
   .alert {
     display: none; align-items: center; gap: 9px;
-    padding: 9px 13px; margin-bottom: 12px; font-size: 12px;
+    padding: 9px 13px; margin-bottom: 14px; font-size: 12px;
     border: 1px solid hsla(38, 88%, 62%, .3); border-left-width: 3px;
     border-radius: 8px; background: hsla(38, 88%, 62%, .07); color: var(--warn);
   }
   .alert.show { display: flex; }
 
-  /* ── buttons ── */
+  /* ── stat cards ── */
+  .stats {
+    display: grid; gap: 10px; margin-bottom: 22px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+  .stat {
+    display: flex; flex-direction: column; gap: 7px;
+    min-height: 88px; padding: 12px 14px;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card);
+  }
+  .stat-k {
+    display: flex; align-items: center; gap: 6px;
+    color: var(--dim); font-size: 10px; font-weight: 500;
+    letter-spacing: .09em; text-transform: uppercase;
+  }
+  .stat-k svg { width: 12px; height: 12px; stroke-width: 2; opacity: .8; }
+  .stat-v { font-size: 19px; font-weight: 700; letter-spacing: .005em; }
+  .stat-v.ok   { color: var(--ok); }
+  .stat-v.bad  { color: var(--bad); }
+  .stat-v.warn { color: var(--warn); }
+  .stat-sub { font-size: 11px; color: var(--dim); margin-top: auto; }
+  .gauge {
+    height: 5px; border-radius: 3px; margin-top: 3px; position: relative;
+    background: linear-gradient(90deg,
+      var(--bad) 0%, var(--bad) 16.6%,
+      var(--warn) 16.6%, var(--warn) 66.6%,
+      var(--ok) 66.6%, var(--ok) 100%);
+    opacity: .32;
+  }
+  .gauge i {
+    position: absolute; top: -3px; width: 2px; height: 11px;
+    background: var(--fg); border-radius: 1px; transform: translateX(-1px);
+    box-shadow: 0 0 6px rgba(0,0,0,.5);
+  }
+
+  /* ── button sections ── */
+  .section-label {
+    font-size: 10px; font-weight: 600; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--dim); margin: 0 2px 8px;
+  }
   .grid {
-    display: grid; gap: 10px;
+    display: grid; gap: 10px; margin-bottom: 20px;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
   button {
@@ -247,7 +386,7 @@ PAGE = r"""<!doctype html>
     letter-spacing: .04em;
     color: var(--fg); cursor: pointer;
     border: 1px solid var(--line); border-radius: 10px;
-    background: hsla(160, 30%, 50%, .035);
+    background: var(--card);
     transition: background .18s, border-color .18s, box-shadow .18s, transform .06s;
   }
   button svg { width: 19px; height: 19px; stroke-width: 1.6; opacity: .82; }
@@ -276,29 +415,55 @@ PAGE = r"""<!doctype html>
   button.busy svg { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ── log ── */
-  .log {
-    display: flex; align-items: center; gap: 8px;
-    margin-top: 12px; padding: 8px 13px; min-height: 32px;
-    font-size: 11.5px; color: var(--dim);
-    border-radius: 8px; border: 1px solid transparent;
+  /* ── activity log ── */
+  .log-wrap {
+    margin-top: 4px; border: 1px solid var(--line); border-radius: 10px;
+    background: hsla(160, 30%, 50%, .02); overflow: hidden;
   }
-  .log .glyph { color: hsla(160, 40%, 55%, .6); }
-  .log.good { color: var(--ok); border-color: hsla(142,55%,45%,.22);
-              background: hsla(142,55%,45%,.05); }
-  .log.err  { color: var(--bad); border-color: hsla(0,70%,60%,.25);
-              background: hsla(0,70%,55%,.05); }
+  .log-head {
+    padding: 8px 13px; font-size: 10px; font-weight: 500;
+    letter-spacing: .09em; text-transform: uppercase; color: var(--dim);
+    border-bottom: 1px solid var(--line);
+  }
+  .log-list { max-height: 148px; overflow-y: auto; }
+  .log-item {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 7px 13px; font-size: 11.5px; color: var(--dim);
+    border-bottom: 1px solid hsla(160, 30%, 50%, .06);
+  }
+  .log-item:last-child { border-bottom: none; }
+  .log-item .t { flex: none; width: 44px; opacity: .7; }
+  .log-item .m { color: var(--fg); }
+  .log-item.good .m { color: var(--ok); }
+  .log-item.err  .m { color: var(--bad); }
+  .log-empty { padding: 14px 13px; font-size: 11.5px; color: var(--dim); }
 
   @media (max-width: 560px) {
     button { height: 64px; gap: 7px; font-size: 11.5px; }
-    .bar { gap: 5px 14px; padding: 10px 12px; }
+    .stat { min-height: 76px; padding: 10px 12px; }
+    .stat-v { font-size: 17px; }
+    .head-title { font-size: 15.5px; }
   }
 </style></head><body>
 <div class="wrap">
-  <div class="bar" id="status"><span class="k">connecting</span></div>
+  <div class="head">
+    <div class="head-left">
+      <span class="dot-lg" id="head-dot"></span>
+      <div>
+        <div class="head-title" id="head-title">Connecting&hellip;</div>
+        <div class="head-sub" id="head-sub">&nbsp;</div>
+      </div>
+    </div>
+    <div class="head-right" id="head-time"></div>
+  </div>
+
   <div class="alert" id="hint">
     <span>&#9888;</span><span>Link is up but Kodi is not driving it &mdash; restart Kodi</span>
   </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="section-label">Playback</div>
   <div class="grid">
     <button class="primary" data-act="restart-kodi">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
@@ -319,6 +484,24 @@ PAGE = r"""<!doctype html>
         <polyline points="17 2 12 7 7 2"/></svg>
       <span class="lbl">Sync TV Shows</span>
     </button>
+  </div>
+
+  <div class="section-label">Network &amp; System</div>
+  <div class="grid">
+    <button data-act="jellyfin-toggle" id="jellyfin-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
+           stroke-linejoin="round"><circle cx="12" cy="12" r="10"/>
+        <line x1="2" y1="12" x2="22" y2="12"/>
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      <span class="lbl" id="jellyfin-lbl">Jellyfin: &hellip;</span>
+    </button>
+    <button data-act="speedtest" id="speedtest-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
+           stroke-linejoin="round"><path d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"/>
+        <path d="M12 12 16 8"/><path d="M12 2v2"/><path d="M12 20v2"/>
+        <path d="M4.9 4.9l1.4 1.4"/><path d="M17.7 17.7l1.4 1.4"/></svg>
+      <span class="lbl">Speed Test</span>
+    </button>
     <button class="danger" data-act="reboot" data-confirm="1">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
            stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
@@ -326,10 +509,15 @@ PAGE = r"""<!doctype html>
       <span class="lbl">Reboot Pi</span>
     </button>
   </div>
-  <div class="log" id="log"><span class="glyph">&rsaquo;</span><span id="logtext">ready</span></div>
+
+  <div class="log-wrap">
+    <div class="log-head">Activity</div>
+    <div class="log-list" id="log"><div class="log-empty">ready</div></div>
+  </div>
 </div>
 <script>
 var buttons = Array.prototype.slice.call(document.querySelectorAll('button[data-act]'));
+var history = [];
 
 function fmtUptime(s) {
   if (!s) return '-';
@@ -343,43 +531,95 @@ function fmtMode(s) {
   var m = s.match(/(\d+)x(\d+) @ ([\d.]+)/);
   return m ? m[1] + '×' + m[2] + ' @ ' + Math.round(parseFloat(m[3])) + 'Hz' : s;
 }
-function cell(k, v, cls) {
-  return '<span class="cell"><span class="dot ' + (cls || '') + '"></span>' +
-         '<span class="k">' + k + '</span>' +
-         '<span class="v ' + (cls || '') + '">' + v + '</span></span>';
+function fmtClock(d) {
+  var p = function (n) { return (n < 10 ? '0' : '') + n; };
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
+function fmtAgo(ts) {
+  if (!ts) return '';
+  var s = Math.max(0, Math.round(Date.now() / 1000 - ts));
+  if (s < 90) return s + 's ago';
+  var m = Math.round(s / 60);
+  if (m < 90) return m + 'm ago';
+  return Math.round(m / 60) + 'h ago';
+}
+function stat(k, v, sub, cls, extra) {
+  return '<div class="stat"><span class="stat-k">' + k + '</span>' +
+         '<span class="stat-v ' + (cls || '') + '">' + v + '</span>' +
+         (extra || '') +
+         '<span class="stat-sub">' + (sub || '&nbsp;') + '</span></div>';
+}
+function gauge(mbps) {
+  var max = 30, pct = Math.max(0, Math.min(100, (mbps || 0) / max * 100));
+  return '<div class="gauge"><i style="left:' + pct + '%"></i></div>';
+}
+var JELLYFIN_NAMES = { lan: 'LAN', remote: 'Tailscale', unknown: '?' };
 function refresh() {
   fetch('status').then(function (r) { return r.json(); }).then(function (s) {
-    var h;
+    var dot = document.getElementById('head-dot');
+    var title = document.getElementById('head-title');
+    var sub = document.getElementById('head-sub');
+    var stats = document.getElementById('stats');
     if (!s.reachable) {
-      h = cell('Eclipse', 'unreachable', 'bad');
+      dot.className = 'dot-lg bad';
+      title.textContent = 'Eclipse unreachable';
+      sub.textContent = s.error || 'no response over SSH';
+      stats.innerHTML = '';
     } else {
+      dot.className = 'dot-lg ok';
+      title.textContent = 'Eclipse online';
+      sub.textContent = 'up ' + fmtUptime(s.uptime);
+
       var mode = fmtMode(s.mode);
-      h = cell('Eclipse', 'online', 'ok') +
-          cell('Kodi', s.kodi, s.kodi === 'active' ? 'ok' : 'bad') +
-          cell('HDMI', s.hdmi, s.hdmi === 'connected' ? 'ok' : 'bad') +
-          cell('Output', mode || 'not driving', mode ? 'ok' : 'warn') +
-          cell('Uptime', fmtUptime(s.uptime), '');
+      var jf = s.jellyfin_mode || 'unknown';
+      var jfQuality = jf === 'remote' ? 'capped ~8 Mbps' : (jf === 'lan' ? 'uncapped direct play' : 'address unrecognised');
+      var speedCls = '', speedTxt = 'never tested', speedSub = 'tap Speed Test to measure', gaugeHtml = '';
+      if (s.speed_mbps != null) {
+        speedCls = s.speed_mbps >= 20 ? 'ok' : (s.speed_mbps >= 5 ? 'warn' : 'bad');
+        speedTxt = s.speed_mbps.toFixed(1) + ' Mbps';
+        speedSub = 'tested ' + fmtAgo(s.speed_when);
+        gaugeHtml = gauge(s.speed_mbps);
+      }
+
+      stats.innerHTML =
+        stat('Kodi', s.kodi, 'process state', s.kodi === 'active' ? 'ok' : 'bad') +
+        stat('Display', mode || 'not driving', s.hdmi === 'connected' ? 'HDMI connected' : 'HDMI disconnected', mode ? 'ok' : 'warn') +
+        stat('Jellyfin', JELLYFIN_NAMES[jf], jfQuality, jf === 'unknown' ? 'warn' : 'ok') +
+        stat('Speed', speedTxt, speedSub, speedCls, gaugeHtml) +
+        stat('Uptime', fmtUptime(s.uptime), 'since last restart', '');
+
+      var lbl = document.getElementById('jellyfin-lbl');
+      if (lbl && !lbl.closest('button').classList.contains('busy')) {
+        var next = jf === 'remote' ? 'lan' : 'remote';
+        lbl.textContent = 'Jellyfin: switch to ' + JELLYFIN_NAMES[next];
+      }
     }
-    document.getElementById('status').innerHTML = h;
     document.getElementById('hint').className = s.needs_kodi_restart ? 'alert show' : 'alert';
+    document.getElementById('head-time').textContent = 'updated ' + fmtClock(new Date());
   }).catch(function () {
-    document.getElementById('status').innerHTML = cell('Panel', 'offline', 'bad');
+    document.getElementById('head-dot').className = 'dot-lg bad';
+    document.getElementById('head-title').textContent = 'Panel offline';
+    document.getElementById('head-sub').textContent = 'cannot reach eclipse-control';
+    document.getElementById('stats').innerHTML = '';
   });
 }
-function say(text, cls) {
-  document.getElementById('logtext').textContent = text;
-  document.getElementById('log').className = 'log' + (cls ? ' ' + cls : '');
+function logAdd(text, cls) {
+  history.unshift({ t: fmtClock(new Date()), text: text, cls: cls || '' });
+  history = history.slice(0, 6);
+  document.getElementById('log').innerHTML = history.map(function (e) {
+    return '<div class="log-item ' + e.cls + '"><span class="t">' + e.t + '</span>' +
+           '<span class="m">' + e.text + '</span></div>';
+  }).join('');
 }
 function run(btn) {
   var name = btn.dataset.act;
   buttons.forEach(function (b) { if (b !== btn) b.disabled = true; });
   btn.classList.add('busy');
-  say('running ' + name + '…', '');
+  logAdd('running ' + name + '…', '');
   fetch('act/' + name, { method: 'POST' })
     .then(function (r) { return r.json(); })
-    .then(function (j) { say(j.message, j.ok ? 'good' : 'err'); })
-    .catch(function (e) { say(String(e), 'err'); })
+    .then(function (j) { logAdd(j.message, j.ok ? 'good' : 'err'); })
+    .catch(function (e) { logAdd(String(e), 'err'); })
     .then(function () {
       btn.classList.remove('busy');
       buttons.forEach(function (b) { b.disabled = false; });
@@ -441,6 +681,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._send_bytes(200, fh.read(), "font/woff2", cache=True)
             except OSError:
                 self._send(404, "font missing", "text/plain")
+        elif path == "speedtest-data":
+            # Plain zero-filled payload, generated on the fly - the point is
+            # raw throughput over this exact Tailscale path, not disk I/O or
+            # Jellyfin auth. Chunked writes so this doesn't buffer 25MB in RAM.
+            size = SPEEDTEST_SIZE_MB * 1024 * 1024
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            chunk = b"\0" * (256 * 1024)
+            sent = 0
+            try:
+                while sent < size:
+                    n = min(len(chunk), size - sent)
+                    self.wfile.write(chunk[:n])
+                    sent += n
+            except (BrokenPipeError, ConnectionResetError):
+                pass
         else:
             self._send(404, "not found", "text/plain")
 
