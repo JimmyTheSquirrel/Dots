@@ -73,7 +73,7 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 - **WAN egress shaping** — `wan-egress-shaping.service` (in `Modules/server.nix`) caps WAN-bound upload on enp3s0 at 30 Mbit via HTB + fq_codel. Home uplink is 50 Mbit; Jellyfin transcode segments burst at full line rate every ~3s, spiking latency ~180ms and rubber-banding LAN game sessions. RFC1918 destinations bypass the cap (LAN direct-play unaffected). Inspect with `tc -s qdisc show dev enp3s0`.
 
 ### Native NixOS service (background sync)
-- **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p, Radarr Remux-1080p + Remux-2160p (best quality first, works down). Check with `journalctl -u recyclarr-sync`.
+- **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Profiles: Sonarr WEB-1080p + WEB-2160p; Radarr has a **single** profile, `Asgard - Movies` (id 9) — the "Remux + WEB 1080p/2160p" trash_ids in the config are upstream *template* names, not deployed profile names. Best quality first, works down. Check with `journalctl -u recyclarr-sync`.
 
   **Was BROKEN 2026-07-11 → 2026-08-11, now FIXED.** Last successful sync had been 2026-07-10
   22:10; it failed every nightly run for a month (36 failures of 40 runs) before being found while
@@ -107,6 +107,64 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
   Line/Mic Dubbed, Black and White Editions at -10000): Radarr 22→39 and 23→40 scored CFs, Sonarr
   31→37 and 33→38. Sonarr's manual "Any 1080p" profile is not recyclarr-managed and was untouched.
   All queues were 0 afterwards — no upgrade wave.
+
+  #### ⚠️ Edit `server.nix` on ASGARD, not on Sisyphus
+
+  **The Sisyphus copy of `Modules/server.nix` is stale for recyclarr, not merely behind.** Verified
+  2026-09-08: its recyclarr block is a ~45-line stub driven by `custom_format_groups`, while
+  Asgard's is ~570 lines with explicit `custom_formats` and per-CF scores (producing a 566-line
+  `recyclarr.yml`). Editing the Sisyphus copy and patching across **does not work** — the baselines
+  differ by hundreds of lines, and deploying the Sisyphus version would silently wipe every custom
+  format score. Edit `~/Dots/Modules/server.nix` on Asgard directly, back it up first, and leave the
+  Sisyphus copy alone. Sanity check before touching anything:
+
+  ```bash
+  ssh asgard 'sudo wc -l /var/lib/recyclarr/recyclarr.yml'   # expect ~566, not ~45
+  ```
+
+  See `memory/asgard-clone-diverged.md`. Radarr's live profile is **`Asgard - Movies`** (id 9) and is
+  the *only* profile that exists — the "Remux + WEB 1080p/2160p" names above are the upstream
+  template ids, not what is deployed.
+
+  #### Dolby Vision Profile 5 blocked (2026-09-08)
+
+  `Asgard - Movies` scored audio heavily (`TrueHD ATMOS` +5000) but had **no video-range custom
+  formats at all**. Given two releases from the same group off the same WEB source — identical
+  except one carried Dolby Vision — nothing could tell them apart, so it grabbed the DV one. That is
+  **Profile 5**, which plays *green* on Eclipse (see `Claude/eclipse.md`).
+
+  Fixed by adding to the existing `-10000` block in Asgard's `server.nix`:
+
+  ```yaml
+  - 923b6abef9b17f937fab56cfcf89e1f1  # DV (w/o HDR fallback)
+  ```
+
+  The CF matches `Dolby Vision AND WEBDL AND NOT HDR` — exactly P5. Releases named `DV.HDR`
+  (Profile 8.1) carry an HDR10 base layer, direct-play correctly, and are deliberately **not** hit.
+
+  **Verified against a live search** rather than assumed — the discrimination is what matters:
+
+  | Release | Score before | after |
+  |---|---|---|
+  | `…Atmos.**DV**.H.265-SasukeducK` (green) | +5005 | **−4995** |
+  | `…Atmos.H.265-SasukeducK` (non-DV twin) | +5005 | +5005 |
+  | `…DDP5.1.**DV.HDR**…-WKS` (P8.1) | +1750 | +1750 |
+
+  A 10,000-point swing on the only pair that was ambiguous.
+
+  **Never reuse a remembered DV trash_id.** `58d6a88f13e2db7f5059c41047876f00` is stale — TRaSH
+  restructured these into `dv-wo-hdr-fallback.json` / `dv-disk.json` / `dv-boost.json`. Fetch the id:
+
+  ```bash
+  curl -s https://raw.githubusercontent.com/TRaSH-Guides/Guides/master/docs/json/radarr/cf/dv-wo-hdr-fallback.json
+  ```
+
+  `recyclarr list custom-formats radarr` prints **ids only, no names** — it cannot be grepped for a
+  format by name. Go to the Guides JSON instead.
+
+  **Deliberately not done: no library-wide HDR penalty.** Eclipse cannot display HDR, but Ben's
+  Chrome, the LG TV, the Android TV and the phones all can, and Jellyfin tone-maps for those that
+  cannot. Fixing one weak client by degrading acquisition for everyone is the wrong layer.
 
 ### Mullvad VPN Namespace (SABnzbd)
 - `netns-vpn.service` — creates `/var/run/netns/vpn`

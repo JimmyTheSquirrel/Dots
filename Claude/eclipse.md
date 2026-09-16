@@ -1,7 +1,8 @@
 # Eclipse — Raspberry Pi 5 TV Box (LibreELEC + Kodi)
 
-**Host:** Eclipse · Raspberry Pi 5 · `100.80.62.3` (tailnet, as `eclipse`) · `192.168.0.183` (LAN, DHCP)
-**Link:** 2.4 GHz wifi only — `eth0` is unused. This bottlenecks playback; see *Network* below.
+**Host:** Eclipse · Raspberry Pi 5 · `100.80.62.3` (tailnet, as `eclipse`)
+**LAN (DHCP):** `192.168.0.182` (eth0) · `192.168.0.183` (wlan0) — two MACs, two leases
+**Link:** wired ethernet since 2026-08-23, with 2.4 GHz wifi as an automatic hot standby. See *Network*.
 **OS:** LibreELEC 12.2.1 aarch64 (Kodi 21 Omega)
 **Purpose:** Jellyfin playback on the TV, driven by the TV remote; also a Moonlight client.
 
@@ -265,10 +266,272 @@ Music `7e64e319657a9516ec78490da03edccb`.
 may be missed on reconnect; the `dbSyncScreensaver` catch-up covers it lazily. Install from
 Jellyfin Dashboard → Plugins → Catalog.
 
-## Network — Eclipse is on 2.4 GHz wifi, and it is the playback bottleneck
+### Dolby Vision Profile 5 plays GREEN — patched 2026-09-07
 
-**`eth0` has never carried a byte** (`cat /proc/net/dev` → all zeros). Everything goes over `wlan0`,
-associated to `Kandy Cane` on **2457 MHz (ch 10)** at ~-60 dBm, 57.7 Mbit/s PHY.
+**Symptom:** the picture is a solid green wash. The same title on a phone looks perfect, which
+makes it read like an Eclipse display/HDMI fault. It is neither — it is the file.
+
+DV **Profile 5** encodes its base layer in Dolby's **IPT-C2** colour space and ships **no HDR10
+fallback** (`DvBlSignalCompatibilityId: 0`). Kodi on the Pi 5 has no Dolby Vision support at all,
+so a direct-played P5 file decodes fine as HEVC Main 10 and then gets interpreted as YCbCr — IPT
+read as YUV is exactly the green wash.
+
+The discriminator, straight from Jellyfin's `MediaStreams` (the addon dumps the whole blob into
+`kodi.log` at `playutils.py:83`, so it is always available after a failed watch):
+
+| `VideoRangeType` | DV profile | Base layer | On Eclipse |
+|---|---|---|---|
+| `DOVI` | 5 | IPT-C2, no fallback | **green** |
+| `DOVIWithHDR10` | 8.1 | plain HDR10 | fine |
+| `DOVIWithHDR10Plus` | 8.1 + HDR10+ | plain HDR10 | fine |
+| `HDR10` / `HDR10Plus` / `HLG` / `SDR` | — | — | fine |
+
+A P5 stream also carries **no** `ColorSpace` / `ColorTransfer` / `ColorPrimaries` fields at all,
+unlike every other file — a quick way to spot one.
+
+As of 2026-09-07 the library held **38** P5 items out of ~3150 (Ted Lasso, all of White Lotus S1,
+Loki, Rings of Power, Shrinking, Our Flag Means Death, Andor, Fallout, Foundation, plus the films
+*Tomorrowland*, *Finch*, *The Adam Project*).
+
+**The phone is not "better" — the server tone-maps for it.** Don't read a working phone as
+evidence the Pi is broken. The server log shows the whole story side by side:
+
+```
+15:48:36  Kodi         — Tomorrowland stopped at 131s          ← the green watch
+15:49:07  Jellyfin Web — TranscodeManager: ffmpeg ...
+          tonemap_opencl=...:p=bt709:t=bt709:m=bt709:tonemap=bt2390
+15:49:21  Jellyfin Web — stopped at 7s                         ← the phone check
+```
+
+**Fix: refuse direct play for `VideoRangeType == DOVI`** so Asgard tone-maps it instead. Added to
+`get_device_profile()` in
+`/storage/.kodi/addons/plugin.video.jellyfin/jellyfin_kodi/helper/playutils.py`, immediately before
+the `if self.info["ForceTranscode"]:` block:
+
+```python
+profile["CodecProfiles"].append(
+    {
+        "Type": "Video",
+        "Codec": "hevc",
+        "Conditions": [
+            {
+                "Condition": "NotEquals",
+                "Property": "VideoRangeType",
+                "Value": "DOVI",
+                "IsRequired": True,
+            }
+        ],
+    }
+)
+```
+
+Only P5 is affected — HDR10, HDR10+ and DV 8.1 keep direct-playing at full quality, so the
+transcode load is limited to those 38 items.
+
+**This is an addon file. A Jellyfin-addon update will clobber it** — same class of hazard as the
+Moonlight `start.sh` hook. Original saved alongside as `playutils.py.orig`; the patch script is
+idempotent (it bails if `VideoRangeType` is already present) and lives at `/storage/patch_dv.py`.
+The anchor string `if self.info["ForceTranscode"]:` appears **twice** in the file — the one inside
+`get_device_profile` is the second; patch by searching forward from `def get_device_profile`.
+
+**Verifying it took effect** — play a P5 title and check the transcode URL the addon builds:
+
+```bash
+grep -a "master.m3u8" /storage/.kodi/temp/kodi.log | tail -1
+#   &TranscodeReasons=VideoRangeTypeNotSupported        ← the server was told
+#   &hevc-rangetype=Unknown,SDR,HDR10,HLG,DOVIWithHDR10,...   ← note: no bare DOVI
+```
+
+Server side, confirm the filter chain actually tone-maps (`pgrep -af "ffmpeg.*<Title>"` on Asgard):
+`tonemap_opencl=format=nv12:p=bt709:t=bt709:m=bt709:tonemap=bt2390` → **`hevc_qsv`**.
+
+> **The output codec is load-bearing.** It must be `hevc_qsv`, never `h264_qsv` — see
+> *[Video decode: HEVC only](#video-decode-this-box-has-no-h264-hardware-decoder)*. The addon's
+> stock `videoPreferredCodec` is `H264/AVC`, which is the single worst target for this box; it
+> has been changed to `H265/HEVC` here. An earlier version of this section claimed a smooth
+> `h264_qsv` transcode — that was wrong, and the drifting audio it caused is documented below.
+
+Two things that look like failures during the first play of a P5 title and are not:
+
+- **`CCurlFile::Open ... Failed with code 404` on `master.m3u8`.** Kodi probes the HLS playlist
+  before the server has finished spawning ffmpeg. It retries and playback starts. A 404 here is
+  only real if playback never begins.
+- **A long stall before the picture appears, once per file.** Switching to transcode makes the
+  addon pull every embedded text subtitle as an external (`enableExternalSubs=true`), and Jellyfin
+  extracts them serially from the source. *Tomorrowland* has **28** subtitle tracks and took ~3
+  minutes on the first play. Jellyfin caches them under
+  `/data/.state/services/jellyfin/data/subtitles/`, so subsequent plays start immediately —
+  confirmed by a second play that was up in under 6 s.
+
+**Also fixed at acquisition (2026-09-08).** Radarr now scores TRaSH's **`DV (w/o HDR fallback)`**
+(`923b6abef9b17f937fab56cfcf89e1f1`) at **-10000** in `Asgard - Movies`, so it can never grab a
+P5 movie again. Details and the verification in `Claude/server-info.md`. This does nothing for the
+38 files already on disk — the addon patch above is what covers those.
+
+> An earlier version of this section said acquisition was "deliberately not fixed" and quoted
+> trash_id `58d6a88f13e2db7f5059c41047876f00`. **Both are wrong** — it is now fixed, and that
+> trash_id is stale (TRaSH restructured the DV formats). Never reuse a remembered DV trash_id;
+> fetch it from `docs/json/radarr/cf/dv-wo-hdr-fallback.json` in the Guides repo.
+
+**Per-title escape hatch, no config needed:** the addon's context menu already offers **Transcode**
+(`enableContext` and `enableContextTranscode` both default `true` and are not overridden here). That
+sets `ForceTranscode`, which empties `DirectPlayProfiles` entirely. Useful for any other
+direct-play-related fault on the remote.
+
+## Video decode: this box has NO H.264 hardware decoder
+
+**The Pi 5 has exactly one video decode block, and it is HEVC-only.** The Pi 4's H.264 decoder is
+gone — it was not carried over to the Pi 5. Anything H.264 is decoded on the **CPU**.
+
+```bash
+ls /dev/video*                              # → /dev/video19, and nothing else
+dmesg | grep -i codec
+#  rpi-hevc-dec 1000800000.codec: Device registered as /dev/video19
+```
+
+Kodi tries hardware first and silently falls back. **All three lines are logged at `info`, so the
+failure does not look like an error:**
+
+```
+CDVDVideoCodecDRMPRIME::Open - using decoder V4L2 mem2mem H.264 decoder wrapper
+CDVDVideoCodecDRMPRIME::Open - unable to open codec                       ← hardware refused
+CDVDVideoCodecDRMPRIME::Open - using decoder H.264 / AVC / MPEG-4 AVC …   ← now on the CPU
+```
+
+A healthy HEVC open is a single line with no fallback:
+`CDVDVideoCodecDRMPRIME::Open - using decoder HEVC (High Efficiency Video Coding)`.
+
+**Symptom of getting this wrong: audio drifts away from video**, and nudging Kodi's audio offset
+gets *close* but never fixes it — because it is drift, not a constant offset. The renderer is
+starving, so video falls progressively further behind:
+
+```
+OutputPicture - timeout waiting for buffer     # ~6 per minute on 4K H.264
+```
+
+Measured contrast on the same box: 4K HEVC **direct play** ran 82 minutes with **3** such warnings
+total; 4K H.264 **transcode** produced ~6 **per minute**.
+
+**So: never let the server transcode to H.264 for this box.** The Jellyfin addon's stock
+`videoPreferredCodec` is `H264/AVC` — the worst possible choice here. Set to `H265/HEVC`:
+
+```bash
+systemctl stop kodi     # the addon caches settings in memory and rewrites the file on exit
+#   userdata/addon_data/plugin.video.jellyfin/settings.xml
+#   <setting id="videoPreferredCodec">H265/HEVC</setting>
+systemctl start kodi
+```
+
+`get_transcoding_video_codec()` in `playutils.py` puts `hevc` **first** in the codec list when this
+is set, so Jellyfin picks `hevc_qsv`. Backup of the pre-change file: `settings.xml.bak-h264`.
+
+1080p H.264 in software is fine on a Pi 5 — it is specifically **4K** H.264 that cannot keep up.
+
+## HDR output does not work — HDR content looks desaturated and grainy
+
+**Symptom:** washed-out colour *and* visible grain, especially in dark scenes. It reads like a bad
+encode or an AI upscale; it is neither. Both symptoms come from one cause.
+
+The TV is capable — EDID reports HDR10 support:
+
+```
+[display-info] supports hdr static metadata type1: true
+[display-info]   pq:              true
+[display-info]   bt2020_cycc:     true
+```
+
+And Kodi sets the colorimetry, at 12-bit 4:2:2:
+
+```bash
+cat /sys/kernel/debug/dri/*/state | sed -n '/^connector/,/^plane/p'
+#  connector[33]: HDMI-A-1
+#      colorspace=BT2020_YCC        ← BT.2020 IS signalled
+#      output_bpc=12
+#      output_format=YUV 4:2:2
+```
+
+**But the PQ EOTF infoframe is never sent.** The DRM property exists and is simply never populated:
+
+```bash
+modetest -M vc4 -c | grep -A3 HDR_OUTPUT_METADATA
+#  7 HDR_OUTPUT_METADATA:
+#      flags: blob
+#      blobs:            ← empty
+```
+
+Nothing HDR-related appears in `kodi.log` at playback start either. So the TV is told "this is
+BT.2020" but never "this is HDR", and applies **SDR gamma to PQ-encoded video**. PQ packs enormous
+detail into the shadows, so SDR gamma stretches the dark end wide open — which desaturates colour
+**and** amplifies sensor noise into visible grain. One fault, both symptoms.
+
+**Kodi cannot tone-map its way out of this on the Pi.** `videoplayer.useprimerenderer` is `0`
+(*Direct To Plane*), where video goes straight to a DRM plane and bypasses Kodi's shaders entirely.
+Switching it to `1` (*EGL*) does **not** help: no `videoplayer.tonemapmethod` setting appears
+either way — this build has no tone-mapping at all. Don't spend time on it; revert to `0`, since
+EGL is slower for no gain.
+
+That leaves two real options:
+
+| Approach | Cost |
+|---|---|
+| **Prefer SDR sources** for anything watched here | 4K SDR exists but is uncommon; most 4K is HDR |
+| **Let Jellyfin tone-map** (force a transcode, as the DV P5 patch does) | a live 4K transcode per stream; must target `hevc_qsv` |
+
+Do **not** "fix" this by penalising HDR in Radarr. Eclipse is one client; Ben's Chrome, the LG TV,
+the Android TV and the phones all handle HDR, and Jellyfin tone-maps for those that cannot.
+Degrading acquisition library-wide to suit the weakest client is the wrong layer — the fix belongs
+in the Kodi device profile, exactly like the P5 patch.
+
+> ⚠️ **UNVERIFIED and potentially large.** If HDR output is genuinely never signalled, then *every*
+> HDR item plays washed-out here — ~450 files as of 2026-09-08 (300 DV 8.1, 93 HDR10, 61 HDR10+),
+> not just the P5 ones. This was found late on 2026-09-08 and has **not** been confirmed against a
+> known-good HDR10 title. Confirm before acting on it.
+
+## Network — wired since 2026-08-23; wifi is now an automatic standby
+
+**Ethernet is connected and owns the default route.** Everything below about the 2.4 GHz link is
+still accurate for *whenever the cable is out* — that path is unchanged, it is just no longer the
+normal one. Address the box by its tailnet IP `100.80.62.3`, which is interface-independent.
+
+### Ethernet → wifi failover
+
+ConnMan does this natively and needed no new config. `/etc/connman/main.conf` already ships
+`PreferredTechnologies = ethernet,wifi,cellular` and does **not** set `SingleConnectedTechnology`
+(defaults false), so both technologies stay connected simultaneously and ethernet simply wins the
+route. The `Kandy Cane` profile in `/storage/.cache/connman/` was intact all along
+(`Favorite=true`, `AutoConnect=true`, passphrase, `IPv4.method=dhcp`).
+
+**The only blocker was that the wifi radio had been switched off**, persisted in
+`/storage/.cache/connman/settings` as `[WiFi] Enable=false`, and visible as `phy0` soft-blocked in
+`rfkill list`. With the technology unpowered there is no wifi *service* in `connmanctl services` at
+all — so there is nothing for ConnMan to fail over *to*, and no amount of profile-checking shows the
+problem. **Check `connmanctl technologies` for `Powered` before anything else.**
+
+```bash
+connmanctl enable wifi     # writes Enable=true under /storage → survives reboots and OS updates
+connmanctl technologies    # wifi → Powered = True
+connmanctl services        # "*AO Wired" + "*AR Kandy Cane"
+```
+
+Read the flag column: `*` favourite, `A` autoconnect, then `O` online / `R` ready / blank idle. Wifi
+sitting at **`*AR` while the cable is in is the correct steady state** — it is associated and
+holding a DHCP lease, so failover is instant with no re-association or DHCP delay. It only becomes
+`*AO` when ethernet goes away.
+
+**Verified end-to-end 2026-08-23** by downing `eth0` from a self-restoring `systemd-run` script:
+default route moved to `wlan0` within 25 s, `Kandy Cane` went `*AR` → `*AO`, gateway and Asgard both
+pinged at 0% loss; bringing `eth0` back moved the route straight back and demoted wifi to `*AR`.
+
+Two things that look wrong and are not:
+- `ip route` prints wlan0's standby default as `metric -3073`. That is busybox rendering a large
+  *unsigned* metric as signed — it is the worst-priority route, not a negative one. eth0's metric 0 wins.
+- Power-save survives the radio toggle: `iw dev wlan0 get power_save` still reports `off` after
+  `connmanctl enable wifi`, so `wlan0-powersave.service` does not need re-running.
+
+### The 2.4 GHz path (what you fall back to)
+
+Historically `eth0` had never carried a byte and everything went over `wlan0`, associated to
+`Kandy Cane` on **2457 MHz (ch 10)** at ~-60 dBm, 57.7 Mbit/s PHY.
 
 "It's on the local network, so there shouldn't be any buffering" is the trap here — *Asgard* is on
 the LAN at gigabit, but Eclipse reaches it through a congested 2.4 GHz link. Measured 2026-08-05
@@ -339,8 +602,9 @@ custom-unit mechanism as `tailscaled.service`, symlinked into
 ~6-8 min during high-bitrate playback — stopped after enabling it.
 
 If stalls ever return on the heaviest files, the router's 2.4 GHz channel (currently 10) overlaps 6
-and 11 and could be moved, though that is a router-side change outside this repo. Ethernet remains
-the definitive fix if a cable can ever be run to this box.
+and 11 and could be moved, though that is a router-side change outside this repo. **Ethernet was the
+definitive fix and it is now in place (2026-08-23)** — these stalls should only be reachable while
+running on the wifi standby.
 
 ### Forcing 5 GHz *is* possible — the SSIDs must stay merged
 
@@ -362,9 +626,9 @@ Leave `BandModifier2_4GHz` alone: iwd refuses to start if no band is allowed
 (`No bands are allowed, check BandModifier* settings!`), and keeping 2.4 GHz ranked lower but
 available means it can still fall back if the weaker 5 GHz signal degrades.
 
-**Not yet applied** — 5 GHz is 8 dB down here and the Pi is far from the router, so it needs
-measuring rather than assuming. Powerline ethernet is the lower-risk hardware fix; a cable run is
-not possible at this distance.
+**Not yet applied, and now largely moot** — ethernet arrived 2026-08-23 and is the primary link, so
+band selection only affects the fallback path. 5 GHz is 8 dB down here and the Pi is far from the
+router, so it would still need measuring rather than assuming.
 
 ### Cache — the real fix, and `advancedsettings.xml` is NOT how you set it
 
@@ -716,15 +980,17 @@ adapter stuck at `f.f.f.f`, never acquiring an address. Here it always had `1.0.
 `config.txt` still carries `hdmi_ignore_cec_init=1` (legacy firmware option, inert under KMS).
 Hisense brands CEC as "Anyview Link" / "CEC Control".
 
-### OUTSTANDING: TV standby tells Kodi to suspend a box that can't suspend
+### TV standby tells Kodi to suspend a box that can't suspend — LEFT AS IS, deliberately
 
 `userdata/peripheral_data/cec_CEC_Adapter.xml` carries `standby_pc_on_tv_standby = 13011`
-(Kodi string 13011 = **Suspend**), with `standby_devices = 36037` (TV). Switching the TV off now
+(Kodi string 13011 = **Suspend**), with `standby_devices = 36037` (TV). Switching the TV off
 broadcasts CEC standby, and Kodi tries to suspend a kernel whose `/sys/power/state` is empty.
 
 **Fixing CEC armed this.** It was inert for months only because the pin-13 adapter meant the TV's
-standby message never arrived; the 2026-08-03 cable swap made it live. Set it to `36028` (Ignore).
-Not yet done.
+standby message never arrived; the 2026-08-03 cable swap made it live.
+
+**Decision 2026-08-23: leave it at `13011`.** Changing it to `36028` (Ignore) was offered and
+declined — the behaviour is not causing a problem in practice. Don't re-propose this.
 
 ## "No signal" on the TV while the Pi is clearly up
 
@@ -740,6 +1006,47 @@ and falls back to a headless 1280x720 dummy. Connecting the TV afterwards brings
 up but Kodi keeps driving the dummy, so the TV shows "no signal" forever. Fix is just
 `systemctl restart kodi` once the link is up; a good init logs
 `GUI format 1920x1080, Display 3840x2160 @ 60.000000 Hz`.
+
+### Use the HDMI port next to the USB-C — and restart Kodi if the cable ever moves (2026-08-23)
+
+The Pi 5 has two HDMI ports and they are **not** interchangeable here:
+
+| Physical port | DRM connector | CEC device |
+|---|---|---|
+| nearest the USB-C power jack | `card1-HDMI-A-1` | `/dev/cec0` (`vc4-hdmi-0`) ← **use this one** |
+| the other one | `card1-HDMI-A-2` | `/dev/cec1` (`vc4-hdmi-1`) |
+
+**Kodi picks its output connector once, at startup, and never re-probes** — the same root cause as
+the dummy-display trap above, but it bites differently with two ports: boot Kodi while the cable is
+in the *second* port and it binds `HDMI-A-2` and keeps painting there, so moving the cable back to
+the first port leaves the TV on "no signal" even though that link is perfect.
+
+Kodi registers a **single** CEC adapter, and in practice CEC only works on the USB-C-side port
+(libcec's Linux backend takes `/dev/cec0`). So the second port gives the very confusing combination
+of **picture but no remote control**. That pairing — working video, dead CEC — is the fingerprint of
+being on the wrong port; it is not a CEC fault to go debugging.
+
+Which connector Kodi actually took:
+
+```bash
+grep FindConnector /storage/.kodi/temp/kodi.log     # "using connector: HDMI-A-1"
+cat /sys/class/drm/card1-HDMI-A-1/enabled           # enabled = this is the one being driven
+```
+
+**`enabled` is the useful field, not `status`.** During this fault `HDMI-A-1` read
+`connected` + 256-byte EDID + `enabled=disabled`, while the abandoned `HDMI-A-2` read
+`disconnected` + `enabled=enabled`. Note a *disconnected* connector keeps its last EDID cached, so
+"both ports show a HISENSE EDID" proves nothing about where the cable is.
+
+Prove the good port is genuinely live before suspecting hardware — this answers in one command and
+needs a real electrical link end to end:
+
+```bash
+cec-ctl -d /dev/cec0 --to 0 --give-device-power-status   # TV replies REPORT_POWER_STATUS → link is fine
+```
+
+Fix is `systemctl restart kodi` with the cable in the USB-C-side port. The Glance panel at
+`asgard:9554` has a button for it.
 
 Check the link itself from the kernel, not from Kodi:
 
@@ -760,7 +1067,36 @@ prev=""; for i in $(seq 1 300); do s=$(cat /sys/class/drm/card1-HDMI-A-1/status)
 
 `timeout` is **not** on LibreELEC — wrap long-running commands from the client side instead.
 
-### The micro-HDMI plug backs out of the Pi (2026-08-04)
+### Auto-recovery: `hdmi-hotplug.service` (added 2026-08-30)
+
+Kodi's never-re-probe behaviour is now handled automatically, so a restored link brings the picture
+back on its own instead of needing the Glance button or an SSH restart.
+
+```
+/storage/hdmi-hotplug.sh                              # the watcher
+/storage/.config/system.d/hdmi-hotplug.service        # unit (same mechanism as tailscaled)
+/storage/hdmi-hotplug.log                             # persistent, survives the volatile journal
+```
+
+Polls `card1-HDMI-A-1/status` every 2 s. On a `disconnected → connected` edge it waits 5 s for HPD
+and the EDID read to settle, then restarts Kodi **only** if all of these hold:
+
+| Guard | Why |
+|---|---|
+| still `connected` after the settle wait | rejects flapping while a plug is being reseated |
+| `enabled` != `enabled` | `enabled` is what says Kodi is *driving* this connector; `status` only says a cable is present. Already-driving ⇒ do nothing, so TV sleep/wake never causes a pointless restart |
+| `pgrep moonlight-qt` finds nothing | Moonlight deliberately stops Kodi and owns DRM — restarting Kodi mid-stream would fight it for the display |
+| `kodi.service` is active | if Kodi is stopped on purpose, leave it stopped |
+
+Note `pgrep -x` returns nothing on this box (busybox), so the moonlight check uses a plain match —
+the same trap already documented for the Moonlight exit hook.
+
+**Verified 2026-08-30** against fake sysfs files rather than the real connector, because `echo on >
+status` poisons Kodi's persisted `videoscreen.resolution` and then needs a full reboot to get 4K
+back. All three paths confirmed: link-up-while-on-dummy → `restarting kodi`; link-up-while-already-
+driving → `no action`; brief flap → `bounced back … ignoring`.
+
+### The micro-HDMI plug backs out of the Pi (2026-08-04, recurred 2026-08-30)
 
 Reported as "when the TV sleeps and we turn it back on, HDMI won't show up" — which sounds exactly
 like the Kodi-doesn't-re-probe trap above, and isn't. **The Pi cannot sleep at all**:
@@ -786,6 +1122,23 @@ Pins 15/16/18/19 are adjacent at the end of the connector, so a partly-withdrawn
 that group while leaving the TMDS lanes (1–12) intact. Same failure *class* as the pin-13 adapter,
 one pin group over.
 
+**This recurred on 2026-08-30 and presented identically.** Both connectors read `disconnected` +
+`enabled=disabled` + **0-byte EDID**, `dmesg` logged `[drm] Cannot find any crtc or sizes` ×3, and
+Kodi fell back to `GUI format 1280x720`. The TV's input list had the Pi's input **greyed out**,
+which is the discriminator that settles it — no +5V presence, so the link was dead in both
+directions. Reseating at the Pi end is the fix; nothing over SSH can help.
+
+Worth ruling out first, because it reads *identically* to a dead cable and costs one command — a
+connector left forced `off`:
+
+```bash
+echo detect > /sys/class/drm/card1-HDMI-A-1/status   # clears any stale force; safe, unlike `echo on`
+```
+
+Also note Kodi's early log lines can carry a **pre-NTP clock** (they were stamped 2025-06-26 on a
+box whose `date` was correct), so a stale-looking timestamp is not evidence the log is old — check
+`date -r /storage/.kodi/temp/kodi.log` and the tail instead.
+
 To prove TMDS is alive without touching the cable, force the connector on — it ignores HPD and
 synthesises a fallback VESA mode list (no EDID, so 1024x768 max):
 
@@ -803,7 +1156,72 @@ CEC `Physical Address: f.f.f.f` in this state is a **consequence, not the kernel
 is derived from EDID, so no EDID always means `f.f.f.f`. The RPi5 bug (raspberrypi/linux#7485)
 looks the same but with a healthy link.
 
-## Known noise
+## `script.litebox` — was silently hammering Asgard, FIXED 2026-09-07
 
-`script.litebox` spams `module 'PIL.Image' has no attribute 'ANTIALIAS'` every ~10s — dead Pillow
-10 API, addon unmaintained. Harmless to playback; disable it if the log noise matters.
+Earlier notes called this "harmless log noise". **It was not.** litebox is the daemon the skin runs
+to produce its blurred-backdrop effect (`Startup.xml` → `RunScript(script.litebox,daemon=True)`,
+gated on the skin's `EnableEffects`). For every item you highlight it downloads that item's
+backdrop **at full resolution** and blurs it:
+
+```
+script.litebox --> 5err: module 'PIL.Image' has no attribute 'ANTIALIAS'
+   img: http://192.168.0.226:8096/Items/<id>/Images/Backdrop/0?Format=original
+```
+
+Two independent Pillow-10 breakages meant it failed on every single image while still doing all the
+downloading — roughly **300 full-size fetches a minute, forever**, for an effect that never once
+appeared. It was **26% of the entire Kodi log** (367 of 1419 lines).
+
+| # | Break | Fix |
+|---|---|---|
+| 1 | `Image.ANTIALIAS` removed in Pillow 10 (`resources/lib/utils.py`, 2 uses) | → `Image.LANCZOS`. Not an approximation: they were the *same constant*, just renamed |
+| 2 | `ImagingCore.gaussian_blur` now wants an `(x, y)` radius pair, not a scalar — `argument 1 must be 2-item sequence, not int` (`resources/lib/imageoperations.py`) | `MyGaussianBlur` now subclasses **`ImageFilter.GaussianBlur`** instead of `ImageFilter.Filter` |
+
+Fixing #1 alone is not enough — it just uncovers #2, which had been masked because nothing ever got
+that far. Confirm the exact signature empirically rather than guessing, since it is a private C API:
+
+```python
+im.im.gaussian_blur(30)          # TypeError: argument 1 must be 2-item sequence, not int
+im.im.gaussian_blur((30,30), 3)  # OK
+```
+
+Inheriting Pillow's own `GaussianBlur` is deliberate: it tracks whatever signature Pillow uses, and
+because it is a `MultibandFilter` it blurs RGB in **one** C call instead of splitting into three
+bands and merging (which is what the old `ImageFilter.Filter` base forced).
+
+**How to tell a real blur from the broken passthrough — compare file sizes, don't eyeball it.**
+When the filter threw, the `except` still saved the *unmodified* source, so a "blurred" file was
+byte-identical to its input:
+
+```
+1344487 bytes  fd75b8625f0432c71712a5229551ac04.png            ← source
+1344487 bytes  fd75b8625f0432c71712a5229551ac041.0-blur304.png ← "blurred", identical = broken
+  21159 bytes  f11a1c686a91c120af5cbabba3dfffdc1.0-blur304.png ← after the fix
+```
+
+A real gaussian blur is smooth and compresses ~60x smaller. Equal sizes = the blur is silently
+failing. Cache lives in `userdata/addon_data/script.litebox/` and is keyed by image hash, so
+already-cached artwork generates nothing new — browse to something fresh when testing.
+
+Result: litebox log lines went **367/1419 (26%) → 9/487 (1.8%)**, zero `ANTIALIAS` errors, and the
+blur effect works for the first time.
+
+**Both are addon files — a litebox update clobbers them.** Originals kept as `utils.py.orig` and
+`imageoperations.py.orig`; idempotent patchers at `/storage/patch_litebox.py` and
+`/storage/patch_litebox2.py` (the second refuses to run if its anchor is missing rather than
+patching blindly). **Delete `__pycache__/*.pyc` after editing** or the stale bytecode shadows the
+change and the fix looks like it did nothing.
+
+### Remaining, benign
+
+A few lines per session when the highlighted item has no artwork — the skin passes its
+`common/null.png` placeholder, litebox can't open it, and its `else` branch then trips over an
+unbound `img`:
+
+```
+co: [Errno 2] No such file or directory: '.../fa645dc466a124f0a550e76191ae02f6.png'
+go_mapop: cannot access local variable 'img' where it is not associated with a value  cmarg: blur
+```
+
+Latent upstream bug in litebox's error handling, exercised only in the no-artwork case. A handful of
+lines, not the old 300/minute — left alone.
