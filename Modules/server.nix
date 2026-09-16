@@ -512,6 +512,9 @@
                         - title: Loki
                           url: http://asgard:3100/ready
                           icon: sh:loki
+                        - title: Home Assistant
+                          url: http://asgard:8123
+                          icon: sh:home-assistant
 
                     - type: monitor
                       title: Media
@@ -574,6 +577,9 @@
                         - title: Loki
                           url: http://asgard:3100/ready
                           icon: sh:loki
+                        - title: Home Assistant
+                          url: http://asgard:8123
+                          icon: sh:home-assistant
 
             - size: small
               widgets:
@@ -701,7 +707,7 @@
                 - type: iframe
                   title: Eclipse Control
                   source: http://asgard:9554
-                  height: 300
+                  height: 700
     '';
 
     # ── Alloy River config (no secrets — ships journald logs to Loki on localhost) ──
@@ -830,12 +836,20 @@
           knownProxies = [ "127.0.0.1" ];
         };
 
-        # Bits per second. Sits well inside the 30 Mbit WAN egress cap set by
-        # wan-egress-shaping.service, leaving room for two concurrent remote
-        # streams. Forces a real *video* transcode: without it Jellyfin only
-        # re-encoded audio when a codec was unsupported (IsVideoDirect=true)
-        # and passed the full-bitrate 4K video straight through.
-        system.remoteClientBitrateLimit = 12000000;
+        # Bits per second. Raised from the original 12 Mbps on 2026-09-11 when
+        # Eclipse (the Pi 5 TV box) became a permanent remote client after
+        # moving to a second house — 12 Mbps forced every remux into an HLS
+        # transcode, which turned out not even to be the main problem (see
+        # wan-egress-shaping below), but a stricter cap than Eclipse's typical
+        # ~15-20 Mbps HEVC remuxes need is still real quality loss for what is
+        # now a primary device, not an occasional public share.
+        #
+        # Trade-off, accepted deliberately: 40 Mbps is most of the 30 Mbit WAN
+        # egress cap on its own, so this no longer comfortably fits "two
+        # concurrent remote streams" the way 12 Mbps did. A second simultaneous
+        # remote/CF-tunnel viewer while Eclipse is direct-streaming will
+        # contend for the same shaped pipe. Revisit if that starts happening.
+        system.remoteClientBitrateLimit = 40000000;
 
         # Intel QuickSync on i5-14400 (UHD 730) — /dev/dri/renderD128
         encoding = {
@@ -1534,6 +1548,7 @@ sonarr:
         - trash_id: 4b196eed652c65ea98d615212040ebe2  # [Required] Anime Versions (v0-v4)
         - trash_id: 85fae4a2294965b75710ef2989c850eb  # [Streaming Services] HD/UHD boost
         - trash_id: 59c3af66780d08332fdc64e68297098f  # [Unwanted] Unwanted Formats
+        - trash_id: bad5bc85573a0134e1e1987c46f67e98  # [Optional] Accessibility (WiTH AD/ASL/BASL/BSL)
     # Explicit scores for Asgard - TV / Asgard - Anime (custom, non-trash_id
     # profiles). NEEDED — custom_format_groups.add only creates the formats,
     # it does NOT score them for a non-trash_id profile; reset_unmatched_scores
@@ -1557,6 +1572,33 @@ sonarr:
           # Sonarr to grab three [Breeze] "[1080p.AV1][Dual.Audio]" releases
           # — they satisfied "has English audio" and nothing objected.
           - 15a05bc7c1a36e2b57fd628f8977e2fc  # AV1
+        score: -10000
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      # Accessibility variants — releases where the ONLY audio track is an
+      # alternate accessibility mix, not the normal one. Added 2026-08-28
+      # after Mythic Quest was found unwatchable: 15 of its episodes were
+      # Kitsune "with Audio Description" releases, and ffprobe confirmed they
+      # carry exactly ONE audio stream, titled "Descriptive" — there is no
+      # normal English track to switch to in the player, so the narrator
+      # talks over the whole episode. All the Light We Cannot See (4 eps) and
+      # Invincible S04 (4 eps) had the same problem.
+      #
+      # Nothing else in the config objected: the releases are genuine 1080p
+      # WEB-DL DDP5.1 Atmos from a decent group, so they scored *well*.
+      #
+      # NOTE the mkv disposition flag `visual_impaired` is 0 on these files,
+      # so Jellyfin cannot detect or avoid them client-side either. The
+      # release title is the only signal, which is exactly what this CF
+      # matches. ASL/BASL/BSL are the sign-language equivalents from the same
+      # TRaSH group — same problem, same score.
+      - trash_ids:
+          - 44ccbcbc74506f208973e1463b11705f  # WiTH AD
+          - c196536ea8122397c5854040d01f2aa7  # WiTH ASL
+          - b40dc2e630723745aab9f1b94f4aab74  # WiTH BASL
+          - 0aef382c4ed4c5eb5d40109dfd351b72  # WiTH BSL
         score: -10000
         assign_scores_to:
           - name: Asgard - TV
@@ -1792,6 +1834,7 @@ radarr:
         - trash_id: f8bf8eab4617f12dfdbd16303d8da245  # [Optional] Golden Rule HD
         - trash_id: ff204bbcecdd487d1cefcefdbf0c278d  # [Optional] Golden Rule UHD
         - trash_id: a3ac6af01d78e4f21fcb75f601ac96df  # [Unwanted] Unwanted Formats
+        - trash_id: bc3c13e52f2971319bc1748ffa3d1078  # [Optional] Accessibility (WiTH AD/ASL/BASL/BSL)
     # Explicit scores for Asgard - Movies (custom, non-trash_id profile) —
     # see the matching comment under sonarr-main above for why this is
     # necessary. Real trash-guide defaults, fetched directly from
@@ -1809,6 +1852,26 @@ radarr:
           - 712d74cd88bceb883ee32f773656b1f5  # Sing-Along Versions
           - cc444569854e9de0b084ab2b8b1532b2  # Black and White Editions
           - c465ccc73923871b3eb1802042331306  # Line/Mic Dubbed
+          # Accessibility variants — the audio-description / sign-language
+          # cuts. No movie had been caught by this yet (the 2026-08-28 sweep
+          # found AD releases only in TV), but the failure mode is identical
+          # and there is no reason to leave Radarr exposed. See the matching
+          # block under sonarr-main for the full write-up.
+          - 127bdbadcf3e4463a8c707759fbaad75  # WiTH AD
+          - 09c60ba54fadb511c6986a7edec4da4b  # WiTH ASL
+          - 41e4baea7b10ddefc6609d52f742dacd  # WiTH BASL
+          - e205c5ba6be76b472903f4aec97fdb4b  # WiTH BSL
+          # Dolby Vision Profile 5 — no HDR10 fallback. Its base layer is IPT-C2, so any
+          # player without DV support decodes it as YCbCr and the picture comes out GREEN.
+          # Eclipse (Pi 5 / LibreELEC) has no DV support at all, so P5 is unwatchable there
+          # without a server-side transcode. Radarr picked one for Tomorrowland (2026-09-07)
+          # because nothing above scores video range: it ranked on TrueHD ATMOS (+5000) and
+          # took the DV twin of an otherwise identical release from the same group and WEB
+          # source. Full write-up in Claude/eclipse.md.
+          # Matches "Dolby Vision AND WEBDL AND NOT HDR", i.e. exactly P5 — releases named
+          # DV.HDR (Profile 8.1) carry an HDR10 base layer, direct-play correctly, and are
+          # deliberately NOT caught by this.
+          - 923b6abef9b17f937fab56cfcf89e1f1  # DV (w/o HDR fallback)
         score: -10000
         assign_scores_to:
           - name: Asgard - Movies
@@ -1992,7 +2055,12 @@ EOF
           case "$TITLE" in
             "SAKAMOTO DAYS"|"Good Night World"|"Sword Art Online"|"Solo Leveling"|"JUJUTSU KAISEN")
               WANT_P=$ANIME;  WANT_T=anime ;;
-            "Game of Thrones")
+            # The 2005 cartoon was animated for 4:3 SD and remastered no
+            # higher than 1080p — there is no 4K master to grab. Pinning it
+            # to the 1080p ladder is therefore free, and it doubles as the
+            # first line of defence against the 2024 Netflix live-action
+            # remake, whose releases are all 2160p (see the block below).
+            "Avatar: The Last Airbender"|"Game of Thrones")
               WANT_P=$TV1080; WANT_T=standard ;;
             *)
               WANT_P=$TV;     WANT_T=standard ;;
@@ -2043,6 +2111,90 @@ EOF
                    "$SONARR/api/v3/releaseprofile/$RPID" >/dev/null \
             && echo "arr-policy: updated release profile ignored terms" \
             || echo "arr-policy: FAILED to update release profile"
+        fi
+
+        # --- Sonarr: keep the live-action remake out of the 2005 cartoon -----
+        # Netflix's 2024 live-action "Avatar: The Last Airbender" has its own
+        # TVDB entry, but its releases are titled identically to the cartoon's
+        #   Avatar.The.Last.Airbender.S01E02.2024.2160p.NF.WEB-DL...
+        # so Sonarr matched them straight onto tvdb 74852 (the 2005 series).
+        # Found 2026-08-28: 14 live-action episodes had been imported into the
+        # cartoon — S01E02-E08 and S02E01-E07 — and because they filled those
+        # slots Sonarr reported both seasons as complete. Runtime is the
+        # giveaway: 47-69 min against 23-25 min for real episodes.
+        #
+        # A TAGGED release profile, not a global one: HHWEB/XEBEC/BYNDR are
+        # ordinary groups that do other shows legitimately, so these terms
+        # must only ever apply to this one series.
+        #
+        # The term targets audio, which is the most durable discriminator
+        # available: all 14 live-action files carry DDP5.1 Atmos, and a 2005
+        # Nickelodeon cartoon will never gain a genuine Atmos mix. Group names
+        # and the "2024" token would both drift as new releases appear.
+        #
+        # Deliberately ONLY "Atmos", not "DDP5.1" — Netflix does carry 5.1
+        # audio for parts of the animated series, so blocking DDP5.1 outright
+        # risks rejecting a legitimate release. Atmos alone already matches
+        # every live-action file observed.
+        #
+        # "SKST" is a SECOND, unrelated problem that the 2026-08-28 redo
+        # exposed. That release set collapses the show's two-parters into one
+        # file and then renumbers everything after it, so its episode numbers
+        # drift out of step with TVDB:
+        #   SKST S03E12 = "The Firebending Masters"  (TVDB E13)
+        #   SKST S03E14 = "The Southern Raiders"     (TVDB E16)
+        # Sonarr matches on the S/E in the release title and never checks the
+        # episode name, so these import into the wrong slots and every episode
+        # from the first two-parter onward plays the NEXT one. That is exactly
+        # how S02E13-E18 and S03E11-E16 ended up wrong the first time round,
+        # and re-searching reproduced it within minutes.
+        #
+        # The AMZN set (CtrlHD / SiGMA) numbers correctly because it ships
+        # two-parters as real multi-episode releases that Sonarr parses into
+        # both slots — S02E12E13, S03E10E11, S03E14E15, S03E18E19E20E21 — so
+        # blocking SKST leaves a complete, correctly-numbered alternative at
+        # the same WEBDL-1080p tier. Verified across all 61 episodes.
+        ATLA_ID=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/series \
+                  | jq -r '.[]|select(.tvdbId==74852)|.id')
+        if [ -n "$ATLA_ID" ] && [ "$ATLA_ID" != "null" ]; then
+          TAGID=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/tag \
+                  | jq -r '.[]|select(.label=="atla-animated")|.id')
+          if [ -z "$TAGID" ] || [ "$TAGID" = "null" ]; then
+            TAGID=$(curl -sf -m 15 -X POST -H "X-Api-Key: $SK" \
+                      -H 'Content-Type: application/json' \
+                      -d '{"label":"atla-animated"}' $SONARR/api/v3/tag | jq -r .id)
+          fi
+          if [ -n "$TAGID" ] && [ "$TAGID" != "null" ]; then
+            # Tag the series (idempotent — only PUTs when the tag is absent).
+            ASER=$(curl -sf -m 15 -H "X-Api-Key: $SK" "$SONARR/api/v3/series/$ATLA_ID")
+            if [ "$(echo "$ASER" | jq --argjson t "$TAGID" '.tags|index($t)')" = "null" ]; then
+              echo "$ASER" | jq --argjson t "$TAGID" '.tags += [$t]' \
+                | curl -sf -m 30 -X PUT -H "X-Api-Key: $SK" \
+                       -H 'Content-Type: application/json' --data-binary @- \
+                       "$SONARR/api/v3/series/$ATLA_ID" >/dev/null \
+                && echo "arr-policy: tagged Avatar with atla-animated"
+            fi
+            ATLA_IGN='["Atmos","SKST"]'
+            ARP=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/releaseprofile) || ARP="[]"
+            AEX=$(echo "$ARP" | jq -c '.[]|select(.name=="Asgard - ATLA live-action block")')
+            if [ -z "$AEX" ]; then
+              curl -sf -m 15 -X POST -H "X-Api-Key: $SK" -H 'Content-Type: application/json' \
+                -d "{\"name\":\"Asgard - ATLA live-action block\",\"enabled\":true,\"required\":[],\"ignored\":$ATLA_IGN,\"indexerId\":0,\"tags\":[$TAGID]}" \
+                $SONARR/api/v3/releaseprofile >/dev/null \
+                && echo "arr-policy: created ATLA live-action release profile" \
+                || echo "arr-policy: FAILED to create ATLA release profile"
+            elif [ "$(echo "$AEX" | jq -c '.ignored|sort')" != "$(echo "$ATLA_IGN" | jq -c 'sort')" ] \
+              || [ "$(echo "$AEX" | jq -c '.tags')" != "[$TAGID]" ]; then
+              ARPID=$(echo "$AEX" | jq -r .id)
+              echo "$AEX" | jq --argjson ig "$ATLA_IGN" --argjson t "$TAGID" \
+                    '.ignored=$ig | .tags=[$t]' \
+                | curl -sf -m 15 -X PUT -H "X-Api-Key: $SK" \
+                       -H 'Content-Type: application/json' --data-binary @- \
+                       "$SONARR/api/v3/releaseprofile/$ARPID" >/dev/null \
+                && echo "arr-policy: updated ATLA live-action release profile" \
+                || echo "arr-policy: FAILED to update ATLA release profile"
+            fi
+          fi
         fi
 
         # --- Delete the profiles Jellyseerr should not offer -----------------
@@ -2118,6 +2270,124 @@ EOF
         done
 
         echo "arr-policy: done"
+      '';
+    };
+
+    # Jellyfin ships with TheMovieDb as the only TV provider, and TMDB models
+    # some anime as ONE long season: JUJUTSU KAISEN is a single "Season 1" of
+    # 59 episodes there, while TVDB (and therefore Sonarr, and therefore the
+    # folder layout) splits the same 59 into 24 / 23 / 12. Jellyfin then looks
+    # up "Season 2, Episode 1", finds nothing in TMDB, and degrades badly:
+    # no season posters at all, and 300x169 / 9 KB episode thumbnails against
+    # 1920x1080 for season 1. Adding TheTVDB fixes every season TMDB cannot
+    # describe. Found 2026-08-28.
+    #
+    # TheTVDB is added BELOW TheMovieDb everywhere, deliberately — TMDB stays
+    # authoritative so nothing that already looks right can change, and TVDB
+    # only fills the gaps. But it must sit ABOVE "The Open Movie Database",
+    # "Embedded Image Extractor" and "Screen Grabber" in the episode image
+    # order: those are what were producing the 300x169 images, so a TVDB entry
+    # below them would never win.
+    #
+    # EnableEmbeddedTitles is forced off. It is on by default and makes
+    # Jellyfin take the episode name from the mkv container title tag, which
+    # release groups stuff with their own naming — the JJK season 2/3 files
+    # carry titles like "Jujutsu Kaisen (2023) - S02E01 - Hidden Inventory"
+    # and "[AnoZu] JUJUTSU KAISEN - S03E01 - Execution", and those were being
+    # shown verbatim in the UI. Season 1's files happen to have an empty title
+    # tag, which is the only reason that season looked correct.
+    systemd.services.jellyfin-providers = {
+      description = "Install TheTVDB and pin Jellyfin TV metadata/image provider order";
+      after    = [ "jellyfin.service" "network-online.target" ];
+      wants    = [ "jellyfin.service" "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+      path     = [ pkgs.curl pkgs.jq pkgs.coreutils pkgs.systemd ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        set -u
+        JF=http://localhost:8096
+        JK=$(cat ${config.sops.secrets."jellyfin-api-key".path})
+        AUTH="Authorization: MediaBrowser Token=$JK"
+
+        wait_for_jf() {
+          for _ in $(seq 1 60); do
+            curl -sf -m 5 -H "$AUTH" $JF/System/Info >/dev/null && return 0
+            sleep 5
+          done
+          return 1
+        }
+
+        wait_for_jf || { echo "jellyfin-providers: Jellyfin never came up - skipping"; exit 0; }
+
+        # --- TheTVDB plugin ------------------------------------------------
+        # Installing it needs a restart before the fetcher becomes selectable,
+        # so do that first and re-wait. Guarded so this is a no-op after the
+        # first successful run.
+        if ! curl -sf -m 15 -H "$AUTH" $JF/Plugins | jq -e '.[]|select(.Name=="TheTVDB")' >/dev/null; then
+          # Pick the newest catalogue version whose targetAbi the running
+          # server satisfies, rather than pinning a version that will rot.
+          SRV=$(curl -sf -m 15 -H "$AUTH" $JF/System/Info | jq -r .Version)
+          PKG=$(curl -sf -m 30 -H "$AUTH" $JF/Packages | jq -r --arg s "$SRV" '
+            def norm: split(".")|map(tonumber)|(.+[0,0,0,0])[0:4];
+            .[] | select(.name=="TheTVDB")
+            | .guid as $g
+            | [ .versions[] | select((.targetAbi|norm) <= ($s|norm)) ][0]
+            | select(.!=null) | "\(.version) \($g)"')
+          if [ -n "$PKG" ]; then
+            set -- $PKG
+            if curl -sf -m 60 -X POST -H "$AUTH" \
+                 "$JF/Packages/Installed/TheTVDB?version=$1&assemblyGuid=$2" >/dev/null; then
+              echo "jellyfin-providers: installed TheTVDB $1, restarting Jellyfin"
+              sleep 10
+              systemctl restart jellyfin
+              wait_for_jf || { echo "jellyfin-providers: Jellyfin did not return after restart"; exit 0; }
+            else
+              echo "jellyfin-providers: FAILED to install TheTVDB"
+            fi
+          else
+            echo "jellyfin-providers: no TheTVDB build compatible with $SRV"
+          fi
+        fi
+
+        # --- Library options -----------------------------------------------
+        VF=$(curl -sf -m 15 -H "$AUTH" $JF/Library/VirtualFolders) || exit 0
+        echo "$VF" | jq -c '.[]|select(.CollectionType=="tvshows")' | while read -r LIB; do
+          NAME=$(echo "$LIB" | jq -r .Name)
+          WANT=$(echo "$LIB" | jq -c '{Id:.ItemId, LibraryOptions:(.LibraryOptions
+            | .EnableEmbeddedTitles=false
+            | .TypeOptions|=map(
+                if .Type=="Series" then
+                  .MetadataFetchers=["TheMovieDb","TheTVDB","The Open Movie Database"]
+                  | .MetadataFetcherOrder=["TheMovieDb","TheTVDB","The Open Movie Database"]
+                  | .ImageFetchers=["TheMovieDb","TheTVDB"]
+                  | .ImageFetcherOrder=["TheMovieDb","TheTVDB"]
+                elif .Type=="Season" then
+                  .MetadataFetchers=["TheMovieDb","TheTVDB"]
+                  | .MetadataFetcherOrder=["TheMovieDb","TheTVDB"]
+                  | .ImageFetchers=["TheMovieDb","TheTVDB"]
+                  | .ImageFetcherOrder=["TheMovieDb","TheTVDB"]
+                elif .Type=="Episode" then
+                  .MetadataFetchers=["TheMovieDb","TheTVDB","The Open Movie Database"]
+                  | .MetadataFetcherOrder=["TheMovieDb","TheTVDB","The Open Movie Database"]
+                  | .ImageFetchers=["TheMovieDb","TheTVDB","The Open Movie Database","Embedded Image Extractor","Screen Grabber"]
+                  | .ImageFetcherOrder=["TheMovieDb","TheTVDB","The Open Movie Database","Embedded Image Extractor","Screen Grabber"]
+                else . end))}')
+          # Only POST when something actually differs — this unit runs on every
+          # boot and a no-op must stay a no-op.
+          CUR=$(echo "$LIB" | jq -c '{Id:.ItemId, LibraryOptions:.LibraryOptions}')
+          if [ "$CUR" != "$WANT" ]; then
+            echo "$WANT" | curl -sf -m 30 -X POST -H "$AUTH" \
+                   -H 'Content-Type: application/json' --data-binary @- \
+                   "$JF/Library/VirtualFolders/LibraryOptions" >/dev/null \
+              && echo "jellyfin-providers: updated provider order on library $NAME" \
+              || echo "jellyfin-providers: FAILED to update library $NAME"
+          fi
+        done
+
+        echo "jellyfin-providers: done"
       '';
     };
 
@@ -3280,7 +3550,17 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
         $tc qdisc add dev $dev root handle 1: htb default 20
         $tc class add dev $dev parent 1: classid 1:1 htb rate 940mbit
         $tc class add dev $dev parent 1:1 classid 1:10 htb rate 910mbit ceil 940mbit
-        $tc class add dev $dev parent 1:1 classid 1:20 htb rate 30mbit ceil 30mbit
+        # burst/cburst explicit — htb's auto-computed default at this rate is
+        # ~1600 bytes (one packet), which sounds harmless but isn't: it means
+        # every burst above a single packet gets throttled by the token
+        # bucket itself, not just rate-limited on average. Discovered
+        # 2026-09-11 chasing Eclipse's remote Jellyfin playback "plays a
+        # chunk, stalls, plays a chunk" stutter — `tc -s class show` had 190M
+        # cumulative overlimits and a token count sitting in permanent
+        # deficit. 300KB (~80ms at 30 Mbit) lets Kodi's aggressive read-ahead
+        # bursts (filecache readfactor 20x, see Claude/eclipse.md) through
+        # smoothly while the long-run average is still capped at 30 Mbit.
+        $tc class add dev $dev parent 1:1 classid 1:20 htb rate 30mbit ceil 30mbit burst 300k cburst 300k
         $tc qdisc add dev $dev parent 1:20 fq_codel
         $tc filter add dev $dev parent 1: protocol ip prio 1 u32 match ip dst 192.168.0.0/16 flowid 1:10
         $tc filter add dev $dev parent 1: protocol ip prio 1 u32 match ip dst 10.0.0.0/8 flowid 1:10
@@ -3389,6 +3669,39 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     systemd.services.podman-shelfarr.unitConfig.RequiresMountsFor     = [ "/data/media" ];
     systemd.services.podman-filebrowser.unitConfig.RequiresMountsFor  = [ "/data/media" "/data/photos" ];
     systemd.services.immich-server.unitConfig.RequiresMountsFor       = [ "/data/photos" ];
+
+    # --- NFS export of /data/media, tailnet-only — Eclipse "Native mode" trial (2026-09-12) ---
+    # plugin.video.jellyfin's HTTP streaming locks in one bitrate at playback start (no ABR —
+    # confirmed absent in the addon's own source and in upstream's issue tracker/docs, see
+    # Claude/eclipse.md). "Native (direct paths)" mode sidesteps that: Kodi still uses the Jellyfin
+    # API for browsing/metadata/watched-state, but reads the actual video bytes straight off this
+    # NFS export instead of through Jellyfin's HTTP/transcode layer. Doesn't create bandwidth that
+    # isn't there, but NFS's read-ahead/flow control may tolerate the jittery remote link better
+    # than HTTP chunked delivery did.
+    #
+    # Deliberately exported by Tailscale IP, not the LAN IP — Tailscale auto-detects when peers
+    # share a physical subnet and switches to a direct LAN connection with no config change, so one
+    # export works whether Eclipse is remote (today) or back on the LAN (future): no LAN/remote
+    # toggle needed for this path, unlike the Jellyfin HTTP address.
+    #
+    # Read-only, and root_squash (the NFS default, left un-overridden) is fine here — /data/media
+    # and its files are world-readable (o+r on files, o+rx on dirs) for exactly this reason, so an
+    # NFS client mapped to "nobody" already has everything it needs; no anonuid/gid juggling.
+    # tailscale0 is a trustedInterface (line ~3518) so no firewall port-opening needed — this is
+    # never reachable from the LAN or WAN, only the tailnet. 100.64.0.0/10 is Tailscale's CGNAT range.
+    services.nfs.server = {
+      enable = true;
+      # fsid=0 required — /data/media is fuse.mergerfs, and the kernel NFS
+      # exporter can't derive a stable filesystem id from a FUSE mount the way
+      # it can for a real block device (`rpc.mountd`: "Cannot export
+      # /data/media, possibly unsupported filesystem or fsid= required").
+      # fsid=0 doubles as the NFSv4 pseudo-root, so `-o vers=4` mounts by this
+      # same absolute path work too, not just NFSv3.
+      exports = ''
+        /data/media 100.64.0.0/10(ro,sync,no_subtree_check,fsid=0)
+      '';
+    };
+    systemd.services.nfs-server.unitConfig.RequiresMountsFor = [ "/data/media" ];
 
     # --- Data directories ---
     systemd.tmpfiles.rules = [
