@@ -155,6 +155,9 @@ in {
       # The full media server stack
       self.nixosModules.server
 
+      # Home automation (smart plugs) — web UI on :8123
+      self.nixosModules.home-assistant
+
       {
         networking.hostName = hostName;
         system.stateVersion = "25.05";

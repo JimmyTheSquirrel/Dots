@@ -18,29 +18,6 @@
 
       document:
         head: |
-          <script>
-          (() => {
-            const q = 'node_filesystem_free_bytes{mountpoint="/data/media"} / 1073741824 or label_replace(sum(rate(node_network_receive_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "download", "", "") or label_replace(sum(rate(node_network_transmit_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "upload", "", "")';
-            const url = 'http://localhost:9090/api/v1/query?query=' + encodeURIComponent(q);
-            setInterval(async () => {
-              const el = document.querySelector('.widget-type-custom-api .widget-content');
-              if (!el) return;
-              try {
-                const resp = await fetch(url);
-                const data = await resp.json();
-                const r = data.data.result;
-                if (!r || r.length < 3) return;
-                const disk = Math.round(parseFloat(r[0].value[1]));
-                const down = parseFloat(r[1].value[1]).toFixed(1);
-                const up = parseFloat(r[2].value[1]).toFixed(1);
-                el.innerHTML =
-                  '<p class="size-h4"><span class="color-subtext">Media pool:</span> <span class="color-primary">' + disk + ' GB</span> free</p>' +
-                  '<p class="size-h4"><span class="color-subtext">Download:</span> <span class="color-primary">' + down + ' Mbps</span></p>' +
-                  '<p class="size-h4"><span class="color-subtext">Upload:</span> <span class="color-primary">' + up + ' Mbps</span></p>';
-              } catch(e) {}
-            }, 5000);
-          })();
-          </script>
           <style>
             /* ── Global polish ── */
             .widget {
@@ -106,13 +83,11 @@
               padding-top: 208px;
             }
 
-            /* ── Bookmarks styling ── */
-            .widget-type-bookmarks .bookmarks-group .title {
-              letter-spacing: 0.05em;
-            }
-
             /* ── Subtle divider between widget sections ── */
-            .column-full .widget + .widget {
+            /* Direct children only — inside a group widget the tabs are also
+               .widget elements, and the descendant selector drew a rule between
+               tab panes. */
+            .column-full > .widget + .widget {
               border-top: 1px solid hsla(160, 30%, 50%, 0.08);
               padding-top: 4px;
             }
@@ -126,7 +101,215 @@
             .widget-type-clock .clock-time {
               text-shadow: 0 0 12px hsla(160, 50%, 50%, 0.25);
             }
+
+            /* ── Network panel (live throughput + speed test) ── */
+            .np { display: flex; flex-direction: column; gap: 14px; }
+            .np-row { display: flex; gap: 32px; flex-wrap: wrap; }
+            .np-cell { flex: 1 1 200px; min-width: 170px; }
+            .np-head { display: flex; align-items: baseline; gap: 7px; }
+            .np-arrow { font-size: 1.05em; line-height: 1; }
+            .np-num {
+              font-size: var(--font-size-h2);
+              font-weight: 500;
+              color: var(--color-text-highlight);
+              font-variant-numeric: tabular-nums;
+            }
+            .np-unit { font-size: var(--font-size-h5); color: var(--color-text-subdue); }
+            .np-foot {
+              font-size: var(--font-size-h6);
+              color: var(--color-text-subdue);
+              font-variant-numeric: tabular-nums;
+            }
+            .np-down { color: var(--color-positive); }
+            .np-up { color: hsl(200, 68%, 58%); }
+
+            /* viewBox is stretched to the cell width, so the stroke has to opt
+               out of scaling or it goes lumpy on a wide column. */
+            .np-spark {
+              display: block;
+              width: 100%;
+              height: 34px;
+              margin: 7px 0 5px;
+              overflow: visible;
+            }
+            .np-spark .np-line {
+              fill: none;
+              stroke: currentColor;
+              stroke-width: 1.4;
+              stroke-linejoin: round;
+              vector-effect: non-scaling-stroke;
+            }
+            .np-spark .np-fill { fill: currentColor; opacity: 0.13; stroke: none; }
+
+            .np-meta {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 14px;
+              flex-wrap: wrap;
+              border-top: 1px solid var(--color-separator);
+              padding-top: 11px;
+              font-size: var(--font-size-h6);
+              color: var(--color-text-subdue);
+            }
+            .np-btn {
+              font: inherit;
+              font-size: var(--font-size-h6);
+              letter-spacing: 0.06em;
+              text-transform: uppercase;
+              color: var(--color-text-base);
+              background: hsla(160, 40%, 40%, 0.10);
+              border: 1px solid hsla(160, 40%, 45%, 0.30);
+              border-radius: 7px;
+              padding: 5px 13px;
+              cursor: pointer;
+              transition: background-color 0.2s ease, border-color 0.2s ease;
+            }
+            .np-btn:hover:not(:disabled) {
+              background: hsla(160, 45%, 45%, 0.20);
+              border-color: hsla(160, 50%, 50%, 0.50);
+            }
+            .np-btn:disabled { opacity: 0.5; cursor: default; }
           </style>
+
+          <script>
+            // Glance 0.8.5 renders every widget server-side exactly once per page
+            // load — page.js calls fetchPageContent() a single time from
+            // setupPage() and there is no client-side widget refresh to hook. So
+            // the live half of the Network panel is driven from here instead.
+            //
+            // This has to live in document.head: widget markup is injected with
+            // `pageContentElement.innerHTML = ...`, and innerHTML does not execute
+            // <script> tags, so the same code inside a custom-api template would
+            // never run. Inline handlers would survive, but listeners are attached
+            // here to keep Go's template escaping out of the picture entirely.
+            //
+            // Reads network-panel.py on :9555, which is CORS-open and reachable
+            // over the tailnet. Derived from location.hostname on purpose, so this
+            // keeps working when the dashboard is opened by IP rather than by name.
+            (function () {
+              var API = location.protocol + "//" + location.hostname + ":9555";
+              var POLL_MS = 2000;
+              var started = false;
+
+              function fmt(v) {
+                if (typeof v !== "number" || !isFinite(v)) return "--";
+                return v >= 100 ? v.toFixed(0) : v.toFixed(1);
+              }
+
+              function text(id, value) {
+                var el = document.getElementById(id);
+                if (el) el.textContent = value;
+              }
+
+              // Relative time, recomputed client-side so the "last run" stamp does
+              // not go stale on a dashboard that stays open for days.
+              function ago(iso) {
+                var t = Date.parse(iso);
+                if (isNaN(t)) return "never";
+                var s = Math.max(0, (Date.now() - t) / 1000);
+                if (s < 90) return "just now";
+                if (s < 5400) return Math.round(s / 60) + "m ago";
+                if (s < 172800) return Math.round(s / 3600) + "h ago";
+                return Math.round(s / 86400) + "d ago";
+              }
+
+              function spark(id, values) {
+                var svg = document.getElementById(id);
+                if (!svg || !values || values.length < 2) return;
+
+                var w = 240, h = 34, pad = 2, n = values.length, max = 0;
+                for (var i = 0; i < n; i++) if (values[i] > max) max = values[i];
+                // Each direction auto-scales to its own peak. A shared scale is
+                // more honest but pins the upload trace flat to the floor on an
+                // asymmetric line, which reads as "nothing is happening".
+                if (max <= 0) max = 1;
+
+                var pts = [];
+                for (var j = 0; j < n; j++) {
+                  var x = (j / (n - 1)) * w;
+                  var y = h - pad - (values[j] / max) * (h - pad * 2);
+                  pts.push(x.toFixed(1) + "," + y.toFixed(1));
+                }
+
+                var line = "M" + pts.join(" L");
+                svg.querySelector(".np-line").setAttribute("d", line);
+                svg.querySelector(".np-fill").setAttribute(
+                  "d", line + " L" + w + "," + h + " L0," + h + " Z");
+              }
+
+              function render(data) {
+                var live = data.live || {};
+                text("np-down", fmt(live.down));
+                text("np-up", fmt(live.up));
+                text("np-peak-down", fmt(live.peak_down));
+                text("np-peak-up", fmt(live.peak_up));
+                spark("np-spark-down", live.hist_down);
+                spark("np-spark-up", live.hist_up);
+
+                var st = data.speedtest || {};
+                if (st.ok) {
+                  text("np-st-down", fmt(st.down));
+                  text("np-st-up", fmt(st.up));
+                  text("np-st-ping", fmt(st.ping));
+                  text("np-st-jitter", fmt(st.jitter));
+                  // The separator lives with the value, so "never run" does not
+                // render a dangling bullet.
+                text("np-st-server", st.server ? "· " + st.server : "");
+                  text("np-st-when", ago(st.timestamp));
+                }
+
+                var btn = document.getElementById("np-run");
+                if (btn) {
+                  btn.disabled = !!data.running;
+                  btn.textContent = data.running ? "Running" : "Run now";
+                }
+              }
+
+              function tick() {
+                // Nothing to update behind a hidden tab, and the browser throttles
+                // these to a crawl anyway.
+                if (document.hidden) return;
+                fetch(API + "/api", { cache: "no-store" })
+                  .then(function (r) { return r.json(); })
+                  .then(render)
+                  .catch(function () { /* next tick will retry */ });
+              }
+
+              function attach() {
+                var btn = document.getElementById("np-run");
+                if (!btn) return;
+                btn.addEventListener("click", function () {
+                  btn.disabled = true;
+                  btn.textContent = "Running";
+                  fetch(API + "/run", { method: "POST" })
+                    .then(tick)
+                    .catch(function () { btn.textContent = "Failed"; });
+                });
+              }
+
+              function boot() {
+                if (started || !document.getElementById("np-down")) return false;
+                started = true;
+                attach();
+                tick();
+                setInterval(tick, POLL_MS);
+                document.addEventListener("visibilitychange", function () {
+                  if (!document.hidden) tick();
+                });
+                return true;
+              }
+
+              // Widget markup lands asynchronously, well after DOMContentLoaded.
+              document.addEventListener("DOMContentLoaded", function () {
+                if (boot()) return;
+                var obs = new MutationObserver(function () {
+                  if (boot()) obs.disconnect();
+                });
+                obs.observe(document.body, { childList: true, subtree: true });
+              });
+            })();
+          </script>
 
       theme:
         positive-color: hsl(142, 72%, 39%)
@@ -134,50 +317,15 @@
 
       pages:
         # ════════════════════════════════════════════════════════════════════
-        # PAGE 1 — Asgard (services + links)
+        # PAGE 1 — Asgard (host stats, network, service health)
+        #
+        # There is deliberately NO bookmarks column. Every link it carried was
+        # also a monitor row below, and monitor rows are already clickable — the
+        # page was listing the same thirteen services twice, which was most of
+        # why it scrolled. Add new services to the monitors, not to a sidebar.
         # ════════════════════════════════════════════════════════════════════
         - name: Asgard
           columns:
-            - size: small
-              widgets:
-                - type: bookmarks
-                  title: Links
-                  groups:
-                    - title: Watch & Browse
-                      links:
-                        - title: Jellyfin
-                          url: http://asgard:8096
-                        - title: Jellyseerr
-                          url: http://asgard:5055
-                        - title: Immich
-                          url: http://asgard:2283
-                        - title: Audiobookshelf
-                          url: http://asgard:13378
-                    - title: Downloads
-                      links:
-                        - title: SABnzbd
-                          url: http://asgard:8080
-                        - title: Prowlarr
-                          url: http://asgard:9696
-                    - title: Arr Stack
-                      links:
-                        - title: Sonarr
-                          url: http://asgard:8989
-                        - title: Radarr
-                          url: http://asgard:7878
-                        - title: Lidarr
-                          url: http://asgard:8686
-                        - title: Shelfarr
-                          url: http://asgard:5056
-                    - title: Management
-                      links:
-                        - title: FileBrowser
-                          url: http://asgard:8081
-                        - title: Grafana
-                          url: http://asgard:3001
-                        - title: Terminal
-                          url: http://asgard:7681
-
             - size: full
               widgets:
                 - type: server-stats
@@ -190,81 +338,248 @@
                           name: Media Pool
                           hide: false
 
-                - type: custom-api
-                  title: System Info
-                  cache: 5s
-                  url: http://localhost:9090/api/v1/query
-                  parameters:
-                    query: node_filesystem_free_bytes{mountpoint="/data/media"} / 1073741824 or label_replace(sum(rate(node_network_receive_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "download", "", "") or label_replace(sum(rate(node_network_transmit_bytes_total{device=~"enp.*|wlp.*"}[15s])) / 125000, "stat", "upload", "", "")
-                  template: |
-                    {{ $disk := printf "%.0f" (.JSON.Float "data.result.0.value.1") }}
-                    {{ $down := printf "%.1f" (.JSON.Float "data.result.1.value.1") }}
-                    {{ $up := printf "%.1f" (.JSON.Float "data.result.2.value.1") }}
-                    <p class="size-h4"><span class="color-subtext">Media pool:</span> <span class="color-primary">{{ $disk }} GB</span> free</p>
-                    <p class="size-h4"><span class="color-subtext">Download:</span> <span class="color-primary">{{ $down }} Mbps</span></p>
-                    <p class="size-h4"><span class="color-subtext">Upload:</span> <span class="color-primary">{{ $up }} Mbps</span></p>
+                # No storage widget here — the server-stats widget above already
+                # reports the pool as its DISK bar (mountpoint /data/media, named
+                # "Media Pool"), so a second readout only duplicated it.
+                #
+                # Removing it also took out the last browser-side Prometheus poller,
+                # and with it a class of silent breakage: that script fetched
+                # localhost:9090, which in a browser means the *viewer's* machine, not
+                # Asgard — so it had never once updated except when viewed from the
+                # server itself. Any browser-side fetch added here must use
+                # asgard:<port>; the network panel below does exactly that.
 
-                - type: monitor
-                  title: Downloads
-                  cache: 1m
-                  sites:
-                    - title: SABnzbd
-                      url: http://asgard:8080
-                      icon: sh:sabnzbd
-                    - title: Prowlarr
-                      url: http://asgard:9696
-                      icon: sh:prowlarr
+                # ── Network ────────────────────────────────────────────────
+                # A group so the live readout and the speed test share one
+                # widget slot instead of stacking. Both tabs render from the
+                # same /api call on network-panel.py (:9555) — over localhost,
+                # because Glance fetches server-side.
+                #
+                # Glance renders a widget once per page load and never again, so
+                # everything below is only the FIRST frame: the poller in
+                # document.head takes over by id and keeps it moving. That is
+                # also why the ids matter — don't rename one without editing the
+                # script. This replaced a `flow` TUI in a read-only ttyd, which
+                # spent most of its life showing xterm.js's reconnect banner.
+                - type: group
+                  widgets:
+                    - type: custom-api
+                      title: Network
+                      cache: 5s
+                      url: http://localhost:9555/api
+                      template: |
+                        <div class="np">
+                          <div class="np-row">
+                            <div class="np-cell">
+                              <div class="np-head">
+                                <span class="np-arrow np-down">↓</span>
+                                <span class="np-num" id="np-down">{{ printf "%.1f" (.JSON.Float "live.down") }}</span>
+                                <span class="np-unit">Mb/s</span>
+                              </div>
+                              <svg class="np-spark np-down" id="np-spark-down" viewBox="0 0 240 34" preserveAspectRatio="none">
+                                <path class="np-fill" d=""></path>
+                                <path class="np-line" d=""></path>
+                              </svg>
+                              <div class="np-foot">
+                                download · peak
+                                <span id="np-peak-down">{{ printf "%.1f" (.JSON.Float "live.peak_down") }}</span>
+                                over {{ .JSON.Int "live.window" }}s
+                              </div>
+                            </div>
+                            <div class="np-cell">
+                              <div class="np-head">
+                                <span class="np-arrow np-up">↑</span>
+                                <span class="np-num" id="np-up">{{ printf "%.1f" (.JSON.Float "live.up") }}</span>
+                                <span class="np-unit">Mb/s</span>
+                              </div>
+                              <svg class="np-spark np-up" id="np-spark-up" viewBox="0 0 240 34" preserveAspectRatio="none">
+                                <path class="np-fill" d=""></path>
+                                <path class="np-line" d=""></path>
+                              </svg>
+                              <div class="np-foot">
+                                upload · peak
+                                <span id="np-peak-up">{{ printf "%.1f" (.JSON.Float "live.peak_up") }}</span>
+                                over {{ .JSON.Int "live.window" }}s
+                              </div>
+                            </div>
+                          </div>
+                          <div class="np-meta">
+                            <span>{{ .JSON.String "live.iface" }} · sampled every second · each trace scaled to its own peak</span>
+                          </div>
+                        </div>
 
-                - type: monitor
-                  title: Arr Stack
-                  cache: 1m
-                  sites:
-                    - title: Sonarr
-                      url: http://asgard:8989
-                      icon: sh:sonarr
-                    - title: Radarr
-                      url: http://asgard:7878
-                      icon: sh:radarr
-                    - title: Lidarr
-                      url: http://asgard:8686
-                      icon: sh:lidarr
-                    - title: Shelfarr
-                      url: http://asgard:5056
-                      icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/shelfarr.svg
+                    # Upload reads ~30 Mb/s on a 50 Mb/s uplink and that is
+                    # correct: wan-egress-shaping puts every WAN-bound packet in
+                    # a 30 Mbit htb class. The footnote says so, because this
+                    # otherwise looks exactly like a broken uplink.
+                    - type: custom-api
+                      title: Speed test
+                      cache: 30s
+                      url: http://localhost:9555/api
+                      template: |
+                        {{ $ok := .JSON.Bool "speedtest.ok" }}
+                        <div class="np">
+                          <div class="np-row">
+                            <div class="np-cell">
+                              <div class="np-head">
+                                <span class="np-arrow np-down">↓</span>
+                                <span class="np-num" id="np-st-down">{{ if $ok }}{{ printf "%.1f" (.JSON.Float "speedtest.down") }}{{ else }}--{{ end }}</span>
+                                <span class="np-unit">Mb/s</span>
+                              </div>
+                              <div class="np-foot">download</div>
+                            </div>
+                            <div class="np-cell">
+                              <div class="np-head">
+                                <span class="np-arrow np-up">↑</span>
+                                <span class="np-num" id="np-st-up">{{ if $ok }}{{ printf "%.1f" (.JSON.Float "speedtest.up") }}{{ else }}--{{ end }}</span>
+                                <span class="np-unit">Mb/s</span>
+                              </div>
+                              <div class="np-foot">upload · shaped to 30</div>
+                            </div>
+                            <div class="np-cell">
+                              <div class="np-head">
+                                <span class="np-num" id="np-st-ping">{{ if $ok }}{{ printf "%.1f" (.JSON.Float "speedtest.ping") }}{{ else }}--{{ end }}</span>
+                                <span class="np-unit">ms</span>
+                              </div>
+                              <div class="np-foot">
+                                ping ·
+                                <span id="np-st-jitter">{{ if $ok }}{{ printf "%.1f" (.JSON.Float "speedtest.jitter") }}{{ else }}--{{ end }}</span>
+                                ms jitter
+                              </div>
+                            </div>
+                          </div>
+                          <div class="np-meta">
+                            <span>
+                              Ookla, every 6h ·
+                              <span id="np-st-when">{{ if $ok }}…{{ else }}never run{{ end }}</span>
+                              <span id="np-st-server">{{ if $ok }}· {{ .JSON.String "speedtest.server" }}{{ end }}</span>
+                            </span>
+                            <button class="np-btn" id="np-run" type="button">Run now</button>
+                          </div>
+                        </div>
 
-                - type: monitor
-                  title: Media
-                  cache: 1m
-                  sites:
-                    - title: Jellyfin
-                      url: http://asgard:8096
-                      icon: sh:jellyfin
-                    - title: Jellyseerr
-                      url: http://asgard:5055
-                      icon: sh:jellyseerr
-                    - title: Immich
-                      url: http://asgard:2283
-                      icon: sh:immich
-                    - title: Audiobookshelf
-                      url: http://asgard:13378
-                      icon: sh:audiobookshelf
+                # ── Service health ─────────────────────────────────────────
+                # One group rather than four stacked monitors. "All" is the
+                # default tab because that is the question this page exists to
+                # answer; the category tabs are for when something is red and
+                # you want it isolated. The duplicated checks cost nothing —
+                # they are local HTTP GETs on a 1m cache.
+                - type: group
+                  widgets:
+                    - type: monitor
+                      title: All
+                      cache: 1m
+                      sites:
+                        - title: Jellyfin
+                          url: http://asgard:8096
+                          icon: sh:jellyfin
+                        - title: Jellyseerr
+                          url: http://asgard:5055
+                          icon: sh:jellyseerr
+                        - title: Immich
+                          url: http://asgard:2283
+                          icon: sh:immich
+                        - title: Audiobookshelf
+                          url: http://asgard:13378
+                          icon: sh:audiobookshelf
+                        - title: SABnzbd
+                          url: http://asgard:8080
+                          icon: sh:sabnzbd
+                        - title: Prowlarr
+                          url: http://asgard:9696
+                          icon: sh:prowlarr
+                        - title: Sonarr
+                          url: http://asgard:8989
+                          icon: sh:sonarr
+                        - title: Radarr
+                          url: http://asgard:7878
+                          icon: sh:radarr
+                        - title: Lidarr
+                          url: http://asgard:8686
+                          icon: sh:lidarr
+                        - title: Shelfarr
+                          url: http://asgard:5056
+                          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/shelfarr.svg
+                        - title: FileBrowser
+                          url: http://asgard:8081
+                          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/filebrowser.svg
+                        - title: Grafana
+                          url: http://asgard:3001
+                          icon: sh:grafana
+                        - title: Prometheus
+                          url: http://asgard:9090
+                          icon: sh:prometheus
+                        - title: Loki
+                          url: http://asgard:3100/ready
+                          icon: sh:loki
+                        - title: Home Assistant
+                          url: http://asgard:8123
+                          icon: sh:home-assistant
 
-                - type: monitor
-                  title: Management
-                  cache: 1m
-                  sites:
-                    - title: FileBrowser
-                      url: http://asgard:8081
-                      icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/filebrowser.svg
-                    - title: Prometheus
-                      url: http://asgard:9090
-                      icon: sh:prometheus
-                    - title: Loki
-                      url: http://asgard:3100/ready
-                      icon: sh:loki
-                    - title: Grafana
-                      url: http://asgard:3001
-                      icon: sh:grafana
+                    - type: monitor
+                      title: Media
+                      cache: 1m
+                      sites:
+                        - title: Jellyfin
+                          url: http://asgard:8096
+                          icon: sh:jellyfin
+                        - title: Jellyseerr
+                          url: http://asgard:5055
+                          icon: sh:jellyseerr
+                        - title: Immich
+                          url: http://asgard:2283
+                          icon: sh:immich
+                        - title: Audiobookshelf
+                          url: http://asgard:13378
+                          icon: sh:audiobookshelf
+
+                    - type: monitor
+                      title: Downloads
+                      cache: 1m
+                      sites:
+                        - title: SABnzbd
+                          url: http://asgard:8080
+                          icon: sh:sabnzbd
+                        - title: Prowlarr
+                          url: http://asgard:9696
+                          icon: sh:prowlarr
+
+                    - type: monitor
+                      title: Arr
+                      cache: 1m
+                      sites:
+                        - title: Sonarr
+                          url: http://asgard:8989
+                          icon: sh:sonarr
+                        - title: Radarr
+                          url: http://asgard:7878
+                          icon: sh:radarr
+                        - title: Lidarr
+                          url: http://asgard:8686
+                          icon: sh:lidarr
+                        - title: Shelfarr
+                          url: http://asgard:5056
+                          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/shelfarr.svg
+
+                    - type: monitor
+                      title: Management
+                      cache: 1m
+                      sites:
+                        - title: FileBrowser
+                          url: http://asgard:8081
+                          icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/filebrowser.svg
+                        - title: Grafana
+                          url: http://asgard:3001
+                          icon: sh:grafana
+                        - title: Prometheus
+                          url: http://asgard:9090
+                          icon: sh:prometheus
+                        - title: Loki
+                          url: http://asgard:3100/ready
+                          icon: sh:loki
+                        - title: Home Assistant
+                          url: http://asgard:8123
+                          icon: sh:home-assistant
 
             - size: small
               widgets:
@@ -392,18 +707,7 @@
                 - type: iframe
                   title: Eclipse Control
                   source: http://asgard:9554
-                  height: 300
-
-                - type: monitor
-                  title: Media Endpoints
-                  cache: 1m
-                  sites:
-                    - title: Jellyfin
-                      url: http://asgard:8096
-                      icon: sh:jellyfin
-                    - title: Jellyseerr
-                      url: http://asgard:5055
-                      icon: sh:jellyseerr
+                  height: 700
     '';
 
     # ── Alloy River config (no secrets — ships journald logs to Loki on localhost) ──
@@ -517,6 +821,36 @@
           policy.isAdministrator = true;
         };
 
+        network = {
+          # Off-site clients reach us through the Cloudflare tunnel, and
+          # cloudflared connects to Jellyfin over loopback — so every remote
+          # session presented as 127.0.0.1 and Jellyfin classified it as LAN,
+          # where bandwidth is assumed unlimited. It therefore never adapted
+          # anything: a 35 Mbit 4K HEVC remux was shipped to a TV behind a
+          # 30 Mbit shaped uplink, stalling every few seconds.
+          #
+          # Trusting the proxy's X-Forwarded-For restores the real client IP,
+          # which is what makes remoteClientBitrateLimit below fire at all.
+          # localNetworkSubnets stays empty (= all RFC1918 is local), so LAN
+          # clients are still uncapped and direct-play as before.
+          knownProxies = [ "127.0.0.1" ];
+        };
+
+        # Bits per second. Raised from the original 12 Mbps on 2026-09-11 when
+        # Eclipse (the Pi 5 TV box) became a permanent remote client after
+        # moving to a second house — 12 Mbps forced every remux into an HLS
+        # transcode, which turned out not even to be the main problem (see
+        # wan-egress-shaping below), but a stricter cap than Eclipse's typical
+        # ~15-20 Mbps HEVC remuxes need is still real quality loss for what is
+        # now a primary device, not an occasional public share.
+        #
+        # Trade-off, accepted deliberately: 40 Mbps is most of the 30 Mbit WAN
+        # egress cap on its own, so this no longer comfortably fits "two
+        # concurrent remote streams" the way 12 Mbps did. A second simultaneous
+        # remote/CF-tunnel viewer while Eclipse is direct-streaming will
+        # contend for the same shaped pipe. Revisit if that starts happening.
+        system.remoteClientBitrateLimit = 40000000;
+
         # Intel QuickSync on i5-14400 (UHD 730) — /dev/dri/renderD128
         encoding = {
           hardwareAccelerationType = "qsv";
@@ -526,6 +860,14 @@
           hardwareDecodingCodecs = [ "h264" "hevc" "mpeg2video" "vc1" "vp9" "av1" ];
           enableTonemapping = true;
           enableVppTonemapping = true;
+
+          # Unthrottled, ffmpeg transcodes to the end of the film regardless of
+          # playback position and nothing reaps the output — a single 4K title
+          # nine minutes in had already left 34 GB / 1399 segments in
+          # /var/cache/jellyfin/transcodes. Throttle once the encoder is far
+          # enough ahead, and drop segments the client has already fetched.
+          enableThrottling = true;
+          enableSegmentDeletion = true;
         };
       };
 
@@ -771,9 +1113,18 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # QUALITY — Recyclarr (TRaSH Guides quality profile sync)
 # Syncs quality profiles + custom formats to Sonarr + Radarr on boot + daily.
-#   Sonarr: WEB-1080p + WEB-2160p (TV is web-sourced)
-#   Radarr: Remux-1080p + Remux-2160p (Remux → Bluray → WEB, best first)
+#   Sonarr: WEB-1080p + WEB-2160p + Asgard - TV (default, see below)
+#   Radarr: Remux-1080p + Remux-2160p + Asgard - Movies (default, see below)
 # This fixes grab issues like "only getting Redux" — proper CF scoring applied.
+#
+# "Asgard - Movies" / "Asgard - TV" (2026-08-16): custom (non-trash_id) merged
+# profiles — best compressed quality first (4K, no remux), falling back down
+# to whatever's actually available, in one ladder. Remuxes were causing real
+# problems (Eclipse's Pi decoder choking on 4K HDR remuxes, WAN bandwidth
+# saturation for remote streams — see Claude/eclipse.md) for negligible
+# perceptible quality gain. Set as Jellyseerr's default via
+# seerr-radarr-profile / seerr-sonarr-profile below, so every user's request
+# uses these without having to pick a profile manually.
 # ══════════════════════════════════════════════════════════════════════════════
 
     # ── Missing content search ─────────────────────────────────────────────────
@@ -846,11 +1197,12 @@
       };
     };
 
-    # Sets Jellyseerr's default Radarr quality profile to "Remux + WEB 1080p"
-    # (created by Recyclarr). Runs 12min after boot so Recyclarr (5min) has
-    # had time to create the profile first. Idempotent — safe to re-run.
+    # Sets Jellyseerr's default Radarr quality profile to "Asgard - Movies"
+    # (created by Recyclarr — best-compressed-quality-first, remux excluded).
+    # Runs 12min after boot so Recyclarr (5min) has had time to create the
+    # profile first. Idempotent — safe to re-run.
     systemd.services.seerr-radarr-profile = {
-      description = "Set Jellyseerr default Radarr profile to Remux + WEB 1080p";
+      description = "Set Jellyseerr default Radarr profile to Asgard - Movies";
       after    = [ "seerr.service" "seerr-setup.service" "radarr.service" "network.target" ];
       wants    = [ "seerr.service" "seerr-setup.service" "radarr.service" ];
       path     = [ pkgs.curl pkgs.jq ];
@@ -860,13 +1212,18 @@
         Restart = "on-failure";
         RestartSec = 30;
       };
+      # See the Sonarr sibling below: this retried 2665 times before it was
+      # caught. Fail after 5 attempts instead.
+      unitConfig = {
+        StartLimitIntervalSec = 600;
+        StartLimitBurst = 5;
+      };
       script = ''
         set -euo pipefail
         SEERR="http://localhost:5055"
         RADARR="http://localhost:7878"
-        COOKIE="/tmp/seerr-radarr-profile-cookie"
         RADARR_KEY=$(cat ${config.sops.secrets."radarr-api-key".path})
-        ADMIN_PASS=$(cat ${config.sops.secrets."jellyfin-admin-password".path})
+        SEERR_KEY=$(cat ${config.sops.secrets."jellyseerr-api-key".path})
 
         # Wait up to 2min for Jellyseerr
         for i in $(seq 1 24); do
@@ -875,46 +1232,36 @@
           sleep 5
         done
 
-        # Find the "Remux + WEB 1080p" profile ID in Radarr
+        # Find the "Asgard - Movies" profile ID in Radarr
         PROFILE_ID=$(curl -s -H "X-Api-Key: $RADARR_KEY" "$RADARR/api/v3/qualityprofile" | \
-          jq -r '.[] | select(.name == "Remux + WEB 1080p") | .id')
+          jq -r '.[] | select(.name == "Asgard - Movies") | .id')
 
         if [ -z "$PROFILE_ID" ]; then
-          echo "Remux + WEB 1080p profile not found in Radarr — Recyclarr may not have run yet." >&2
+          echo "Asgard - Movies profile not found in Radarr — Recyclarr may not have run yet." >&2
           exit 1
         fi
-        echo "Found Radarr profile: Remux + WEB 1080p (ID: $PROFILE_ID)"
 
-        # Log into Jellyseerr (session cookie required for settings endpoints)
-        LOGIN_CODE=$(curl -s -c "$COOKIE" -X POST \
-          -H "Content-Type: application/json" \
-          -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}" \
-          -w "%{http_code}" -o /dev/null \
-          "$SEERR/api/v1/auth/jellyfin")
-        [ "$LOGIN_CODE" = "200" ] || [ "$LOGIN_CODE" = "201" ] || \
-          { echo "Jellyseerr login failed (HTTP $LOGIN_CODE)" >&2; exit 1; }
-
-        # Get current Radarr instance config and check if profile is already correct
-        RADARR_CFG=$(curl -s -b "$COOKIE" "$SEERR/api/v1/settings/radarr")
-        INSTANCE_ID=$(echo "$RADARR_CFG" | jq -r '.[0].id')
-        CURRENT_PROFILE=$(echo "$RADARR_CFG" | jq -r '.[0].activeProfileId')
+        # API key, not a Jellyfin session cookie — the `admin` Jellyfin
+        # account is a plain REQUEST-only user in Jellyseerr, so the old
+        # cookie flow 403'd on every settings call. See the Sonarr sibling.
+        CFG=$(curl -sf -H "X-Api-Key: $SEERR_KEY" "$SEERR/api/v1/settings/radarr")
+        INSTANCE_ID=$(echo "$CFG" | jq -r '.[0].id')
+        CURRENT_PROFILE=$(echo "$CFG" | jq -r '.[0].activeProfileId')
 
         if [ "$CURRENT_PROFILE" = "$PROFILE_ID" ]; then
           echo "Jellyseerr already using correct profile — nothing to do."
-          rm -f "$COOKIE"
           exit 0
         fi
 
         # Update the profile
-        UPDATED=$(echo "$RADARR_CFG" | jq --argjson pid "$PROFILE_ID" \
-          '.[0] | .activeProfileId = $pid | .activeProfileName = "Remux + WEB 1080p" | del(.id)')
-        curl -sf -b "$COOKIE" -X PUT \
+        UPDATED=$(echo "$CFG" | jq --argjson pid "$PROFILE_ID" \
+          '.[0] | .activeProfileId = $pid | .activeProfileName = "Asgard - Movies" | del(.id)')
+        curl -sf -X PUT -H "X-Api-Key: $SEERR_KEY" \
           -H "Content-Type: application/json" \
           -d "$UPDATED" \
           "$SEERR/api/v1/settings/radarr/$INSTANCE_ID" > /dev/null
 
-        rm -f "$COOKIE"
-        echo "Jellyseerr Radarr profile updated to Remux + WEB 1080p (ID: $PROFILE_ID)"
+        echo "Jellyseerr Radarr profile updated to Asgard - Movies (ID: $PROFILE_ID)"
       '';
     };
 
@@ -928,7 +1275,7 @@
     };
 
     systemd.services.seerr-sonarr-profile = {
-      description = "Set Jellyseerr default Sonarr profile to WEB-1080p";
+      description = "Set Jellyseerr default Sonarr profile to Asgard - TV";
       after    = [ "seerr.service" "seerr-setup.service" "sonarr.service" "network.target" ];
       wants    = [ "seerr.service" "seerr-setup.service" "sonarr.service" ];
       path     = [ pkgs.curl pkgs.jq ];
@@ -938,13 +1285,20 @@
         Restart = "on-failure";
         RestartSec = 30;
       };
+      # Give up instead of retrying forever. The cookie-auth version below
+      # failed every 30s from 2026-07-31 to 2026-08-23 and reached restart
+      # counter 2665 — thousands of journal entries, and every
+      # `nixos-rebuild switch` exited 4 because of it.
+      unitConfig = {
+        StartLimitIntervalSec = 600;
+        StartLimitBurst = 5;
+      };
       script = ''
         set -euo pipefail
         SEERR="http://localhost:5055"
         SONARR="http://localhost:8989"
-        COOKIE="/tmp/seerr-sonarr-profile-cookie"
         SONARR_KEY=$(cat ${config.sops.secrets."sonarr-api-key".path})
-        ADMIN_PASS=$(cat ${config.sops.secrets."jellyfin-admin-password".path})
+        SEERR_KEY=$(cat ${config.sops.secrets."jellyseerr-api-key".path})
 
         for i in $(seq 1 24); do
           if curl -sf "$SEERR/api/v1/status" > /dev/null 2>&1; then break; fi
@@ -952,44 +1306,45 @@
           sleep 5
         done
 
-        PROFILE_ID=$(curl -s -H "X-Api-Key: $SONARR_KEY" "$SONARR/api/v3/qualityprofile" | \
-          jq -r '.[] | select(.name == "WEB-1080p") | .id')
+        # Auth is the API KEY, not a Jellyfin session cookie. The old cookie
+        # flow logged in as the Jellyfin `admin` account, which Jellyseerr
+        # imported as an ORDINARY user (permissions: 32 = REQUEST only, not
+        # ADMIN). Login returned 200, then every /settings/ call returned
+        # 403 as a JSON object, and `.[0]` on it produced the long-running
+        # "jq: Cannot index object with number" failure. The API key carries
+        # full rights and needs no session at all.
+        QP=$(curl -s -H "X-Api-Key: $SONARR_KEY" "$SONARR/api/v3/qualityprofile")
+        TV_ID=$(echo "$QP"    | jq -r '.[] | select(.name == "Asgard - TV")    | .id')
+        ANIME_ID=$(echo "$QP" | jq -r '.[] | select(.name == "Asgard - Anime") | .id')
 
-        if [ -z "$PROFILE_ID" ]; then
-          echo "WEB-1080p profile not found in Sonarr — Recyclarr may not have run yet." >&2
+        if [ -z "$TV_ID" ] || [ -z "$ANIME_ID" ]; then
+          echo "Asgard profiles not found in Sonarr — Recyclarr may not have run yet." >&2
           exit 1
         fi
-        echo "Found Sonarr profile: WEB-1080p (ID: $PROFILE_ID)"
 
-        LOGIN_CODE=$(curl -s -c "$COOKIE" -X POST \
-          -H "Content-Type: application/json" \
-          -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}" \
-          -w "%{http_code}" -o /dev/null \
-          "$SEERR/api/v1/auth/jellyfin")
-        [ "$LOGIN_CODE" = "200" ] || [ "$LOGIN_CODE" = "201" ] || \
-          { echo "Jellyseerr login failed (HTTP $LOGIN_CODE)" >&2; exit 1; }
+        CFG=$(curl -sf -H "X-Api-Key: $SEERR_KEY" "$SEERR/api/v1/settings/sonarr")
+        INSTANCE_ID=$(echo "$CFG" | jq -r '.[0].id')
+        CUR_TV=$(echo "$CFG"      | jq -r '.[0].activeProfileId')
+        CUR_ANIME=$(echo "$CFG"   | jq -r '.[0].activeAnimeProfileId')
 
-        SONARR_CFG=$(curl -s -b "$COOKIE" "$SEERR/api/v1/settings/sonarr")
-        INSTANCE_ID=$(echo "$SONARR_CFG" | jq -r '.[0].id')
-        CURRENT_PROFILE=$(echo "$SONARR_CFG" | jq -r '.[0].activeProfileId')
-
-        if [ "$CURRENT_PROFILE" = "$PROFILE_ID" ]; then
-          echo "Jellyseerr already using correct Sonarr profile — nothing to do."
-          rm -f "$COOKIE"
+        if [ "$CUR_TV" = "$TV_ID" ] && [ "$CUR_ANIME" = "$ANIME_ID" ]; then
+          echo "Jellyseerr already using correct Sonarr profiles — nothing to do."
           exit 0
         fi
 
-        UPDATED=$(echo "$SONARR_CFG" | jq --argjson pid "$PROFILE_ID" \
-          '.[0] | .activeProfileId = $pid | .activeProfileName = "WEB-1080p"
-               | .activeAnimeProfileId = $pid | .activeAnimeProfileName = "WEB-1080p"
+        # Anime requests get the anime profile — Jellyseerr keeps a separate
+        # activeAnimeProfileId, which the old version pointed at the TV
+        # profile too, so anime was never scored with the fansub tiers.
+        UPDATED=$(echo "$CFG" | jq --argjson tv "$TV_ID" --argjson an "$ANIME_ID" \
+          '.[0] | .activeProfileId = $tv | .activeProfileName = "Asgard - TV"
+               | .activeAnimeProfileId = $an | .activeAnimeProfileName = "Asgard - Anime"
                | del(.id)')
-        curl -sf -b "$COOKIE" -X PUT \
+        curl -sf -X PUT -H "X-Api-Key: $SEERR_KEY" \
           -H "Content-Type: application/json" \
           -d "$UPDATED" \
           "$SEERR/api/v1/settings/sonarr/$INSTANCE_ID" > /dev/null
 
-        rm -f "$COOKIE"
-        echo "Jellyseerr Sonarr profile updated to WEB-1080p (ID: $PROFILE_ID)"
+        echo "Jellyseerr Sonarr profiles set: TV=$TV_ID anime=$ANIME_ID"
       '';
     };
 
@@ -1042,19 +1397,402 @@ sonarr:
     quality_definition:
       type: series
     quality_profiles:
-      - trash_id: 72dae194fc92bf828f32cde7744e51a1  # WEB-1080p
+      # The stock TRaSH "WEB-1080p" and "WEB-2160p" profiles were REMOVED from
+      # this list on 2026-08-23 and deleted from Sonarr by arr-policy.service.
+      # They must stay out of here: recyclarr recreates any profile it is
+      # told to manage, so leaving the trash_ids would resurrect them on the
+      # next sync and put them back in Jellyseerr's dropdown. Everything now
+      # sits on the Asgard profiles below.
+      # Custom (not trash_id-based) — mirrors "Asgard - Movies": one ladder,
+      # best quality first, remux excluded. Deeper fallback than the stock
+      # WEB-only profiles above (which allow WEB and nothing else) because
+      # older/catalog shows (Voyager, Kitchen Nightmares back-catalog) often
+      # only exist as Bluray-1080p, HDTV, or even DVD/SDTV — a WEB-only
+      # profile just never grabs them. Upgrading stays on, so anything
+      # grabbed low will get replaced automatically if a better release
+      # (still non-remux) shows up later.
+      - name: Asgard - TV
         reset_unmatched_scores:
           enabled: true
-      - trash_id: d1498e7d189fbe6c7110ceaabb7473e6  # WEB-2160p
+        upgrade:
+          allowed: true
+          until_quality: WEB 2160p
+        quality_sort: bottom
+        qualities:
+          - name: WEB 2160p
+            qualities:
+              - WEBDL-2160p
+              - WEBRip-2160p
+          - name: Bluray-2160p
+          - name: WEB 1080p
+            qualities:
+              - WEBDL-1080p
+              - WEBRip-1080p
+          - name: Bluray-1080p
+          - name: HDTV-1080p
+          - name: WEB 720p
+            qualities:
+              - WEBDL-720p
+              - WEBRip-720p
+          - name: Bluray-720p
+          - name: HDTV-720p
+          - name: DVD
+          - name: SDTV
+      # Custom (not trash_id-based) — "Asgard - TV" with every 2160p tier
+      # removed. For shows whose ONLY 4K source is a Blu-ray remaster rather
+      # than a WEB-DL: there the "upgrade to 4K" is a huge size jump for a
+      # disc rip, not a like-for-like swap. Measured 2026-08-23 on Game of
+      # Thrones — 3.4 GB/ep on disk vs a 17.1 GB/ep median 2160p release
+      # (5x), which alone would have added ~1 TB. Everything else that has
+      # real 4K WEB-DLs costs only +1.6 to +8.8 GB/ep and stays on Asgard - TV.
+      # Assign this per-series; it is not a default for anything.
+      - name: Asgard TV - 1080p
         reset_unmatched_scores:
           enabled: true
+        upgrade:
+          allowed: true
+          until_quality: WEB 1080p
+        quality_sort: bottom
+        qualities:
+          - name: WEB 1080p
+            qualities:
+              - WEBDL-1080p
+              - WEBRip-1080p
+          - name: Bluray-1080p
+          - name: HDTV-1080p
+          - name: WEB 720p
+            qualities:
+              - WEBDL-720p
+              - WEBRip-720p
+          - name: Bluray-720p
+          - name: HDTV-720p
+          - name: DVD
+          - name: SDTV
+      # Custom (not trash_id-based) — anime needs its own profile because
+      # scoring is fundamentally different: release quality is judged by
+      # FANSUB/BD GROUP reputation (the Anime Release Groups CFs below), not
+      # by resolution/source the way normal TV is. Structure mirrors TRaSH's
+      # own "[Anime] Remux-1080p" guide profile (1080p BD as the top tier,
+      # HDTV/WEB-1080p merged into a middle tier, 720p as final fallback) —
+      # deliberately DROPPING remux from the top tier (TRaSH merges
+      # "Bluray-1080p Remux" + "Bluray-1080p" into one tier and lets the
+      # Remux Tier custom format bias toward remux; we just don't allow
+      # remux at all, same as Asgard - Movies / Asgard - TV). Anime rarely
+      # has meaningful 2160p releases, so no 2160p tier here.
+      - name: Asgard - Anime
+        reset_unmatched_scores:
+          enabled: true
+        # ENGLISH DUB IS A HARD REQUIREMENT for anime — no dub, no download.
+        #
+        # Scoring "Anime Dual Audio" highly is NOT enough on its own, which
+        # was proved empirically on 2026-08-23: Sonarr ranks QUALITY TIER
+        # ahead of custom-format score, so a Japanese Bluray-1080p (score 0)
+        # beat a WEB-DL 720p dual-audio release (score 4100) and was grabbed.
+        # CF score only breaks ties WITHIN one quality tier.
+        #
+        # A minimum score is the only lever that rejects non-dubs outright.
+        # 2000 is chosen to sit in the gap between the two populations:
+        #   best possible non-dub = WEB Tier 01 1700 + boosts 150 + repack 7 = 1857
+        #   any dub               = Anime Dual Audio 2000, before any tier
+        # Raising the tier scores above ~1990 would close that gap and break
+        # this — keep the arithmetic in mind before editing scores below.
+        #
+        # Consequence, accepted deliberately: an episode with no dub on the
+        # indexers stays MISSING rather than grabbing a sub. For a currently
+        # airing season the dub can lag the sub by weeks.
+        min_format_score: 2000
+        upgrade:
+          allowed: true
+          until_quality: Bluray-1080p
+        quality_sort: bottom
+        qualities:
+          # NO 2160p TIER — deliberate, and re-confirmed 2026-08-23.
+          #
+          # It was briefly added that day and then removed the same evening.
+          # The reasoning for adding it was wrong: JUJUTSU KAISEN S1 looked
+          # like it only had English dubs at 2160p, but that was an artefact
+          # of the x265 penalty (see the TV-only block above) suppressing the
+          # real 1080p dual-audio releases. Once x265 was un-penalised and
+          # "Dubs Only" was added, 1080p dubs were plentiful — S01E02 alone
+          # had 150 dual-audio releases including Bluray-1080p and WEBDL-1080p.
+          #
+          # More importantly there is no 4K master to rip. TV anime is
+          # mastered at 1080p (often 720p); native 4K anime is essentially
+          # nonexistent, and a WEB-DL cannot exceed what the platform
+          # streamed. The "2160p B-Global WEB-DL" files were 2.03 GB against
+          # 1.54 GB for the native 1080p Crunchyroll rips already on disk —
+          # 4x the pixels for 32% more data, i.e. an upscale. TRaSH's own
+          # anime profile has no 2160p tier at all and tops out at
+          # Bluray-1080p Remux.
+          #
+          # Do not re-add this because a show "only has dubs at 4K" — check
+          # whether a scoring rule is hiding the 1080p ones first.
+          - name: Bluray-1080p
+          - name: 1080p
+            qualities:
+              - HDTV-1080p
+              - WEBDL-1080p
+              - WEBRip-1080p
+          - name: 720p
+            qualities:
+              - HDTV-720p
+              - WEBDL-720p
+              - WEBRip-720p
     custom_format_groups:
       add:
         - trash_id: 158188097a58d7687dee647e04af0da3  # [Optional] Golden Rule HD
         - trash_id: e3f37512790f00d0e89e54fe5e790d1c  # [Optional] Golden Rule UHD
         - trash_id: 74aff4168620ed49dcc67e92b2c2a5b4  # [Optional] Language Profiles
+        - trash_id: f206572b1147d0221bb1c96765b349e8  # [Release Groups] Anime
+        - trash_id: 4d3dc16c3ab3adc640afb8d6e3dc2266  # [Optional] Anime Optional (dual audio, uncensored, 10bit)
+        - trash_id: 4b196eed652c65ea98d615212040ebe2  # [Required] Anime Versions (v0-v4)
         - trash_id: 85fae4a2294965b75710ef2989c850eb  # [Streaming Services] HD/UHD boost
         - trash_id: 59c3af66780d08332fdc64e68297098f  # [Unwanted] Unwanted Formats
+        - trash_id: bad5bc85573a0134e1e1987c46f67e98  # [Optional] Accessibility (WiTH AD/ASL/BASL/BSL)
+    # Explicit scores for Asgard - TV / Asgard - Anime (custom, non-trash_id
+    # profiles). NEEDED — custom_format_groups.add only creates the formats,
+    # it does NOT score them for a non-trash_id profile; reset_unmatched_scores
+    # then zeroes everything. This is what let 100+ fake "AI Upscale" Star
+    # Trek Voyager releases through on 2026-08-17 before it was caught.
+    # Every trash_id/score below is the real trash-guide default, fetched
+    # directly from TRaSH-Guides/Guides docs/json/sonarr/cf/*.json — not
+    # guessed. Re-verify against that repo if these ever look wrong.
+    custom_formats:
+      - trash_ids:
+          - 23297a736ca77c0fc8e70f8edd7ee56c  # Upscaled
+          - 9c11cd3f07101cdba90a2d81cf0e56b4  # LQ
+          - e2315f990da2e2cbfc9fa5b7a6fcfe48  # LQ (Release Title)
+          - 85c61753df5da1fb2aab6f2a47426b09  # BR-DISK
+          - 32b367365729d530ca1c124a0b180c64  # Bad Dual Groups
+          - fbcb31d8dabd2a319072b84fc0b7249c  # Extras
+          # AV1 — on TRaSH's anime unwanted list, and a hard playback
+          # constraint here: Eclipse is a Pi 5, which has HEVC hardware
+          # decode but NO AV1 decoder, so AV1 falls back to software and
+          # struggles. Added 2026-08-23 after raising the dub scores caused
+          # Sonarr to grab three [Breeze] "[1080p.AV1][Dual.Audio]" releases
+          # — they satisfied "has English audio" and nothing objected.
+          - 15a05bc7c1a36e2b57fd628f8977e2fc  # AV1
+        score: -10000
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      # Accessibility variants — releases where the ONLY audio track is an
+      # alternate accessibility mix, not the normal one. Added 2026-08-28
+      # after Mythic Quest was found unwatchable: 15 of its episodes were
+      # Kitsune "with Audio Description" releases, and ffprobe confirmed they
+      # carry exactly ONE audio stream, titled "Descriptive" — there is no
+      # normal English track to switch to in the player, so the narrator
+      # talks over the whole episode. All the Light We Cannot See (4 eps) and
+      # Invincible S04 (4 eps) had the same problem.
+      #
+      # Nothing else in the config objected: the releases are genuine 1080p
+      # WEB-DL DDP5.1 Atmos from a decent group, so they scored *well*.
+      #
+      # NOTE the mkv disposition flag `visual_impaired` is 0 on these files,
+      # so Jellyfin cannot detect or avoid them client-side either. The
+      # release title is the only signal, which is exactly what this CF
+      # matches. ASL/BASL/BSL are the sign-language equivalents from the same
+      # TRaSH group — same problem, same score.
+      - trash_ids:
+          - 44ccbcbc74506f208973e1463b11705f  # WiTH AD
+          - c196536ea8122397c5854040d01f2aa7  # WiTH ASL
+          - b40dc2e630723745aab9f1b94f4aab74  # WiTH BASL
+          - 0aef382c4ed4c5eb5d40109dfd351b72  # WiTH BSL
+        score: -10000
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      # TV-ONLY negatives. Both of these are correct for live-action TV and
+      # actively harmful for anime, so they are deliberately NOT assigned to
+      # Asgard - Anime. TRaSH's anime profile does not use either.
+      #
+      # "Language: Not Original" rejects releases whose language is not the
+      # series' ORIGINAL language. Right for English-origin TV (blocks
+      # foreign dubs); backwards for anime, where the original IS Japanese,
+      # so an English-dub-only release trips it and takes -10000.
+      #
+      # "x265 (HD)" targets wasteful x265 re-encodes of live-action HD.
+      # Anime is different: 10-bit x265 is the normal, high-quality format
+      # for fansub/BD groups, and TRaSH's anime unwanted list is only
+      # Anime Raws / Anime LQ Groups / AV1 / Dubs Only / VOSTFR / v0 — no
+      # x265 at all. Applying it here scored real 1080p dual-audio releases
+      # at -8000 (e.g. [EMBER] Sakamoto Days S01E03 [1080p] [Dual Audio
+      # HEVC WEBRip DDP]), which forced a 720p grab on 2026-08-23 because
+      # the only unpenalised dub was 720p.
+      - trash_ids:
+          - ae575f95ab639ba5d15f663bf019e3e8  # Language: Not Original
+          - 47435ece6b99a0b477caf360e79ba0bb  # x265 (HD)
+        score: -10000
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+      - trash_ids:
+          - d0c516558625b04b363fa6c5c2c7cfd4  # WEB Scene
+        score: 1600
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      - trash_ids:
+          - e6258996055b9fbab7e9cb2f75819294  # WEB Tier 01
+        score: 1700
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      - trash_ids:
+          - 58790d4e2fdcd9733aa7ae68ba2bb503  # WEB Tier 02
+        score: 1650
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      - trash_ids:
+          - d84935abd3f8556dcd51d4f27e22d0a6  # WEB Tier 03
+        score: 1600
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      - trash_ids:
+          - 218e93e5702f44a68ad9e3c6ba87d2f0  # HD Streaming Boost
+          - 43b3cf48cb385cd3eac608ee6bca7f09  # UHD Streaming Boost
+        score: 75
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      - trash_ids:
+          - ec8fa7296b64e8cd390a1600981f3923  # Repack/Proper
+        score: 5
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      - trash_ids:
+          - eb3d5cc0a2be0db205fb823640db6a3c  # Repack2
+        score: 6
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      - trash_ids:
+          - 44e7c4de10ae50265753082e5dc76047  # Repack3
+        score: 7
+        assign_scores_to:
+          - name: Asgard - TV
+          - name: Asgard TV - 1080p
+          - name: Asgard - Anime
+      # Anime-only: fansub/BD release-group reputation tiers. This IS the
+      # scoring that actually matters for anime — release quality there is
+      # judged by which group did the encode, not resolution/source.
+      - trash_ids:
+          - 949c16fe0a8147f50ba82cc2df9411c9  # Anime BD Tier 01
+        score: 1400
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - ed7f1e315e000aef424a58517fa48727  # Anime BD Tier 02
+        score: 1300
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - 096e406c92baa713da4a72d88030b815  # Anime BD Tier 03
+        score: 1200
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - 30feba9da3030c5ed1e0f7d610bcadc4  # Anime BD Tier 04
+        score: 1100
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - 545a76b14ddc349b8b185a6344e28b04  # Anime BD Tier 05
+        score: 1000
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - 25d2afecab632b1582eaf03b63055f72  # Anime BD Tier 06
+        score: 900
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - 0329044e3d9137b08502a9f84a7e58db  # Anime BD Tier 07
+        score: 800
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - c81bbfb47fed3d5a3ad027d077f889de  # Anime BD Tier 08
+        score: 700
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - e0014372773c8f0e1bef8824f00c7dc4  # Anime Web Tier 01
+        score: 600
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - 19180499de5ef2b84b6ec59aae444696  # Anime Web Tier 02
+        score: 500
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - c27f2ae6a4e82373b0f1da094e2489ad  # Anime Web Tier 03
+        score: 400
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - 4fd5528a3a8024e6b49f9c67053ea5f3  # Anime Web Tier 04
+        score: 300
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - 29c2a13d091144f63307e4a8ce963a39  # Anime Web Tier 05
+        score: 200
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - dc262f88d74c651b12e9d90b39f6c753  # Anime Web Tier 06
+        score: 100
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - b4a1b3d705159cdca36d71e57ca86871  # Anime Raws
+          - e3515e519f3b1360cbfc17651944354c  # Anime LQ Groups
+        score: -10000
+        assign_scores_to:
+          - name: Asgard - Anime
+      - trash_ids:
+          - 418f50b10f1907201b6cfdf881f467b7  # Anime Dual Audio (no guide default)
+        # DECISIVE, not a nudge. The release-group tiers above top out at
+        # 1700, so the old score of 25 was ~50x too small to ever change an
+        # outcome — a Japanese-only release from a better fansub group won
+        # every time. Audited 2026-08-23: 28 of 162 anime files had no
+        # English track at all (JUJUTSU KAISEN S1 was a French Blu-ray rip,
+        # SAKAMOTO DAYS had Portuguese and raw-Japanese files). At 2000 a
+        # dual-audio release outranks any tier, which is the intended
+        # trade — audio language wins over encode quality for this library.
+        score: 2000
+        assign_scores_to:
+          - name: Asgard - Anime
+      # "Dubs Only" catches English-dub releases that do NOT advertise dual
+      # audio — titles like "Sakamoto Days - 03 [English Dub][1080p]", plus
+      # the known dub groups (Yameii, KamiFS, Golumpa, KaiDubs...). The
+      # "Anime Dual Audio" CF above cannot match these: its regex looks for
+      # a DUAL token or a JA+EN language pair, so a dub-only release scores
+      # 0 and is rejected by min_format_score.
+      #
+      # TRaSH scores this -10000, because their anime guide is written for
+      # people who want the ORIGINAL Japanese audio with subs. This library
+      # wants the opposite, so the sign is deliberately inverted. Same 2000
+      # as dual audio: either one satisfies "has English audio".
+      - trash_ids:
+          - 9c14d194486c4014d422adc64092d794  # Dubs Only
+        score: 2000
+        assign_scores_to:
+          - name: Asgard - Anime
 radarr:
   radarr-main:
     base_url: http://localhost:7878
@@ -1062,17 +1800,173 @@ radarr:
     quality_definition:
       type: movie
     quality_profiles:
-      - trash_id: 9ca12ea80aa55ef916e3751f4b874151  # Remux + WEB 1080p
+      # "Remux + WEB 1080p" / "Remux + WEB 2160p" were REMOVED here on
+      # 2026-08-23 and deleted from Radarr by arr-policy.service — they held
+      # zero movies (all 237 are on Asgard - Movies) and only cluttered
+      # Jellyseerr. Same rule as the Sonarr block above: if the trash_ids go
+      # back in this list, recyclarr recreates the profiles.
+      # Custom (not trash_id-based) — no official TRaSH profile spans both
+      # resolutions in one ladder. Merges HD Bluray + WEB (d1d67249…) and
+      # UHD Bluray + WEB (64fb5f98…) qualities into one profile, remux
+      # excluded entirely, so this can never grab/keep a remux release.
+      # Upgrading is allowed up to Bluray-2160p, so a 1080p grab will later
+      # get replaced by a 4K one if a clean (non-remux) release shows up.
+      - name: Asgard - Movies
         reset_unmatched_scores:
           enabled: true
-      - trash_id: fd161a61e3ab826d3a22d53f935696dd  # Remux + WEB 2160p
-        reset_unmatched_scores:
-          enabled: true
+        upgrade:
+          allowed: true
+          until_quality: Bluray-2160p
+        quality_sort: bottom
+        qualities:
+          - name: Bluray-2160p
+          - name: WEB 2160p
+            qualities:
+              - WEBRip-2160p
+              - WEBDL-2160p
+          - name: Bluray-1080p
+          - name: WEB 1080p
+            qualities:
+              - WEBRip-1080p
+              - WEBDL-1080p
     custom_format_groups:
       add:
         - trash_id: f8bf8eab4617f12dfdbd16303d8da245  # [Optional] Golden Rule HD
         - trash_id: ff204bbcecdd487d1cefcefdbf0c278d  # [Optional] Golden Rule UHD
         - trash_id: a3ac6af01d78e4f21fcb75f601ac96df  # [Unwanted] Unwanted Formats
+        - trash_id: bc3c13e52f2971319bc1748ffa3d1078  # [Optional] Accessibility (WiTH AD/ASL/BASL/BSL)
+    # Explicit scores for Asgard - Movies (custom, non-trash_id profile) —
+    # see the matching comment under sonarr-main above for why this is
+    # necessary. Real trash-guide defaults, fetched directly from
+    # TRaSH-Guides/Guides docs/json/radarr/cf/*.json.
+    custom_formats:
+      - trash_ids:
+          - bfd8eb01832d646a0a89c4deb46f8564  # Upscaled
+          - 90a6f9a284dff5103f6346090e6280c8  # LQ
+          - e204b80c87be9497a8a6eaff48f72905  # LQ (Release Title)
+          - ed38b889b31be83fda192888e2286d83  # BR-DISK
+          - b6832f586342ef70d9c128d40c07b872  # Bad Dual Groups
+          - dc98083864ea246d05a42df0d05f81cc  # x265 (HD)
+          - 0a3f082873eb454bde444150b70253cc  # Extras
+          - b8cd450cbfa689c0259a01d9e29ba3d6  # 3D
+          - 712d74cd88bceb883ee32f773656b1f5  # Sing-Along Versions
+          - cc444569854e9de0b084ab2b8b1532b2  # Black and White Editions
+          - c465ccc73923871b3eb1802042331306  # Line/Mic Dubbed
+          # Accessibility variants — the audio-description / sign-language
+          # cuts. No movie had been caught by this yet (the 2026-08-28 sweep
+          # found AD releases only in TV), but the failure mode is identical
+          # and there is no reason to leave Radarr exposed. See the matching
+          # block under sonarr-main for the full write-up.
+          - 127bdbadcf3e4463a8c707759fbaad75  # WiTH AD
+          - 09c60ba54fadb511c6986a7edec4da4b  # WiTH ASL
+          - 41e4baea7b10ddefc6609d52f742dacd  # WiTH BASL
+          - e205c5ba6be76b472903f4aec97fdb4b  # WiTH BSL
+          # Dolby Vision Profile 5 — no HDR10 fallback. Its base layer is IPT-C2, so any
+          # player without DV support decodes it as YCbCr and the picture comes out GREEN.
+          # Eclipse (Pi 5 / LibreELEC) has no DV support at all, so P5 is unwatchable there
+          # without a server-side transcode. Radarr picked one for Tomorrowland (2026-09-07)
+          # because nothing above scores video range: it ranked on TrueHD ATMOS (+5000) and
+          # took the DV twin of an otherwise identical release from the same group and WEB
+          # source. Full write-up in Claude/eclipse.md.
+          # Matches "Dolby Vision AND WEBDL AND NOT HDR", i.e. exactly P5 — releases named
+          # DV.HDR (Profile 8.1) carry an HDR10 base layer, direct-play correctly, and are
+          # deliberately NOT caught by this.
+          - 923b6abef9b17f937fab56cfcf89e1f1  # DV (w/o HDR fallback)
+        score: -10000
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - c20f169ef63c5f40c2def54abaf4438e  # WEB Tier 01
+        score: 1700
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - 403816d65392c79236dcb6dd591aeda4  # WEB Tier 02
+        score: 1650
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - af94e0fe497124d1f9ce732069ec8c3b  # WEB Tier 03
+        score: 1600
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - e7718d7a3ce595f289bfee26adc178f5  # Repack/Proper
+        score: 5
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - ae43b294509409a6a13919dedd4764c4  # Repack2
+        score: 6
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - 5caaaa1c08c1742aa4342d8c4cc463f2  # Repack3
+        score: 7
+        assign_scores_to:
+          - name: Asgard - Movies
+      # Audio format hierarchy — real trash-guide defaults
+      - trash_ids:
+          - 496f355514737f7d83bf7aa4d24f8169  # TrueHD ATMOS
+        score: 5000
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - 2f22d89048b01681dde8afe203bf2e95  # DTS X
+        score: 4500
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - 1af239278386be2919e1bcee0bde047e  # DD+ ATMOS
+        score: 3000
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - 3cafb66171b47f226146a0770576870f  # TrueHD
+        score: 2750
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - dcf3ec6938fa32445f590a4da84256cd  # DTS-HD MA
+        score: 2500
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - a570d4a0e56a2874b64e5bfa55202a1b  # FLAC
+          - e7c2fcae07cbada050a0af3357491d7b  # PCM
+        score: 2250
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - 8e109e50e0a0b83a5098b056e13bf6db  # DTS-HD HRA
+        score: 2000
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - 185f1dd7264c4562b9022d963ac37424  # DD+
+        score: 1750
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - f9f847ac70a0af62ea4a08280b859636  # DTS-ES
+        score: 1500
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - 1c1a4c5e823891c75bc50380a6866f73  # DTS
+        score: 1250
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - 240770601cc226190c367ef59aba7463  # AAC
+        score: 1000
+        assign_scores_to:
+          - name: Asgard - Movies
+      - trash_ids:
+          - c2998bd0d90ed5621d8df281e839436e  # DD
+        score: 750
+        assign_scores_to:
+          - name: Asgard - Movies
 EOF
         chmod 600 /var/lib/recyclarr/recyclarr.yml
       '';
@@ -1098,6 +1992,403 @@ EOF
         OnBootSec = "5min";
         OnUnitActiveSec = "24h";
       };
+    };
+
+    # Per-item state that recyclarr cannot express. Recyclarr owns quality
+    # profiles and custom-format SCORES; it has no concept of "which series
+    # uses which profile", series type, release profiles, or Jellyfin user
+    # settings. Those are per-record database state, so they are applied here
+    # over the APIs instead — idempotently, so a fresh install converges to
+    # the same place and re-running is a no-op.
+    #
+    # Ordered after recyclarr-sync: it reads profiles BY NAME and bails out
+    # harmlessly if they do not exist yet (first boot, before the first sync).
+    systemd.services.arr-policy = {
+      description = "Apply per-series / per-user policy to Sonarr, Radarr and Jellyfin";
+      # Ordered after the seerr-*-profile units on purpose: Jellyseerr was
+      # pointing at the stock "Any" profile (id 1), which this service
+      # deletes. Repoint Jellyseerr first, then delete, or requests land on a
+      # profile that no longer exists.
+      after    = [ "recyclarr-sync.service" "sonarr.service" "radarr.service" "jellyfin.service"
+                   "seerr-sonarr-profile.service" "seerr-radarr-profile.service" "network-online.target" ];
+      wants    = [ "recyclarr-sync.service" "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+      path     = [ pkgs.curl pkgs.jq pkgs.coreutils ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        set -u
+        SONARR=http://localhost:8989
+        RADARR=http://localhost:7878
+        JELLYFIN=http://localhost:8096
+        SK=$(cat ${config.sops.secrets."sonarr-api-key".path})
+        RK=$(cat ${config.sops.secrets."radarr-api-key".path})
+        JK=$(cat ${config.sops.secrets."jellyfin-api-key".path})
+
+        # Wait for Sonarr; everything else is best-effort within this run.
+        for i in $(seq 1 30); do
+          curl -sf -m 5 -H "X-Api-Key: $SK" $SONARR/api/v3/system/status >/dev/null && break
+          sleep 5
+        done
+
+        QP=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/qualityprofile) || QP="[]"
+        TV=$(echo "$QP"     | jq -r '.[]|select(.name=="Asgard - TV")|.id')
+        TV1080=$(echo "$QP" | jq -r '.[]|select(.name=="Asgard TV - 1080p")|.id')
+        ANIME=$(echo "$QP"  | jq -r '.[]|select(.name=="Asgard - Anime")|.id')
+
+        if [ -z "$TV" ] || [ -z "$TV1080" ] || [ -z "$ANIME" ]; then
+          echo "arr-policy: Asgard profiles not present yet (recyclarr has not synced) - skipping"
+          exit 0
+        fi
+
+        # --- Sonarr: series -> profile + series type -------------------------
+        # Anime gets seriesType=anime so absolute episode numbering parses.
+        # Game of Thrones is pinned to the 1080p ladder: its only 4K source is
+        # a Blu-ray remaster at ~17 GB/ep vs 3.4 GB/ep on disk (measured
+        # 2026-08-23), which would have added ~1 TB on its own.
+        SERIES=$(curl -sf -m 30 -H "X-Api-Key: $SK" $SONARR/api/v3/series) || SERIES="[]"
+        echo "$SERIES" | jq -c '.[]' | while read -r S; do
+          ID=$(echo "$S" | jq -r .id)
+          TITLE=$(echo "$S" | jq -r .title)
+          case "$TITLE" in
+            "SAKAMOTO DAYS"|"Good Night World"|"Sword Art Online"|"Solo Leveling"|"JUJUTSU KAISEN")
+              WANT_P=$ANIME;  WANT_T=anime ;;
+            # The 2005 cartoon was animated for 4:3 SD and remastered no
+            # higher than 1080p — there is no 4K master to grab. Pinning it
+            # to the 1080p ladder is therefore free, and it doubles as the
+            # first line of defence against the 2024 Netflix live-action
+            # remake, whose releases are all 2160p (see the block below).
+            "Avatar: The Last Airbender"|"Game of Thrones")
+              WANT_P=$TV1080; WANT_T=standard ;;
+            *)
+              WANT_P=$TV;     WANT_T=standard ;;
+          esac
+          CUR_P=$(echo "$S" | jq -r .qualityProfileId)
+          CUR_T=$(echo "$S" | jq -r .seriesType)
+          if [ "$CUR_P" != "$WANT_P" ] || [ "$CUR_T" != "$WANT_T" ]; then
+            echo "$S" | jq --argjson p "$WANT_P" --arg t "$WANT_T" \
+                  '.qualityProfileId=$p | .seriesType=$t' \
+              | curl -sf -m 30 -X PUT -H "X-Api-Key: $SK" \
+                     -H 'Content-Type: application/json' --data-binary @- \
+                     "$SONARR/api/v3/series/$ID" >/dev/null \
+              && echo "arr-policy: $TITLE -> profile $WANT_P / $WANT_T" \
+              || echo "arr-policy: FAILED to update $TITLE"
+          fi
+        done
+
+        # --- Sonarr: block the fake-dual-audio group -------------------------
+        # "Anime Dual Audio" matches on the literal token DUAL, so a
+        # Portuguese+Japanese release like
+        #   SAKAMOTO.DAYS.S01E03.1080p.NF.WEB-DL.DDP5.1.H.264.DUAL-sh4down
+        # scores as if it were an English dub. TRaSH's own "Bad Dual Groups"
+        # list does NOT include sh4down (checked 2026-08-23, all 34 entries),
+        # so it is blocked here. A release profile is used rather than a
+        # custom format because recyclarr's reset_unmatched_scores would zero
+        # a locally-scored CF on its next sync; it does not touch these.
+        # "AV1" is also blocked here, NOT only via the AV1 custom format.
+        # TRaSH's AV1 CF regex is \bAV1\b, which does not match a title like
+        #   [Breeze].Sakamoto.Days-S01E13.1080p.AV1Dual.Audio.weekly
+        # because there is no word boundary between AV1 and Dual. That
+        # release scored +2000 on Anime Dual Audio alone and was grabbed on
+        # 2026-08-23 despite the CF being at -10000. A release-profile
+        # ignored term is a plain substring match, so it has no such gap.
+        DESIRED='["sh4down","AV1"]'
+        RP=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/releaseprofile) || RP="[]"
+        EXISTING=$(echo "$RP" | jq -c '.[]|select(.name=="Asgard - fake dual audio")')
+        if [ -z "$EXISTING" ]; then
+          curl -sf -m 15 -X POST -H "X-Api-Key: $SK" -H 'Content-Type: application/json' \
+            -d "{\"name\":\"Asgard - fake dual audio\",\"enabled\":true,\"required\":[],\"ignored\":$DESIRED,\"indexerId\":0,\"tags\":[]}" \
+            $SONARR/api/v3/releaseprofile >/dev/null \
+            && echo "arr-policy: created release profile (sh4down, AV1)" \
+            || echo "arr-policy: FAILED to create release profile"
+        elif [ "$(echo "$EXISTING" | jq -c '.ignored|sort')" != "$(echo "$DESIRED" | jq -c 'sort')" ]; then
+          RPID=$(echo "$EXISTING" | jq -r .id)
+          echo "$EXISTING" | jq --argjson ig "$DESIRED" '.ignored=$ig' \
+            | curl -sf -m 15 -X PUT -H "X-Api-Key: $SK" \
+                   -H 'Content-Type: application/json' --data-binary @- \
+                   "$SONARR/api/v3/releaseprofile/$RPID" >/dev/null \
+            && echo "arr-policy: updated release profile ignored terms" \
+            || echo "arr-policy: FAILED to update release profile"
+        fi
+
+        # --- Sonarr: keep the live-action remake out of the 2005 cartoon -----
+        # Netflix's 2024 live-action "Avatar: The Last Airbender" has its own
+        # TVDB entry, but its releases are titled identically to the cartoon's
+        #   Avatar.The.Last.Airbender.S01E02.2024.2160p.NF.WEB-DL...
+        # so Sonarr matched them straight onto tvdb 74852 (the 2005 series).
+        # Found 2026-08-28: 14 live-action episodes had been imported into the
+        # cartoon — S01E02-E08 and S02E01-E07 — and because they filled those
+        # slots Sonarr reported both seasons as complete. Runtime is the
+        # giveaway: 47-69 min against 23-25 min for real episodes.
+        #
+        # A TAGGED release profile, not a global one: HHWEB/XEBEC/BYNDR are
+        # ordinary groups that do other shows legitimately, so these terms
+        # must only ever apply to this one series.
+        #
+        # The term targets audio, which is the most durable discriminator
+        # available: all 14 live-action files carry DDP5.1 Atmos, and a 2005
+        # Nickelodeon cartoon will never gain a genuine Atmos mix. Group names
+        # and the "2024" token would both drift as new releases appear.
+        #
+        # Deliberately ONLY "Atmos", not "DDP5.1" — Netflix does carry 5.1
+        # audio for parts of the animated series, so blocking DDP5.1 outright
+        # risks rejecting a legitimate release. Atmos alone already matches
+        # every live-action file observed.
+        #
+        # "SKST" is a SECOND, unrelated problem that the 2026-08-28 redo
+        # exposed. That release set collapses the show's two-parters into one
+        # file and then renumbers everything after it, so its episode numbers
+        # drift out of step with TVDB:
+        #   SKST S03E12 = "The Firebending Masters"  (TVDB E13)
+        #   SKST S03E14 = "The Southern Raiders"     (TVDB E16)
+        # Sonarr matches on the S/E in the release title and never checks the
+        # episode name, so these import into the wrong slots and every episode
+        # from the first two-parter onward plays the NEXT one. That is exactly
+        # how S02E13-E18 and S03E11-E16 ended up wrong the first time round,
+        # and re-searching reproduced it within minutes.
+        #
+        # The AMZN set (CtrlHD / SiGMA) numbers correctly because it ships
+        # two-parters as real multi-episode releases that Sonarr parses into
+        # both slots — S02E12E13, S03E10E11, S03E14E15, S03E18E19E20E21 — so
+        # blocking SKST leaves a complete, correctly-numbered alternative at
+        # the same WEBDL-1080p tier. Verified across all 61 episodes.
+        ATLA_ID=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/series \
+                  | jq -r '.[]|select(.tvdbId==74852)|.id')
+        if [ -n "$ATLA_ID" ] && [ "$ATLA_ID" != "null" ]; then
+          TAGID=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/tag \
+                  | jq -r '.[]|select(.label=="atla-animated")|.id')
+          if [ -z "$TAGID" ] || [ "$TAGID" = "null" ]; then
+            TAGID=$(curl -sf -m 15 -X POST -H "X-Api-Key: $SK" \
+                      -H 'Content-Type: application/json' \
+                      -d '{"label":"atla-animated"}' $SONARR/api/v3/tag | jq -r .id)
+          fi
+          if [ -n "$TAGID" ] && [ "$TAGID" != "null" ]; then
+            # Tag the series (idempotent — only PUTs when the tag is absent).
+            ASER=$(curl -sf -m 15 -H "X-Api-Key: $SK" "$SONARR/api/v3/series/$ATLA_ID")
+            if [ "$(echo "$ASER" | jq --argjson t "$TAGID" '.tags|index($t)')" = "null" ]; then
+              echo "$ASER" | jq --argjson t "$TAGID" '.tags += [$t]' \
+                | curl -sf -m 30 -X PUT -H "X-Api-Key: $SK" \
+                       -H 'Content-Type: application/json' --data-binary @- \
+                       "$SONARR/api/v3/series/$ATLA_ID" >/dev/null \
+                && echo "arr-policy: tagged Avatar with atla-animated"
+            fi
+            ATLA_IGN='["Atmos","SKST"]'
+            ARP=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/releaseprofile) || ARP="[]"
+            AEX=$(echo "$ARP" | jq -c '.[]|select(.name=="Asgard - ATLA live-action block")')
+            if [ -z "$AEX" ]; then
+              curl -sf -m 15 -X POST -H "X-Api-Key: $SK" -H 'Content-Type: application/json' \
+                -d "{\"name\":\"Asgard - ATLA live-action block\",\"enabled\":true,\"required\":[],\"ignored\":$ATLA_IGN,\"indexerId\":0,\"tags\":[$TAGID]}" \
+                $SONARR/api/v3/releaseprofile >/dev/null \
+                && echo "arr-policy: created ATLA live-action release profile" \
+                || echo "arr-policy: FAILED to create ATLA release profile"
+            elif [ "$(echo "$AEX" | jq -c '.ignored|sort')" != "$(echo "$ATLA_IGN" | jq -c 'sort')" ] \
+              || [ "$(echo "$AEX" | jq -c '.tags')" != "[$TAGID]" ]; then
+              ARPID=$(echo "$AEX" | jq -r .id)
+              echo "$AEX" | jq --argjson ig "$ATLA_IGN" --argjson t "$TAGID" \
+                    '.ignored=$ig | .tags=[$t]' \
+                | curl -sf -m 15 -X PUT -H "X-Api-Key: $SK" \
+                       -H 'Content-Type: application/json' --data-binary @- \
+                       "$SONARR/api/v3/releaseprofile/$ARPID" >/dev/null \
+                && echo "arr-policy: updated ATLA live-action release profile" \
+                || echo "arr-policy: FAILED to update ATLA release profile"
+            fi
+          fi
+        fi
+
+        # --- Delete the profiles Jellyseerr should not offer -----------------
+        # Deliberately an explicit NAME list, not "everything unused": a
+        # profile created later on purpose must not be silently destroyed.
+        # Sonarr/Radarr refuse to delete a profile still in use, which is the
+        # backstop if the reassignment above did not fully land.
+        QP=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/qualityprofile) || QP="[]"
+        for NAME in "Any" "SD" "HD-720p" "HD-1080p" "Ultra-HD" "HD - 720p/1080p" "Any 1080p" "WEB-1080p" "WEB-2160p"; do
+          PID=$(echo "$QP" | jq -r --arg n "$NAME" '.[]|select(.name==$n)|.id')
+          if [ -n "$PID" ]; then
+            curl -sf -m 15 -X DELETE -H "X-Api-Key: $SK" "$SONARR/api/v3/qualityprofile/$PID" >/dev/null \
+              && echo "arr-policy: deleted Sonarr profile $NAME" \
+              || echo "arr-policy: kept Sonarr profile $NAME (still in use)"
+          fi
+        done
+
+        RQP=$(curl -sf -m 15 -H "X-Api-Key: $RK" $RADARR/api/v3/qualityprofile) || RQP="[]"
+
+        # Radarr COLLECTIONS carry their own qualityProfileId, and Radarr
+        # counts that as "in use" — so a profile with zero movies still
+        # refuses to delete. Found 2026-08-23: 29 collections pinned to
+        # "Remux + WEB 1080p" and 19 to "Remux + WEB 2160p", which is why
+        # those two survived the first run. Repoint them at Asgard - Movies
+        # before the delete loop below.
+        MOVIE_P=$(echo "$RQP" | jq -r '.[]|select(.name=="Asgard - Movies")|.id')
+        if [ -n "$MOVIE_P" ]; then
+          COLS=$(curl -sf -m 30 -H "X-Api-Key: $RK" $RADARR/api/v3/collection) || COLS="[]"
+          echo "$COLS" | jq -c '.[]' | while read -r C; do
+            CID=$(echo "$C" | jq -r .id)
+            CP=$(echo "$C" | jq -r .qualityProfileId)
+            if [ "$CP" != "$MOVIE_P" ]; then
+              echo "$C" | jq --argjson p "$MOVIE_P" '.qualityProfileId=$p' \
+                | curl -sf -m 30 -X PUT -H "X-Api-Key: $RK" \
+                       -H 'Content-Type: application/json' --data-binary @- \
+                       "$RADARR/api/v3/collection/$CID" >/dev/null \
+                && echo "arr-policy: collection $CID -> profile $MOVIE_P" \
+                || echo "arr-policy: FAILED to move collection $CID"
+            fi
+          done
+        fi
+
+        for NAME in "Any" "SD" "HD-720p" "HD-1080p" "Ultra-HD" "HD - 720p/1080p" "Remux + WEB 1080p" "Remux + WEB 2160p"; do
+          PID=$(echo "$RQP" | jq -r --arg n "$NAME" '.[]|select(.name==$n)|.id')
+          if [ -n "$PID" ]; then
+            curl -sf -m 15 -X DELETE -H "X-Api-Key: $RK" "$RADARR/api/v3/qualityprofile/$PID" >/dev/null \
+              && echo "arr-policy: deleted Radarr profile $NAME" \
+              || echo "arr-policy: kept Radarr profile $NAME (still in use)"
+          fi
+        done
+
+        # --- Jellyfin: make English actually play ----------------------------
+        # PlayDefaultAudioTrack=true makes Jellyfin honour the file's default
+        # track and IGNORE AudioLanguagePreference entirely. Most anime here
+        # ships with Japanese (JUJUTSU KAISEN: French) flagged default, so
+        # accounts with a preference set were still getting subs. Rhys is
+        # skipped - already configured correctly and left as the control.
+        USERS=$(curl -sf -m 15 -H "X-Emby-Token: $JK" $JELLYFIN/Users) || USERS="[]"
+        echo "$USERS" | jq -c '.[]' | while read -r U; do
+          UNAME=$(echo "$U" | jq -r .Name)
+          [ "$UNAME" = "Rhys" ] && continue
+          UID_J=$(echo "$U" | jq -r .Id)
+          CUR_A=$(echo "$U" | jq -r '.Configuration.AudioLanguagePreference // ""')
+          CUR_D=$(echo "$U" | jq -r '.Configuration.PlayDefaultAudioTrack')
+          if [ "$CUR_A" != "eng" ] || [ "$CUR_D" != "false" ]; then
+            echo "$U" | jq '.Configuration | .AudioLanguagePreference="eng" | .PlayDefaultAudioTrack=false' \
+              | curl -sf -m 15 -X POST -H "X-Emby-Token: $JK" \
+                     -H 'Content-Type: application/json' --data-binary @- \
+                     "$JELLYFIN/Users/$UID_J/Configuration" >/dev/null \
+              && echo "arr-policy: Jellyfin user $UNAME -> eng / no default-track override" \
+              || echo "arr-policy: FAILED to update Jellyfin user $UNAME"
+          fi
+        done
+
+        echo "arr-policy: done"
+      '';
+    };
+
+    # Jellyfin ships with TheMovieDb as the only TV provider, and TMDB models
+    # some anime as ONE long season: JUJUTSU KAISEN is a single "Season 1" of
+    # 59 episodes there, while TVDB (and therefore Sonarr, and therefore the
+    # folder layout) splits the same 59 into 24 / 23 / 12. Jellyfin then looks
+    # up "Season 2, Episode 1", finds nothing in TMDB, and degrades badly:
+    # no season posters at all, and 300x169 / 9 KB episode thumbnails against
+    # 1920x1080 for season 1. Adding TheTVDB fixes every season TMDB cannot
+    # describe. Found 2026-08-28.
+    #
+    # TheTVDB is added BELOW TheMovieDb everywhere, deliberately — TMDB stays
+    # authoritative so nothing that already looks right can change, and TVDB
+    # only fills the gaps. But it must sit ABOVE "The Open Movie Database",
+    # "Embedded Image Extractor" and "Screen Grabber" in the episode image
+    # order: those are what were producing the 300x169 images, so a TVDB entry
+    # below them would never win.
+    #
+    # EnableEmbeddedTitles is forced off. It is on by default and makes
+    # Jellyfin take the episode name from the mkv container title tag, which
+    # release groups stuff with their own naming — the JJK season 2/3 files
+    # carry titles like "Jujutsu Kaisen (2023) - S02E01 - Hidden Inventory"
+    # and "[AnoZu] JUJUTSU KAISEN - S03E01 - Execution", and those were being
+    # shown verbatim in the UI. Season 1's files happen to have an empty title
+    # tag, which is the only reason that season looked correct.
+    systemd.services.jellyfin-providers = {
+      description = "Install TheTVDB and pin Jellyfin TV metadata/image provider order";
+      after    = [ "jellyfin.service" "network-online.target" ];
+      wants    = [ "jellyfin.service" "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+      path     = [ pkgs.curl pkgs.jq pkgs.coreutils pkgs.systemd ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        set -u
+        JF=http://localhost:8096
+        JK=$(cat ${config.sops.secrets."jellyfin-api-key".path})
+        AUTH="Authorization: MediaBrowser Token=$JK"
+
+        wait_for_jf() {
+          for _ in $(seq 1 60); do
+            curl -sf -m 5 -H "$AUTH" $JF/System/Info >/dev/null && return 0
+            sleep 5
+          done
+          return 1
+        }
+
+        wait_for_jf || { echo "jellyfin-providers: Jellyfin never came up - skipping"; exit 0; }
+
+        # --- TheTVDB plugin ------------------------------------------------
+        # Installing it needs a restart before the fetcher becomes selectable,
+        # so do that first and re-wait. Guarded so this is a no-op after the
+        # first successful run.
+        if ! curl -sf -m 15 -H "$AUTH" $JF/Plugins | jq -e '.[]|select(.Name=="TheTVDB")' >/dev/null; then
+          # Pick the newest catalogue version whose targetAbi the running
+          # server satisfies, rather than pinning a version that will rot.
+          SRV=$(curl -sf -m 15 -H "$AUTH" $JF/System/Info | jq -r .Version)
+          PKG=$(curl -sf -m 30 -H "$AUTH" $JF/Packages | jq -r --arg s "$SRV" '
+            def norm: split(".")|map(tonumber)|(.+[0,0,0,0])[0:4];
+            .[] | select(.name=="TheTVDB")
+            | .guid as $g
+            | [ .versions[] | select((.targetAbi|norm) <= ($s|norm)) ][0]
+            | select(.!=null) | "\(.version) \($g)"')
+          if [ -n "$PKG" ]; then
+            set -- $PKG
+            if curl -sf -m 60 -X POST -H "$AUTH" \
+                 "$JF/Packages/Installed/TheTVDB?version=$1&assemblyGuid=$2" >/dev/null; then
+              echo "jellyfin-providers: installed TheTVDB $1, restarting Jellyfin"
+              sleep 10
+              systemctl restart jellyfin
+              wait_for_jf || { echo "jellyfin-providers: Jellyfin did not return after restart"; exit 0; }
+            else
+              echo "jellyfin-providers: FAILED to install TheTVDB"
+            fi
+          else
+            echo "jellyfin-providers: no TheTVDB build compatible with $SRV"
+          fi
+        fi
+
+        # --- Library options -----------------------------------------------
+        VF=$(curl -sf -m 15 -H "$AUTH" $JF/Library/VirtualFolders) || exit 0
+        echo "$VF" | jq -c '.[]|select(.CollectionType=="tvshows")' | while read -r LIB; do
+          NAME=$(echo "$LIB" | jq -r .Name)
+          WANT=$(echo "$LIB" | jq -c '{Id:.ItemId, LibraryOptions:(.LibraryOptions
+            | .EnableEmbeddedTitles=false
+            | .TypeOptions|=map(
+                if .Type=="Series" then
+                  .MetadataFetchers=["TheMovieDb","TheTVDB","The Open Movie Database"]
+                  | .MetadataFetcherOrder=["TheMovieDb","TheTVDB","The Open Movie Database"]
+                  | .ImageFetchers=["TheMovieDb","TheTVDB"]
+                  | .ImageFetcherOrder=["TheMovieDb","TheTVDB"]
+                elif .Type=="Season" then
+                  .MetadataFetchers=["TheMovieDb","TheTVDB"]
+                  | .MetadataFetcherOrder=["TheMovieDb","TheTVDB"]
+                  | .ImageFetchers=["TheMovieDb","TheTVDB"]
+                  | .ImageFetcherOrder=["TheMovieDb","TheTVDB"]
+                elif .Type=="Episode" then
+                  .MetadataFetchers=["TheMovieDb","TheTVDB","The Open Movie Database"]
+                  | .MetadataFetcherOrder=["TheMovieDb","TheTVDB","The Open Movie Database"]
+                  | .ImageFetchers=["TheMovieDb","TheTVDB","The Open Movie Database","Embedded Image Extractor","Screen Grabber"]
+                  | .ImageFetcherOrder=["TheMovieDb","TheTVDB","The Open Movie Database","Embedded Image Extractor","Screen Grabber"]
+                else . end))}')
+          # Only POST when something actually differs — this unit runs on every
+          # boot and a no-op must stay a no-op.
+          CUR=$(echo "$LIB" | jq -c '{Id:.ItemId, LibraryOptions:.LibraryOptions}')
+          if [ "$CUR" != "$WANT" ]; then
+            echo "$WANT" | curl -sf -m 30 -X POST -H "$AUTH" \
+                   -H 'Content-Type: application/json' --data-binary @- \
+                   "$JF/Library/VirtualFolders/LibraryOptions" >/dev/null \
+              && echo "jellyfin-providers: updated provider order on library $NAME" \
+              || echo "jellyfin-providers: FAILED to update library $NAME"
+          fi
+        done
+
+        echo "jellyfin-providers: done"
+      '';
     };
 
 
@@ -1254,6 +2545,149 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${../Resources/Eclipse-Control/eclipse-control.py}";
+        Restart = "always";
+        RestartSec = 5;
+      };
+    };
+
+    # ── Internet speed test ─────────────────────────────────────────────────────
+    # Ookla's official CLI, not speedtest-cli/librespeed — it is the number the
+    # ISP will actually argue about, and it needs no server-list curation.
+    #
+    # Reading the result: DOWNLOAD is the honest line rate. UPLOAD is not — every
+    # WAN-bound packet goes through the 30 Mbit htb class in wan-egress-shaping
+    # below, so this reports ~30 on a 50 Mbit uplink **by design**. The widget
+    # says so next to the figure; don't go hunting for a broken uplink.
+    #
+    # The download figure is only honest because the run pauses SABnzbd first
+    # (see the script). Ookla measures whatever capacity is spare, so before that
+    # was added the timer happily fired mid-download and published the leftovers:
+    # 47.8 Mb/s against 421 on the same link twenty seconds later.
+    systemd.services.speedtest = {
+      description = "Internet speed test (Ookla) → /var/lib/speedtest/latest.json";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      environment = {
+        # Not optional. The CLI does std::string(getenv("HOME")) unguarded, so
+        # with no HOME it aborts on `basic_string::_M_construct null not valid`
+        # and dumps core before it ever touches the network. It keeps its
+        # license-acceptance flag under $HOME/.config/ookla.
+        HOME = "/var/lib/speedtest";
+      };
+      serviceConfig = {
+        Type = "oneshot";
+        StateDirectory = "speedtest";
+        # A test takes ~30s, plus 11s of settling before it; a hung one must not
+        # wedge the timer forever.
+        TimeoutStartSec = "5m";
+        # The queue is resumed here rather than at the end of the script so it
+        # happens on *any* stop — including the unit being killed on
+        # TimeoutStartSec, which is exactly the case where a script-level trap
+        # would be least reliable. The marker is what authorises the resume, so a
+        # queue that was already paused by hand is never silently restarted.
+        ExecStopPost = pkgs.writeShellScript "speedtest-resume-sab" ''
+          [ -e /var/lib/speedtest/.sab-paused ] || exit 0
+          ${pkgs.coreutils}/bin/rm -f /var/lib/speedtest/.sab-paused
+          key=$(${pkgs.coreutils}/bin/cat ${config.sops.secrets."sabnzbd-api-key".path})
+          ${pkgs.curl}/bin/curl -fsS --max-time 10 \
+            "http://localhost:8080/api?apikey=$key&output=json&mode=resume" >/dev/null
+        '';
+      };
+      # Written to a temp file and renamed, so a failed or half-written run never
+      # replaces a good result — the panel keeps showing the last known-good one.
+      script = ''
+        out=/var/lib/speedtest/latest.json
+        tmp=$(${pkgs.coreutils}/bin/mktemp /var/lib/speedtest/.latest.XXXXXX)
+        raw=$(${pkgs.coreutils}/bin/mktemp /var/lib/speedtest/.raw.XXXXXX)
+
+        # Ookla measures spare capacity, not link capacity, so the line has to be
+        # quiet or the result is meaningless — SABnzbd alone will happily sit on
+        # 245 Mb/s of a 425 Mb/s link and drag the figure down to a fifth of it.
+        #
+        # set_pause is a pause with a deadline: if this unit dies hard enough
+        # that ExecStopPost never runs, SAB resumes by itself after 6 minutes
+        # (one past TimeoutStartSec), so a failure here can never strand the
+        # queue. Every step fails open — no key, no SAB, no answer, no pause, and
+        # the test still runs.
+        #
+        # The marker is deliberately not cleared here. One left behind means a
+        # previous run was killed before ExecStopPost, so letting it survive into
+        # this run is what gets the queue resumed at the end of it.
+        key=$(${pkgs.coreutils}/bin/cat ${config.sops.secrets."sabnzbd-api-key".path} || true)
+        sab="http://localhost:8080/api?apikey=$key&output=json"
+        if ${pkgs.curl}/bin/curl -fsS --max-time 10 "$sab&mode=queue" \
+             | ${pkgs.gnugrep}/bin/grep -q '"paused":false'; then
+          if ${pkgs.curl}/bin/curl -fsS --max-time 10 \
+               "$sab&mode=config&name=set_pause&value=6" >/dev/null; then
+            ${pkgs.coreutils}/bin/touch /var/lib/speedtest/.sab-paused
+          fi
+        fi
+
+        # Let the in-flight NNTP connections drain, then log what is *still* on
+        # the wire. SAB is the only thing this unit can pause; if a Jellyfin
+        # stream or an arr import is running, the figures below are leftovers
+        # again and this line is the only way to tell after the fact.
+        ${pkgs.coreutils}/bin/sleep 8
+        rx1=$(${pkgs.coreutils}/bin/cat /sys/class/net/enp3s0/statistics/rx_bytes)
+        ${pkgs.coreutils}/bin/sleep 3
+        rx2=$(${pkgs.coreutils}/bin/cat /sys/class/net/enp3s0/statistics/rx_bytes)
+        echo "background traffic at test start: $(( (rx2 - rx1) * 8 / 3 / 1000000 )) Mb/s down"
+
+        if ${lib.getExe pkgs.ookla-speedtest} \
+             --format=json --accept-license --accept-gdpr > "$raw"; then
+          # On the first run of a fresh machine the EULA goes to stdout *ahead*
+          # of the JSON, so this takes the result line rather than the whole
+          # stream — otherwise latest.json is a licence notice.
+          ${pkgs.gnugrep}/bin/grep -m1 '^{' "$raw" > "$tmp" || true
+        fi
+
+        if [ -s "$tmp" ]; then
+          ${pkgs.coreutils}/bin/mv "$tmp" "$out"
+          ${pkgs.coreutils}/bin/rm -f "$raw"
+        else
+          ${pkgs.coreutils}/bin/rm -f "$tmp" "$raw"
+          exit 1
+        fi
+      '';
+    };
+
+    systemd.timers.speedtest = {
+      description = "Run an internet speed test every 6 hours";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnCalendar = "*-*-* 00/6:05:00";
+        # Catch up after downtime, so the panel is never showing a result from
+        # before the last reboot with no explanation.
+        Persistent = true;
+        RandomizedDelaySec = "15m";
+      };
+    };
+
+    # ── Network panel endpoint (port 9555, Tailscale-only) ─────────────────────
+    # Backs the Network group on the Glance main page: live throughput sampled
+    # from /proc/net/dev plus the last speed-test result, and a POST /run that
+    # triggers a fresh test from the "Run now" button.
+    #
+    # Replaced `flow` inside a second read-only ttyd on :7682. ttyd kills its
+    # child whenever the websocket drops — a backgrounded tab was enough — and
+    # xterm.js then painted its reconnect banner over the panel, which is what it
+    # spent most of its life showing. See Resources/Network-Panel/network-panel.py.
+    #
+    # Runs as root purely so POST /run can `systemctl start speedtest.service`.
+    # It is not exposed beyond the tailnet: 9555 is deliberately absent from
+    # allowedTCPPorts and only reachable via trusted tailscale0.
+    systemd.services.network-panel = {
+      description = "Network throughput + speed test endpoint for Glance";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+      path = [ pkgs.systemd ];
+      environment = {
+        NETPANEL_IFACE = "enp3s0";
+        NETPANEL_PORT = "9555";
+      };
+      serviceConfig = {
+        ExecStart = "${pkgs.python3}/bin/python3 ${../Resources/Network-Panel/network-panel.py}";
         Restart = "always";
         RestartSec = 5;
       };
@@ -2116,7 +3550,17 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
         $tc qdisc add dev $dev root handle 1: htb default 20
         $tc class add dev $dev parent 1: classid 1:1 htb rate 940mbit
         $tc class add dev $dev parent 1:1 classid 1:10 htb rate 910mbit ceil 940mbit
-        $tc class add dev $dev parent 1:1 classid 1:20 htb rate 30mbit ceil 30mbit
+        # burst/cburst explicit — htb's auto-computed default at this rate is
+        # ~1600 bytes (one packet), which sounds harmless but isn't: it means
+        # every burst above a single packet gets throttled by the token
+        # bucket itself, not just rate-limited on average. Discovered
+        # 2026-09-11 chasing Eclipse's remote Jellyfin playback "plays a
+        # chunk, stalls, plays a chunk" stutter — `tc -s class show` had 190M
+        # cumulative overlimits and a token count sitting in permanent
+        # deficit. 300KB (~80ms at 30 Mbit) lets Kodi's aggressive read-ahead
+        # bursts (filecache readfactor 20x, see Claude/eclipse.md) through
+        # smoothly while the long-run average is still capped at 30 Mbit.
+        $tc class add dev $dev parent 1:1 classid 1:20 htb rate 30mbit ceil 30mbit burst 300k cburst 300k
         $tc qdisc add dev $dev parent 1:20 fq_codel
         $tc filter add dev $dev parent 1: protocol ip prio 1 u32 match ip dst 192.168.0.0/16 flowid 1:10
         $tc filter add dev $dev parent 1: protocol ip prio 1 u32 match ip dst 10.0.0.0/8 flowid 1:10
@@ -2225,6 +3669,39 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     systemd.services.podman-shelfarr.unitConfig.RequiresMountsFor     = [ "/data/media" ];
     systemd.services.podman-filebrowser.unitConfig.RequiresMountsFor  = [ "/data/media" "/data/photos" ];
     systemd.services.immich-server.unitConfig.RequiresMountsFor       = [ "/data/photos" ];
+
+    # --- NFS export of /data/media, tailnet-only — Eclipse "Native mode" trial (2026-09-12) ---
+    # plugin.video.jellyfin's HTTP streaming locks in one bitrate at playback start (no ABR —
+    # confirmed absent in the addon's own source and in upstream's issue tracker/docs, see
+    # Claude/eclipse.md). "Native (direct paths)" mode sidesteps that: Kodi still uses the Jellyfin
+    # API for browsing/metadata/watched-state, but reads the actual video bytes straight off this
+    # NFS export instead of through Jellyfin's HTTP/transcode layer. Doesn't create bandwidth that
+    # isn't there, but NFS's read-ahead/flow control may tolerate the jittery remote link better
+    # than HTTP chunked delivery did.
+    #
+    # Deliberately exported by Tailscale IP, not the LAN IP — Tailscale auto-detects when peers
+    # share a physical subnet and switches to a direct LAN connection with no config change, so one
+    # export works whether Eclipse is remote (today) or back on the LAN (future): no LAN/remote
+    # toggle needed for this path, unlike the Jellyfin HTTP address.
+    #
+    # Read-only, and root_squash (the NFS default, left un-overridden) is fine here — /data/media
+    # and its files are world-readable (o+r on files, o+rx on dirs) for exactly this reason, so an
+    # NFS client mapped to "nobody" already has everything it needs; no anonuid/gid juggling.
+    # tailscale0 is a trustedInterface (line ~3518) so no firewall port-opening needed — this is
+    # never reachable from the LAN or WAN, only the tailnet. 100.64.0.0/10 is Tailscale's CGNAT range.
+    services.nfs.server = {
+      enable = true;
+      # fsid=0 required — /data/media is fuse.mergerfs, and the kernel NFS
+      # exporter can't derive a stable filesystem id from a FUSE mount the way
+      # it can for a real block device (`rpc.mountd`: "Cannot export
+      # /data/media, possibly unsupported filesystem or fsid= required").
+      # fsid=0 doubles as the NFSv4 pseudo-root, so `-o vers=4` mounts by this
+      # same absolute path work too, not just NFSv3.
+      exports = ''
+        /data/media 100.64.0.0/10(ro,sync,no_subtree_check,fsid=0)
+      '';
+    };
+    systemd.services.nfs-server.unitConfig.RequiresMountsFor = [ "/data/media" ];
 
     # --- Data directories ---
     systemd.tmpfiles.rules = [
