@@ -70,7 +70,7 @@ temperatures could not be read at all.
 - **Networking** — stock Tailscale, `tailscale0` trusted in firewall, all services reachable via `asgard:port` from tailnet devices
 - **Mullvad VPN** — SABnzbd confined to WireGuard network namespace (`/var/run/netns/vpn`), Mullvad Sydney exit, socat proxy host:8080 → namespace
 - **tailscale-status-proxy** — Python HTTP service (port 9553) queries tailscaled Unix socket, serves simplified JSON for Glance Yggdrasil widget
-- **Observability stack** — Glance (8888, native systemd service), Prometheus (9090, node scrape 5s, CORS enabled), Loki (3100), Grafana (3001, anonymous viewing + iframe embedding), Alloy, Exportarr, cAdvisor, SABnzbd exporter
+- **No metrics/log stack** — Prometheus, the exporters (node, Exportarr ×4, SABnzbd), cAdvisor, Loki, Alloy and Grafana were all **removed 2026-10-03** — unused. Glance's own `server-stats` widget covers host CPU/RAM/disk, its Downloads widgets ask SABnzbd's API directly, and logs are `journalctl -u <unit>`. Kavita, Komga and the tailnet NFS export of `/data/media` (the Eclipse "Native mode" trial) went in the same pass
 
 ---
 
@@ -99,16 +99,11 @@ temperatures could not be read at all.
 | **glance-marsbar** | 8890 | **loopback only** | Partner dashboard. Reachable solely via the `marsbar` tailnet node's serve proxy — see `Claude/marsbar.md` |
 | ha-bridge          | 9556 | Tailscale only | Holds the HA token server-side; `GET /states`, `POST /toggle/<entity>` against a hard allowlist |
 | **ttyd**           | 7681 | Tailscale only | Web terminal (Glance "Terminal" page iframe + Management bookmark). Login prompt (root `login` entrypoint) — log in as `rock`, passwordless sudo for reboot/shutdown |
-| **Grafana**        | 3001 | Tailscale only | System stats (bar gauge panels) + logs. Anonymous viewing enabled for iframe embedding |
-| **Prometheus**     | 9090 | Tailscale only | Metrics collection. CORS enabled (`--web.cors.origin=.*`) for Glance JS polling |
-| **Loki**           | 3100 | Tailscale only | Log storage. Health: `:3100/ready` |
-| node_exporter      | 9100 | internal only  | Host system metrics |
-| cAdvisor           | 9101 | internal only  | Per-container metrics (Podman socket) |
-| sabnzbd-exporter   | 9387 | internal only  | SABnzbd queue/speed metrics |
-| exportarr-sonarr   | 9708 | internal only  | Sonarr arr metrics |
-| exportarr-radarr   | 9709 | internal only  | Radarr arr metrics |
-| exportarr-lidarr   | 9710 | internal only  | Lidarr arr metrics |
-| exportarr-prowlarr | 9711 | internal only  | Prowlarr arr metrics |
+| FlareSolverr       | 8191 | Tailscale only | Podman container — Cloudflare challenge solver for Suwayomi + Shelfarr |
+| Home Assistant     | 8123 | Tailscale only | Smart plugs — see `Claude/home-assistant.md` |
+
+Nothing listens on 3001 / 3100 / 9090 / 9100 / 9101 / 9387 / 9708–9711 (the removed metrics
+stack), 5000 (Kavita), 25600 (Komga) or 2049/111 (NFS) any more.
 
 ---
 
@@ -271,13 +266,11 @@ temperatures could not be read at all.
 - VPN IP: 10.66.10.54, private key in sops: `mullvad-wg-private-key`
 
 ### Podman containers
-- Audiobookshelf, Shelfarr, File Browser Quantum, Decluttarr, cAdvisor, SABnzbd exporter
-- Backend: `virtualisation.oci-containers.backend = "podman"`
-- Docker compat socket (`podman.socket` at `/run/podman/podman.sock`) enabled for cAdvisor
+- Audiobookshelf, Shelfarr, FlareSolverr, File Browser Quantum, Decluttarr
+- Backend: `virtualisation.oci-containers.backend = "podman"`. No Docker-compat socket — its only
+  consumer was cAdvisor, and it is root-equivalent for the `podman` group
 - **Decluttarr:** `decluttarr-config.service` generates `/var/lib/decluttarr/config/config.yaml` from individual arr + sabnzbd sops secrets before the container starts. No separate `decluttarr-env` secret — reuses existing API key secrets directly. `remove_orphans: false` — do NOT enable this, it kills newly queued downloads before SABnzbd picks them up (within 2 minutes).
-- **SABnzbd exporter:** `docker.io/msroest/sabnzbd_exporter:latest` (NOT ghcr.io — that's a private 403). Env file written by `sabnzbd-exporter-env.service` with `SABNZBD_BASEURLS` + `SABNZBD_APIKEYS`.
-- **Glance:** Moved from container to native systemd service (`pkgs.glance`) — needed for `server-stats` widget to access host `/proc`/`/sys`. Config baked into Nix store via `pkgs.writeText "glance.yml"`. Uses `DynamicUser = true`.
-- **cAdvisor:** `gcr.io/cadvisor/cadvisor:latest`, `--privileged`, mounts Podman socket. Port 9101.
+- **Glance is NOT a container** — it runs as a native systemd service (`pkgs.glance`), needed for the `server-stats` widget to access host `/proc`/`/sys`. Config baked into Nix store via `pkgs.writeText "glance.yml"`. Uses `DynamicUser = true`.
 
 ---
 
@@ -559,15 +552,11 @@ redirect that exists only for old clients.
 
 ---
 
-## Observability Stack
+## Dashboard — Glance
 
-### Architecture
-```
-journald (all units) → Alloy → Loki (3100)
-node_exporter / cAdvisor / Exportarr / SABnzbd exporter → Prometheus (9090)
-Glance (8888) — reads Prometheus via custom-api widgets
-Grafana (3001) — reads Loki + Prometheus, provisioned datasources
-```
+There is no metrics or log pipeline any more (see *Current Status*). Glance reads everything
+live: host stats from `/proc`/`/sys`, the network panel from `:9555`, SABnzbd's queue from its own
+API, power from Home Assistant. For logs, use `journalctl -u <unit>`.
 
 ### Glance Dashboard (port 8888)
 2-column layout: **Stats + network + service health** (full) | **Clock + Yggdrasil** (small)
@@ -659,6 +648,15 @@ Small column:
   is load-bearing: as a descendant selector it drew a rule between group tab panes.
 
 **Page 2 — Downloads:**
+- **Queue** / **Remaining** — two `custom-api` widgets on `http://localhost:8080/api?mode=queue&output=json`
+  (`queue.noofslots_total`, and `queue.mbleft` ÷ 1024 — `mbleft` is a JSON *string*, `.Float` parses
+  it). They used to query Prometheus for the exporter's `sabnzbd_queue_*`.
+- **The API key never enters the Nix store.** The widget's `apikey` parameter is Glance's
+  `readFileFromEnv:SABNZBD_API_KEY_FILE` variable; `glance.service` gets the sops secret via
+  `LoadCredential` (private to the unit, readable by its DynamicUser) and points the env var at it.
+  Deliberately *not* the `secret:` form `ha-token` uses — that reads `/run/secrets/<name>` directly
+  and so needs the secret `0444`, which for SABnzbd's full-control key would hand it to every local
+  user. ⚠ Glance resolves these variables at startup and **refuses to start** if one can't be read.
 - SABnzbd iframe: `type: iframe`, `source: http://asgard:8080`, `height: 700`
 - SABnzbd auth removed — iframe loads without login (tailnet-only access)
 - UI prefs (compact/fullscreen/tabbed) set server-side via `web_compact/web_fullscreen/web_tabbed = true`, but iframe needs "Use global interface settings" ticked within its own browser context
@@ -749,24 +747,6 @@ fetch picks its family from DNS first; toggle
 
 Running the CLI by hand does **not** update the panel — only `speedtest.service`
 writes `latest.json`.
-
-### Grafana (port 3001)
-- Admin password from sops `grafana-admin-password` (owner = grafana)
-- `allow_embedding = true` + anonymous auth (Viewer role) — enables Glance iframe embedding
-- Loki + Prometheus datasources auto-provisioned via `provision.datasources.settings`
-- **CRITICAL:** NixOS Grafana module does NOT support `uid` field in datasource provisioning (generates `uid: null` → crash). Always use name strings: `datasource = "Prometheus"`
-- **System Stats dashboard** (uid: `asgard-system`, provisioned via `pkgs.writeTextDir`):
-  - 4 bar gauge panels (Retro LCD display mode) in 2x2 grid, refresh 1s
-  - CPU (panelId=1, dark-green), Disk /data (panelId=4, dark-red), Network (panelId=3, dark-purple), Memory (panelId=2, dark-yellow)
-  - Prometheus node scrape interval: 5s for near-real-time data
-- **Logs dashboard:** `{job="journald", unit=~"$unit"}` with `$unit` variable
-  - Variable type: Query, Label values for label `unit`, filter `{job="journald"}`
-  - Regex: `/^(sonarr|radarr|lidarr|prowlarr|sabnzbd|jellyfin|seerr|recyclarr|decluttarr|immich|podman|loki|grafana|prometheus|alloy)/`
-  - Multi-value + Include All option enabled
-- **DB path:** `/var/lib/grafana/data/grafana.db` — wipe when fundamentally changing datasource/dashboard provisioning
-
-### Alloy journald → Loki pipeline
-Config in Nix store (`pkgs.writeText "config.alloy"`). Labels extracted: `unit` (systemd unit), `host`, `level`. Alloy service needs `SupplementaryGroups = ["systemd-journal"]` to read the journal.
 
 ---
 
@@ -938,7 +918,6 @@ jellyfin-admin-password
 cloudflare-tunnel                  # full credentials JSON from cloudflared tunnel create
 admin-username                     # shared admin username for FileBrowser, Immich seed (e.g. admin)
 admin-password                     # shared admin password for FileBrowser, Immich seed
-grafana-admin-password             # Grafana admin password — sops owner = "grafana"
 mullvad-wg-private-key             # WireGuard private key from Mullvad (SABnzbd VPN namespace)
 usenet/newshosting/username        # Newshosting NNTP username
 usenet/newshosting/password        # Newshosting NNTP password
@@ -1093,10 +1072,10 @@ Omit `use_ino` — default and deprecated in mergerfs 2.x.
 - **Sonarr/Radarr report `freeSpace: null`** for root folders on the pool, and the `/api/v3/diskspace`
   endpoint returns empty. This is .NET's `DriveInfo` not classifying `fuse.mergerfs` as a fixed
   drive. Harmless — `accessible: true` and imports work — but free-space pre-checks are skipped.
-  Use Glance/Grafana for pool capacity, not the arr UIs.
-- **Dashboards must query `/data/media`, not `/data`.** `/data` stopped being a mountpoint, so
-  `node_filesystem_*{mountpoint="/data"}` silently returns empty and the Glance disk readout
-  plus the Grafana disk panel go blank. Both were repointed at `/data/media`.
+  Use Glance's server-stats "Media Pool" bar for pool capacity, not the arr UIs.
+- **Dashboards must read `/data/media`, not `/data`.** `/data` stopped being a mountpoint, so a
+  disk readout keyed on `/data` silently goes blank. Glance's server-stats widget names the
+  `/data/media` mountpoint explicitly for this reason.
 - **`/mnt/disk2/media` must exist before the pool can mount** — mergerfs errors on a missing branch
   and tmpfiles runs too late to help. Created by hand at install time.
 - **Nix merge rule:** `systemd.services = lib.genAttrs ... ` collides with the many
@@ -1163,7 +1142,6 @@ the letters shuffle between boots.
 
 /var/lib/
   filebrowser/               # File Browser state
-  grafana/data/              # Grafana DB + state
 ```
 
 ---
@@ -1191,7 +1169,7 @@ GID 1001. All services that need `/data/media` access are in this group:
    - Jellyfin remote client bitrate limit — default 12 Mbps throttles any client Jellyfin doesn't
      see as LAN (includes Eclipse over Tailscale, see `Claude/eclipse.md`). Also imperative state:
      `curl -s -H "X-Emby-Token: $(sudo cat /run/secrets/jellyfin-api-key)" http://localhost:8096/System/Configuration | jq '.RemoteClientBitrateLimit = 40000000' | curl -s -X POST -H "X-Emby-Token: $(sudo cat /run/secrets/jellyfin-api-key)" -H "Content-Type: application/json" --data @- http://localhost:8096/System/Configuration`
-5. Everything else (arr wiring, Jellyseerr setup, Glance dashboard, Grafana) is automatic
+5. Everything else (arr wiring, Jellyseerr setup, Glance dashboard) is automatic
 
 ---
 

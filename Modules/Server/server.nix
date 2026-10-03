@@ -39,7 +39,12 @@
     # because per-device costs alone understate the actual bill.
     powerSupplyDaily = 0.92829;
 
-    # ── Glance YAML config (no secrets — reads Prometheus which has no auth) ──
+    # ── Glance YAML config ──
+    # No secret is ever written into this file — it lands in the world-readable
+    # Nix store. The two that Glance needs are pulled in by Glance itself when it
+    # loads the config: `secret:ha-token` from /run/secrets, and the SABnzbd API
+    # key via `readFileFromEnv` (see systemd.services.glance below).
+    #
     # Runs as native systemd service (not container) so server-stats widget
     # can read host CPU/memory/disk directly from /proc and /sys.
     glanceConfig = pkgs.writeText "glance.yml" ''
@@ -908,12 +913,12 @@
                 # reports the pool as its DISK bar (mountpoint /data/media, named
                 # "Media Pool"), so a second readout only duplicated it.
                 #
-                # Removing it also took out the last browser-side Prometheus poller,
-                # and with it a class of silent breakage: that script fetched
-                # localhost:9090, which in a browser means the *viewer's* machine, not
-                # Asgard — so it had never once updated except when viewed from the
-                # server itself. Any browser-side fetch added here must use
-                # asgard:<port>; the network panel below does exactly that.
+                # Removing it also took out a browser-side poller, and with it a
+                # class of silent breakage: that script fetched localhost:<port>,
+                # which in a browser means the *viewer's* machine, not Asgard — so
+                # it had never once updated except when viewed from the server
+                # itself. Any browser-side fetch added here must use asgard:<port>
+                # (or location.hostname); the network panel below does exactly that.
 
                 # ── Network ────────────────────────────────────────────────
                 # A group so the live readout and the speed test share one
@@ -1069,21 +1074,9 @@
                         - title: Suwayomi
                           url: http://asgard:4567
                           icon: sh:suwayomi
-                        - title: Kavita
-                          url: http://asgard:5000
-                          icon: sh:kavita
                         - title: FileBrowser
                           url: http://asgard:8081
                           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/filebrowser.svg
-                        - title: Grafana
-                          url: http://asgard:3001
-                          icon: sh:grafana
-                        - title: Prometheus
-                          url: http://asgard:9090
-                          icon: sh:prometheus
-                        - title: Loki
-                          url: http://asgard:3100/ready
-                          icon: sh:loki
                         - title: Home Assistant
                           url: http://asgard:8123
                           icon: sh:home-assistant
@@ -1107,9 +1100,6 @@
                         - title: Suwayomi
                           url: http://asgard:4567
                           icon: sh:suwayomi
-                        - title: Kavita
-                          url: http://asgard:5000
-                          icon: sh:kavita
 
                     - type: monitor
                       title: Downloads
@@ -1146,15 +1136,6 @@
                         - title: FileBrowser
                           url: http://asgard:8081
                           icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/filebrowser.svg
-                        - title: Grafana
-                          url: http://asgard:3001
-                          icon: sh:grafana
-                        - title: Prometheus
-                          url: http://asgard:9090
-                          icon: sh:prometheus
-                        - title: Loki
-                          url: http://asgard:3100/ready
-                          icon: sh:loki
                         - title: Home Assistant
                           url: http://asgard:8123
                           icon: sh:home-assistant
@@ -1224,23 +1205,37 @@
           columns:
             - size: small
               widgets:
+                # Both read SABnzbd's own queue API. They used to query
+                # Prometheus for sabnzbd_queue_* from an exporter container;
+                # that metrics stack is gone, and SAB serves the same two
+                # numbers itself. localhost:8080 is the socat proxy into the
+                # Mullvad namespace — the same path speedtest.service uses.
+                #
+                # The apikey is substituted by Glance at load time from a
+                # systemd credential (readFileFromEnv), never written here —
+                # see systemd.services.glance. `mbleft` is a JSON *string*;
+                # .Float parses it.
                 - type: custom-api
                   title: Queue
                   cache: 15s
-                  url: http://asgard:9090/api/v1/query
+                  url: http://localhost:8080/api
                   parameters:
-                    query: sabnzbd_queue_size
+                    mode: queue
+                    output: json
+                    apikey: "''${readFileFromEnv:SABNZBD_API_KEY_FILE}"
                   template: |
-                    <p class="size-h1">{{ .JSON.Int "data.result.0.value.1" }} <span class="size-h4 color-subtext">items</span></p>
+                    <p class="size-h1">{{ .JSON.Int "queue.noofslots_total" }} <span class="size-h4 color-subtext">items</span></p>
 
                 - type: custom-api
                   title: Remaining
                   cache: 15s
-                  url: http://asgard:9090/api/v1/query
+                  url: http://localhost:8080/api
                   parameters:
-                    query: sabnzbd_queue_remaining_bytes / 1073741824
+                    mode: queue
+                    output: json
+                    apikey: "''${readFileFromEnv:SABNZBD_API_KEY_FILE}"
                   template: |
-                    <p class="size-h1 color-primary">{{ printf "%.2f" (.JSON.Float "data.result.0.value.1") }} <span class="size-h4 color-subtext">GB</span></p>
+                    <p class="size-h1 color-primary">{{ printf "%.2f" (div (.JSON.Float "queue.mbleft") 1024.0) }} <span class="size-h4 color-subtext">GB</span></p>
 
                 - type: monitor
                   title: Status
@@ -1667,40 +1662,6 @@
                       {{ end }}
                     </div>
     '';
-
-    # ── Alloy River config (no secrets — ships journald logs to Loki on localhost) ──
-    alloyConfig = pkgs.writeText "config.alloy" ''
-      // Collect all systemd journal entries
-      loki.source.journal "default" {
-        forward_to    = [loki.write.local.receiver]
-        relabel_rules = loki.relabel.journal_labels.rules
-        labels        = { job = "journald" }
-      }
-
-      // Extract useful labels from journal fields
-      loki.relabel "journal_labels" {
-        forward_to = []
-        rule {
-          source_labels = ["__journal__systemd_unit"]
-          target_label  = "unit"
-        }
-        rule {
-          source_labels = ["__journal__hostname"]
-          target_label  = "host"
-        }
-        rule {
-          source_labels = ["__journal_priority_keyword"]
-          target_label  = "level"
-        }
-      }
-
-      // Write to local Loki instance
-      loki.write "local" {
-        endpoint {
-          url = "http://localhost:3100/loki/api/v1/push"
-        }
-      }
-    '';
   in
   {
 
@@ -2056,78 +2017,6 @@
 # on FUSE is the locking-corruption trap this repo already dodges for the arrs via
 # the /data/.state bind mount. Only the media goes on the pool.
 # ══════════════════════════════════════════════════════════════════════════════
-
-# ══════════════════════════════════════════════════════════════════════════════
-# KAVITA — one reader for manga AND ebooks (port 5000)
-#
-# The single client for the tablet. Suwayomi and Shelfarr stay as the
-# ACQUISITION layer; Kavita is purely the READING layer on top of what they
-# already write to disk. Two libraries show side by side with cover art, and it
-# has a real reader for each type — an image/webtoon reader for CBZ and a proper
-# EPUB reader for books. Installs to the home screen as a PWA.
-#
-#   Suwayomi -> /data/media/manga/mangas  ─┐
-#                                          ├─> Kavita -> tablet
-#   Shelfarr -> /data/media/books         ─┘
-#
-# Chosen over Komga because Komga is comics-first and its EPUB support is
-# secondary; Kavita was built for mixed manga + book libraries, which is exactly
-# this case. Nothing here replaces Audiobookshelf — Kavita has no audiobook
-# support, so ABS keeps serving /data/media/audiobooks.
-#
-# Read-only consumer: it never writes to the media dirs, so it only needs group
-# `media` to read them.
-# ══════════════════════════════════════════════════════════════════════════════
-
-    services.kavita = {
-      enable = true;
-      # ≥128-bit base64 signing key for JWTs. Generated once and stored in sops
-      # rather than auto-generated into the state dir, so a rebuilt host does
-      # not silently invalidate every logged-in device.
-      tokenKeyFile = config.sops.secrets."kavita-token-key".path;
-      settings = {
-        Port = 5000;
-        # tailnet-only — 5000 is not in allowedTCPPorts and tailscale0 is trusted.
-        IpAddresses = "0.0.0.0";
-      };
-    };
-
-    # /data/media/manga is 0775 root:media, so group membership is what grants
-    # the read. Without this Kavita scans an empty library and reports success.
-    users.users.kavita.extraGroups = [ "media" ];
-
-    # Same fail-closed rule as every other media consumer: better to refuse to
-    # start than to scan an empty dir and mark the whole library as missing.
-    systemd.services.kavita.unitConfig.RequiresMountsFor = [ "/data/media" ];
-
-# ══════════════════════════════════════════════════════════════════════════════
-# KOMGA — the actual all-in-one reader (port 25600)
-#
-# ⚠️ Komga rather than Kavita, and the reason is specific: **Kavita derives a
-# series name from the FILENAME, Komga derives it from the FOLDER.**
-#
-# Suwayomi writes `<scanlator>_Ch. N.cbz` and has NO filename template setting
-# (checked the whole 2.3 server-reference.conf — there is no such option). So
-# Kavita scanned the library and produced two series called "official" and
-# "unofficial" instead of the actual title. Komga uses
-# `mangas/<source>/<Series Name>/*.cbz` and gets the series right for free.
-#
-# Komga also reads EPUB, so it covers manga AND books in one UI — which is the
-# whole point. Audiobookshelf still owns audiobooks; Komga has no audio support.
-#
-# Port 25600, not the module default of 8080 — 8080 is SABnzbd's socat proxy on
-# this box. Exactly the same trap as the Suwayomi module default.
-# ══════════════════════════════════════════════════════════════════════════════
-
-    services.komga = {
-      enable = true;
-      settings.server.port = 25600;
-      openFirewall = false;   # tailnet-only; tailscale0 is trusted
-    };
-
-    # Read-only consumer of the media dirs; `media` membership is what grants it.
-    users.users.komga.extraGroups = [ "media" ];
-    systemd.services.komga.unitConfig.RequiresMountsFor = [ "/data/media" ];
 
     # ── FlareSolverr — Cloudflare challenge solver (port 8191) ────────────────
     # A headless-Chrome proxy: other services hand it a URL, it clears the
@@ -4248,7 +4137,8 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     };
 
     # 3b. socat proxy — exposes SABnzbd (inside vpn namespace) on host port 8080
-    # All access goes through this: web UI, arr callbacks, exporters, Tailscale.
+    # All access goes through this: web UI, arr callbacks, Glance's queue
+    # widgets, Tailscale.
     systemd.services.sabnzbd-proxy = {
       description = "SABnzbd proxy (host:8080 → vpn namespace)";
       bindsTo = [ "veth-vpn.service" ];
@@ -4476,161 +4366,34 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# OBSERVABILITY — Prometheus, Exporters, Glance, Loki + Alloy
-#
-# Architecture: Prometheus is the single collection layer.
-#   node_exporter, cAdvisor, Exportarr, SABnzbd exporter → Prometheus (9090)
-#   Glance (8888) reads Prometheus via custom-api widgets
-#   journald (all units) → Alloy → Loki (3100) → Glance/Grafana
-#
-# Exporter ports (internal only — Prometheus scrapes, not externally exposed):
-#   node_exporter 9100  |  cAdvisor      9101  |  sabnzbd-exporter 9387
-#   exportarr-sonarr  9708  |  exportarr-radarr  9709
-#   exportarr-lidarr  9710  |  exportarr-prowlarr 9711
+# DASHBOARD — Glance (port 8888) + ttyd web terminal (port 7681)
 # ══════════════════════════════════════════════════════════════════════════════
 
-    # ── Prometheus ─────────────────────────────────────────────────────────────
-    services.prometheus = {
-      enable = true;
-      port = 9090;
-      listenAddress = "0.0.0.0";
-      retentionTime = "30d";
-      extraFlags = [ "--web.cors.origin=.*" ];
-
-      scrapeConfigs = [
-        {
-          job_name = "node";
-          scrape_interval = "5s";
-          static_configs = [{ targets = [ "localhost:9100" ]; }];
-        }
-        {
-          job_name = "cadvisor";
-          scrape_interval = "15s";
-          static_configs = [{ targets = [ "localhost:9101" ]; }];
-        }
-        {
-          job_name = "exportarr-sonarr";
-          static_configs = [{ targets = [ "localhost:9708" ]; }];
-        }
-        {
-          job_name = "exportarr-radarr";
-          static_configs = [{ targets = [ "localhost:9709" ]; }];
-        }
-        {
-          job_name = "exportarr-lidarr";
-          static_configs = [{ targets = [ "localhost:9710" ]; }];
-        }
-        {
-          job_name = "exportarr-prowlarr";
-          static_configs = [{ targets = [ "localhost:9711" ]; }];
-        }
-        {
-          job_name = "sabnzbd";
-          static_configs = [{ targets = [ "localhost:9387" ]; }];
-        }
-      ];
-    };
-
-    # ── node_exporter — host system metrics ────────────────────────────────────
-    services.prometheus.exporters.node = {
-      enable = true;
-      port = 9100;
-      enabledCollectors = [ "systemd" "processes" ];
-    };
-
-    # ── cAdvisor — per-container CPU / mem / net metrics ───────────────────────
-    # Runs as an oci-container; mounts Podman socket for container discovery.
-    # --privileged + /sys mount required for kernel-level cgroup stats.
-    virtualisation.oci-containers.containers.cadvisor = {
-      image = "gcr.io/cadvisor/cadvisor:latest";
-      ports = [ "9101:8080" ];
-      volumes = [
-        "/:/rootfs:ro"
-        "/var/run:/var/run:ro"
-        "/sys:/sys:ro"
-        "/run/podman/podman.sock:/run/podman/podman.sock:ro"
-      ];
-      extraOptions = [
-        "--privileged"
-        "--device=/dev/kmsg"
-      ];
-      cmd = [
-        "--docker=unix:///run/podman/podman.sock"
-        "--docker_only=true"
-        "--store_container_labels=false"
-      ];
-      autoStart = true;
-    };
-
-    # ── Exportarr — per-service metrics for the arr stack ──────────────────────
-    services.prometheus.exporters.exportarr-sonarr = {
-      enable = true;
-      port = 9708;
-      url = "http://localhost:8989";
-      apiKeyFile = config.sops.secrets."sonarr-api-key".path;
-    };
-
-    services.prometheus.exporters.exportarr-radarr = {
-      enable = true;
-      port = 9709;
-      url = "http://localhost:7878";
-      apiKeyFile = config.sops.secrets."radarr-api-key".path;
-    };
-
-    services.prometheus.exporters.exportarr-lidarr = {
-      enable = true;
-      port = 9710;
-      url = "http://localhost:8686";
-      apiKeyFile = config.sops.secrets."lidarr-api-key".path;
-    };
-
-    services.prometheus.exporters.exportarr-prowlarr = {
-      enable = true;
-      port = 9711;
-      url = "http://localhost:9696";
-      apiKeyFile = config.sops.secrets."prowlarr-api-key".path;
-    };
-
-    # ── SABnzbd exporter ────────────────────────────────────────────────────────
-    # Writes env file from sops before container starts (same pattern as Decluttarr).
-    systemd.services.sabnzbd-exporter-env = {
-      description = "Generate SABnzbd exporter env file from sops";
-      wantedBy  = [ "podman-sabnzbd-exporter.service" ];
-      before    = [ "podman-sabnzbd-exporter.service" ];
-      partOf    = [ "podman-sabnzbd-exporter.service" ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-      };
-      script = ''
-        mkdir -p /var/lib/sabnzbd-exporter
-        {
-          printf 'SABNZBD_BASEURLS=http://host.containers.internal:8080\n'
-          printf 'SABNZBD_APIKEYS=%s\n' \
-            "$(cat ${config.sops.secrets."sabnzbd-api-key".path})"
-        } > /var/lib/sabnzbd-exporter/env
-        chmod 600 /var/lib/sabnzbd-exporter/env
-      '';
-    };
-
-    virtualisation.oci-containers.containers.sabnzbd-exporter = {
-      image = "docker.io/msroest/sabnzbd_exporter:latest";
-      ports = [ "9387:9387" ];
-      environmentFiles = [ "/var/lib/sabnzbd-exporter/env" ];
-      autoStart = true;
-    };
-
-    # ── Glance — observability dashboard (port 8888) ────────────────────────────
     # ── Glance — native systemd service for host-level server-stats ──
+    #
+    # The SABnzbd API key reaches the Downloads widgets through Glance's
+    # `readFileFromEnv` config variable: LoadCredential copies the 0400 sops
+    # secret into this unit's private credentials dir (readable by the
+    # DynamicUser, nobody else), SABNZBD_API_KEY_FILE points at it, and Glance
+    # substitutes the file's contents when it loads the config. That keeps the
+    # key out of the Nix store AND avoids making it world-readable — the 0444
+    # trade-off `ha-token` has to make for its /run/secrets lookup would hand
+    # full control of SABnzbd to every local user.
+    #
+    # ⚠ Glance resolves config variables at STARTUP and refuses to start if one
+    # cannot be read, so a missing credential takes the whole dashboard down,
+    # not just the two widgets.
     systemd.services.glance = {
       description = "Glance Dashboard";
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
+      environment.SABNZBD_API_KEY_FILE = "/run/credentials/glance.service/sabnzbd-api-key";
       serviceConfig = {
         ExecStart = "${pkgs.glance}/bin/glance --config ${glanceConfig}";
         Restart = "on-failure";
         DynamicUser = true;
+        LoadCredential = [ "sabnzbd-api-key:${config.sops.secrets."sabnzbd-api-key".path}" ];
       };
     };
 
@@ -4670,280 +4433,21 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       fi
     '';
 
-    # ── Loki — log storage ──────────────────────────────────────────────────────
-    services.loki = {
-      enable = true;
-      configuration = {
-        auth_enabled = false;
-        server.http_listen_port = 3100;
-
-        ingester = {
-          lifecycler = {
-            address = "127.0.0.1";
-            ring = {
-              kvstore.store = "inmemory";
-              replication_factor = 1;
-            };
-            final_sleep = "0s";
-          };
-          chunk_idle_period    = "1h";
-          max_chunk_age        = "1h";
-          chunk_target_size    = 1048576;
-          chunk_retain_period  = "30s";
-        };
-
-        schema_config.configs = [{
-          from         = "2024-01-01";
-          store        = "tsdb";
-          object_store = "filesystem";
-          schema       = "v13";
-          index = {
-            prefix = "index_";
-            period = "24h";
-          };
-        }];
-
-        storage_config = {
-          tsdb_shipper = {
-            active_index_directory = "/var/lib/loki/tsdb-index";
-            cache_location         = "/var/lib/loki/tsdb-cache";
-          };
-          filesystem.directory = "/var/lib/loki/chunks";
-        };
-
-        limits_config = {
-          reject_old_samples         = true;
-          reject_old_samples_max_age = "168h";
-        };
-
-        compactor.working_directory = "/var/lib/loki/compactor";
-      };
-    };
-
-    # ── Grafana — metrics and log viewer (port 3001) ───────────────────────────
-    # Loki (logs) + Prometheus (metrics) auto-provisioned as datasources.
-    # To explore logs: Explore → Loki → filter {unit="sonarr.service"} etc.
-    services.grafana = {
-      enable = true;
-      settings = {
-        server = {
-          http_port = 3001;
-          http_addr = "0.0.0.0";
-        };
-        security = {
-          admin_user  = "admin";
-          admin_password = "$__file{${config.sops.secrets."grafana-admin-password".path}}";
-          allow_embedding = true;
-          # 26.05 removed the default secret_key; pin the historical default so
-          # existing DB-encrypted values (if any) remain decryptable.
-          secret_key = "SW2YcwTIb9zpOOhoPsMm";
-        };
-        "auth.anonymous" = {
-          enabled  = true;
-          org_role = "Viewer";
-        };
-        analytics.reporting_enabled = false;
-        users.allow_sign_up = false;
-      };
-
-      provision.datasources.settings = {
-        apiVersion = 1;
-        datasources = [
-          {
-            name      = "Loki";
-            type      = "loki";
-            url       = "http://localhost:3100";
-            access    = "proxy";
-            isDefault = true;
-            jsonData.maxLines = 5000;
-          }
-          {
-            name   = "Prometheus";
-            type   = "prometheus";
-            url    = "http://localhost:9090";
-            access = "proxy";
-          }
-        ];
-      };
-
-      provision.dashboards.settings.providers = [{
-        name = "system";
-        options.path = pkgs.writeTextDir "system-stats.json" (builtins.toJSON {
-          uid = "asgard-system";
-          title = "System Stats";
-          timezone = "browser";
-          refresh = "1s";
-          time = { from = "now-1h"; to = "now"; };
-          schemaVersion = 42;
-          panels = [
-            # ── CPU % (time series, dark green) ──
-            {
-              id = 1; type = "timeseries"; title = "CPU";
-              gridPos = { h = 4; w = 12; x = 0; y = 0; };
-              datasource = "Prometheus";
-              targets = [{
-                refId = "A";
-                datasource = "Prometheus";
-                expr = ''100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m]))) * 100'';
-                legendFormat = "CPU %";
-              }];
-              fieldConfig.defaults = {
-                unit = "percent"; min = 0; max = 100;
-                color.mode = "fixed";
-                color.fixedColor = "dark-green";
-                custom = {
-                  fillOpacity = 20;
-                  lineWidth = 2;
-                  pointSize = 1;
-                  showPoints = "never";
-                  spanNulls = true;
-                };
-              };
-              options = {
-                legend.displayMode = "hidden";
-                tooltip.mode = "single";
-              };
-            }
-            # ── Memory (bar gauge: used / total GiB) ──
-            {
-              id = 2; type = "bargauge"; title = "Memory";
-              gridPos = { h = 4; w = 12; x = 12; y = 0; };
-              datasource = "Prometheus";
-              targets = [
-                {
-                  refId = "A"; datasource = "Prometheus";
-                  expr = "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)";
-                  legendFormat = "Used";
-                }
-                {
-                  refId = "B"; datasource = "Prometheus";
-                  expr = "node_memory_MemTotal_bytes";
-                  legendFormat = "Total";
-                }
-              ];
-              fieldConfig.defaults = {
-                unit = "bytes";
-                color.mode = "fixed";
-                color.fixedColor = "dark-yellow";
-                thresholds = {
-                  mode = "absolute";
-                  steps = [{ color = "dark-yellow"; value = null; }];
-                };
-              };
-              options = {
-                reduceOptions = { calcs = [ "lastNotNull" ]; fields = ""; values = false; };
-                displayMode = "gradient";
-                orientation = "horizontal";
-                valueMode = "color";
-                namePlacement = "auto";
-                showUnfilled = true;
-              };
-            }
-            # ── Media pool /data/media (bar gauge: used / free / total) ──
-            # Queries /data/media, not /data — /data stopped being a mountpoint when the two HDDs
-            # were pooled by mergerfs. node_exporter reports the pool (~19.8 TB) at /data/media.
-            {
-              id = 4; type = "bargauge"; title = "Media Pool";
-              gridPos = { h = 4; w = 12; x = 12; y = 4; };
-              datasource = "Prometheus";
-              targets = [
-                {
-                  refId = "A"; datasource = "Prometheus";
-                  expr = ''node_filesystem_size_bytes{mountpoint="/data/media"} - node_filesystem_avail_bytes{mountpoint="/data/media"}'';
-                  legendFormat = "Used";
-                }
-                {
-                  refId = "B"; datasource = "Prometheus";
-                  expr = ''node_filesystem_avail_bytes{mountpoint="/data/media"}'';
-                  legendFormat = "Free";
-                }
-                {
-                  refId = "C"; datasource = "Prometheus";
-                  expr = ''node_filesystem_size_bytes{mountpoint="/data/media"}'';
-                  legendFormat = "Total";
-                }
-              ];
-              fieldConfig.defaults = {
-                unit = "bytes";
-                color.mode = "fixed";
-                color.fixedColor = "dark-red";
-                thresholds = {
-                  mode = "absolute";
-                  steps = [{ color = "dark-red"; value = null; }];
-                };
-              };
-              options = {
-                reduceOptions = { calcs = [ "lastNotNull" ]; fields = ""; values = false; };
-                displayMode = "gradient";
-                orientation = "horizontal";
-                valueMode = "color";
-                namePlacement = "auto";
-                showUnfilled = true;
-              };
-            }
-            # ── Network (time series, purple) ──
-            {
-              id = 3; type = "timeseries"; title = "Network";
-              gridPos = { h = 4; w = 12; x = 0; y = 4; };
-              datasource = "Prometheus";
-              targets = [
-                {
-                  refId = "A"; datasource = "Prometheus";
-                  expr = ''rate(node_network_receive_bytes_total{device="enp10s0"}[2m]) * 8 / 1000000'';
-                  legendFormat = "Download";
-                }
-                {
-                  refId = "B"; datasource = "Prometheus";
-                  expr = ''rate(node_network_transmit_bytes_total{device="enp10s0"}[2m]) * 8 / 1000000'';
-                  legendFormat = "Upload";
-                }
-              ];
-              fieldConfig.defaults = {
-                unit = "Mbps"; min = 0;
-                custom = {
-                  fillOpacity = 15;
-                  lineWidth = 2;
-                  pointSize = 1;
-                  showPoints = "never";
-                  spanNulls = true;
-                };
-              };
-              fieldConfig.overrides = [
-                { matcher = { id = "byName"; options = "Download"; }; properties = [{ id = "color"; value = { mode = "fixed"; fixedColor = "dark-purple"; }; }]; }
-                { matcher = { id = "byName"; options = "Upload"; }; properties = [{ id = "color"; value = { mode = "fixed"; fixedColor = "light-purple"; }; }]; }
-              ];
-              options = {
-                legend.displayMode = "list";
-                legend.placement = "bottom";
-                tooltip.mode = "multi";
-              };
-            }
-          ];
-        });
-      }];
-    };
-
-    # ── Alloy — journald → Loki pipeline ───────────────────────────────────────
-    # Single journald scrape captures ALL units: native NixOS services (immich,
-    # sonarr, radarr, etc.) AND podman containers (podman-kavita.service, etc.).
-    # Config is static (no secrets) so it lives in the Nix store.
-    services.alloy = {
-      enable = true;
-      configPath = alloyConfig;
-    };
-    # Alloy needs read access to the systemd journal
-    systemd.services.alloy.serviceConfig.SupplementaryGroups = [ "systemd-journal" ];
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # INFRASTRUCTURE — Podman, media group, data directories, sops secrets
 # ══════════════════════════════════════════════════════════════════════════════
 
-    # --- Podman (OCI backend for containers: Kavita, FileBrowser, cAdvisor, exporters, Glance) ---
+    # --- Podman (OCI backend for the containers: Audiobookshelf, Shelfarr,
+    # FlareSolverr, FileBrowser, Decluttarr). Glance is NOT one of them — it runs
+    # as a native unit so server-stats can read the host's /proc and /sys. ---
+    #
+    # No dockerSocket: its only consumer was cAdvisor, removed along with the
+    # rest of the metrics stack, and the socket is root-equivalent for anyone in
+    # the podman group.
     virtualisation.oci-containers.backend = "podman";
     virtualisation.podman = {
       enable = true;
-      dockerSocket.enable = true; # activates podman.socket at /run/podman/podman.sock (used by cAdvisor)
     };
     # Allow containers to reach host-bound services (arr, immich, etc.)
     # tailscale0 trusted so all services are reachable from any tailnet device by hostname
@@ -5114,39 +4618,6 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     systemd.services.podman-filebrowser.unitConfig.RequiresMountsFor  = [ "/data/media" "/data/photos" ];
     systemd.services.immich-server.unitConfig.RequiresMountsFor       = [ "/data/photos" ];
 
-    # --- NFS export of /data/media, tailnet-only — Eclipse "Native mode" trial (2026-09-12) ---
-    # plugin.video.jellyfin's HTTP streaming locks in one bitrate at playback start (no ABR —
-    # confirmed absent in the addon's own source and in upstream's issue tracker/docs, see
-    # Claude/eclipse.md). "Native (direct paths)" mode sidesteps that: Kodi still uses the Jellyfin
-    # API for browsing/metadata/watched-state, but reads the actual video bytes straight off this
-    # NFS export instead of through Jellyfin's HTTP/transcode layer. Doesn't create bandwidth that
-    # isn't there, but NFS's read-ahead/flow control may tolerate the jittery remote link better
-    # than HTTP chunked delivery did.
-    #
-    # Deliberately exported by Tailscale IP, not the LAN IP — Tailscale auto-detects when peers
-    # share a physical subnet and switches to a direct LAN connection with no config change, so one
-    # export works whether Eclipse is remote (today) or back on the LAN (future): no LAN/remote
-    # toggle needed for this path, unlike the Jellyfin HTTP address.
-    #
-    # Read-only, and root_squash (the NFS default, left un-overridden) is fine here — /data/media
-    # and its files are world-readable (o+r on files, o+rx on dirs) for exactly this reason, so an
-    # NFS client mapped to "nobody" already has everything it needs; no anonuid/gid juggling.
-    # tailscale0 is a trustedInterface (line ~3518) so no firewall port-opening needed — this is
-    # never reachable from the LAN or WAN, only the tailnet. 100.64.0.0/10 is Tailscale's CGNAT range.
-    services.nfs.server = {
-      enable = true;
-      # fsid=0 required — /data/media is fuse.mergerfs, and the kernel NFS
-      # exporter can't derive a stable filesystem id from a FUSE mount the way
-      # it can for a real block device (`rpc.mountd`: "Cannot export
-      # /data/media, possibly unsupported filesystem or fsid= required").
-      # fsid=0 doubles as the NFSv4 pseudo-root, so `-o vers=4` mounts by this
-      # same absolute path work too, not just NFSv3.
-      exports = ''
-        /data/media 100.64.0.0/10(ro,sync,no_subtree_check,fsid=0)
-      '';
-    };
-    systemd.services.nfs-server.unitConfig.RequiresMountsFor = [ "/data/media" ];
-
     # --- Data directories ---
     systemd.tmpfiles.rules = [
       "d /data                      0755 root  root  -"
@@ -5181,8 +4652,6 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       "d /var/lib/decluttarr        0755 root  root  -"
       "d /var/lib/decluttarr/config 0755 root  root  -"
       "d /var/lib/recyclarr              0700 root  root  -"
-      # Observability
-      "d /var/lib/sabnzbd-exporter       0700 root  root  -"
     ];
 
     # --- Sops secrets ---
@@ -5223,8 +4692,6 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     sops.secrets."jellyfin-admin-password"  = {};
     sops.secrets."cloudflare-tunnel"        = {};
     sops.secrets."mullvad-wg-private-key"       = { mode = "0400"; };
-    sops.secrets."grafana-admin-password"       = { owner = "grafana"; };
-    sops.secrets."kavita-token-key"          = { owner = "kavita"; };
     sops.secrets."admin-username"           = {};
     sops.secrets."admin-password"           = {};
     # Private half of the dedicated Asgard→Eclipse key. Public half lives in
