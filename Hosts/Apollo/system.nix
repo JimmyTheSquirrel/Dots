@@ -83,6 +83,11 @@ in {
         # ntfs, vfat and friends; exfat is the one it leaves out.
         boot.supportedFilesystems.exfat = true;
 
+        # The installer profile brings ZFS support, whose forceImportRoot default
+        # (true) warns as a data-loss risk and flips to false in 26.11. The stick
+        # never has a ZFS root, so take the new default now.
+        boot.zfs.forceImportRoot = false;
+
         # ── Console: text, not a desktop ──────────────────────────────────────
         #
         # This used to greetd-autologin straight into niri. Don't: on unknown
