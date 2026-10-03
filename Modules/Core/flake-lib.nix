@@ -19,6 +19,13 @@
     };
   };
 
+  # Tailnet addresses other machines need to name. One definition, so a node
+  # re-joining with a new IP is a one-line change (Asgard's changed once
+  # already, and a stale copy in SABnzbd's host whitelist went unnoticed).
+  config.flake.lib.tailnet = {
+    asgard = "100.126.205.100";
+  };
+
   # mkHost — the boilerplate every Hosts/<Host>/system.nix used to copy-paste:
   # nixosSystem, specialArgs, the Home Manager wiring, hostName and stateVersion.
   # A host file is then just "who logs in, and which modules".

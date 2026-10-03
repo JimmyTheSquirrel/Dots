@@ -54,7 +54,7 @@
     programs.ssh.startAgent = true;
     programs.ssh.extraConfig = ''
       Host asgard
-        HostName 100.126.205.100
+        HostName ${self.lib.tailnet.asgard}
         User rock
         SetEnv TERM=xterm-256color
     '';

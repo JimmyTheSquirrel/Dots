@@ -682,3 +682,27 @@ keeps `StartupWMClass=Ryujinx`. The gate is now
 app's WM_CLASS.** Any non-SDL shortcut — an emulator, a launcher, a browser —
 will hit this, and the symptom (Big Picture popping back in front on a timer)
 points nowhere near the real cause. Add its class to the gate.
+
+## Session control — `wolf-bridge` (added 2026-10-03)
+
+The Eclipse panel on Asgard's Glance lists Wolf's sessions and can stop one —
+the fix for the "Wolf never reaps the session" problem above when it happens
+outside the stuck-pad case the reaper catches.
+
+- **Service:** `wolf-bridge` on Sisyphus (`Modules/Gaming/wolf.nix`, script
+  `Resources/Wolf-Bridge/wolf-bridge.py`), port **9560**.
+- **API:** `GET /sessions` → `{"wolf":"up"|"down","sessions":[{id, app, client,
+  client_ip, started, video, audio_channels}]}`; `POST /sessions/<id>/stop` with
+  header `X-Dash: 1`; `GET /health`.
+- **Wolf API used** (games-on-whales/wolf `stable`,
+  `src/moonlight-server/api/`): `GET /api/v1/sessions`,
+  `POST /api/v1/sessions/stop {"session_id"}`, `GET /api/v1/apps` for titles.
+  The session's `client_id` field **is the session id**. The list also carries
+  the stream's `aes_key`/`aes_iv` — the bridge never passes those on.
+- **No start time in Wolf's API** — `started` is when the bridge first saw the
+  session (kept in `/run/wolf-bridge`, survives a bridge restart, not a reboot).
+- **Who can call it:** not in the firewall's open ports, so the LAN can't;
+  tailscale0 is trusted, so systemd `IPAddressAllow` + the bridge's own
+  allowlist narrow it to Asgard (`self.lib.tailnet.asgard`) and localhost.
+  Browsers never call it directly — Asgard's eclipse-control proxies it.
+- **Check by hand on Sisyphus:** `curl -s localhost:9560/sessions | jq`.

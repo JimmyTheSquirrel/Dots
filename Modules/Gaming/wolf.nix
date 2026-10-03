@@ -1,4 +1,4 @@
-{ ... }: {
+{ self, ... }: {
   # ============================================================
   # WOLF — multi-session Moonlight server (games-on-whales/wolf)
   # ============================================================
@@ -421,6 +421,65 @@
     # mode defined rather than inherited from whatever ran first. /run is tmpfs,
     # so it is correctly empty of stale sockets on every boot.
     systemd.tmpfiles.rules = [ "d /run/wolf 0755 root root -" ];
+
+    # 🧹 wolf-bridge — list Wolf's sessions and stop a stuck one from the
+    # Eclipse panel on Asgard's Glance (Resources/Wolf-Bridge/wolf-bridge.py has
+    # the API details). Wolf's own API is /run/wolf/wolf.sock, which only root
+    # can write to, on THIS machine; the dashboard lives on Asgard. This exposes
+    # exactly two operations (GET /sessions, POST /sessions/<id>/stop) on :9560.
+    #
+    # Reachability: :9560 is NOT in allowedTCPPorts, so the LAN can't reach it;
+    # tailscale0 is a trusted interface (Modules/Core/tailscale.nix), so every
+    # tailnet node can. Two layers narrow that to Asgard: systemd's IP firewall
+    # (IPAddressAllow/Deny below) and the bridge's own peer allowlist.
+    systemd.services.wolf-bridge = let
+      allowed = [ "127.0.0.1" "::1" self.lib.tailnet.asgard ];
+    in {
+      description = "HTTP bridge to Wolf's session API for the Eclipse panel";
+      after = [ "docker-wolf.service" ];
+      wantedBy = [ "multi-user.target" ];
+      environment = {
+        WOLF_SOCKET = "/run/wolf/wolf.sock";
+        WOLF_BRIDGE_PORT = "9560";
+        WOLF_BRIDGE_ALLOW = lib.concatStringsSep "," allowed;
+      };
+      serviceConfig = {
+        ExecStart = "${pkgs.python3}/bin/python3 ${../../Resources/Wolf-Bridge/wolf-bridge.py}";
+        Restart = "always";
+        RestartSec = 5;
+        # Holds first-seen.json: Wolf's API has no session start time, so the
+        # bridge records when it first saw each one. Survives a bridge restart,
+        # not a reboot — neither do Wolf's sessions.
+        RuntimeDirectory = "wolf-bridge";
+        RuntimeDirectoryPreserve = "restart";
+
+        # Root only because the socket is root-owned 0755 (connect() needs
+        # write). No capabilities at all: as the socket's owner, uid 0 needs
+        # none to connect.
+        CapabilityBoundingSet = "";
+        NoNewPrivileges = true;
+        ProtectSystem = "strict";
+        ReadWritePaths = [ "/run/wolf" ];
+        ProtectHome = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectKernelLogs = true;
+        ProtectControlGroups = true;
+        ProtectClock = true;
+        ProtectHostname = true;
+        RestrictNamespaces = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
+        LockPersonality = true;
+        MemoryDenyWriteExecute = true;
+        SystemCallArchitectures = "native";
+        RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+        IPAddressDeny = "any";
+        IPAddressAllow = allowed;
+      };
+    };
 
     # The Moonlight protocol ports. Same set Sunshine opens in Modules/Gaming/sunshine.nix
     # — harmless to declare twice since only one daemon runs at a time.
