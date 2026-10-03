@@ -1,8 +1,7 @@
 { ... }: {
-  flake.nixosModules.starship = { pkgs, activeUser, ... }: {
+  flake.nixosModules.starship = { activeUser, ... }: {
     home-manager.users.${activeUser} = {
-      home.packages = [ pkgs.starship ];
-
+      # programs.starship installs the package itself.
       programs.starship = {
         enable = true;
         enableZshIntegration = true;

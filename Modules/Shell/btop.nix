@@ -8,16 +8,16 @@ let
   #   1. `staticTheme`   — literal hex, baked into the store. Seeded on first
   #                        rebuild so btop looks right before any wallpaper
   #                        change, and is the permanent theme on hosts without
-  #                        skwd-wall (Asgard, Apollo).
+  #                        skwd (Asgard, Apollo).
   #   2. `matugenTemplate` — the same mapping with matugen template tokens.
-  #                        `Modules/skwd-wall.nix` installs it as a matugen
+  #                        `Modules/Desktop/skwd.nix` installs it as a matugen
   #                        template and matugen re-renders it over the seeded
   #                        file on every wallpaper change.
   # Keeping one generator means the two can't drift.
   mkTheme = c: ''
     # btop theme — generated from Modules/Shell/btop.nix. Do not edit by hand.
-    # On Sisyphus/Elektra/Odysseus this file is overwritten by matugen on every
-    # wallpaper change (skwd-wall "btop" integration).
+    # On skwd hosts (Sisyphus, Kit-Kat) this file is overwritten by matugen on
+    # every wallpaper change (the skwd "btop" integration).
 
     # main_bg is deliberately empty: btop then paints nothing behind itself and
     # the terminal background shows through (kitty runs at 0.70 opacity).
@@ -111,8 +111,8 @@ let
   '';
 
   # Fallback palette — matugen "scheme-tonal-spot" dark output for a teal source
-  # colour, i.e. the same shape skwd-wall generates. Only ever visible before the
-  # first wallpaper change, or on hosts with no skwd-wall.
+  # colour, i.e. the same shape skwd generates. Only ever visible before the
+  # first wallpaper change, or on hosts with no skwd.
   fallbackPalette = {
     onSurface = "#dde4e3";
     onSurfaceVariant = "#bec9c7";
@@ -149,7 +149,7 @@ let
 
   themeName = "dots";
 in {
-  # Consumed by Modules/skwd-wall.nix, which writes this into skwd-wall's
+  # Consumed by Modules/Desktop/skwd.nix, which writes this into skwd's
   # matugen template directory and registers the "btop" integration.
   flake.lib.btop = {
     inherit themeName;
@@ -166,7 +166,7 @@ in {
       # and Theme::setTheme, and setTheme calls loadFile() — so the theme comes
       # back off disk rather than from a cache. No restart, no lost state.
       #
-      # Registered as the skwd-wall "btop" integration's reload command, which
+      # Registered as the skwd "btop" integration's reload command, which
       # runs with a trimmed PATH — hence the store path for pkill, and hence
       # this being a package rather than a script in ~/.local/bin. See
       # Claude/skwd-wall.md.
@@ -250,7 +250,7 @@ in {
         };
       };
 
-      # The theme file cannot be a home-manager symlink: on skwd-wall hosts matugen
+      # The theme file cannot be a home-manager symlink: on skwd hosts matugen
       # rewrites this exact path on every wallpaper change, and store symlinks are
       # read-only. Seed it as a plain writable file instead.
       #

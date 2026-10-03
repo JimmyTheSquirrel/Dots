@@ -28,18 +28,18 @@
           la = "ls -lha";
           gs = "git status";
           # `c` (navi) is set in Modules/Shell/navi.nix, where navi itself is.
-          brrt = "gofetch ~/Pictures/brrtfetch/gifs/defaults/brrt.gif";
+          # (`brrt`, an alias for `gofetch`, is gone: gofetch was installed
+          # nowhere, so it could only ever print "command not found".)
         };
 
         plugins = [
           {
+            # nixpkgs' zsh-fzf-tab rather than a hand-pinned fetchFromGitHub of
+            # v1.1.2: same fzf-tab.plugin.zsh entry point under
+            # share/fzf-tab, kept current by nixpkgs, and it ships the compiled
+            # fzftab module that fzf-tab otherwise asks you to build by hand.
             name = "fzf-tab";
-            src = pkgs.fetchFromGitHub {
-              owner = "Aloxaf";
-              repo = "fzf-tab";
-              rev = "v1.1.2";
-              sha256 = "sha256-Qv8zAiMtrr67CbLRrFjGaPzFZcOiMVEFLg1Z+N6VMhg=";
-            };
+            src = "${pkgs.zsh-fzf-tab}/share/fzf-tab";
           }
         ];
 
@@ -65,6 +65,10 @@
           }
 
           zstyle ':completion:*' list-colors ''${(s.:.)LS_COLORS}
+          # fzf-tab >= 1.2 runs fzf with FZF_DEFAULT_OPTS emptied unless told
+          # otherwise; 1.1.2, which this used to pin, inherited it. Keep the old
+          # behaviour, so programs.fzf's defaults still sit under the flags below.
+          zstyle ':fzf-tab:*' use-fzf-default-opts yes
           zstyle ':fzf-tab:complete:cd:*' fzf-preview 'ls -1 --color=always $realpath'
           zstyle ':fzf-tab:*' fzf-flags \
             --height=40% \
