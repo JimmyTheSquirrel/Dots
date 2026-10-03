@@ -2,17 +2,20 @@
 
 ## Overview
 
-Sisyphus runs **Sunshine** as a game streaming host, accessible remotely via **Tailscale**, streamed to Android phone or TV (via Eclipse Pi) using **Moonlight**.
+Sisyphus is the game streaming host, reachable remotely via **Tailscale** and streamed to an Android phone or the TV (via the Eclipse Pi) using **Moonlight**.
+
+**Wolf is the live streaming host** (`Modules/Gaming/wolf.nix`, auto-starts, see `Claude/wolf.md`). **Sunshine** (this doc) stays installed as the fallback with `autoStart = false`. The two bind the same Moonlight ports, so only one can run at a time.
 
 **Modules (Sisyphus only):**
-- `Modules/Gaming/sunshine.nix` — Sunshine user service
-- `Modules/Core/tailscale.nix` — Tailscale VPN. **Enable only; no auth key.** The module is 15 lines of `services.tailscale.enable` + firewall. Joining is `sudo tailscale up` by hand, except on the Apollo installer ISO and the marsbar node, which read a key from elsewhere.
+- `Modules/Gaming/wolf.nix`: Wolf, the live host
+- `Modules/Gaming/sunshine.nix`: Sunshine user service, the fallback
+- `Modules/Core/tailscale.nix`: Tailscale VPN. **Enable only; no auth key.** The module is just `services.tailscale` (enable + `openFirewall`, which opens UDP 41641) and trusting `tailscale0`. Joining is `sudo tailscale up` by hand, except on the Apollo installer ISO and the marsbar node, which read a key from elsewhere.
 
-`moonlight-qt` is in `base.nix` and available on all three systems.
+`moonlight-qt` is in `base.nix`, so every host that imports `base.nix` has it.
 
 ## Sunshine
 
-- Runs as a **user service** (`autoStart = true`) — starts automatically on Niri login
+- Runs as a **user service** with **`autoStart = false`** (since 2026-09-28, when Wolf took over). To use it: stop Wolf first, then `systemctl --user start sunshine`
 - `hardware.uinput.enable = true` — allows Sunshine to send virtual input to Linux
 - `openFirewall = true` + `trustedInterfaces = [ "tailscale0" ]` — reachable over Tailscale without extra firewall rules
 

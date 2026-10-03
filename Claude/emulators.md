@@ -29,7 +29,9 @@ extractps3iso /path/to/game.iso /path/to/output/
 
 - Config → Pads → Handler: `DualSense`, Device: `DualSense Pad #1`
 - Connect via Bluetooth before opening the Pads dialog, hit Refresh if needed
-- The controller daemon (`controller.nix`) skips real Bluetooth devices so it won't conflict with RPCS3
+- Wolf's `SDL_GAMECONTROLLER_IGNORE_DEVICES` DualSense ignore (`Modules/Gaming/wolf.nix`)
+  is set only inside Steam's FHS environment. RPCS3 runs outside Steam, so it still sees
+  a real DualSense.
 
 ## Resolution (SSX 2012)
 

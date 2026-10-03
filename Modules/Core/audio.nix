@@ -1,6 +1,7 @@
 { ... }: {
   flake.nixosModules.audio = { pkgs, ... }: {
-    services.pulseaudio.enable = false;
+    # (No services.pulseaudio.enable = false here: false is already the default,
+    # and PipeWire's pulse.enable below is what provides the PulseAudio server.)
     security.rtkit.enable = true;
 
     # ── Audio routing toolkit ────────────────────────────────────────────────
@@ -28,12 +29,11 @@
       alsa.enable = true;
       alsa.support32Bit = true;
       pulse.enable = true;
-      wireplumber.extraConfig."10-disable-bluez" = {
-        "wireplumber.profiles".main = {
-          "monitor.bluez" = "disabled";
-          "monitor.bluez.midi" = "disabled";
-        };
-      };
+      # WirePlumber's bluez monitor is left ON (its default). A
+      # "10-disable-bluez" profile used to switch it off on every desktop, so
+      # paired Bluetooth headphones connected but could never become a
+      # PipeWire sink — the desktops enable Bluetooth itself (niri.nix,
+      # hyprland.nix), so that was a dead end nobody intended.
     };
   };
 }

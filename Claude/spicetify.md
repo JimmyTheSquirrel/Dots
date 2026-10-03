@@ -31,11 +31,11 @@ Colors update live in Spotify when skwd-wall changes the wallpaper — no restar
 
 **Why not `fs.watch` or `fetch()`?** Spotify uses CEF (Chromium Embedded Framework), not Electron. The renderer has no Node.js `require('fs')` and blocks all localhost HTTP connections. CDP is the only reliable way to inject JS from outside.
 
-**If colors stop updating:** check `journalctl --user -u skwd-daemon` for matugen errors and verify `~/.config/spicetify/matugen-colors.json` is being written on wallpaper change.
+**If colors stop updating:** check `journalctl --user -u skwd-walld` (skwd v2's daemon; `skwd-daemon` was v1) for matugen errors and verify `~/.config/spicetify/matugen-colors.json` is being written on wallpaper change.
 
 ## Matugen Templates
 
-Synced by `skwd-wall.nix` activation script:
+Synced by the `Modules/Desktop/skwd.nix` activation script:
 - `spicetify-colors.json` → outputs `~/.config/spicetify/matugen-colors.json` (runtime CSS vars)
 - `spicetify-text.ini` → outputs `~/.config/spicetify/Themes/text/color.ini` (rebuild-time color.ini)
 

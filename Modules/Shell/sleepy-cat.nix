@@ -11,13 +11,13 @@
 #
 # Two entry points:
 #   sleepy-cat         loop until Ctrl-C (a toy)
-#   sleepy-cat --once  one breath cycle then exit — used as the shell greeting,
-#                      so opening a terminal never blocks on an animation
+#   sleepy-cat --once  one breath cycle then exit — used as the shell greeting.
+#                      It does hold the prompt for that one cycle: four frames
+#                      at 0.45 s, ~1.8 s, before the shell is usable.
 { ... }: {
   flake.nixosModules.sleepy-cat = { pkgs, activeUser, ... }: {
     home-manager.users.${activeUser}.home.packages = [
       (pkgs.writeShellScriptBin "sleepy-cat" ''
-        #!/usr/bin/env bash
         C=$(printf "\033[38;5;180m")
         R=$(printf "\033[0m")
 

@@ -1,15 +1,16 @@
 # NVIDIA graphics — Kit-Kat only.
 #
-# Every other machine in this repo is AMD, and two shared modules hardcode that:
-# Modules/Desktop/niri.nix sets videoDrivers = ["amdgpu"], and
+# Every other machine in this repo is AMD, and shared modules hardcode that:
+# both compositor modules — Modules/Desktop/hyprland.nix, which is what Kit-Kat
+# runs, and niri.nix — set videoDrivers = ["amdgpu"], and
 # Modules/Boot/plymouth.nix defaults its initrd GPU module to amdgpu. This module
-# overrides the first; the host sets `my.plymouth.initrdGpuModules` for the
-# second (deliberately host-side — see the note at the bottom).
+# overrides the first (mkForce); the host sets `my.plymouth.initrdGpuModules`
+# for the second (deliberately host-side).
 #
-# niri is wlroots-style and renders through GBM, which on the proprietary driver
-# requires kernel modesetting. `hardware.nvidia.modesetting.enable` is what adds
-# `nvidia-drm.modeset=1` (nixos/modules/hardware/video/nvidia.nix), so there is
-# no need to repeat it in boot.kernelParams.
+# Hyprland drives the GPU directly through DRM/GBM, which on the proprietary
+# driver requires kernel modesetting. `hardware.nvidia.modesetting.enable` is
+# what adds `nvidia-drm.modeset=1` (nixos/modules/hardware/video/nvidia.nix), so
+# there is no need to repeat it in boot.kernelParams.
 { ... }: {
   flake.nixosModules.nvidia = { lib, ... }: {
     hardware.graphics = {
@@ -20,11 +21,21 @@
     services.xserver.videoDrivers = lib.mkForce [ "nvidia" ];
 
     hardware.nvidia = {
-      # Required for niri. Without it you get a black screen from the TTY.
+      # Required for Hyprland (any GBM compositor). Without it you get a black
+      # screen from the TTY.
       modesetting.enable = true;
 
       # Desktop, not a laptop: no runtime PM, and the finegrained variant needs
       # PRIME offload, which this host doesn't use.
+      #
+      # TODO (owner to decide — deliberately NOT changed): `enable` is not only
+      # laptop power saving. In nixpkgs it is what installs the
+      # nvidia-suspend / -hibernate / -resume units and sets
+      # NVreg_PreserveVideoMemoryAllocations=1, i.e. what saves VRAM contents
+      # across suspend and hibernate. Without it a resume can come back to
+      # corrupted or black surfaces. Her 32G swap (Hosts/Kit-Kat/_disko.nix) is
+      # sized for hibernate, so if she suspends or hibernates, this probably
+      # wants to be true.
       powerManagement.enable = false;
       powerManagement.finegrained = false;
 

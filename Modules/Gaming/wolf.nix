@@ -2,8 +2,10 @@
   # ============================================================
   # WOLF — multi-session Moonlight server (games-on-whales/wolf)
   # ============================================================
-  # TRIAL, added 2026-09-28. Sunshine remains the working setup; this exists to
-  # evaluate whether Wolf can replace it. Read Claude/streaming.md first.
+  # Added 2026-09-28 as a trial against Sunshine; proven end-to-end the same day
+  # and now the LIVE streaming host — it auto-starts (autoStart at the bottom),
+  # while Modules/Gaming/sunshine.nix stays installed with autoStart = false as
+  # the fallback. Read Claude/streaming.md and Claude/wolf.md first.
   #
   # WHY: Sunshine *captures an existing output*, so a stream necessarily occupies
   # a real monitor and shares the desktop's single input focus — someone playing
@@ -25,9 +27,9 @@
   # `virtualisation.oci-containers.backend` is "podman" in Modules/Server/server.nix,
   # but Wolf is Docker-first and *spawns child containers through the mounted
   # socket* (one per running game). Podman's Docker-compatible socket is not a
-  # guaranteed match for that nested-spawn path, and this is a trial — don't
-  # debug two unfamiliar things at once. Revisit podman only once Wolf itself is
-  # proven working.
+  # guaranteed match for that nested-spawn path, and this began as a trial —
+  # don't debug two unfamiliar things at once. Wolf itself is proven now, so
+  # podman could be revisited; nothing currently needs it to be.
   flake.nixosModules.wolf = { pkgs, lib, config, ... }:
   let
     # Probe for the stuck-pad reaper below — read that comment first, it
@@ -377,6 +379,42 @@
       '';
     };
 
+    # 🎮 Don't let DESKTOP Steam adopt Wolf's virtual DualSense. Belt-and-braces
+    # for the same stuck-pad bleed — the reaper above is the actual fix; this
+    # only narrows the window. Lives here rather than in
+    # Modules/Gaming/steam.nix because it is purely a Wolf concern: on a host
+    # without Wolf it would do nothing but ignore a real pad. steam.nix feeds
+    # my.steam.extraEnv into Steam's FHS environment, so it reaches Steam and
+    # the games it launches and nothing else — which also means this module
+    # requires steam.nix to be imported (true wherever Wolf runs: a Wolf host
+    # without desktop Steam has no bleed to prevent, and would fail eval here
+    # loudly rather than silently).
+    #
+    # Wolf creates its virtual pads in its container, but they appear as
+    # REAL devices in the host kernel. Wolf's udev rules park them on a
+    # phantom seat9, which hides them from niri — but NOT from Steam, which
+    # scans /dev/input and /dev/hidraw* directly instead of asking logind.
+    # So desktop Steam picks up a streaming session's pad as its own
+    # Controller 0 (its log: "Controller using HIDAPI driver, vid=0x054c,
+    # pid=0x0ce6" with nothing physically attached), and if that pad was
+    # left mid-chord by Moonlight's L1+R1+Select+Start quit shortcut, the
+    # held buttons propagate into whatever is running on the desktop.
+    #
+    # 0x054c/0x0ce6 is Sony's DualSense. ⚠️ This is a VID/PID match, so it
+    # ignores a GENUINE DualSense plugged into Sisyphus too — accepted
+    # because the real pad lives on Eclipse (couch/TV box) and reaches
+    # games through the stream, never through desktop Steam. If you ever
+    # want to use a DualSense directly at the desk, remove this line and
+    # rely on the reaper alone. (Steam only: RPCS3 and anything else started
+    # outside Steam never see this variable.)
+    #
+    # ⚠️ UNVERIFIED as of 2026-10-03: this is the documented SDL ignore
+    # list and games inherit it, but whether Steam's bundled SDL honours it
+    # for Steam's OWN controller enumeration (the HIDAPI path above) has
+    # not been confirmed live. To check: start a Wolf session, then start
+    # desktop Steam, and confirm no new `vid=0x054c` line appears in
+    # ~/.local/share/Steam/logs/controller.txt.
+    my.steam.extraEnv.SDL_GAMECONTROLLER_IGNORE_DEVICES = "0x054c/0x0ce6";
 
     # Host side of Wolf's XDG_RUNTIME_DIR bind mount (see volumes below).
     # Docker would create this itself, but declaring it keeps the ownership and
@@ -497,6 +535,7 @@
 
     # Not in nixpkgs, so the image is pulled at runtime rather than pinned in the
     # store. That makes this the one genuinely non-reproducible piece here —
-    # `:stable` can move under you. Pin a digest if this graduates from a trial.
+    # `:stable` can move under you. Now that Wolf is the live host rather than a
+    # trial, pinning a digest is the outstanding fix for that.
   };
 }
