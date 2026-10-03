@@ -23,7 +23,12 @@
         "${mainMod}, Print, exec, grim - | wl-copy"
 
         # Active window screenshot -> clipboard
-        "${mainMod} CTRL, S, exec, grim -g \"$(hyprctl activewindow -j | jq -r '.at[0]'),$(hyprctl activewindow -j | jq -r '.at[1]')+$(hyprctl activewindow -j | jq -r '.size[0]')x$(hyprctl activewindow -j | jq -r '.size[1]')\" - | wl-copy"
+        #
+        # grim's geometry is `X,Y WxH` — a SPACE between position and size, the
+        # same shape slurp prints. This used to emit `X,Y+WxH`, which grim
+        # rejects, so the bind never produced a screenshot. One hyprctl call
+        # rather than four also means the window cannot move between reads.
+        "${mainMod} CTRL, S, exec, grim -g \"$(hyprctl activewindow -j | jq -r '\"\\(.at[0]),\\(.at[1]) \\(.size[0])x\\(.size[1])\"')\" - | wl-copy"
       ];
     };
   };

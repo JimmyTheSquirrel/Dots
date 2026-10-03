@@ -7,17 +7,43 @@
   };
 
   flake.nixosModules.base = {
-    config,
     pkgs,
     lib,
     activeUser,
     pkgs-unstable,
     ...
   }: {
+    # Every host imports this, Asgard (headless) included, so it carries only
+    # what a server needs too. Anything for a machine with a screen — GUI apps,
+    # fonts, printing, Bluetooth, dark mode, MIME defaults, the X server — is in
+    # Modules/Desktop/desktop.nix.
+
     # Nix settings
     nix.settings = {
       experimental-features = ["nix-command" "flakes"];
     };
+
+    # ── Store hygiene ────────────────────────────────────────────────────────
+    # Weekly GC of anything older than two weeks. `--delete-older-than` trims
+    # generations from EVERY profile under /nix/var/nix/profiles, not just the
+    # default system one: that includes the named system-profiles/ (`sisyphus`,
+    # written by `system-rebuild` with `-p`, and read by the GRUB "System
+    # Select" menu in Modules/Boot/grub.nix) and the per-user Home Manager
+    # profiles. That is fine — the CURRENT generation of a profile is never
+    # deleted, so every System Select entry keeps booting; only rollback history
+    # older than 14 days goes. The `nix-gc` helper (Modules/Shell/navi.nix) is
+    # the manual, more aggressive version of the same thing.
+    nix.gc = {
+      automatic = true;
+      dates = "weekly";
+      options = "--delete-older-than 14d";
+    };
+    # Hard-links identical store files on a timer, rather than on every build
+    # (nix.settings.auto-optimise-store), which would slow builds down.
+    nix.optimise.automatic = true;
+
+    # The journal otherwise grows to 10% of the filesystem (capped at 4 GiB).
+    services.journald.extraConfig = "SystemMaxUse=2G";
 
     nixpkgs.config.allowUnfree = true;
 
@@ -25,12 +51,6 @@
     networking.networkmanager.enable = true;
 
     # Services
-    services.printing.enable = true;
-    services.power-profiles-daemon.enable = true;
-    services.upower.enable = true;
-    programs.dconf.enable = true;
-    programs.localsend.enable = true;
-    programs.localsend.openFirewall = true;
     programs.ssh.startAgent = true;
     programs.ssh.extraConfig = ''
       Host asgard
@@ -50,103 +70,20 @@
         self.lib.sshKeys.jimmy
       ];
       shell = pkgs.zsh;
-      packages = [];
     };
 
     programs.zsh.enable = true;
+    # Home Manager's zsh (Modules/Shell/zsh.nix, enableCompletion = true) already
+    # runs compinit from ~/.zshrc. Left on, /etc/zshrc runs it a second time
+    # first — pure startup cost, nothing gained.
+    programs.zsh.enableGlobalCompInit = false;
 
     # Common packages
     environment.systemPackages = with pkgs; [
       git
       home-manager
-      feh
-      grim
-      slurp
-      wl-clipboard
-      adw-gtk3
-      bibata-cursors
-      mesa-demos
-      vulkan-tools
-      discord
-      spotify
-      gparted
       pkgs-unstable.claude-code
-      wowup-cf
-      # Minecraft 26.2 needs Java 25 (class file 69); jdk21 kept for older instances
-      (prismlauncher.override {jdks = [pkgs.jdk25 pkgs.jdk21];})
-      moonlight-qt
-      nixos-anywhere
-      mpv
-      imv
-      libreoffice-fresh
     ];
-
-    home-manager.users.${activeUser} = {
-      # System-wide DARK MODE preference.
-      #
-      # This one dconf key is what `xdg-desktop-portal` serves as
-      # `org.freedesktop.appearance color-scheme`, and that is what every
-      # Chromium/Electron app (Helium, Vesktop, Steam's CEF) and every website's
-      # `prefers-color-scheme` actually reads. Without it the portal answers
-      # `uint32 0` = *no preference*, which those apps render as LIGHT.
-      #
-      # ⚠️ NOT the same key as `gtk-application-prefer-dark-theme` in
-      # Modules/Desktop/thunar.nix. That one is GTK-only — portals do not read it, so
-      # setting it does nothing for Chromium apps. Both are needed, and neither
-      # substitutes for the other.
-      #
-      # Lived in the since-deleted Modules/gtk.nix, which also carried
-      # adw-gtk3-dark + Papirus-Dark theming that was rejected on taste
-      # (2026-09-25). Deleting that module silently took dark mode with it and
-      # every app went light on the next rebuild — restored here ALONE,
-      # deliberately without any of the theming. Don't re-add the rest.
-      #
-      # Harmless on Elektra: xdg-desktop-portal-kde sources its scheme from
-      # KDE's own settings (kde.nix sets colorScheme = BreezeDark).
-      dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
-
-      xdg.mimeApps = {
-        enable = true;
-        defaultApplications = {
-          # Video
-          "video/quicktime"   = "mpv.desktop";
-          "video/mp4"         = "mpv.desktop";
-          "video/x-matroska"  = "mpv.desktop";
-          "video/x-msvideo"   = "mpv.desktop";
-          "video/webm"        = "mpv.desktop";
-          "video/mpeg"        = "mpv.desktop";
-          "video/ogg"         = "mpv.desktop";
-          "video/x-flv"       = "mpv.desktop";
-          "video/3gpp"        = "mpv.desktop";
-          # Images
-          "image/jpeg"        = "imv.desktop";
-          "image/png"         = "imv.desktop";
-          "image/gif"         = "imv.desktop";
-          "image/webp"        = "imv.desktop";
-          "image/bmp"         = "imv.desktop";
-          "image/tiff"        = "imv.desktop";
-          # Documents
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document" = "writer.desktop";
-          "application/msword"            = "writer.desktop";
-          "application/vnd.oasis.opendocument.text" = "writer.desktop";
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" = "calc.desktop";
-          "application/vnd.ms-excel"      = "calc.desktop";
-          "application/vnd.oasis.opendocument.spreadsheet" = "calc.desktop";
-          "application/pdf"               = "writer.desktop";
-        };
-      };
-    };
-
-    # Fonts
-    fonts = {
-      fontconfig.enable = true;
-      packages = with pkgs; [
-        nerd-fonts.jetbrains-mono
-        nerd-fonts.fira-code
-        nerd-fonts.iosevka
-        nerd-fonts.fantasque-sans-mono
-      ];
-    };
 
     # Performance
     programs.nix-ld = {
@@ -160,15 +97,11 @@
       ];
     };
 
-    # Force SDL apps to use PulseAudio backend (routes through pipewire-pulse).
-    # Prevents old games in Steam Linux Runtime (pressure-vessel) from connecting
-    # to PipeWire directly with their bundled old libpipewire, which causes
-    # system-wide audio dropouts.
-    environment.sessionVariables.SDL_AUDIODRIVER = "pulseaudio";
-
+    # `"fs.file-max" = 524288` used to sit here too. Don't bring it back:
+    # systemd already raises fs.file-max to its maximum at boot, so pinning a
+    # number only ever LOWERED the limit.
     boot.kernel.sysctl = {
       "vm.max_map_count" = 16777216;
-      "fs.file-max" = 524288;
     };
 
     # Do NOT add `kernel.split_lock_mitigate = 0` here expecting it to help the

@@ -31,6 +31,11 @@
     { device = "/dev/disk/by-uuid/a0478bec-dbd0-4f91-8021-5a6dead6d769"; }
   ];
 
+  # AMD Radeon (RX 9060 XT). Only the X server reads this, and only SDDM's X11
+  # greeter runs on it — the desktop itself is Wayland. It used to be set by
+  # both compositor modules; it is a fact about this box, so it lives here.
+  services.xserver.videoDrivers = [ "amdgpu" ];
+
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
   hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
 }

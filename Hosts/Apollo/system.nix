@@ -94,13 +94,19 @@ in {
         # A text console always paints, works on every GPU, and can say something
         # useful. `desktop` starts niri by hand when the rescue GUI is actually wanted.
         # Turning OFF the display-manager framework entirely is the load-bearing
-        # part. Modules/Desktop/niri.nix sets services.xserver.enable = true, which
-        # switches on services.displayManager — and that framework CLAIMS tty1 for a
-        # display manager: getty.target.wants/ is never populated, so getty@tty1
-        # never starts. Force sddm and greetd off but leave this on and you get the
-        # worst of both: display-manager.service fails (nothing to launch) AND no
-        # console login appears. Result is a totally black screen on a machine that
-        # is otherwise booted, networked and SSH-able. Diagnosed on her RTX 3070.
+        # part. services.xserver.enable = true switches on services.displayManager
+        # — and that framework CLAIMS tty1 for a display manager:
+        # getty.target.wants/ is never populated, so getty@tty1 never starts.
+        # Force sddm and greetd off but leave this on and you get the worst of
+        # both: display-manager.service fails (nothing to launch) AND no console
+        # login appears. Result is a totally black screen on a machine that is
+        # otherwise booted, networked and SSH-able. Diagnosed on her RTX 3070.
+        #
+        # Today nothing on the ISO turns the X server on: it moved out of
+        # Modules/Desktop/niri.nix into Modules/Desktop/desktop.nix (with SDDM in
+        # Modules/Boot/sddm.nix), and Apollo imports neither. The mkForces stay
+        # as a guard, because the failure mode is a black screen with no clue
+        # as to why.
         services.xserver.enable = lib.mkForce false;
         services.displayManager.enable = lib.mkForce false;
         services.displayManager.sddm.enable = lib.mkForce false;
@@ -129,8 +135,8 @@ in {
         # the squashfs without even booting it. Combined with sshd (on by default via
         # profiles/installation-device.nix), passwordless sudo below, and this node
         # being on the tailnet, a baked password would hand root to every tailnet
-        # node. Console access doesn't need one: greetd autologins into niri and the
-        # installer profile autologins `nixos` on the TTY.
+        # node. Console access doesn't need one: getty autologins this user on tty1
+        # (services.getty.autologinUser above).
         services.openssh.settings = {
           PasswordAuthentication = false;
           KbdInteractiveAuthentication = false;
@@ -145,7 +151,14 @@ in {
           shell = pkgs.zsh;
         };
         programs.zsh.enable = true;
+        # Same as Modules/Core/base.nix: Home Manager's zsh already runs compinit.
+        programs.zsh.enableGlobalCompInit = false;
         programs.dconf.enable = true;
+
+        # Helium (Chromium) on native Wayland under the rescue niri session.
+        # Desktop hosts get this from Modules/Desktop/desktop.nix, which the ISO
+        # does not import; niri.nix used to set it for everyone.
+        environment.sessionVariables.NIXOS_OZONE_WL = "1";
         security.sudo.wheelNeedsPassword = false;
 
         # nixos-anywhere --build-on local builds the target's closure on Sisyphus

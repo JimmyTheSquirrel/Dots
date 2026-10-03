@@ -13,9 +13,10 @@
 # derivations then stop matching the store paths upstream publishes in
 # channel.json and every build becomes a local rebuild instead of a cache hit.
 #
-# v1 (Modules/skwd-wall.nix) still serves Elektra and Odysseus. The two coexist:
-# v2 uses ~/.config/skwd-wall-v2 and ~/.cache/skwd-wall-v2, and upstream's unit
-# declares Conflicts=skwd-daemon.service so only one daemon can ever run.
+# Serves Sisyphus (niri) and Kit-Kat (Hyprland). v1 (QuickShell,
+# Modules/skwd-wall.nix) is gone along with the Elektra and Odysseus hosts it
+# served; v2 keeps its own ~/.config/skwd-wall-v2 and ~/.cache/skwd-wall-v2, so
+# nothing of v1's lingering state is read.
 # ============================================================================
 { self, inputs, ... }:
 {
@@ -29,7 +30,7 @@
     # seeded by an earlier rebuild keeps rendering into
     # ~/.config/spicetify/Themes/text/color.ini — a directory the new theme does
     # not have — and keeps calling spotify-apply-colors, which is no longer
-    # built. skwd never logs a failed reload (see the `path` comment above), so
+    # built. skwd never logs a failed reload (see the `path` comment below), so
     # leaving them in place would be a silent 127 on every wallpaper change.
     #
     # `or null` so this module still evaluates on a host that imports skwd
@@ -45,6 +46,51 @@
           | upsert({name: "spicetify-live", template: "spicetify-colors.json", output: "~/.config/spicetify/matugen-colors.json", reload: "spotify-apply-colors"})
       '' else ''
           | .integrations = ((.integrations // []) | map(select(.name != "spicetify" and .name != "spicetify-live")))
+      '';
+
+    # Steam: same shape as the spicetify pair. The integration renders a
+    # Millennium Quick CSS, so it only means anything where Millennium is
+    # injected (my.steam.millennium, Modules/Gaming/steam.nix). Kit-Kat runs
+    # plain Steam, where it was rendering into a quick.css nothing loads; it is
+    # deleted there rather than skipped, for the same reason as above.
+    #
+    # Steam gets no reload: Millennium Quick CSS cannot be re-read from outside
+    # the client, so a new accent lands at the next Steam launch.
+    steamIntegration =
+      if config.my.steam.millennium or false then ''
+          | upsert({name: "steam", template: "steam-quick.css", output: "~/${self.lib.steam.quickCssPath}"})
+      '' else ''
+          | .integrations = ((.integrations // []) | map(select(.name != "steam")))
+      '';
+
+    # ---- niri overview backdrop ----
+    # Pinned on niri, unlike the rest of the user-tunable skwd settings, because
+    # it is structural rather than taste: it REPLACES the swaybg instance and
+    # the `wallpaper-restore` script that were deleted on 2026-09-15. Left
+    # unpinned, a fresh install would come up with no overview backdrop at all,
+    # and toggling it off in the settings UI would silently lose one.
+    #
+    # backdropFollowWallpaper must be true or the backdrop stays pinned to
+    # whatever single image `niri.backdrop` names — which is how it ended up
+    # showing a stale, unrelated wallpaper earlier that day.
+    #
+    # The look knobs — overviewBackdropBlurEnabled, overviewBackdropBlur,
+    # backdropDim, backdropTheme — are deliberately NOT pinned; tune those
+    # in the settings UI. The paired niri layer-rule lives in
+    # Modules/Desktop/niri.nix and is what keeps the surface in the
+    # overview instead of on top of the desktop.
+    #
+    # Everywhere else (Kit-Kat's Hyprland) it is forced OFF. There is no niri
+    # overview to put it in and no `place-within-backdrop` rule to keep it
+    # there, so a backdrop surface would only be a second background layer
+    # painted over the real wallpaper — and this module used to force it ON for
+    # every host, so Kit-Kat's config.json still says true until this runs.
+    niriBackdrop =
+      if config.programs.niri.enable then ''
+          | .niri.overviewBackdrop = true
+          | .niri.backdropFollowWallpaper = true
+      '' else ''
+          | .niri.overviewBackdrop = false
       '';
   in
   {
@@ -103,6 +149,132 @@
       btopTemplate = pkgs.writeText "btop-theme.theme" self.lib.btop.matugenTemplate;
       steamTemplate = pkgs.writeText "steam-quick.css" self.lib.steam.matugenTemplate;
       discordTemplate = pkgs.writeText "discord-colors.css" self.lib.discord.matugenTemplate;
+
+      # First-run seed for config.json — written only when the file is missing,
+      # see the activation script.
+      configSeed = pkgs.writeText "skwd-wall-v2-config.json" ''
+        {
+        ${monitorSeed}
+          "paths": {
+            "wallpaper": "~/Pictures/Wallpapers",
+            "videoWallpaper": "~/Pictures/Wallpapers",
+            "steam": "~/.local/share/Steam"
+          },
+          "features": {
+            "matugen": true,
+            "steam": true,
+            "wallhaven": true
+          },
+          "matugen": {
+            "schemeType": "scheme-tonal-spot",
+            "mode": "dark"
+          },
+          "wallpaperMute": true
+        }
+      '';
+
+      # noctalia's custom-palette schema: a dark and a light block, each with
+      # the mXxx roles plus a terminal sub-object. Both blocks are always
+      # emitted so `noctalia msg theme-mode-set light` works without a
+      # wallpaper re-apply — skwd-iris resolves `.dark` / `.light` independently
+      # of the configured matugen.mode (verified 2026-09-15).
+      #
+      # Surfaces follow the wallpaper. They used to be pinned to neutral greys
+      # (#0a0a0a / #1a1a1a / #333333) which made the bar ignore the palette
+      # entirely; the surface* roles keep the same dark weight while picking up
+      # the wallpaper's tint.
+      #
+      # The terminal block maps skwd's real ansi_* roles rather than deriving
+      # fake ANSI colours from Material roles, which is what the old hand-built
+      # palette did (its "blue" was tertiary and its "green" was primary).
+      #
+      # One function for both modes: the two blocks used to be written out by
+      # hand and differed only in `.dark.` vs `.light.`.
+      paletteFor = mode: let
+        c = role: "{{colors.${role}.${mode}.hex}}";
+      in {
+        mPrimary = c "primary";
+        mOnPrimary = c "on_primary";
+        mSecondary = c "secondary";
+        mOnSecondary = c "on_secondary";
+        mTertiary = c "tertiary";
+        mOnTertiary = c "on_tertiary";
+        mError = c "error";
+        mOnError = c "on_error";
+        mSurface = c "surface";
+        mOnSurface = c "on_surface";
+        mSurfaceVariant = c "surface_variant";
+        mOnSurfaceVariant = c "on_surface_variant";
+        mOutline = c "outline";
+        mShadow = c "shadow";
+        mHover = c "tertiary";
+        mOnHover = c "on_tertiary";
+        terminal = {
+          background = c "surface";
+          foreground = c "on_surface";
+          cursor = c "primary";
+          cursorText = c "on_primary";
+          selectionBg = c "surface_variant";
+          selectionFg = c "on_surface_variant";
+          normal = {
+            black = c "surface_variant";
+            red = c "ansi_red";
+            green = c "ansi_green";
+            yellow = c "ansi_yellow";
+            blue = c "ansi_blue";
+            magenta = c "ansi_magenta";
+            cyan = c "ansi_cyan";
+            white = c "on_surface";
+          };
+          bright = {
+            black = c "outline";
+            red = c "ansi_red_bright";
+            green = c "ansi_green_bright";
+            yellow = c "ansi_yellow_bright";
+            blue = c "ansi_blue_bright";
+            magenta = c "ansi_magenta_bright";
+            cyan = c "ansi_cyan_bright";
+            white = c "on_surface";
+          };
+        };
+      };
+      noctaliaPaletteTemplate = pkgs.writeText "noctalia-palette.json"
+        (builtins.toJSON { dark = paletteFor "dark"; light = paletteFor "light"; });
+
+      spicetifyColorsTemplate = pkgs.writeText "spicetify-colors.json" ''
+        {
+          "--spice-text": "{{colors.on_primary_container.default.hex}}",
+          "--spice-subtext": "{{colors.on_surface_variant.default.hex}}",
+          "--spice-main": "{{colors.surface.default.hex}}",
+          "--spice-accent": "{{colors.primary.default.hex}}",
+          "--spice-accent-active": "{{colors.primary_container.default.hex}}",
+          "--spice-accent-inactive": "{{colors.surface.default.hex}}",
+          "--spice-banner": "{{colors.primary.default.hex}}",
+          "--spice-border-active": "{{colors.primary.default.hex}}",
+          "--spice-border-inactive": "{{colors.outline.default.hex}}",
+          "--spice-header": "{{colors.primary_container.default.hex}}",
+          "--spice-highlight": "{{colors.surface_container.default.hex}}",
+          "--spice-notification": "{{colors.primary_container.default.hex}}",
+          "--spice-notification-error": "{{colors.error.default.hex}}"
+        }
+      '';
+
+      spicetifyTextTemplate = pkgs.writeText "spicetify-text.ini" ''
+        [Matugen]
+        accent             = {{colors.primary.default.hex_stripped}}
+        accent-active      = {{colors.primary_container.default.hex_stripped}}
+        accent-inactive    = {{colors.surface.default.hex_stripped}}
+        banner             = {{colors.primary.default.hex_stripped}}
+        border-active      = {{colors.primary.default.hex_stripped}}
+        border-inactive    = {{colors.outline.default.hex_stripped}}
+        header             = {{colors.primary_container.default.hex_stripped}}
+        highlight          = {{colors.surface_container.default.hex_stripped}}
+        main               = {{colors.surface.default.hex_stripped}}
+        notification       = {{colors.primary_container.default.hex_stripped}}
+        notification-error = {{colors.error.default.hex_stripped}}
+        subtext            = {{colors.on_surface_variant.default.hex_stripped}}
+        text               = {{colors.on_primary_container.default.hex_stripped}}
+      '';
     in {
       # The suite itself is in environment.systemPackages via upstream's module.
       # matugen is not part of it, and without matugen every integration fails
@@ -138,28 +310,9 @@
         # Vencord only creates themes/ once a theme is installed through its UI.
         mkdir -p "${config.home.homeDirectory}/.config/vesktop/themes"
 
-        if [ ! -f "${configPath}/config.json" ]; then
-          cat > "${configPath}/config.json" << 'EOF'
-{
-${monitorSeed}
-  "paths": {
-    "wallpaper": "~/Pictures/Wallpapers",
-    "videoWallpaper": "~/Pictures/Wallpapers",
-    "steam": "~/.local/share/Steam"
-  },
-  "features": {
-    "matugen": true,
-    "steam": true,
-    "wallhaven": true
-  },
-  "matugen": {
-    "schemeType": "scheme-tonal-spot",
-    "mode": "dark"
-  },
-  "wallpaperMute": true
-}
-EOF
-        fi
+        # 0644 so skwd (and the jq pass below) can rewrite it.
+        [ -f "${configPath}/config.json" ] \
+          || install -m 0644 ${configSeed} "${configPath}/config.json"
         # ⚠️ `matugen` above is a v1 leftover and is NOT what generates the
         # palette on v2. The engine is skwd-iris, configured by the top-level
         # `theme` object (authority / scheme / style) — the daemon logs
@@ -204,21 +357,12 @@ EOF
           def setdefault($p; $v):
             if (getpath($p) == null) then setpath($p; $v) else . end;
 
-          # We used to pin paths.paperBin/paperStillBin/paperVkBin to the store
-          # paths of a hand-built skwd-paper. Upstream puts its own renderers on
-          # the daemon PATH, and the binary is now skwd-paper-v2 rather than
-          # skwd-paper, so the pins are both unnecessary and wrong. They are
-          # still live keys in beta.13, so they have to be deleted, not just
-          # left alone — otherwise the daemon keeps exec-ing renderers out of a
-          # garbage-collected beta.11 store path and nothing ever paints.
-          del(.paths.paperBin, .paths.paperStillBin, .paths.paperVkBin)
-
           # ---- Taste defaults, read off Sisyphus 2026-10-03 ----
           # Parity with the config rock dialled in so a new machine does not start
           # from upstream bare defaults. All setdefault, so the GUI still wins.
           #
           # NOTE: no apostrophes in this jq program (single-quoted shell arg).
-          | setdefault(["theme","engine"];    "pywal")
+          setdefault(["theme","engine"];    "pywal")
           | setdefault(["theme","authority"]; "skwd")
           | setdefault(["theme","policy"];    "wallpaper")
           | setdefault(["theme","scheme"];    "vibrant")
@@ -281,36 +425,12 @@ EOF
           # quickCss makes it glitch. See Modules/Apps/discord.nix.
           | upsert({name: "discord", template: "discord-colors.css", output: "~/.config/vesktop/themes/${self.lib.discord.matugenThemeFile}"})
 
-          # ---- niri overview backdrop ----
-          # Pinned, unlike the rest of the user-tunable skwd settings, because it
-          # is structural rather than taste: it REPLACES the swaybg instance and
-          # the `wallpaper-restore` script that were deleted on 2026-09-15. Left
-          # unpinned, a fresh install would come up with no overview backdrop at
-          # all, and toggling it off in the settings UI would silently lose one.
-          #
-          # backdropFollowWallpaper must be true or the backdrop stays pinned to
-          # whatever single image `niri.backdrop` names — which is how it ended up
-          # showing a stale, unrelated wallpaper earlier that day.
-          #
-          # The look knobs — overviewBackdropBlurEnabled, overviewBackdropBlur,
-          # backdropDim, backdropTheme — are deliberately NOT pinned; tune those
-          # in the settings UI. The paired niri layer-rule lives in
-          # Modules/Desktop/niri.nix and is what keeps the surface in the
-          # overview instead of on top of the desktop.
-          | .niri.overviewBackdrop = true
-          | .niri.backdropFollowWallpaper = true
-
-          # Steam gets no reload: Millennium Quick CSS cannot be re-read from
-          # outside the client, so a new accent lands at the next Steam launch.
-          | upsert({name: "steam", template: "steam-quick.css", output: "~/${self.lib.steam.quickCssPath}"})
-
-          # postProcessing is now EMPTY on this host, and the entry is actively
-          # stripped rather than merely not-added, so an existing config loses it
-          # on the next rebuild.
-          #
-          # It used to run `noctalia-sync-wallpaper %path%`. That script is gone:
-          # its colour work moved to the noctalia integration reload above (the
-          # right hook — postProcessing fires BEFORE templates render, so anything
+        ${niriBackdrop}
+        ${steamIntegration}
+          # postProcessing is deliberately empty. It used to run
+          # `noctalia-sync-wallpaper %path%`; that script is gone — its colour
+          # work moved to the noctalia integration reload above (the right hook:
+          # postProcessing fires BEFORE templates render, so anything
           # colour-related there pushes the previous palette), and its swaybg
           # backdrop swap was retired when skwd took over the niri overview
           # backdrop natively via `niri.overviewBackdrop`.
@@ -318,8 +438,6 @@ EOF
           # Anything added here in future must genuinely need the wallpaper path:
           # %path% substitution is the only thing postProcessing offers over a
           # reload, and it is paid for by running too early to see new colours.
-          | .postProcessing = ((.postProcessing // [])
-              | map(select((.command // "") | test("noctalia-sync-wallpaper") | not)))
         ' "${configPath}/config.json" > "${configPath}/config.json.tmp" \
           && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
 
@@ -336,157 +454,9 @@ EOF
         install -m 0644 ${btopTemplate} "${templateDir}/btop-theme.theme"
         install -m 0644 ${steamTemplate} "${templateDir}/steam-quick.css"
         install -m 0644 ${discordTemplate} "${templateDir}/discord-colors.css"
-
-        # The pre-2026-09-15 template wrote a flat mXxx object to colors.json,
-        # which noctalia does not read. Remove it so the stale file cannot be
-        # mistaken for live input.
-        rm -f "${templateDir}/noctalia-colors.json"
-
-        # noctalia's custom-palette schema: a dark and a light block, each with
-        # the mXxx roles plus a terminal sub-object. Both blocks are always
-        # emitted so `noctalia msg theme-mode-set light` works without a
-        # wallpaper re-apply — skwd-iris resolves `.dark` / `.light` independently
-        # of the configured matugen.mode (verified 2026-09-15).
-        #
-        # Surfaces follow the wallpaper. They used to be pinned to neutral greys
-        # (#0a0a0a / #1a1a1a / #333333) which made the bar ignore the palette
-        # entirely; the surface* roles keep the same dark weight while picking up
-        # the wallpaper's tint.
-        #
-        # The terminal block maps skwd's real ansi_* roles rather than deriving
-        # fake ANSI colours from Material roles, which is what the old hand-built
-        # palette did (its "blue" was tertiary and its "green" was primary).
-        cat > "${templateDir}/noctalia-palette.json" << 'EOF'
-{
-  "dark": {
-    "mPrimary": "{{colors.primary.dark.hex}}",
-    "mOnPrimary": "{{colors.on_primary.dark.hex}}",
-    "mSecondary": "{{colors.secondary.dark.hex}}",
-    "mOnSecondary": "{{colors.on_secondary.dark.hex}}",
-    "mTertiary": "{{colors.tertiary.dark.hex}}",
-    "mOnTertiary": "{{colors.on_tertiary.dark.hex}}",
-    "mError": "{{colors.error.dark.hex}}",
-    "mOnError": "{{colors.on_error.dark.hex}}",
-    "mSurface": "{{colors.surface.dark.hex}}",
-    "mOnSurface": "{{colors.on_surface.dark.hex}}",
-    "mSurfaceVariant": "{{colors.surface_variant.dark.hex}}",
-    "mOnSurfaceVariant": "{{colors.on_surface_variant.dark.hex}}",
-    "mOutline": "{{colors.outline.dark.hex}}",
-    "mShadow": "{{colors.shadow.dark.hex}}",
-    "mHover": "{{colors.tertiary.dark.hex}}",
-    "mOnHover": "{{colors.on_tertiary.dark.hex}}",
-    "terminal": {
-      "background": "{{colors.surface.dark.hex}}",
-      "foreground": "{{colors.on_surface.dark.hex}}",
-      "cursor": "{{colors.primary.dark.hex}}",
-      "cursorText": "{{colors.on_primary.dark.hex}}",
-      "selectionBg": "{{colors.surface_variant.dark.hex}}",
-      "selectionFg": "{{colors.on_surface_variant.dark.hex}}",
-      "normal": {
-        "black": "{{colors.surface_variant.dark.hex}}",
-        "red": "{{colors.ansi_red.dark.hex}}",
-        "green": "{{colors.ansi_green.dark.hex}}",
-        "yellow": "{{colors.ansi_yellow.dark.hex}}",
-        "blue": "{{colors.ansi_blue.dark.hex}}",
-        "magenta": "{{colors.ansi_magenta.dark.hex}}",
-        "cyan": "{{colors.ansi_cyan.dark.hex}}",
-        "white": "{{colors.on_surface.dark.hex}}"
-      },
-      "bright": {
-        "black": "{{colors.outline.dark.hex}}",
-        "red": "{{colors.ansi_red_bright.dark.hex}}",
-        "green": "{{colors.ansi_green_bright.dark.hex}}",
-        "yellow": "{{colors.ansi_yellow_bright.dark.hex}}",
-        "blue": "{{colors.ansi_blue_bright.dark.hex}}",
-        "magenta": "{{colors.ansi_magenta_bright.dark.hex}}",
-        "cyan": "{{colors.ansi_cyan_bright.dark.hex}}",
-        "white": "{{colors.on_surface.dark.hex}}"
-      }
-    }
-  },
-  "light": {
-    "mPrimary": "{{colors.primary.light.hex}}",
-    "mOnPrimary": "{{colors.on_primary.light.hex}}",
-    "mSecondary": "{{colors.secondary.light.hex}}",
-    "mOnSecondary": "{{colors.on_secondary.light.hex}}",
-    "mTertiary": "{{colors.tertiary.light.hex}}",
-    "mOnTertiary": "{{colors.on_tertiary.light.hex}}",
-    "mError": "{{colors.error.light.hex}}",
-    "mOnError": "{{colors.on_error.light.hex}}",
-    "mSurface": "{{colors.surface.light.hex}}",
-    "mOnSurface": "{{colors.on_surface.light.hex}}",
-    "mSurfaceVariant": "{{colors.surface_variant.light.hex}}",
-    "mOnSurfaceVariant": "{{colors.on_surface_variant.light.hex}}",
-    "mOutline": "{{colors.outline.light.hex}}",
-    "mShadow": "{{colors.shadow.light.hex}}",
-    "mHover": "{{colors.tertiary.light.hex}}",
-    "mOnHover": "{{colors.on_tertiary.light.hex}}",
-    "terminal": {
-      "background": "{{colors.surface.light.hex}}",
-      "foreground": "{{colors.on_surface.light.hex}}",
-      "cursor": "{{colors.primary.light.hex}}",
-      "cursorText": "{{colors.on_primary.light.hex}}",
-      "selectionBg": "{{colors.surface_variant.light.hex}}",
-      "selectionFg": "{{colors.on_surface_variant.light.hex}}",
-      "normal": {
-        "black": "{{colors.surface_variant.light.hex}}",
-        "red": "{{colors.ansi_red.light.hex}}",
-        "green": "{{colors.ansi_green.light.hex}}",
-        "yellow": "{{colors.ansi_yellow.light.hex}}",
-        "blue": "{{colors.ansi_blue.light.hex}}",
-        "magenta": "{{colors.ansi_magenta.light.hex}}",
-        "cyan": "{{colors.ansi_cyan.light.hex}}",
-        "white": "{{colors.on_surface.light.hex}}"
-      },
-      "bright": {
-        "black": "{{colors.outline.light.hex}}",
-        "red": "{{colors.ansi_red_bright.light.hex}}",
-        "green": "{{colors.ansi_green_bright.light.hex}}",
-        "yellow": "{{colors.ansi_yellow_bright.light.hex}}",
-        "blue": "{{colors.ansi_blue_bright.light.hex}}",
-        "magenta": "{{colors.ansi_magenta_bright.light.hex}}",
-        "cyan": "{{colors.ansi_cyan_bright.light.hex}}",
-        "white": "{{colors.on_surface.light.hex}}"
-      }
-    }
-  }
-}
-EOF
-
-        cat > "${templateDir}/spicetify-colors.json" << 'EOF'
-{
-  "--spice-text": "{{colors.on_primary_container.default.hex}}",
-  "--spice-subtext": "{{colors.on_surface_variant.default.hex}}",
-  "--spice-main": "{{colors.surface.default.hex}}",
-  "--spice-accent": "{{colors.primary.default.hex}}",
-  "--spice-accent-active": "{{colors.primary_container.default.hex}}",
-  "--spice-accent-inactive": "{{colors.surface.default.hex}}",
-  "--spice-banner": "{{colors.primary.default.hex}}",
-  "--spice-border-active": "{{colors.primary.default.hex}}",
-  "--spice-border-inactive": "{{colors.outline.default.hex}}",
-  "--spice-header": "{{colors.primary_container.default.hex}}",
-  "--spice-highlight": "{{colors.surface_container.default.hex}}",
-  "--spice-notification": "{{colors.primary_container.default.hex}}",
-  "--spice-notification-error": "{{colors.error.default.hex}}"
-}
-EOF
-
-        cat > "${templateDir}/spicetify-text.ini" << 'EOF'
-[Matugen]
-accent             = {{colors.primary.default.hex_stripped}}
-accent-active      = {{colors.primary_container.default.hex_stripped}}
-accent-inactive    = {{colors.surface.default.hex_stripped}}
-banner             = {{colors.primary.default.hex_stripped}}
-border-active      = {{colors.primary.default.hex_stripped}}
-border-inactive    = {{colors.outline.default.hex_stripped}}
-header             = {{colors.primary_container.default.hex_stripped}}
-highlight          = {{colors.surface_container.default.hex_stripped}}
-main               = {{colors.surface.default.hex_stripped}}
-notification       = {{colors.primary_container.default.hex_stripped}}
-notification-error = {{colors.error.default.hex_stripped}}
-subtext            = {{colors.on_surface_variant.default.hex_stripped}}
-text               = {{colors.on_primary_container.default.hex_stripped}}
-EOF
+        install -m 0644 ${noctaliaPaletteTemplate} "${templateDir}/noctalia-palette.json"
+        install -m 0644 ${spicetifyColorsTemplate} "${templateDir}/spicetify-colors.json"
+        install -m 0644 ${spicetifyTextTemplate} "${templateDir}/spicetify-text.ini"
       '';
     };
   };

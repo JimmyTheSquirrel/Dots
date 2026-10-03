@@ -5,7 +5,12 @@
       src = pkgs.fetchFromGitHub {
         owner = "OliveThePuffin";
         repo = "yorha-grub-theme";
-        rev = "refs/heads/master";
+        # Pinned to a commit. `refs/heads/master` with a fixed hash only works
+        # until upstream pushes: the next fetch on a fresh install (or after a
+        # GC) then gets different content, fails the hash check, and the system
+        # will not build. This is the commit master pointed at when the hash
+        # below was taken — verified by hashing a `git archive` of it.
+        rev = "4d9cd37baf56c4f5510cc4ff61be278f11077c81";
         sha256 = "sha256-XVzYDwJM7Q9DvdF4ZOqayjiYpasUeMhAWWcXtnhJ0WQ=";
       };
       installPhase = ''
@@ -14,7 +19,8 @@
       '';
     };
 
-    # Root filesystem UUID (from hardware config)
+    # Root filesystem UUID — fileSystems."/" in Hosts/Sisyphus/_hardware.nix.
+    # Change both together.
     rootFsUuid = "ee6c7638-4daf-4f37-aa05-bd6068c113f1";
 
     # Script to generate GRUB entries for named profiles
@@ -52,11 +58,11 @@ ENTRY
       }
 
       generate_entry "sisyphus" "Sisyphus (Niri)"
-      # Elektra is gone: that profile was repurposed into Hosts/Kit-Kat, which is
-      # separate hardware with its own systemd-boot. Emitting an entry here would
-      # advertise a profile nothing builds any more.
-      # Odysseus removed 2026-10-03 — no longer used. Sisyphus is the only local
-      # boot profile now; Kit-Kat is separate hardware with its own GRUB.
+      # Sisyphus is the only local boot profile now. Elektra (KDE) and Odysseus
+      # (Hyprland) used to have entries here as well; both are retired, and
+      # Kit-Kat — what Elektra's slot became — is separate hardware with its own
+      # GRUB (Modules/Boot/grub-celeste.nix). An entry for a profile nothing
+      # builds any more would only advertise a stale generation.
 
       echo '}' >> "$OUTPUT_FILE"
     '';
@@ -90,7 +96,9 @@ ENTRY
       ${generateProfileEntries}
     '';
 
-    environment.systemPackages = [ pkgs.os-prober ];
+    # No `environment.systemPackages = [ pkgs.os-prober ]`: with useOSProber on,
+    # nixpkgs' grub module puts os-prober (and busybox) on install-grub's own
+    # PATH, so a copy in the system profile changed nothing.
 
     boot.supportedFilesystems = [ "ntfs" ];
   };

@@ -110,9 +110,24 @@ in {
           floating_layer = "top";
           session_placement = "floating";
           session_position = "center";
+          # "solid" (default), "soft", or "glass" — controls launcher/panel
+          # background transparency.
           transparency_mode = "soft";
         };
         screen_corners = { enabled = true; size = 35; };
+
+        # ⚠️ Possibly obsolete on v2 — see the matching note in Desktop/niri.nix.
+        # skwd-music was absent from the bus in a 2026-09-15 static-wallpaper
+        # test; it may only register for video / Wallpaper Engine wallpapers.
+        # Harmless to keep, so it stays until checked with a video wallpaper.
+        #
+        # skwd-daemon registers an inert org.mpris.MediaPlayer2.skwd-music
+        # player. It carries no metadata but reports CanControl/CanPlay/CanGoNext
+        # = true, so it can win noctalia's "active player" pick and swallow
+        # `noctalia msg media`. The niri and Hyprland media keys dodge it with
+        # playerctl --ignore-player; this is the same exclusion for noctalia's
+        # own media widget.
+        mpris.blacklist = [ "skwd-music" ];
 
         # Order here is the on-screen order, and `shortcut` is the key that
         # triggers each one in the session panel.
@@ -125,18 +140,105 @@ in {
         ];
       };
 
+      # ── Monitor power-save: screens off after 5 minutes idle ──────────────
+      # noctalia has its own idle manager (src/idle/idle_manager.cpp), so this
+      # needs no swayidle/hypridle. It takes the timeout from the compositor via
+      # ext-idle-notify-v1 and drives DPMS through the compositor's own IPC — on
+      # niri that is PowerOffMonitors / PowerOnMonitors, on Hyprland (Kit-Kat)
+      # the equivalent dispatcher. Same as `noctalia msg dpms-off` by hand.
+      #
+      # This is DPMS, NOT an output disable: the outputs stay configured, so
+      # nothing moves windows or workspaces between monitors the way
+      # `niri msg output ... off` would.
+      #
+      # The `screen_off` action auto-pairs a ScreenOn resume, so any keyboard or
+      # mouse event wakes both screens — no resume_command needed, and no chance
+      # of being left staring at a black screen.
+      #
+      # Idle is inhibited by all three of the usual mechanisms, so this will not
+      # blank mid-film:
+      #   - zwp_idle_inhibitor_v1 (mpv, browsers playing video) — noctalia binds
+      #     the inhibitor-aware get_idle_notification, not the input-only variant
+      #   - org.freedesktop.ScreenSaver D-Bus inhibits (Steam, most games)
+      #   - the bar's Caffeine toggle / `noctalia msg caffeine-toggle`, for a
+      #     manual hold
+      #
+      # ⚠️ Sunshine does NOT inhibit idle. Moonlight's injected keyboard/mouse
+      # events are real uinput devices so they reset the timer, but a
+      # controller-only session sends nothing libinput can see — 5 minutes in,
+      # the screens DPMS off and the wlr capture goes with them. Hit Caffeine
+      # before a couch-gamepad stream (see Claude/streaming.md).
+      #
+      # Schema notes (upstream src/config/schema/config_schema.cpp):
+      #   - behaviors are a namedMap: `[idle.behavior.<name>]`, NOT `[[idle.behavior]]`
+      #   - the key is `timeout` (seconds), not `timeout_seconds`
+      #   - valid actions: lock | screen_off | suspend | lock_and_suspend, or any
+      #     other string to run `command` / `resume_command` as a shell action
+      #   - declaring ANY behavior replaces the built-in default list
+      #     (lock 600s, screen-off 660s, lock-and-suspend 900s — all three ship
+      #     `enabled = false`, so nothing is lost by dropping them). Leaving the
+      #     list empty is what restores those defaults.
+      idle = {
+        # Fullscreen dim as a warning before the action fires; any activity
+        # during the fade cancels it. 0 disables the warning. 2.0 is upstream's
+        # default, pinned here so the visible behaviour can't move under us.
+        pre_action_fade_seconds = 2.0;
+
+        behavior.screen-off = {
+          enabled = true;
+          timeout = 300;
+          action = "screen_off";
+        };
+      };
+
+      # ── Colours: skwd generates, noctalia fans out ──────────────────────────
+      # skwd-iris is the only palette generator on this host. It renders
+      # ~/.config/noctalia/palettes/skwd-wall.json on every wallpaper change
+      # (the `noctalia` integration in Modules/Desktop/skwd.nix) and then runs
+      # noctalia-apply-palette, which makes noctalia re-read it. noctalia
+      # recolours its own UI and pushes the palette to every template below.
+      #
       # source MUST stay "custom" and custom_palette "skwd-wall" — with
       # source = "wallpaper" noctalia runs its own generator off its internal
       # wallpaper path and skwd's palette is ignored, which puts two different
-      # palettes on one desktop. Locking it here means a GUI experiment with the
-      # palette picker cannot leave the colour pipeline broken past a rebuild.
+      # palettes on one desktop (skwd's picker chrome always themes itself from
+      # skwd-iris). Locking it here means a GUI experiment with the palette
+      # picker cannot leave the colour pipeline broken past a rebuild.
       theme = {
         source = "custom";
         custom_palette = "skwd-wall";
         mode = "dark";
 
-        # Both deliberately empty — see the long note under [theme.templates] in
-        # nix-config.toml below for why each one must stay that way.
+        # builtin_ids is deliberately empty. The builtin templates for kitty,
+        # starship and btop write a theme file and then run an apply.sh that
+        # appends an include to the app's main config — but kitty.conf,
+        # starship.toml and btop.conf are all read-only Nix store symlinks here,
+        # so the append cannot land. btop in particular is already handled by
+        # skwd's own integration, which renders the mapping owned by
+        # Modules/Shell/btop.nix into the `dots` theme that btop.conf actually
+        # selects; enabling the builtin as well just writes a second, unused
+        # noctalia.theme.
+        #
+        # community_ids is empty too, and Discord is the reason it must stay
+        # that way. The `discord` community template was enabled on 2026-09-15
+        # and had to be pulled the same day: it is a 20 KB full redesign with
+        # opaque panels, and this host runs Vesktop with transparent = true plus
+        # a quickCss that forces transparency with !important. Both loaded at
+        # once made Discord visibly glitch, and it only became visible once the
+        # palette started actually updating — before that the theme was frozen,
+        # so the conflict sat there statically.
+        #
+        # Discord now gets its colours from skwd instead, as a colours-only file
+        # that quickCss consumes. See Modules/Apps/discord.nix.
+        #
+        # The spicetify and steam community templates do not fit either: theirs
+        # target the Comfy/Colorful spicetify themes and the SFP Material-Theme
+        # Steam skin, while this host uses the `text` spicetify theme and
+        # Millennium/Zehn. Both stay on their own skwd integrations.
+        #
+        # Net effect: noctalia recolours its OWN UI from the skwd palette and
+        # fans out to nothing. Enable a template here only after checking its
+        # output path against what this host actually runs.
         templates = { builtin_ids = [ ]; community_ids = [ ]; };
       };
 
@@ -145,12 +247,25 @@ in {
 
       widget = {
         audio_visualizer = { bands = 30; centered = false; scale = 1.1; width = 170; };
-        clock = { capsule = true; capsule_opacity = 0.34; };
+        clock = {
+          capsule = true;
+          capsule_opacity = 0.34;
+          # strftime format: %H=24h hour, %I=12h hour, %-I=12h no leading zero,
+          # %M=minute, %p=AM/PM, %P=am/pm. Use "%H:%M" for 24-hour.
+          format = "%-I:%M %p";
+          tooltip_format = "%A, %B %d %Y";
+        };
         network = { font_family = "42dot Sans"; show_label = false; vpn_status = "both"; };
         taskbar = { scale = 1.35; show_all_outputs = true; };
         tray.drawer = true;
       };
 
+      # NOTE: do NOT add a plugins."kenn/keybind-cheatsheet" table to point the
+      # plugin at a custom niri config. Per-plugin tables are silently dropped,
+      # and TOML has no "~" expansion either way. The plugin instead uses its own
+      # default, ~/.config/niri/config.kdl, and follows the `include` directives
+      # found there; niri.nix generates that file plus the niri-keybinds.kdl it
+      # includes.
       plugins = {
         enabled = [ "kenn/keybind-cheatsheet" ];
         source = [
@@ -342,18 +457,23 @@ in {
         #   3. the swaybg backdrop swap — replaced by skwd's native
         #      `skwd-paper-backdrop` surface (see Modules/Desktop/niri.nix).
         #
-        # skwd's `postProcessing` entry that invoked it is deleted in
-        # Modules/Desktop/skwd.nix. Nothing on this host now uses postProcessing, and the
+        # skwd's `postProcessing` entry that invoked it was stripped from
+        # config.json by a one-off migration in Modules/Desktop/skwd.nix (since
+        # removed). Nothing on this host now uses postProcessing, and the
         # `%path%` placeholder machinery is no longer needed anywhere — the one
         # remaining hook, noctalia-apply-palette, takes no arguments.
       ];
 
       # ── Lock the GUI's own settings.toml to the state declared here ──────────
-      # THIS is what makes the desktop reproducible. nix-config.toml (below) is
-      # merged UNDERNEATH ~/.local/state/noctalia/settings.toml, so anything the
-      # settings GUI has ever written wins outright and Nix can never take it
-      # back. Bar position, widget slots, capsule groups, lockscreen layout and
-      # the template lists all live in settings.toml — so before this script
+      # THIS is what makes the desktop reproducible. Any *.toml in
+      # ~/.config/noctalia/ is merged UNDERNEATH
+      # ~/.local/state/noctalia/settings.toml, so anything the settings GUI has
+      # ever written wins outright and Nix can never take it back that way.
+      # (This module used to write one, nix-config.toml; half its keys were
+      # already shadowed by the lock below and the rest now live in
+      # `lockedSettings` too, so it is gone.) Bar position, widget slots,
+      # capsule groups, lockscreen layout and the template lists all live in
+      # settings.toml — so before this script
       # existed, none of them were controlled by Nix at all. A rebuild changed
       # nothing and a fresh install came up with noctalia's defaults.
       #
@@ -396,156 +516,17 @@ in {
         # copy in memory. So no re-login is needed (contrast niri, whose config
         # is baked into the wrapper).
         #
-        # noctalia is spawned by niri, not systemd, so it is simply absent
-        # during a boot-time or --boot rebuild. Never fail activation for that.
-        noctalia msg config-reload >/dev/null 2>&1 || true
-      '';
-
-      # noctalia v5 is a native C++ app — it reads all *.toml files in ~/.config/noctalia/.
-      # GUI changes are saved to ~/.local/state/noctalia/settings.toml (takes priority).
-      # This file sets widget defaults that merge under the user's GUI settings.
-      home.file.".config/noctalia/nix-config.toml".text = ''
-        # Managed by Nix — merged under ~/.local/state/noctalia/settings.toml (GUI wins).
-
-        [widget.clock]
-        # strftime format: %H=24h hour, %I=12h hour, %-I=12h no leading zero,
-        # %M=minute, %p=AM/PM, %P=am/pm. Use "%H:%M" for 24-hour.
-        format = "%-I:%M %p"
-        tooltip_format = "%A, %B %d %Y"
-
-        [shell.panel]
-        # "solid" (default), "soft", or "glass" — controls launcher/panel background transparency
-        transparency_mode = "soft"
-
-        # ── Monitor power-save: screens off after 5 minutes idle ──────────────────
-        # noctalia has its own idle manager (src/idle/idle_manager.cpp), so this
-        # needs no swayidle/hypridle. It takes the timeout from the compositor via
-        # ext-idle-notify-v1 and drives DPMS through the compositor's own IPC — on
-        # niri that is PowerOffMonitors / PowerOnMonitors, on Hyprland (Odysseus)
-        # the equivalent dispatcher. Same as `noctalia msg dpms-off` by hand.
+        # By absolute path: Home Manager runs activation with an EMPTY PATH
+        # (home.emptyActivationPath), so a bare `noctalia` was "command not
+        # found" on every switch — and the redirect hid it, so this line never
+        # actually reloaded anything. The socket it talks to is found from
+        # XDG_RUNTIME_DIR + WAYLAND_DISPLAY, which home-manager-<user>.service
+        # imports from the user's systemd environment.
         #
-        # This is DPMS, NOT an output disable: the outputs stay configured, so
-        # nothing moves windows or workspaces between monitors the way
-        # `niri msg output ... off` would.
-        #
-        # The `screen_off` action auto-pairs a ScreenOn resume, so any keyboard or
-        # mouse event wakes both screens — no resume_command needed, and no chance
-        # of being left staring at a black screen.
-        #
-        # Idle is inhibited by all three of the usual mechanisms, so this will not
-        # blank mid-film:
-        #   - zwp_idle_inhibitor_v1 (mpv, browsers playing video) — noctalia binds
-        #     the inhibitor-aware get_idle_notification, not the input-only variant
-        #   - org.freedesktop.ScreenSaver D-Bus inhibits (Steam, most games)
-        #   - the bar's Caffeine toggle / `noctalia msg caffeine-toggle`, for a
-        #     manual hold
-        #
-        # ⚠️ Sunshine does NOT inhibit idle. Moonlight's injected keyboard/mouse
-        # events are real uinput devices so they reset the timer, but a
-        # controller-only session sends nothing libinput can see — 5 minutes in,
-        # the screens DPMS off and the wlr capture goes with them. Hit Caffeine
-        # before a couch-gamepad stream (see Claude/streaming.md).
-        #
-        # Schema notes (upstream src/config/schema/config_schema.cpp):
-        #   - behaviors are a namedMap: `[idle.behavior.<name>]`, NOT `[[idle.behavior]]`
-        #   - the key is `timeout` (seconds), not `timeout_seconds`
-        #   - valid actions: lock | screen_off | suspend | lock_and_suspend, or any
-        #     other string to run `command` / `resume_command` as a shell action
-        #   - declaring ANY behavior replaces the built-in default list
-        #     (lock 600s, screen-off 660s, lock-and-suspend 900s — all three ship
-        #     `enabled = false`, so nothing is lost by dropping them). Leaving the
-        #     list empty is what restores those defaults.
-        [idle]
-        # Fullscreen dim as a warning before the action fires; any activity during
-        # the fade cancels it. 0 disables the warning. 2.0 is upstream's default,
-        # pinned here so the visible behaviour can't move under us.
-        pre_action_fade_seconds = 2.0
-
-        [idle.behavior.screen-off]
-        enabled = true
-        timeout = 300
-        action = "screen_off"
-
-        # ── Colours: skwd generates, noctalia fans out ────────────────────────────
-        # skwd-iris is the only palette generator on this host. It renders
-        # ~/.config/noctalia/palettes/skwd-wall.json on every wallpaper change
-        # (the `noctalia` integration in Modules/Desktop/skwd.nix) and then runs
-        # noctalia-apply-palette, which makes noctalia re-read it. noctalia
-        # recolours its own UI and pushes the palette to every template below.
-        #
-        # source MUST stay "custom". With source = "wallpaper", noctalia runs its
-        # OWN generator off its internal wallpaper path and skwd's palette is
-        # ignored — which gives two different palettes on one desktop, because
-        # skwd's picker chrome always themes itself from skwd-iris.
-        [theme]
-        source = "custom"
-        custom_palette = "skwd-wall"
-
-        # builtin_ids is deliberately empty. The builtin templates for kitty,
-        # starship and btop write a theme file and then run an apply.sh that
-        # appends an include to the app's main config — but kitty.conf,
-        # starship.toml and btop.conf are all read-only Nix store symlinks here,
-        # so the append cannot land. btop in particular is already handled by
-        # skwd's own integration, which renders the mapping owned by
-        # Modules/Shell/btop.nix into the `dots` theme that btop.conf actually selects;
-        # enabling the builtin as well just writes a second, unused noctalia.theme.
-        #
-        # community_ids is empty too, and Discord is the reason it must stay that
-        # way. The `discord` community template was enabled here on 2026-09-15 and
-        # had to be pulled the same day: it is a 20 KB full redesign with opaque
-        # panels, and this host runs Vesktop with transparent = true plus a
-        # quickCss that forces transparency with !important. Both loaded at once
-        # made Discord visibly glitch, and it only became visible once the palette
-        # started actually updating — before that the theme was frozen, so the
-        # conflict sat there statically.
-        #
-        # Discord now gets its colours from skwd instead, as a colours-only file
-        # that quickCss consumes. See Modules/Apps/discord.nix.
-        #
-        # The spicetify and steam community templates do not fit either: theirs
-        # target the Comfy/Colorful spicetify themes and the SFP Material-Theme
-        # Steam skin, while this host uses the `text` spicetify theme and
-        # Millennium/Zehn. Both stay on their own skwd integrations.
-        #
-        # Net effect: noctalia recolours its OWN UI from the skwd palette and
-        # fans out to nothing. Enable a template here only after checking its
-        # output path against what this host actually runs.
-        [theme.templates]
-        builtin_ids = [ ]
-        community_ids = [ ]
-
-        [shell.mpris]
-        # ⚠️ Possibly obsolete on v2 — see the matching note in Desktops/niri.nix.
-        # skwd-music was absent from the bus in a 2026-09-15 static-wallpaper test;
-        # it may only register for video / Wallpaper Engine wallpapers. Harmless
-        # to keep, so it stays until checked with a video wallpaper.
-        #
-        # skwd-daemon registers an inert org.mpris.MediaPlayer2.skwd-music player.
-        # It carries no metadata but reports CanControl/CanPlay/CanGoNext = true, so
-        # it can win noctalia's "active player" pick and swallow `noctalia msg media`.
-        # The niri media keys dodge it with playerctl --ignore-player; this is the
-        # same exclusion for noctalia's own media widget.
-        blacklist = [ "skwd-music" ]
-
-        [plugins]
-        enabled = [ "kenn/keybind-cheatsheet" ]
-
-        [[plugins.source]]
-        kind = "git"
-        location = "https://github.com/noctalia-dev/official-plugins"
-        name = "official"
-
-        [[plugins.source]]
-        kind = "git"
-        location = "https://github.com/noctalia-dev/community-plugins"
-        name = "community"
-
-        # NOTE: do NOT add a [plugins."kenn/keybind-cheatsheet"] block here to point the
-        # plugin at a custom niri config. Per-plugin TOML tables are silently dropped —
-        # settings.toml's [plugins] wins the merge outright — and TOML has no "~" expansion
-        # either way. The plugin instead uses its own default, ~/.config/niri/config.kdl,
-        # and follows the `include` directives found there; niri.nix generates that file
-        # plus the niri-keybinds.kdl it includes.
+        # noctalia is spawned by the compositor (niri's spawn-at-startup,
+        # Hyprland's exec-once), not systemd, so it is simply absent during a
+        # boot-time or --boot rebuild. Never fail activation for that.
+        ${lib.getExe config.programs.noctalia.package} msg config-reload >/dev/null 2>&1 || true
       '';
     };
   };

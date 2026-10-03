@@ -10,9 +10,10 @@
       ./_hardware.nix
 
       self.nixosModules.base
+      self.nixosModules.desktop
       self.nixosModules.grub
       self.nixosModules.plymouth
-      self.nixosModules.sddm-nier
+      self.nixosModules.sddm
       self.nixosModules.polkit
       self.nixosModules.thunar
       self.nixosModules.niri
@@ -40,6 +41,11 @@
       # one may run. See Modules/Gaming/wolf.nix.
       self.nixosModules.wolf
       self.nixosModules.rpcs3
+
+      {
+        # NieR: Automata greeter, with FOT-Rodin patched in (Modules/Boot/sddm.nix).
+        my.sddm.theme = "nier-automata";
+      }
     ];
   };
 }

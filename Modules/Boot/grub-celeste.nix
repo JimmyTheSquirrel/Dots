@@ -51,9 +51,8 @@
     };
   in {
     boot.loader = {
-      # Modules/Desktop/niri.nix does not touch the bootloader, but the host
-      # default is systemd-boot — turn it off explicitly so the two cannot both
-      # claim the ESP.
+      # Nothing else on Kit-Kat enables systemd-boot today; this is a guard so
+      # that a module which does can never leave two bootloaders claiming the ESP.
       systemd-boot.enable = lib.mkForce false;
 
       efi.canTouchEfiVariables = true;
@@ -63,20 +62,28 @@
         enable = true;
         efiSupport = true;
         device = "nodev";
-        useOSProber = true;
         configurationLimit = 10;
+
+        # Off. Her only disk is wiped and repartitioned by disko, so there is no
+        # other OS on it to find — the one thing os-prober WOULD find is the
+        # Apollo stick or any other drive left plugged in during a rebuild,
+        # baking a boot entry for it into her menu that dangles once it is
+        # removed. (That also makes the module's old `environment.systemPackages
+        # = [ pkgs.os-prober ]` moot; it was never needed anyway, since nixpkgs
+        # puts os-prober on install-grub's own PATH when this option is on.)
+        useOSProber = false;
 
         theme = "${celesteTheme}/share/grub/themes/CelesteGRUB";
 
         # The theme is drawn at a fixed 1080p. Without pinning the mode GRUB often
         # picks whatever EFI hands it (commonly 800x600 or 1024x768) and the
         # background is cropped or letterboxed with the menu off-centre.
+        #
+        # EFI only: there is no gfxmodeBios because there is no BIOS GRUB here
+        # (device = "nodev" installs the EFI image alone), and install-grub.pl
+        # only reads the BIOS mode when GRUB runs on a non-EFI platform.
         gfxmodeEfi = "1920x1080";
-        gfxmodeBios = "1920x1080";
       };
     };
-
-    # os-prober needs to be on PATH for `useOSProber` to find other installs.
-    environment.systemPackages = [ pkgs.os-prober ];
   };
 }
