@@ -92,12 +92,32 @@ in {
         terminal = false;
       };
 
-      # Clear Vesktop cache on rebuild to prevent EPIPE errors
-      home.activation.clearVesktopCache = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        rm -rf ~/.config/vesktop/Cache
-        rm -rf ~/.config/vesktop/Code\ Cache
-        rm -rf ~/.config/vesktop/GPUCache
-      '';
+      # Clear Vesktop's Chromium caches when — and only when — Vesktop itself
+      # changes. Added (with no more detail than "prevent EPIPE errors") as an
+      # unconditional wipe on EVERY switch, which cost a slow, cache-cold next
+      # launch each time and deleted files out from under a running Vesktop.
+      #
+      # What it guards against is Electron's: Cache / Code Cache / GPUCache are
+      # written by one Electron+Chromium build and are not guaranteed readable
+      # by the next, so stale caches after an upgrade are a classic source of
+      # crashes and broken IPC. The vesktop store path changes whenever Vesktop
+      # OR the Electron it is built on changes, so it is exactly the right key.
+      # The stamp records the build the caches were last cleared for; delete it
+      # to force a clear on the next switch.
+      home.activation.clearVesktopCache = lib.hm.dag.entryAfter [ "writeBoundary" ] (
+        let
+          stamp = "$HOME/.config/vesktop/.dots-vesktop-build";
+          build = pkgs.writeText "vesktop-build" "${pkgs.vesktop}";
+        in ''
+          if [ "$(cat "${stamp}" 2>/dev/null)" != "${pkgs.vesktop}" ]; then
+            run rm -rf "$HOME/.config/vesktop/Cache" \
+                       "$HOME/.config/vesktop/Code Cache" \
+                       "$HOME/.config/vesktop/GPUCache"
+            run mkdir -p "$HOME/.config/vesktop"
+            run install -m 0644 ${build} "${stamp}"
+          fi
+        ''
+      );
 
       # Vencord settings with transparent theme
       #
@@ -207,15 +227,24 @@ in {
       # wallpaper-tinted). It is self-correcting once Vencord has the value in
       # memory. If Discord looks untinted after a rebuild, reload it with Ctrl+R
       # and check this file rather than assuming the render pipeline broke.
+      #
+      # Home Manager's `run` cannot wrap a redirect (in a dry run it would echo
+      # the command INTO the file), so the write is DRY_RUN-guarded by hand —
+      # the same idiom HM's own modules use.
       home.activation.vesktopVencordSettings = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         VC="$HOME/.config/vesktop/settings/settings.json"
-        mkdir -p "$(dirname "$VC")"
-        [ -f "$VC" ] || echo '{}' > "$VC"
+        run mkdir -p "$(dirname "$VC")"
 
-        ${pkgs.jq}/bin/jq \
-          --arg theme ${builtins.toJSON matugenThemeFile} \
-          '.useQuickCss = true | .enabledThemes = [$theme]' \
-          "$VC" > "$VC.tmp" && mv "$VC.tmp" "$VC"
+        if [[ -v DRY_RUN ]]; then
+          echo "would patch $VC: useQuickCss, enabledThemes = [${matugenThemeFile}]"
+        else
+          [ -f "$VC" ] || echo '{}' > "$VC"
+
+          ${pkgs.jq}/bin/jq \
+            --arg theme ${builtins.toJSON matugenThemeFile} \
+            '.useQuickCss = true | .enabledThemes = [$theme]' \
+            "$VC" > "$VC.tmp" && mv "$VC.tmp" "$VC"
+        fi
       '';
     };
   };

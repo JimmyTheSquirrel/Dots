@@ -233,7 +233,7 @@ Note `pgrep -x vesktop` matches nothing — nixpkgs wraps it and `comm` is `elec
 
 **Symptom:** input volume ratchets *down* in small steps and never recovers — e.g. `1.00 → 0.94 → 0.88` within 75s. Because Chromium's AGC rewrites the **hardware** source volume via the Pulse API (which PipeWire honours) rather than applying gain in software, the damage is system-wide: every other app gets the reduced mic too.
 
-**Fix (in `discord.nix`):** add `--disable-features=WebRtcAllowInputVolumeAdjustment` to `vesktop/argv.json`. CLI equivalent of `chrome://flags#enable-webrtc-allow-input-volume-adjustment` → Disabled. Also turn off Discord → Settings → Voice & Video → **Automatic Gain Control** (server-side, not declarative).
+**Fix (in `discord.nix`):** `--disable-features=WebRtcAllowInputVolumeAdjustment`, passed by the `wrapProgram` wrapper (not `vesktop/argv.json`, which Vesktop never reads, see above). CLI equivalent of `chrome://flags#enable-webrtc-allow-input-volume-adjustment` → Disabled. Also turn off Discord → Settings → Voice & Video → **Automatic Gain Control** (server-side, not declarative).
 
 **Diagnosing which app:** monotonic downward steps = WebRTC AGC, so suspect Electron/Chromium clients first. `cs2` and `Noctalia Spectrum` also hold capture streams on Sisyphus but do their gain in software. To confirm, poll `wpctl get-volume @DEFAULT_AUDIO_SOURCE@` in a loop and log changes against the apps listed by `pw-dump | grep -B40 '"media.class": "Stream/Input/Audio"'`.
 
@@ -292,7 +292,7 @@ patch. Reload Discord with Ctrl+R; it is self-correcting once Vencord holds the
 value. The quickCss fallbacks mean the failure looks like "colours never
 applied", not like a broken client.
 
-**Cache clearing:** The module clears Vesktop cache directories (`Cache`, `Code Cache`, `GPUCache`) on each rebuild to prevent EPIPE errors. Login session is preserved.
+**Cache clearing:** The module clears Vesktop's Chromium caches (`Cache`, `Code Cache`, `GPUCache`) only when the Vesktop package changes. The store path is the key, so it also changes when the Electron underneath is updated. Electron caches are not guaranteed readable across builds; this was the original "EPIPE errors" fix. The stamp is `~/.config/vesktop/.dots-vesktop-build`; delete it to force a clear on the next switch. It used to wipe them on *every* switch, which made every next launch cache-cold and deleted files from under a running Vesktop. Login session is preserved either way.
 
 ## Thunar
 

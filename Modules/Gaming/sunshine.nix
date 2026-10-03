@@ -46,12 +46,12 @@
     # Web UI changes to sunshine.conf survive rebuilds (file only written when empty/missing),
     # EXCEPT hevc_mode, output_name and capture, which are always patched back to prevent
     # known regressions (wrong monitor, boot-time portal dialog).
-    home-manager.users.${activeUser} = { lib, ... }: {
-      home.activation.sunshineConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        CONF="$HOME/.config/sunshine/sunshine.conf"
-        mkdir -p "$(dirname "$CONF")"
-        if [ ! -s "$CONF" ]; then
-          cat > "$CONF" <<'EOF'
+    home-manager.users.${activeUser} = { lib, ... }:
+    let
+      # The first-run seed. A store file rather than a heredoc in the
+      # activation script so it can be installed with `run` (Home Manager's
+      # dry-run-aware wrapper), which cannot wrap a redirect.
+      seed = pkgs.writeText "sunshine.conf" ''
 # HEVC — the RIGHT codec for the Eclipse Pi 5 client. Changed 1 -> 2 on 2026-09-27.
 # 0=auto (advertise whatever the encoder supports), 1=do NOT advertise HEVC,
 # 2=advertise HEVC Main, 3=advertise HEVC Main+Main10.
@@ -101,14 +101,22 @@ output_name = HDMI-A-1
 # on the desktop each boot. Niri implements zwlr_screencopy_manager_v1, so wlgrab is
 # what actually streams anyway — pinning it skips the portal probe entirely.
 capture = wlr
-EOF
+      '';
+    in {
+      home.activation.sunshineConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        CONF="$HOME/.config/sunshine/sunshine.conf"
+        run mkdir -p "$(dirname "$CONF")"
+        if [ ! -s "$CONF" ]; then
+          run install -m 0644 ${seed} "$CONF"
         else
           # Re-apply the values that must not drift, even on existing configs.
+          # Both branches edit in place with sed so they can go through `run`
+          # (`$a` appends a line after the last one).
           enforce() {
             if grep -q "^$1" "$CONF"; then
-              sed -i "s/^$1\s*=.*/$1 = $2/" "$CONF"
+              run sed -i "s/^$1\s*=.*/$1 = $2/" "$CONF"
             else
-              echo "$1 = $2" >> "$CONF"
+              run sed -i "\$a $1 = $2" "$CONF"
             fi
           }
           enforce hevc_mode 2           # 2 = advertise HEVC Main — Pi 5 hw-decodes it; H.264 would be SOFTWARE
