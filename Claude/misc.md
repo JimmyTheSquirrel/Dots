@@ -143,7 +143,7 @@ These were once duplicated as zsh functions in `Resources/Zsh-Scripts/zsh-helper
 
 ## Audio
 
-**Module:** `Modules/Core/audio.nix` — minimal PipeWire setup (PulseAudio disabled, ALSA + PulseAudio compat enabled, rtkit for realtime scheduling).
+**Module:** `Modules/Core/audio.nix`: a minimal PipeWire setup. It has ALSA, PulseAudio compat via pipewire-pulse (the PulseAudio daemon stays off, the default), and rtkit for realtime scheduling. **WirePlumber's Bluetooth (bluez) monitor is on.** Until 2026-10-03 a `10-disable-bluez` profile turned it off on every desktop. Paired Bluetooth headphones then connected but never appeared as a sink. That was never intended.
 
 **Hardware:** Corsair Virtuoso XT Wireless (USB dongle, default sink/source). USB autosuspend is NOT an issue — the receiver is hardlocked to `power/control = on` by the kernel.
 

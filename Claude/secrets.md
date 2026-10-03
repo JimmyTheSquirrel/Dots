@@ -63,7 +63,29 @@ Also: never `git diff` a sops file — the output is noise.
 
 ## Path Fix
 
-`defaultSopsFile` must use `../Secrets/secrets.yaml` (one level up from `Modules/`), NOT `../../` which resolves to `/nix/store/Secrets` and breaks pure evaluation.
+`defaultSopsFile` is a path **relative to the module file**. The module now lives at
+`Modules/Core/sops.nix`, so it is `../../Secrets/secrets.yaml`. If the module moves, the
+path must move with it. One `../` too many resolves outside the flake source
+(`/nix/store/Secrets`) and breaks pure evaluation.
+
+## rock's login password
+
+`Modules/Core/sops.nix` wires `users.users.<activeUser>.hashedPasswordFile` to the
+`user-password-hash` secret (`neededForUsers`), on every host that imports `sops`
+(Sisyphus, Asgard). With `users.mutableUsers` at its default (`true`),
+nixpkgs' `update-users-groups.pl` applies that hash **only when the account is
+created**:
+
+- On an existing machine nothing changes. The current `/etc/shadow` hash is kept,
+  `passwd` still works and survives rebuilds, and editing the secret does **not**
+  change an existing password.
+- On a fresh install the account is born with the secret's password instead of a
+  locked one. That needs the age key in place at first activation; without it the
+  file does not exist and the account gets no password.
+
+A host must not also set `initialPassword`/`password`. nixpkgs warns at eval time
+when a user has more than one password option. `hashedPasswordFile` wins the
+precedence either way.
 
 ## Per-machine secrets (Kit-Kat)
 
@@ -78,6 +100,8 @@ keys). So another person's machine gets its own file:
   first matching rule, so the `[Ss]ecrets/.*\.yaml$` catch-all would otherwise
   swallow it and encrypt it without her key.
 - `Modules/Core/sops.nix` defines a second module, `sops-kitkat`, pointing at that file.
+  Both modules import one shared `sopsCommon` (the sops-nix module + the `sops`/`age`
+  CLI). Only the file, the key source and the secrets differ.
 
 Her identity is **derived from the machine's ssh host key**, not a hand-copied age key:
 
