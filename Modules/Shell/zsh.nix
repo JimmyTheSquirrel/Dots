@@ -1,8 +1,20 @@
 { ... }: {
-  flake.nixosModules.zsh = { pkgs, activeUser, ... }: {
+  flake.nixosModules.zsh = { pkgs, lib, activeUser, ... }: {
+    # The EDITOR fallback below. This is NixOS's default anyway; it is stated
+    # so that switching nano off elsewhere conflicts here, loudly, instead of
+    # leaving EDITOR naming a command that is not installed.
+    programs.nano.enable = true;
+
     home-manager.users.${activeUser} = { config, ... }: {
+      # A terminal editor that exists on EVERY host this module reaches.
+      # lib.mkDefault so Modules/Apps/vscodium.nix can replace it with
+      # `codium --wait` where VSCodium is actually installed.
+      #
+      # This was hardcoded to `codium --wait` everywhere, but Asgard and Apollo
+      # have no VSCodium — there `git commit`, `sudoedit` and `systemctl edit`
+      # all failed with "codium: command not found".
       home.sessionVariables = {
-        EDITOR = "codium --wait";
+        EDITOR = lib.mkDefault "nano";
       };
 
       programs.zsh = {

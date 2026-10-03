@@ -28,7 +28,9 @@ Uses **sops-nix** with age keys. Secrets decrypted at system activation, availab
    ```
 5. Available at `/run/secrets/my-api-key` after rebuild
 
-**Editor:** `EDITOR` is set to `codium --wait` in `zsh.nix`, so sops opens VSCodium.
+**Editor:** `EDITOR` is `codium --wait` wherever `Modules/Apps/vscodium.nix` is imported
+(Sisyphus, Kit-Kat), so sops opens VSCodium there. Everywhere else it falls back to
+`zsh.nix`'s `lib.mkDefault "nano"`. Asgard edits secrets in nano.
 
 ## Useful Commands
 
