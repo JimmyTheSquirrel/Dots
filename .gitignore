@@ -3,7 +3,8 @@ result
 result-*
 
 # A file literally named `$`, created by a shell quoting accident (`> $SOMETHING`
-# with the variable unset). One exists in the repo root: an 87 KB nixos-rebuild
-# log from 2026-09-15, no secrets in it, safe to delete. Ignored so the next
-# accident doesn't end up staged.
+# with the variable unset). Ignored so the next accident doesn't end up staged.
 $
+
+# Claude Code agent worktrees (temporary checkouts of this repo)
+.claude/worktrees/

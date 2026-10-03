@@ -187,7 +187,7 @@ screens and no way to tell whether the machine is alive, still booting, or wedge
 which is exactly what happened on the first real boot.
 
 It now autologins to a text console and prints `apollo-status`: tailnet state and IP,
-the exact ssh command, the disk list (which is what `installDisk` needs), the GPU
+the exact ssh command, the disk list (which is what `installDisk` in `Hosts/<Host>/_disko.nix` needs), the GPU
 (which is what `hardware.nvidia.open` needs) and RAM. If the tailnet is down it says
 so in red along with the `journalctl` command and the fix. It prints on ssh login too.
 
@@ -215,7 +215,7 @@ it, all of them still in the boot menu.
 `system-rebuild` is the single entry point:
 
 ```
-  1) Rebuild a system            -> Sisyphus / Odysseus / Kit-Kat, then switch/boot/test
+  1) Rebuild a system            -> Sisyphus / Kit-Kat, then switch/boot/build
   2) Deploy onto NEW hardware    -> pick the host, then dry-run / vm-test / INSTALL
   3) Apollo USB                  -> build+copy ISO / write key / connect
 ```
