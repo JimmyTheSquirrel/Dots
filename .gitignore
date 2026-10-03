@@ -8,3 +8,6 @@ $
 
 # Claude Code agent worktrees (temporary checkouts of this repo)
 .claude/worktrees/
+
+# Python bytecode from local syntax checks
+__pycache__/
