@@ -15,7 +15,7 @@
           ll = "ls -lh";
           la = "ls -lha";
           gs = "git status";
-          c = "navi";
+          # `c` (navi) is set in Modules/Shell/navi.nix, where navi itself is.
           brrt = "gofetch ~/Pictures/brrtfetch/gifs/defaults/brrt.gif";
         };
 
@@ -43,8 +43,13 @@
             fi
           }
 
+          # Start Claude Code in the Dots repo where there is one. Guarded because
+          # zsh is on every host and ~/Dots is not (Kit-Kat, Apollo): the old
+          # unguarded `cd ~/Dots && command claude` meant `claude` did nothing
+          # at all there except print "no such file or directory".
           claude() {
-            cd ~/Dots && command claude "$@"
+            [[ -d ~/Dots ]] && cd ~/Dots
+            command claude "$@"
           }
 
           zstyle ':completion:*' list-colors ''${(s.:.)LS_COLORS}

@@ -106,22 +106,40 @@ If you ever want the "quiet at idle" look back, the only safe way to get it is a
 
 `btop.conf` is a read-only store symlink, so btop's own "save on exit" is a no-op. Sorting, filters, and preset changes made with the keyboard last only for that session — change them in `Modules/Shell/btop.nix` to make them stick.
 
-## Navi Cheats
+## Navi Cheats and the deploy commands
 
-**Module:** `Modules/Shell/navi.nix`
+**Modules:** `Modules/Shell/navi.nix` (the tool) + `Modules/Shell/deploy-tools.nix` (rock's commands and cheats)
 
-Custom cheatsheet at `~/.config/navi/cheats/rhys.cheat`:
-- **System Cleanup** — `nix-gc` (GC, store optimise, journal vacuum)
-- **System Rebuild** — Interactive menu via `system-rebuild`
-- **Git Sync** — `git-sync "message"` for quick commits
-- **Edit Secrets** — `sops ~/Dots/Secrets/secrets.yaml`
+`navi.nix` is only the UI: `programs.navi` (config via `programs.navi.settings`, so no
+`NAVI_CONFIG`/`NAVI_PATH`), the `c` alias, the preview pane, and a `navi()` wrapper that
+blanks `FZF_DEFAULT_OPTS` for that one command. It ships no cheats of its own. Every entry
+that existed was rock-only, so on Kit-Kat `c` now opens an empty list where it used to
+offer commands that could not run there.
 
-Wrapper scripts provided (as `writeShellScriptBin` — the ONLY definition of these commands):
-- `system-rebuild` — Interactive or CLI system rebuild (menu includes Asgard + Test action)
-- `git-sync` — Stash, pull --rebase, push workflow
-- `nix-gc` — Full cleanup (GC + optimise + journal + podman prune)
+`deploy-tools.nix` is imported on **Sisyphus only**. It installs the commands below and
+`~/.config/navi/cheats/dots.cheat` (navi reads every `*.cheat` under its cheats path):
+- `system-rebuild`: interactive or CLI rebuild/deploy menu. Its third action is **Build**
+  (`nixos-rebuild build`, no sudo); it was mislabelled "Test" before. `--build` and the
+  old `--test` both mean build.
+- `git-sync`: stash, pull --rebase, push.
+- `nix-gc`: the do-it-now cleanup: `nix-collect-garbage -d` (**every** old generation),
+  `nix-store --optimise`, and `docker system prune` where Docker exists. The routine
+  version is automatic: weekly nix.gc/optimise and a journald cap in `base.nix`, and
+  Docker autoPrune in `wolf.nix`.
+- `apollo-iso`, `apollo-key`, `apollo-connect`, `apollo-deploy`: see `Claude/deploy.md`.
+  `apollo-connect` and `apollo-deploy` share one live-node lookup, `apollo-resolve`,
+  which is their runtime input and not on PATH.
+- `sops ~/Dots/Secrets/secrets.yaml`, `ssh asgard`, `ssh kitkat@kit-kat`: cheats only.
 
-These were once duplicated as zsh functions in `Resources/Zsh-Scripts/zsh-helpers.sh`, which caused the two copies to drift (navi ran a stale menu without Asgard). That file was deleted (July 2026) — do not reintroduce shell-function copies; edit the binaries here instead.
+Each command is a `pkgs.writeShellApplication` whose body is
+`Resources/Scripts/<name>.sh`, plain bash read with `builtins.readFile`. **shellcheck runs
+at build time**, so a finding fails the rebuild. You can also run it directly:
+`shellcheck --shell=bash Resources/Scripts/*.sh`. The bodies set no shell options because
+`writeShellApplication` already sets errexit/nounset/pipefail. `runtimeInputs` are
+*prepended* to `PATH`, so `sudo` (`/run/wrappers/bin`) and the system's own
+`nix`/`nixos-rebuild`/`tailscale` still resolve.
+
+These were once duplicated as zsh functions in `Resources/Zsh-Scripts/zsh-helpers.sh`, which caused the two copies to drift (navi ran a stale menu without Asgard). That file was deleted (July 2026). Do not reintroduce shell-function copies; edit `Resources/Scripts/` instead.
 
 ## Audio
 
