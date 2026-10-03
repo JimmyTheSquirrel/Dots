@@ -21,7 +21,7 @@ making Linux read drive temps does nothing if there is no channel to act on them
 
 ### Getting Linux to see the fans at all
 
-Config lives in `Hosts/Asgard/system.nix`. Without it the box reports **zero** fans — hwmon shows
+Config lives in `Hosts/Asgard/_hardware.nix`. Without it the box reports **zero** fans — hwmon shows
 only temperatures and not one `fan*_input` or `pwm*`, not even the CPU fan. Two separate blockers,
 and **both** must be handled or the fix silently no-ops:
 
@@ -134,8 +134,8 @@ stack), 5000 (Kavita), 25600 (Komga) or 2049/111 (NFS) any more.
 
   **The TRaSH stock profiles were deleted 2026-08-23** and their `trash_id` entries REMOVED from the
   recyclarr config. Do not put them back — recyclarr recreates any profile it is told to manage, and
-  they only cluttered Jellyseerr's dropdown. Jellyseerr defaults are set by
-  `seerr-radarr-profile`/`seerr-sonarr-profile`.
+  they only cluttered Jellyseerr's dropdown. Jellyseerr's defaults are set **by name** through
+  `nixflix.seerr.{radarr,sonarr}` — see *Jellyseerr default profiles* under Nixflix Notes.
 
   **`Asgard TV - 1080p` exists only for Game of Thrones.** Its sole 4K source is a Blu-ray remaster,
   ~17 GB/ep against 3.4 GB on disk — a 5x jump that would have added ~1 TB on its own, where the
@@ -286,8 +286,16 @@ What it does: series→profile mapping · `seriesType=anime` on the 5 anime · t
 profiles · sets Jellyfin `AudioLanguagePreference=eng` + `PlayDefaultAudioTrack=false` for every
 user except Rhys.
 
-Ordered **after** `seerr-*-profile` on purpose — Jellyseerr pointed at the stock "Any" profile,
-which this service deletes. Repoint first, then delete.
+Ordered **after** nixflix's `seerr-sonarr` / `seerr-radarr` on purpose — Jellyseerr pointed at the
+stock "Any" profile, which this service deletes. Repoint first, then delete. (It used to be ordered
+after the hand-written `seerr-*-profile` units, which only a timer ever started — so at boot that
+ordering did nothing.)
+
+**Best-effort by design, and now explicitly so.** The script runs under `set +e`: NixOS prepends
+`set -e` to every unit `script`, which had silently turned "log FAILED and carry on" into "abort at
+the first unguarded failed curl". It still fails loudly if Sonarr never answers at all.
+`jellyfin-providers` is the same. `books-setup` is the opposite — deliberately fail-fast, because each
+step feeds the next and `Restart=on-failure` (5 tries / 30 min) turns an early exit into a retry.
 
 Two things that block a profile delete and cost time if you don't know them:
 
@@ -770,7 +778,9 @@ Forms auth with the `admin-password` sops secret. No manual wizard step needed o
 - `article_cache_size = "1G"` — RAM cache
 - `direct_unpack = false` + `direct_unpack_tested = true` — **BOTH keys required.** SAB's `directunpacker.py:test_disk_performance()` auto-enables direct_unpack on any disk >100 MB/s unless `tested=true`. Direct unpack races with obfuscated-NZB deobfuscation (SAB forum t=27128) → mislabeled _FAILED_ folders.
 - `pre_check = 0` — skips SAB's pre-download article verification (the slow "Checking" phase in the queue UI). **Applied via SAB HTTP API, NOT nix** — nixflix's override for this specific key doesn't land in the generated template (mystery, TBD).
-- `host_whitelist` — asgard, container.internal, VPN namespace IP
+- `host_whitelist` — `asgard`, the MagicDNS name, the tailnet IP, `host.containers.internal`, the VPN
+  namespace IP. Built from `config.asgard.*`; it carried the **pre-re-key** tailnet IP
+  (100.119.193.77) until then
 - `inet_exposure = 4` — safe because tailnet-only
 - `x_frame_options = 0` — needed for Glance iframe
 - `web_color = "Night"`, `web_compact`, `web_fullscreen`, `web_tabbed` — UI
@@ -797,7 +807,8 @@ Use `hostConfig.password._secret` only.
 - Arr services: `nixflix.sonarr.config.apiKey._secret`
 - Jellyfin: `nixflix.jellyfin.apiKey._secret` (no `config` wrapper)
 - Jellyfin users: `nixflix.jellyfin.users.admin.password._secret`
-- Seerr: `nixflix.seerr.apiKey._secret` (no `config` wrapper), requires `package = pkgs.jellyseerr`
+- Seerr: `nixflix.seerr.apiKey._secret` (no `config` wrapper). Package left at nixflix's default
+  `pkgs.seerr` — naming `pkgs.jellyseerr` only produced a rename warning on every eval
 
 **nixflix systemd services:**
 - `seerr.service` — the Jellyseerr process (NOT `jellyseerr.service`)
@@ -805,17 +816,34 @@ Use `hostConfig.password._secret` only.
 - `seerr-env.service` — writes API key header file
 - `jellyfin-setup-wizard.service` — Jellyfin initial setup (creates admin user + libraries)
 
-**Custom Jellyseerr quality profile services (in server.nix):**
-- `seerr-radarr-profile.service` + timer — sets Radarr default quality profile to "Asgard - Movies"
-- `seerr-sonarr-profile.service` + timer — sets Sonarr default to "Asgard - TV" **and the separate
-  `activeAnimeProfileId` to "Asgard - Anime"**. Jellyseerr keeps a distinct anime profile setting;
-  it previously pointed at the TV profile, so anime requests never got the fansub tier scoring.
-- Both run after `seerr-setup.service`, `Restart = on-failure` + `RestartSec = 30`, plus
-  `StartLimitBurst = 5` so a persistent failure gives up instead of looping.
-- **Auth is the `jellyseerr-api-key`, NOT a Jellyfin session cookie.** The older cookie flow is what
-  broke them — see below.
+**Jellyseerr default profiles — set by name, through nixflix (2026-10-03):**
 
-> ### ⚠️ These failed silently for three weeks — the fix is not the error you see
+```nix
+nixflix.seerr.radarr = lib.mkOptionDefault { Radarr.activeProfileName = "Asgard - Movies"; };
+nixflix.seerr.sonarr = lib.mkOptionDefault { Sonarr = {
+  activeProfileName = "Asgard - TV";
+  activeAnimeProfileName = "Asgard - Anime";   # Jellyseerr keeps a SEPARATE anime profile
+  animeSeriesType = lib.mkForce "anime";
+}; };
+```
+
+- **Why:** nixflix's `seerr-radarr` / `seerr-sonarr` units PUT the whole instance config on *every*
+  boot and rebuild, and with no name set they pick `.profiles[0]`. The two hand-written
+  `seerr-radarr-profile` / `seerr-sonarr-profile` timer units that used to "fix" this ran once, 12 min
+  after boot — so after any `nixos-rebuild switch` nixflix had the last word and **anime requests used
+  the TV profile**. Both units are gone; nixflix's own PUT now writes the right names.
+- ⚠️ **`mkOptionDefault` is load-bearing.** nixflix builds the instance (hostname, apiKey, root
+  folder, `isDefault`…) as the option's *default*. A normal definition replaces that default
+  wholesale; one at the same `mkOptionDefault` priority merges with it. `animeSeriesType` needs
+  `mkForce` because the default instance pins `"standard"` at that same priority.
+- Both units are ordered **after `recyclarr-sync`** (and `wants` it — otherwise only a timer starts
+  it, and `after` would order nothing), because recyclarr is what creates the profiles. nixflix exits
+  1 if a named profile is missing: on a fresh install that means "recyclarr hasn't synced yet", and it
+  converges on the next boot/rebuild. Note `seerr-sonarr` *requires* `seerr-radarr`.
+- `arr-policy` still decides which profile each **existing** series uses; an anime it doesn't list is
+  put back on `Asgard - TV`.
+
+> ### ⚠️ The old profile units failed silently for three weeks — the fix is not the error you see
 >
 > From 2026-07-31 to 2026-08-23 both units failed every 30s (**restart counter 2665**), which also
 > made every `nixos-rebuild switch` exit 4.
@@ -836,7 +864,9 @@ Use `hostConfig.password._secret` only.
 
 **Known nixflix bug (v1.2.0):** `seerr-setup.service` fails on library fetch step (`curl -sf` exits 22).
 The Jellyfin connection IS established on first run — only the library activation fails.
-Our `seerr-library-setup.service` handles this (see below).
+Our `seerr-library-setup.service` handles this (see below). Once Jellyseerr is initialised — i.e. on
+the live box, every boot — that unit exits at its first check; it is kept only as the fresh-install
+fallback, since `seerr-setup` cannot recover from that half-done state on its own.
 
 ---
 
@@ -858,7 +888,9 @@ Defined in `Modules/Server/server.nix`, runs after `seerr-setup.service`.
 6. Marks done: `POST /api/v1/settings/initialize`
 
 ### Critical API notes
-- **Session cookie required** for all settings endpoints — API key (`X-Api-Key`) does NOT work
+- **Session cookie** for the wizard flow below (login → libraries → initialize). The *settings*
+  endpoints also accept `X-Api-Key` — see the "failed silently for three weeks" note above; an older
+  version of this bullet claimed otherwise
 - **Login endpoint:** `POST /api/v1/auth/jellyfin`
   - Fresh setup (no Jellyfin configured): send full payload `{username, password, hostname, port, useSsl, urlBase, email, serverType}`
   - After setup (Jellyfin already wired): send ONLY `{username, password}` — full payload returns HTTP 500 "already configured"
@@ -906,8 +938,6 @@ prowlarr-api-key
 jellyseerr-api-key
 sabnzbd-api-key
 sabnzbd-nzb-key
-sabnzbd-username                   # SABnzbd web UI username
-sabnzbd-password                   # SABnzbd web UI password
 usenet/frugalusenet/username       # FrugalUsenet NNTP username
 usenet/frugalusenet/password       # FrugalUsenet NNTP password
 indexer-api-keys/Miatrix           # Prowlarr indexer API key
@@ -922,7 +952,14 @@ mullvad-wg-private-key             # WireGuard private key from Mullvad (SABnzbd
 usenet/newshosting/username        # Newshosting NNTP username
 usenet/newshosting/password        # Newshosting NNTP password
 user-password-hash                 # bcrypt password hash ($ signs get mangled by sops --set)
+eclipse-ssh-key                    # Asgard → Eclipse SSH key (eclipse-control), mode 0400
+tailscale-auth-key                 # joins Asgard (authKeyFile) AND the marsbar node — Core/sops.nix
+ha-token                           # Home Assistant long-lived token, 0444 — home-assistant.nix
 ```
+
+**Still in `secrets.yaml` but no longer declared** (safe to delete from the file):
+`sabnzbd-username` / `sabnzbd-password` (never read — SAB's UI auth is off, tailnet-only),
+`grafana-admin-password` (Grafana removed), `kavita-token-key` (Kavita removed).
 
 **Cloudflare tunnel UUID:** `804d54a8-e7ad-4f34-812d-3052cf862c47` (in server.nix)
 **Tunnel created with:** `cloudflared tunnel create asgard` on Sisyphus
@@ -1125,7 +1162,7 @@ start — diagnosable remotely instead of needing hands on the machine.
 **NVMe** (`nvme0n1`): ESP (`/boot`) + root (`/`). Fast storage for OS + downloads.
 **HDD1** (8TB, partlabel `disk-hdd-data`): `/mnt/disk1` — mergerfs branch + photos + arr state.
 **HDD2** (12TB, partlabel `disk-hdd2-data`): `/mnt/disk2` — mergerfs branch.
-Disko partitioning declared inline in `Hosts/Asgard/system.nix`. **Never reference `/dev/sdX`** —
+Disko partitioning declared in `Hosts/Asgard/_disko.nix`. **Never reference `/dev/sdX`** —
 the letters shuffle between boots.
 
 ```
@@ -1148,10 +1185,18 @@ the letters shuffle between boots.
 
 ## Shared Media Group
 
-GID 1001. All services that need `/data/media` access are in this group:
-- `users.groups.media = { gid = 1001; }`
-- rock user, jellyfin user, readarr user
-- Containers use `PGID=1001`
+**GID 169** — the group and its gid are **nixflix's** (`mkForce`d in its jellyfin module). All
+services that need `/data/media` access are in this group:
+- rock and jellyfin (`extraGroups`), the arr services (nixflix's `SupplementaryGroups`), suwayomi
+  (primary group)
+- Containers: Shelfarr's `PGID` and its `/var/lib/shelfarr` tmpfiles owner are both
+  `config.users.groups.media.gid` — never a literal
+
+⚠️ **This doc and the config used to say "GID 1001"**, from a `users.groups.media.gid = 1001` that
+never took effect — nixflix's `mkForce` won silently. Shelfarr ran with `PGID=1001`, a gid with no
+group on the host, which is why `/data/media/books` and `/data/media/audiobooks` are `0777` where
+every sibling is `0775`. **Follow-up:** `chgrp -R media` those two trees (files written under gid
+1001), then drop them to `0775` in the tmpfiles rules.
 
 ---
 
@@ -1159,16 +1204,20 @@ GID 1001. All services that need `/data/media` access are in this group:
 
 1. Populate sops secrets: `sops ~/Dots/Secrets/secrets.yaml`
 2. Install NixOS: `nixos-install --flake .#rock-Asgard` (nixos-anywhere had issues, manual install worked)
-3. Set partition labels to match disko: `disk-nvme-ESP`, `disk-nvme-root`, `disk-hdd-data`
-4. On first boot:
-   - Join Tailscale: `sudo tailscale up` on Asgard (stock Tailscale, no Headscale)
-   - Immich admin account is auto-created by `immich-admin-seed.service`
-   - FileBrowser credentials auto-synced from sops by `filebrowser-credentials.service`
-   - Jellyfin branding CSS (hides seek-bar chapter tick marks; lives in Jellyfin state, not Nix):
-     `curl -X POST http://localhost:8096/System/Configuration/branding -H "Authorization: MediaBrowser Token=$(sudo cat /run/secrets/jellyfin-api-key)" -H "Content-Type: application/json" -d '{"LoginDisclaimer":"","CustomCss":".sliderMarker { display: none !important; }","SplashscreenEnabled":false}'`
-   - Jellyfin remote client bitrate limit — default 12 Mbps throttles any client Jellyfin doesn't
-     see as LAN (includes Eclipse over Tailscale, see `Claude/eclipse.md`). Also imperative state:
-     `curl -s -H "X-Emby-Token: $(sudo cat /run/secrets/jellyfin-api-key)" http://localhost:8096/System/Configuration | jq '.RemoteClientBitrateLimit = 40000000' | curl -s -X POST -H "X-Emby-Token: $(sudo cat /run/secrets/jellyfin-api-key)" -H "Content-Type: application/json" --data @- http://localhost:8096/System/Configuration`
+3. Set partition labels to match disko: `disk-nvme-ESP`, `disk-nvme-root`, `disk-hdd-data`,
+   `disk-hdd2-data`, and create `/mnt/disk2/media` by hand (mergerfs will not mount a missing branch)
+4. On first boot, all of these happen by themselves — listed so nobody goes looking for a step:
+   - Tailscale joins the tailnet from the sops `tailscale-auth-key` (`services.tailscale.authKeyFile`
+     → `tailscaled-autoconnect.service`, a no-op once logged in)
+   - Immich admin account is created by `immich-admin-seed.service`
+   - FileBrowser credentials are synced from sops by `filebrowser-credentials.service`
+   - Audiobookshelf + Shelfarr are wired by `books-setup.service`
+   - Jellyfin's branding CSS (hides the seek-bar chapter tick marks) is
+     `nixflix.jellyfin.branding.customCss` — it used to be a hand-run curl here, and nixflix wiped it
+     on every boot because the option defaulted to `""`
+   - Jellyfin's remote bitrate cap is `nixflix.jellyfin.system.remoteClientBitrateLimit` (40 Mbps)
+   - rock's password comes from the sops `user-password-hash` (Core/sops.nix) — there is no
+     `initialPassword` fallback on Asgard any more
 5. Everything else (arr wiring, Jellyseerr setup, Glance dashboard) is automatic
 
 ---

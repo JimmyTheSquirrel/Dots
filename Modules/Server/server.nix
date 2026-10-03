@@ -2,6 +2,9 @@
 
   flake.nixosModules.server = { config, pkgs, lib, activeUser, ... }:
   let
+    inherit (import ./_lib.nix { inherit pkgs; }) waitForHttp;
+    inherit (config.asgard) tailnetIp tailnetFqdn lanInterface vethHostIp vethNamespaceIp;
+
     # ── Glance assets (served at /assets/) ──
     glanceAssets = pkgs.runCommand "glance-assets" {} ''
       mkdir -p $out
@@ -1291,7 +1294,8 @@
         # declaratively (they require an existing logged-in session), so this
         # one was created by hand in the HA UI and stored in sops as
         # `ha-token`. `''${secret:ha-token}` is Glance's OWN secret-file syntax
-        # (reads /run/secrets/ha-token at request time) — the token never
+        # (reads /run/secrets/ha-token when Glance loads this config — once,
+        # at startup, so a rotated token needs a Glance restart) — the token never
         # touches the Nix store. See Modules/Server/home-assistant.nix for the
         # sops.secrets declaration (mode 0444 — Glance is a DynamicUser, so
         # there's no static user to own the file).
@@ -1665,7 +1669,58 @@
   in
   {
 
-    imports = [ inputs.nixflix.nixosModules.default ];
+    imports = [
+      inputs.nixflix.nixosModules.default
+
+      # ── Asgard facts that more than one unit needs ──
+      # Read-only options rather than a `let`, so that every unit — and
+      # Hosts/Asgard/system.nix — reads the one definition. Each of these was
+      # previously typed out in several places, and SABnzbd's host_whitelist
+      # still carried the tailnet IP from before the node was re-keyed.
+      ({ lib, ... }: {
+        options.asgard = {
+          tailnetIp = lib.mkOption {
+            type = lib.types.str;
+            default = "100.126.205.100";
+            readOnly = true;
+            description = ''
+              Asgard's Tailscale IPv4. Stable for the life of the node key, but NOT
+              forever — it was 100.119.193.77 before a re-key.
+            '';
+          };
+          tailnetFqdn = lib.mkOption {
+            type = lib.types.str;
+            default = "asgard.tailb54b82.ts.net";
+            readOnly = true;
+            description = "Asgard's MagicDNS name on the tailnet.";
+          };
+          lanInterface = lib.mkOption {
+            type = lib.types.str;
+            default = "enp3s0";
+            readOnly = true;
+            description = ''
+              The wired LAN NIC — the one WAN egress is shaped on, the network panel
+              samples, and the few LAN-scoped firewall holes are opened on.
+            '';
+          };
+          vethHostIp = lib.mkOption {
+            type = lib.types.str;
+            default = "10.200.1.1";
+            readOnly = true;
+            description = ''
+              Host end (veth-vpn-br) of the veth pair into the Mullvad namespace — the
+              one address reachable from BOTH the podman containers and SABnzbd.
+            '';
+          };
+          vethNamespaceIp = lib.mkOption {
+            type = lib.types.str;
+            default = "10.200.1.2";
+            readOnly = true;
+            description = "Namespace end (veth-vpn) of that pair, where SABnzbd listens.";
+          };
+        };
+      })
+    ];
 
 # ══════════════════════════════════════════════════════════════════════════════
 # NIXFLIX — Arr Stack + Jellyfin + SABnzbd
@@ -1788,13 +1843,57 @@
           enableThrottling = true;
           enableSegmentDeletion = true;
         };
+
+        # Hides the chapter tick marks on the seek bar. This used to be a
+        # one-off curl in the Fresh Deploy Checklist and was WIPED ON EVERY
+        # BOOT: nixflix's jellyfin-branding-config.service POSTs this option to
+        # /System/Configuration/Branding each time it runs, and its default is
+        # "" — so the hand-pasted CSS lasted only until the next reboot.
+        branding.customCss = ".sliderMarker { display: none !important; }";
       };
 
-      # Jellyseerr — media request portal (exposed via Cloudflare tunnel)
+      # Jellyseerr — media request portal (exposed via Cloudflare tunnel).
+      # Package left at nixflix's default (pkgs.seerr); naming the old
+      # `jellyseerr` attribute only bought a rename warning on every eval.
       seerr = {
         enable = true;
-        package = pkgs.jellyseerr;
         apiKey._secret = config.sops.secrets."jellyseerr-api-key".path;
+
+        # ── Default quality profiles for requests ──
+        # nixflix's seerr-radarr / seerr-sonarr units PUT the instance config on
+        # EVERY boot and rebuild. With no profile name set they pick
+        # `.profiles[0]` — the first profile Radarr/Sonarr list — so after any
+        # rebuild every request (anime included) fell back to whichever profile
+        # sorted first. The old fix was a pair of hand-written timer units that
+        # re-set the profiles 12 min after boot; they lost the race on every
+        # `nixos-rebuild switch`, and anime requests then used the TV profile.
+        # Naming the profiles here makes nixflix's own PUT the correct one.
+        #
+        # The profiles are created by recyclarr-sync (see the Recyclarr section),
+        # so both units are ordered after it below. nixflix exits 1 if a named
+        # profile is missing — on a fresh install that means "recyclarr has not
+        # managed a sync yet", and it converges on the next boot/rebuild.
+        #
+        # ⚠ mkOptionDefault is LOAD-BEARING. nixflix builds the Radarr/Sonarr
+        # instances (hostname, apiKey, root folder…) as the option's *default*;
+        # an ordinary definition would REPLACE that default wholesale and drop
+        # all of it. Defining at the same mkOptionDefault priority makes the two
+        # merge instead.
+        radarr = lib.mkOptionDefault {
+          Radarr.activeProfileName = "Asgard - Movies";
+        };
+        sonarr = lib.mkOptionDefault {
+          Sonarr = {
+            activeProfileName = "Asgard - TV";
+            # Jellyseerr keeps a separate anime profile; left unset it reuses the
+            # TV profile, and anime never got the fansub-tier scoring.
+            activeAnimeProfileName = "Asgard - Anime";
+            # Absolute episode numbering, matching what arr-policy sets on the
+            # anime series it knows about. mkForce: nixflix's default instance
+            # pins "standard", and both definitions sit at the same priority.
+            animeSeriesType = lib.mkForce "anime";
+          };
+        };
       };
 
       # SABnzbd usenet download client
@@ -1810,7 +1909,11 @@
             abort_max_missing = 10;
             fail_hopeless_jobs = true;
             pause_on_pwrar = 2;            # 0=warn, 1=pause, 2=abort. Abort → Failed status → Decluttarr blocklists + Sonarr/Radarr re-search. Prevents jobs stalling forever on encrypted/corrupt RARs.
-            host_whitelist = "asgard,asgard.tailb54b82.ts.net,100.119.193.77,host.containers.internal,10.200.1.2";
+            # Every name SAB is reached by. The tailnet IP here was stale
+            # (100.119.193.77, from before a re-key) until it was derived.
+            host_whitelist = lib.concatStringsSep "," [
+              "asgard" tailnetFqdn tailnetIp "host.containers.internal" vethNamespaceIp
+            ];
             inet_exposure = 4;
             x_frame_options = 0;
             web_color = "Night";
@@ -1883,9 +1986,20 @@
     systemd.services.sabnzbd.path = [ pkgs.unrar ];
 
 
-    # Completes the Jellyseerr setup wizard declaratively:
-    # logs in via Jellyfin creds, syncs + enables all libraries, marks initialized.
-    # Uses session cookie auth (same as nixflix's seerr-setup) — idempotent.
+    # Fallback for a first boot where nixflix's seerr-setup dies half-way.
+    #
+    # nixflix's seerr-setup connects Jellyfin, enables the libraries and POSTs
+    # /settings/initialize — but on the original deploy it died at the library
+    # fetch (`curl -sf` exit 22) AFTER connecting Jellyfin and BEFORE initialising.
+    # From that state it can never recover on its own: every later run re-sends
+    # the full connect payload, which Jellyseerr rejects as "already configured".
+    # This unit finishes the job from there: logs in with credentials only,
+    # syncs + enables all libraries, marks the wizard initialised.
+    #
+    # On any install where seerr-setup completed — i.e. the live box, every
+    # boot — its first check sees `initialized == true` and exits. Kept because
+    # a fresh install cannot be tested here; drop it once one has been seen to
+    # come up without it. Uses session cookie auth (same as nixflix's seerr-setup).
     systemd.services.seerr-library-setup = {
       description = "Activate all Jellyfin libraries in Jellyseerr";
       after    = [ "seerr.service" "seerr-setup.service" "network.target" ];
@@ -1901,12 +2015,7 @@
         SEERR="http://localhost:5055"
         COOKIE="/tmp/seerr-library-setup-cookie"
 
-        # Wait up to 2 minutes for Jellyseerr
-        for i in $(seq 1 24); do
-          if curl -sf "$SEERR/api/v1/status" > /dev/null 2>&1; then break; fi
-          echo "Waiting for Jellyseerr... ($i/24)"
-          sleep 5
-        done
+        ${waitForHttp { name = "Jellyseerr"; url = "$SEERR/api/v1/status"; tries = 24; interval = 5; }}
 
         # Skip if already initialized
         if curl -s "$SEERR/api/v1/settings/public" | jq -e '.initialized == true' > /dev/null; then
@@ -1914,14 +2023,19 @@
           exit 0
         fi
 
-        # Log in with credentials only (no server config — Jellyfin is already wired by nixflix)
+        # Log in with credentials only (no server config — Jellyfin is already wired by nixflix).
+        # The body is built by jq from the environment and piped to curl, so the
+        # password is neither spliced into JSON by hand (a quote in it would
+        # break the body) nor visible in any process's argv under /proc.
         echo "Logging in..."
         ADMIN_PASS=$(cat ${config.sops.secrets."jellyfin-admin-password".path})
-        LOGIN_CODE=$(curl -s -c "$COOKIE" -X POST \
-          -H "Content-Type: application/json" \
-          -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}" \
-          -w "%{http_code}" -o /dev/null \
-          "$SEERR/api/v1/auth/jellyfin")
+        export ADMIN_PASS
+        LOGIN_CODE=$(jq -n '{username: "admin", password: $ENV.ADMIN_PASS}' \
+          | curl -s -c "$COOKIE" -X POST \
+              -H "Content-Type: application/json" \
+              --data-binary @- \
+              -w "%{http_code}" -o /dev/null \
+              "$SEERR/api/v1/auth/jellyfin")
 
         if [ "$LOGIN_CODE" != "200" ] && [ "$LOGIN_CODE" != "201" ]; then
           echo "Login failed (HTTP $LOGIN_CODE)" >&2; exit 1
@@ -1957,10 +2071,9 @@
 # Shelfarr:       port 5056  — Jellyseerr-style request portal for books
 #   Connects to Prowlarr (search) + SABnzbd (download) → delivers to ABS
 #
-# Post-boot (one-time): open Shelfarr at localhost:5056 → Admin → Settings:
-#   Prowlarr: http://localhost:9696 + prowlarr-api-key (from sops)
-#   SABnzbd:  http://localhost:8080 + sabnzbd-api-key (from sops)
-#   ABS:      http://localhost:13378 + key from ABS Settings → API Keys
+# All the wiring between the three (ABS root user + libraries + API key,
+# Shelfarr's indexer / download client / ABS connection) is done by
+# books-setup.service below — there is no post-boot clicking.
 # ══════════════════════════════════════════════════════════════════════════════
 
     # Audiobookshelf — ebook + audiobook server
@@ -1993,7 +2106,12 @@
       ];
       environment = {
         PUID                = "1000";
-        PGID                = "1001";
+        # The real `media` gid. This was a literal "1001", copied from a
+        # `users.groups.media.gid = 1001` that never took effect — nixflix
+        # mkForces the group to 169 — so the container ran in a group that
+        # does not exist on the host. That is also why /data/media/books and
+        # audiobooks are 0777 (see the tmpfiles rules).
+        PGID                = toString config.users.groups.media.gid;
         SOLID_QUEUE_IN_PUMA = "1";
         HTTP_PORT           = "4000";  # Go proxy port — must differ from Rails/Puma (3000)
       };
@@ -2078,7 +2196,7 @@
         };
       });
 
-      # Primary group `media` (gid 1001) is what grants write access to
+      # Primary group `media` (gid 169, nixflix's) is what grants write access to
       # /data/media/manga. The module still creates the `suwayomi` user itself —
       # only the group is overridden, so it does not try to create `media` twice.
       group = "media";
@@ -2177,8 +2295,8 @@
     # (`indexer_provider` / `prowlarr_url` / `prowlarr_api_key`) instead. Getting
     # this wrong looks like a working config that silently finds nothing.
     #
-    # ⚠️ `prowlarr_url` is `http://10.200.1.1:9696` — the veth host address —
-    # and is deliberately DIFFERENT from every other URL here.
+    # ⚠️ `prowlarr_url` is `http://10.200.1.1:9696` — the veth host address,
+    # `asgard.vethHostIp` — and is deliberately DIFFERENT from every other URL here.
     # Shelfarr builds each result's download_url from it and gives SABnzbd
     # `mode=addurl`, so SAB fetches the NZB itself. SAB lives in the Mullvad
     # network namespace and is *not* a podman container, so it cannot resolve
@@ -2201,38 +2319,57 @@
       after = [ "podman-shelfarr.service" "podman-audiobookshelf.service" "podman-flaresolverr.service" ];
       wants = [ "podman-shelfarr.service" "podman-audiobookshelf.service" "podman-flaresolverr.service" ];
       wantedBy = [ "multi-user.target" ];
-      unitConfig.RequiresMountsFor = [ "/data/media" ];
+      # Retry a failed run, but give up after 5 tries instead of looping forever.
+      # These are UNIT settings: under [Service] StartLimitBurst has no interval
+      # to count against, so it never tripped. 30 min rather than the 10 its
+      # siblings use, because one attempt can legitimately spend 5 min waiting
+      # for Audiobookshelf — five slow attempts must still land in one window.
+      unitConfig = {
+        RequiresMountsFor = [ "/data/media" ];
+        StartLimitIntervalSec = 1800;
+        StartLimitBurst = 5;
+      };
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
         Restart = "on-failure";
         RestartSec = 30;
-        StartLimitBurst = 5;
       };
-      path = with pkgs; [ curl gnugrep gnused coreutils podman ];
+      path = with pkgs; [ curl jq gnugrep gnused coreutils podman ];
       script = ''
-        set -uo pipefail
+        # Fail fast, on purpose. This was written as `set -uo pipefail` — but
+        # NixOS prepends `set -e` to every unit script, so it has always been
+        # fail-fast in practice, and that is the right behaviour here: every
+        # step feeds the next (no token, no libraries, no API key → a Shelfarr
+        # that "succeeds" with half a config), and Restart=on-failure above is
+        # what turns an early exit into a retry. Spelled out so it is not an
+        # accident any more.
+        set -euo pipefail
         ABS=http://localhost:13378
 
-        # ── wait for Audiobookshelf ──
-        for i in $(seq 1 60); do
-          curl -sf --max-time 5 "$ABS/status" >/dev/null 2>&1 && break
-          sleep 5
-        done
+        ${waitForHttp { name = "Audiobookshelf"; url = "$ABS/status"; tries = 60; interval = 5; }}
 
         U=$(cat ${config.sops.secrets."admin-username".path})
         P=$(cat ${config.sops.secrets."admin-password".path})
+        # Credentials go into JSON via jq reading the environment, never spliced
+        # in by hand: a quote in the password used to break the body, and on the
+        # command line it was readable by anyone in /proc/<pid>/cmdline.
+        export U P
+        creds() { jq -n '{username: $ENV.U, password: $ENV.P}'; }
 
         # ── 1. root user (only if the server has never been initialised) ──
         if ! curl -sf --max-time 10 "$ABS/status" | grep -q '"isInit":true'; then
           echo "ABS: initialising root user"
-          curl -sf --max-time 20 -X POST "$ABS/init" -H 'Content-Type: application/json' \
-            -d "{\"newRoot\":{\"username\":\"$U\",\"password\":\"$P\"}}" >/dev/null
+          creds | jq '{newRoot: .}' \
+            | curl -sf --max-time 20 -X POST "$ABS/init" -H 'Content-Type: application/json' \
+                --data-binary @- >/dev/null
         fi
 
-        TOK=$(curl -sf --max-time 20 -X POST "$ABS/login" -H 'Content-Type: application/json' \
-          -d "{\"username\":\"$U\",\"password\":\"$P\"}" \
-          | grep -oE '"(accessToken|token)":"[^"]+"' | head -1 | sed 's/.*:"//;s/"//')
+        # `|| true`: under set -e a failed login would abort inside the command
+        # substitution, before the explicit message below could say why.
+        TOK=$(creds | curl -sf --max-time 20 -X POST "$ABS/login" -H 'Content-Type: application/json' \
+          --data-binary @- \
+          | grep -oE '"(accessToken|token)":"[^"]+"' | head -1 | sed 's/.*:"//;s/"//') || true
         [ -n "$TOK" ] || { echo "ABS: login failed"; exit 1; }
 
         # ── 2. libraries, keyed by name so a re-run never duplicates them ──
@@ -2295,7 +2432,7 @@
 
               # veth host address, NOT host.containers.internal. See the note
               # above the service definition - do not change without reading it.
-              %q(prowlarr_url)      => %q(http://10.200.1.1:9696),
+              %q(prowlarr_url)      => %q(http://${vethHostIp}:9696),
               %q(prowlarr_api_key)  => ENV.fetch(%q(PROWLARR_KEY)),
               %q(audiobookshelf_url) => ENV.fetch(%q(ABS_URL)),
               %q(audiobookshelf_ebook_library_id)     => ENV.fetch(%q(ABS_EBOOK_LIB)),
@@ -2353,10 +2490,7 @@
           echo "books-setup: settings changed, restarting shelfarr to clear its cache"
           ${pkgs.systemd}/bin/systemctl restart podman-shelfarr
 
-          for i in $(seq 1 24); do
-            curl -sf -o /dev/null --max-time 5 http://localhost:5056/session/new && break
-            sleep 5
-          done
+          ${waitForHttp { name = "Shelfarr"; url = "http://localhost:5056/session/new"; tries = 24; interval = 5; }}
 
           # Stored `SearchResult.download_url` rows keep whatever prowlarr_url
           # was in effect when that search ran. A URL change therefore strands
@@ -2384,39 +2518,21 @@
     };
 
 
-    # Homepage removed — replaced by Glance (port 8888)
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTOMATION — Decluttarr queue cleaner
-# Polls arr service APIs to remove stalled/failed downloads automatically.
-# DEFERRED until first boot (needs arr API keys generated by services).
-# After first boot:
-#   1. Retrieve API keys from each service (Settings → General → API Key)
-#   2. Add to sops: sops ~/Dots/Secrets/secrets.yaml
-#        decluttarr-env: |
-#          SONARR_URL=http://localhost:8989
-#          SONARR_KEY=<key>
-#          RADARR_URL=http://localhost:7878
-#          RADARR_KEY=<key>
-#          LIDARR_URL=http://localhost:8686
-#          LIDARR_KEY=<key>
-#          SABNZBD_URL=http://localhost:8080
-#          SABNZBD_KEY=<key>
-#          REMOVE_STALLED=True
-#          REMOVE_FAILED_IMPORTS=True
-#          REMOVE_FAILED=True
-#          REMOVE_METADATA_MISSING=True
-#          REMOVE_ORPHANS=True
-#   3. Un-comment container and add `sops.secrets."decluttarr-env" = {};` below
-#   4. Rebuild Asgard
+# Polls the arr + SABnzbd APIs and removes stalled / failed-import / failed
+# downloads, so the arrs blocklist and re-search instead of waiting on a dead
+# job forever. Its config — API keys included — is generated from the existing
+# per-service sops secrets by decluttarr-config.service (defined further down,
+# next to the container) before the container starts. No separate secret, no
+# first-boot steps.
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════════════════════════
 # QUALITY — Recyclarr (TRaSH Guides quality profile sync)
 # Syncs quality profiles + custom formats to Sonarr + Radarr on boot + daily.
-#   Sonarr: WEB-1080p + WEB-2160p + Asgard - TV (default, see below)
-#   Radarr: Remux-1080p + Remux-2160p + Asgard - Movies (default, see below)
+#   Sonarr: Asgard - TV (default) / Asgard TV - 1080p / Asgard - Anime
+#   Radarr: Asgard - Movies (default)
 # This fixes grab issues like "only getting Redux" — proper CF scoring applied.
 #
 # "Asgard - Movies" / "Asgard - TV" (2026-08-16): custom (non-trash_id) merged
@@ -2424,14 +2540,21 @@
 # to whatever's actually available, in one ladder. Remuxes were causing real
 # problems (Eclipse's Pi decoder choking on 4K HDR remuxes, WAN bandwidth
 # saturation for remote streams — see Claude/eclipse.md) for negligible
-# perceptible quality gain. Set as Jellyseerr's default via
-# seerr-radarr-profile / seerr-sonarr-profile below, so every user's request
-# uses these without having to pick a profile manually.
+# perceptible quality gain. Set as Jellyseerr's defaults by name through
+# nixflix.seerr.{radarr,sonarr} (see the NIXFLIX block), so every user's
+# request uses these without having to pick a profile manually.
 # ══════════════════════════════════════════════════════════════════════════════
 
     # ── Missing content search ─────────────────────────────────────────────────
     # Radarr: daily search for all monitored movies without files.
     # Persistent = true → runs immediately on boot if the 4am window was missed.
+    #
+    # That catch-up fires as soon as timers.target is reached — early in boot,
+    # while the arr may still be migrating its DB — so each script first waits
+    # for the API to answer. The `after` on radarr.service usually covers it
+    # (nixflix's ExecStartPost polls the API before the unit counts as started),
+    # but that poll gives up after 90s; this wait is the one that fails loudly
+    # instead of POSTing into a half-started arr.
     systemd.services.radarr-missing-search = {
       description = "Search all missing monitored movies in Radarr";
       after    = [ "radarr.service" ];
@@ -2446,6 +2569,7 @@
       };
       script = ''
         RADARR_KEY=$(cat ${config.sops.secrets."radarr-api-key".path})
+        ${waitForHttp { name = "Radarr"; url = "http://localhost:7878/api/v3/system/status"; curlArgs = ''-H "X-Api-Key: $RADARR_KEY"''; }}
         curl -sf -X POST \
           -H "X-Api-Key: $RADARR_KEY" \
           -H "Content-Type: application/json" \
@@ -2480,6 +2604,7 @@
       };
       script = ''
         SONARR_KEY=$(cat ${config.sops.secrets."sonarr-api-key".path})
+        ${waitForHttp { name = "Sonarr"; url = "http://localhost:8989/api/v3/system/status"; curlArgs = ''-H "X-Api-Key: $SONARR_KEY"''; }}
         curl -sf -X POST \
           -H "X-Api-Key: $SONARR_KEY" \
           -H "Content-Type: application/json" \
@@ -2495,166 +2620,6 @@
       timerConfig = {
         OnBootSec = "10min";
         OnCalendar = "04:00:00";
-        Persistent = true;
-      };
-    };
-
-    # Sets Jellyseerr's default Radarr quality profile to "Asgard - Movies"
-    # (created by Recyclarr — best-compressed-quality-first, remux excluded).
-    # Runs 12min after boot so Recyclarr (5min) has had time to create the
-    # profile first. Idempotent — safe to re-run.
-    systemd.services.seerr-radarr-profile = {
-      description = "Set Jellyseerr default Radarr profile to Asgard - Movies";
-      after    = [ "seerr.service" "seerr-setup.service" "radarr.service" "network.target" ];
-      wants    = [ "seerr.service" "seerr-setup.service" "radarr.service" ];
-      path     = [ pkgs.curl pkgs.jq ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        Restart = "on-failure";
-        RestartSec = 30;
-      };
-      # See the Sonarr sibling below: this retried 2665 times before it was
-      # caught. Fail after 5 attempts instead.
-      unitConfig = {
-        StartLimitIntervalSec = 600;
-        StartLimitBurst = 5;
-      };
-      script = ''
-        set -euo pipefail
-        SEERR="http://localhost:5055"
-        RADARR="http://localhost:7878"
-        RADARR_KEY=$(cat ${config.sops.secrets."radarr-api-key".path})
-        SEERR_KEY=$(cat ${config.sops.secrets."jellyseerr-api-key".path})
-
-        # Wait up to 2min for Jellyseerr
-        for i in $(seq 1 24); do
-          if curl -sf "$SEERR/api/v1/status" > /dev/null 2>&1; then break; fi
-          echo "Waiting for Jellyseerr... ($i/24)"
-          sleep 5
-        done
-
-        # Find the "Asgard - Movies" profile ID in Radarr
-        PROFILE_ID=$(curl -s -H "X-Api-Key: $RADARR_KEY" "$RADARR/api/v3/qualityprofile" | \
-          jq -r '.[] | select(.name == "Asgard - Movies") | .id')
-
-        if [ -z "$PROFILE_ID" ]; then
-          echo "Asgard - Movies profile not found in Radarr — Recyclarr may not have run yet." >&2
-          exit 1
-        fi
-
-        # API key, not a Jellyfin session cookie — the `admin` Jellyfin
-        # account is a plain REQUEST-only user in Jellyseerr, so the old
-        # cookie flow 403'd on every settings call. See the Sonarr sibling.
-        CFG=$(curl -sf -H "X-Api-Key: $SEERR_KEY" "$SEERR/api/v1/settings/radarr")
-        INSTANCE_ID=$(echo "$CFG" | jq -r '.[0].id')
-        CURRENT_PROFILE=$(echo "$CFG" | jq -r '.[0].activeProfileId')
-
-        if [ "$CURRENT_PROFILE" = "$PROFILE_ID" ]; then
-          echo "Jellyseerr already using correct profile — nothing to do."
-          exit 0
-        fi
-
-        # Update the profile
-        UPDATED=$(echo "$CFG" | jq --argjson pid "$PROFILE_ID" \
-          '.[0] | .activeProfileId = $pid | .activeProfileName = "Asgard - Movies" | del(.id)')
-        curl -sf -X PUT -H "X-Api-Key: $SEERR_KEY" \
-          -H "Content-Type: application/json" \
-          -d "$UPDATED" \
-          "$SEERR/api/v1/settings/radarr/$INSTANCE_ID" > /dev/null
-
-        echo "Jellyseerr Radarr profile updated to Asgard - Movies (ID: $PROFILE_ID)"
-      '';
-    };
-
-    systemd.timers.seerr-radarr-profile = {
-      description = "Set Jellyseerr Radarr profile after Recyclarr runs";
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
-        OnBootSec = "12min";
-        Persistent = true;
-      };
-    };
-
-    systemd.services.seerr-sonarr-profile = {
-      description = "Set Jellyseerr default Sonarr profile to Asgard - TV";
-      after    = [ "seerr.service" "seerr-setup.service" "sonarr.service" "network.target" ];
-      wants    = [ "seerr.service" "seerr-setup.service" "sonarr.service" ];
-      path     = [ pkgs.curl pkgs.jq ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        Restart = "on-failure";
-        RestartSec = 30;
-      };
-      # Give up instead of retrying forever. The cookie-auth version below
-      # failed every 30s from 2026-07-31 to 2026-08-23 and reached restart
-      # counter 2665 — thousands of journal entries, and every
-      # `nixos-rebuild switch` exited 4 because of it.
-      unitConfig = {
-        StartLimitIntervalSec = 600;
-        StartLimitBurst = 5;
-      };
-      script = ''
-        set -euo pipefail
-        SEERR="http://localhost:5055"
-        SONARR="http://localhost:8989"
-        SONARR_KEY=$(cat ${config.sops.secrets."sonarr-api-key".path})
-        SEERR_KEY=$(cat ${config.sops.secrets."jellyseerr-api-key".path})
-
-        for i in $(seq 1 24); do
-          if curl -sf "$SEERR/api/v1/status" > /dev/null 2>&1; then break; fi
-          echo "Waiting for Jellyseerr... ($i/24)"
-          sleep 5
-        done
-
-        # Auth is the API KEY, not a Jellyfin session cookie. The old cookie
-        # flow logged in as the Jellyfin `admin` account, which Jellyseerr
-        # imported as an ORDINARY user (permissions: 32 = REQUEST only, not
-        # ADMIN). Login returned 200, then every /settings/ call returned
-        # 403 as a JSON object, and `.[0]` on it produced the long-running
-        # "jq: Cannot index object with number" failure. The API key carries
-        # full rights and needs no session at all.
-        QP=$(curl -s -H "X-Api-Key: $SONARR_KEY" "$SONARR/api/v3/qualityprofile")
-        TV_ID=$(echo "$QP"    | jq -r '.[] | select(.name == "Asgard - TV")    | .id')
-        ANIME_ID=$(echo "$QP" | jq -r '.[] | select(.name == "Asgard - Anime") | .id')
-
-        if [ -z "$TV_ID" ] || [ -z "$ANIME_ID" ]; then
-          echo "Asgard profiles not found in Sonarr — Recyclarr may not have run yet." >&2
-          exit 1
-        fi
-
-        CFG=$(curl -sf -H "X-Api-Key: $SEERR_KEY" "$SEERR/api/v1/settings/sonarr")
-        INSTANCE_ID=$(echo "$CFG" | jq -r '.[0].id')
-        CUR_TV=$(echo "$CFG"      | jq -r '.[0].activeProfileId')
-        CUR_ANIME=$(echo "$CFG"   | jq -r '.[0].activeAnimeProfileId')
-
-        if [ "$CUR_TV" = "$TV_ID" ] && [ "$CUR_ANIME" = "$ANIME_ID" ]; then
-          echo "Jellyseerr already using correct Sonarr profiles — nothing to do."
-          exit 0
-        fi
-
-        # Anime requests get the anime profile — Jellyseerr keeps a separate
-        # activeAnimeProfileId, which the old version pointed at the TV
-        # profile too, so anime was never scored with the fansub tiers.
-        UPDATED=$(echo "$CFG" | jq --argjson tv "$TV_ID" --argjson an "$ANIME_ID" \
-          '.[0] | .activeProfileId = $tv | .activeProfileName = "Asgard - TV"
-               | .activeAnimeProfileId = $an | .activeAnimeProfileName = "Asgard - Anime"
-               | del(.id)')
-        curl -sf -X PUT -H "X-Api-Key: $SEERR_KEY" \
-          -H "Content-Type: application/json" \
-          -d "$UPDATED" \
-          "$SEERR/api/v1/settings/sonarr/$INSTANCE_ID" > /dev/null
-
-        echo "Jellyseerr Sonarr profiles set: TV=$TV_ID anime=$ANIME_ID"
-      '';
-    };
-
-    systemd.timers.seerr-sonarr-profile = {
-      description = "Set Jellyseerr Sonarr profile after Recyclarr runs";
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
-        OnBootSec = "12min";
         Persistent = true;
       };
     };
@@ -3296,6 +3261,21 @@ EOF
       };
     };
 
+    # nixflix's Jellyseerr wiring picks the default request profiles BY NAME
+    # (nixflix.seerr.{radarr,sonarr} in the NIXFLIX block) and fails if one is
+    # missing — and recyclarr is what creates them. So both run after a sync.
+    # The `wants` is what makes that ordering real: recyclarr-sync is otherwise
+    # only started by its timer, and `after` on a unit that is not part of the
+    # same transaction orders nothing. (arr-policy wants it too.)
+    systemd.services.seerr-radarr = {
+      wants = [ "recyclarr-sync.service" ];
+      after = [ "recyclarr-sync.service" ];
+    };
+    systemd.services.seerr-sonarr = {
+      wants = [ "recyclarr-sync.service" ];
+      after = [ "recyclarr-sync.service" ];
+    };
+
     # Per-item state that recyclarr cannot express. Recyclarr owns quality
     # profiles and custom-format SCORES; it has no concept of "which series
     # uses which profile", series type, release profiles, or Jellyfin user
@@ -3307,12 +3287,15 @@ EOF
     # harmlessly if they do not exist yet (first boot, before the first sync).
     systemd.services.arr-policy = {
       description = "Apply per-series / per-user policy to Sonarr, Radarr and Jellyfin";
-      # Ordered after the seerr-*-profile units on purpose: Jellyseerr was
-      # pointing at the stock "Any" profile (id 1), which this service
-      # deletes. Repoint Jellyseerr first, then delete, or requests land on a
-      # profile that no longer exists.
+      # Ordered after nixflix's seerr-sonarr / seerr-radarr on purpose:
+      # Jellyseerr was pointing at the stock "Any" profile (id 1), which this
+      # service deletes. Repoint Jellyseerr first, then delete, or requests land
+      # on a profile that no longer exists. (This used to name the hand-written
+      # seerr-*-profile units, which only a 12-min timer started — at boot the
+      # ordering against them was a no-op. nixflix's units are wantedBy
+      # multi-user, so they are in the same transaction and it holds.)
       after    = [ "recyclarr-sync.service" "sonarr.service" "radarr.service" "jellyfin.service"
-                   "seerr-sonarr-profile.service" "seerr-radarr-profile.service" "network-online.target" ];
+                   "seerr-sonarr.service" "seerr-radarr.service" "network-online.target" ];
       wants    = [ "recyclarr-sync.service" "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
       path     = [ pkgs.curl pkgs.jq pkgs.coreutils ];
@@ -3321,6 +3304,12 @@ EOF
         RemainAfterExit = true;
       };
       script = ''
+        # Best-effort by design: one series or user that will not update must
+        # not stop the rest, and each step reports its own FAILED line. NixOS
+        # prepends `set -e` to every unit script, which silently turned that
+        # into "abort at the first unguarded failed curl" (e.g. the ATLA series
+        # fetch below) — so it is switched back off explicitly.
+        set +e
         set -u
         SONARR=http://localhost:8989
         RADARR=http://localhost:7878
@@ -3329,11 +3318,9 @@ EOF
         RK=$(cat ${config.sops.secrets."radarr-api-key".path})
         JK=$(cat ${config.sops.secrets."jellyfin-api-key".path})
 
-        # Wait for Sonarr; everything else is best-effort within this run.
-        for i in $(seq 1 30); do
-          curl -sf -m 5 -H "X-Api-Key: $SK" $SONARR/api/v3/system/status >/dev/null && break
-          sleep 5
-        done
+        # Wait for Sonarr (and fail loudly if it never comes); everything after
+        # this is best-effort within the run.
+        ${waitForHttp { name = "Sonarr"; url = "$SONARR/api/v3/system/status"; tries = 30; interval = 5; curlArgs = ''-H "X-Api-Key: $SK"''; }}
 
         QP=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/qualityprofile) || QP="[]"
         TV=$(echo "$QP"     | jq -r '.[]|select(.name=="Asgard - TV")|.id')
@@ -3609,20 +3596,19 @@ EOF
         RemainAfterExit = true;
       };
       script = ''
+        # Best-effort, like arr-policy: each library is tried and reported on
+        # its own. Without this, the `set -e` NixOS prepends to every unit
+        # script aborted the whole run on the first jq or curl that failed
+        # inside the library loop.
+        set +e
         set -u
         JF=http://localhost:8096
         JK=$(cat ${config.sops.secrets."jellyfin-api-key".path})
         AUTH="Authorization: MediaBrowser Token=$JK"
 
-        wait_for_jf() {
-          for _ in $(seq 1 60); do
-            curl -sf -m 5 -H "$AUTH" $JF/System/Info >/dev/null && return 0
-            sleep 5
-          done
-          return 1
-        }
-
-        wait_for_jf || { echo "jellyfin-providers: Jellyfin never came up - skipping"; exit 0; }
+        # Fails the unit if Jellyfin never answers. This used to log "skipping"
+        # and exit 0, which left the unit green with nothing applied.
+        ${waitForHttp { name = "Jellyfin"; url = "$JF/System/Info"; tries = 60; interval = 5; curlArgs = ''-H "$AUTH"''; }}
 
         # --- TheTVDB plugin ------------------------------------------------
         # Installing it needs a restart before the fetcher becomes selectable,
@@ -3645,7 +3631,7 @@ EOF
               echo "jellyfin-providers: installed TheTVDB $1, restarting Jellyfin"
               sleep 10
               systemctl restart jellyfin
-              wait_for_jf || { echo "jellyfin-providers: Jellyfin did not return after restart"; exit 0; }
+              ${waitForHttp { name = "Jellyfin (after restart)"; url = "$JF/System/Info"; tries = 60; interval = 5; curlArgs = ''-H "$AUTH"''; }}
             else
               echo "jellyfin-providers: FAILED to install TheTVDB"
             fi
@@ -3747,15 +3733,16 @@ EOF
 # NETWORKING — Tailscale VPN + Cloudflare Tunnel
 # Native NixOS services (not containers).
 #
-# Tailscale: run `sudo tailscale up` after first boot to authenticate.
+# Tailscale joins the tailnet by itself on first boot (authKeyFile below).
 #
-# Cloudflare tunnel setup (one-time before first build):
+# Cloudflare tunnel setup (one-time before first build — already done for the
+# tunnel below; only needed again for a NEW tunnel):
 #   1. dash.cloudflare.com → Zero Trust → Networks → Tunnels → Create tunnel
 #   2. Name it "asgard", copy the Tunnel UUID shown on the detail page
 #   3. Download/copy the credentials JSON shown during creation
 #   4. sops ~/Dots/Secrets/secrets.yaml
 #        cloudflare-tunnel: '<full credentials JSON>'
-#   5. Replace TUNNEL-UUID-HERE below with the actual UUID
+#   5. Use that UUID as the key under services.cloudflared.tunnels
 #
 # Public URLs (bifrost-vault.com):
 #   jellyfin.bifrost-vault.com  → localhost:8096
@@ -3764,9 +3751,15 @@ EOF
 # ══════════════════════════════════════════════════════════════════════════════
 
     # --- Tailscale ---
+    # authKeyFile replaces the old "run `sudo tailscale up` after first boot"
+    # step: the module's tailscaled-autoconnect unit sends the key only while
+    # the node is logged out (NeedsLogin / NeedsMachineAuth / Stopped), so on
+    # an already-joined box it just reports "running" and exits. Same sops key
+    # the marsbar node joins with (declared in Modules/Core/sops.nix).
     services.tailscale = {
       enable = true;
       openFirewall = true;
+      authKeyFile = config.sops.secrets.tailscale-auth-key.path;
     };
 
     # Tailscale status API proxy — exposes node status for Glance dashboard
@@ -3842,11 +3835,14 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     # Needed because a LAN speed test has to talk to a LAN-reachable port: the
     # test used to always run over Tailscale and reported ~19 Mbps of WireGuard
     # overhead even with Jellyfin in LAN mode.
-    networking.firewall.interfaces."enp3s0".allowedTCPPorts = [ 9557 ];
+    networking.firewall.interfaces.${lanInterface}.allowedTCPPorts = [ 9557 ];
 
     systemd.services.eclipse-control = {
       description = "Eclipse (LibreELEC) control endpoint for Glance";
+      # `after` network-online.target alone orders against a target nothing
+      # has pulled in — NixOS warns about exactly that — so want it as well.
       after = [ "network-online.target" "tailscaled.service" ];
+      wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
       path = [ pkgs.openssh ];
       environment = {
@@ -3943,9 +3939,9 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
         # stream or an arr import is running, the figures below are leftovers
         # again and this line is the only way to tell after the fact.
         ${pkgs.coreutils}/bin/sleep 8
-        rx1=$(${pkgs.coreutils}/bin/cat /sys/class/net/enp3s0/statistics/rx_bytes)
+        rx1=$(${pkgs.coreutils}/bin/cat /sys/class/net/${lanInterface}/statistics/rx_bytes)
         ${pkgs.coreutils}/bin/sleep 3
-        rx2=$(${pkgs.coreutils}/bin/cat /sys/class/net/enp3s0/statistics/rx_bytes)
+        rx2=$(${pkgs.coreutils}/bin/cat /sys/class/net/${lanInterface}/statistics/rx_bytes)
         echo "background traffic at test start: $(( (rx2 - rx1) * 8 / 3 / 1000000 )) Mb/s down"
 
         if ${lib.getExe pkgs.ookla-speedtest} \
@@ -3998,7 +3994,7 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       wantedBy = [ "multi-user.target" ];
       path = [ pkgs.systemd ];
       environment = {
-        NETPANEL_IFACE = "enp3s0";
+        NETPANEL_IFACE = lanInterface;
         NETPANEL_PORT = "9555";
       };
       serviceConfig = {
@@ -4014,9 +4010,10 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     # Intel QSV / VAAPI runtime for Jellyfin hardware transcoding (UHD 730 / Gen13).
     # Without these, ffmpeg's "vaapi=va:/dev/dri/renderD128,driver=iHD" fails with
     # "unknown libva error" and clients see "fatal playback error".
+    # No enable32Bit: that is for 32-bit games/Wine on a desktop. Jellyfin's
+    # ffmpeg is 64-bit, and on a headless box it only pulled in i686 Mesa.
     hardware.graphics = {
       enable = true;
-      enable32Bit = true;
       extraPackages = with pkgs; [
         intel-media-driver        # iHD VAAPI driver (required by QSV)
         intel-compute-runtime     # OpenCL — needed for tonemapping filters
@@ -4120,16 +4117,16 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
         ${pkgs.iproute2}/bin/ip link set veth-vpn netns vpn
 
         # Host side
-        ${pkgs.iproute2}/bin/ip address add 10.200.1.1/24 dev veth-vpn-br
+        ${pkgs.iproute2}/bin/ip address add ${vethHostIp}/24 dev veth-vpn-br
         ${pkgs.iproute2}/bin/ip link set veth-vpn-br up
 
         # VPN namespace side
-        ${pkgs.iproute2}/bin/ip -n vpn address add 10.200.1.2/24 dev veth-vpn
+        ${pkgs.iproute2}/bin/ip -n vpn address add ${vethNamespaceIp}/24 dev veth-vpn
         ${pkgs.iproute2}/bin/ip -n vpn link set veth-vpn up
 
         # Allow namespace to reach host (for arr API callbacks)
         ${pkgs.iproute2}/bin/ip netns exec vpn \
-          ${pkgs.iproute2}/bin/ip route add 10.200.1.1/32 dev veth-vpn
+          ${pkgs.iproute2}/bin/ip route add ${vethHostIp}/32 dev veth-vpn
       '';
       preStop = ''
         ${pkgs.iproute2}/bin/ip link del veth-vpn-br || true
@@ -4145,7 +4142,7 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       after = [ "veth-vpn.service" ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
-        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:8080,fork,reuseaddr,bind=0.0.0.0 TCP:10.200.1.2:8080";
+        ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:8080,fork,reuseaddr,bind=0.0.0.0 TCP:${vethNamespaceIp}:8080";
         Restart = "always";
         RestartSec = 2;
       };
@@ -4191,8 +4188,9 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     systemd.services.sabnzbd = {
       bindsTo = [ "wg-mullvad.service" ];
       after = [ "veth-vpn.service" "wg-mullvad.service" ];
+      # (No PrivateNetwork override here: nixflix's sabnzbd unit never sets it,
+      # so the old `PrivateNetwork = mkForce false` was overriding nothing.)
       serviceConfig = {
-        PrivateNetwork = lib.mkForce false;  # disable nixflix's PrivateNetwork — we use NetworkNamespacePath instead
         NetworkNamespacePath = "/var/run/netns/vpn";
         BindReadOnlyPaths = [ "/etc/netns/vpn/resolv.conf:/etc/resolv.conf" ];
       };
@@ -4238,9 +4236,14 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       autoStart = true;
     };
 
-    # Syncs admin credentials from sops on every boot.
-    # Tries the sops password first (handles already-changed installs),
-    # then falls back to "admin" (handles first run with default password).
+    # Syncs admin credentials from sops on every boot. Tries, in order:
+    #   1. $USERNAME / sops password — the steady state. The PUT at the end
+    #      RENAMES user 1 to $USERNAME, so once a sync has landed there is no
+    #      "admin" left to log in as. This used to try only "admin", so every
+    #      boot after the first one failed to authenticate and quietly skipped.
+    #   2. admin / sops password — password synced but not the name yet (or
+    #      $USERNAME simply is "admin").
+    #   3. admin / admin — a fresh install's default.
     systemd.services.filebrowser-credentials = {
       description = "Seed FileBrowser admin credentials from sops";
       after    = [ "podman-filebrowser.service" ];
@@ -4255,23 +4258,23 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
         PASSWORD=$(cat ${config.sops.secrets."admin-password".path})
         BASE="http://localhost:8081"
 
-        # Wait up to 60s for FileBrowser to accept connections
-        for i in $(seq 1 30); do
-          if curl -s "$BASE" > /dev/null 2>&1; then break; fi
-          echo "Waiting for FileBrowser... ($i/30)"
-          sleep 2
-        done
+        ${waitForHttp { name = "FileBrowser"; url = "$BASE"; tries = 30; interval = 2; }}
 
-        # Authenticate — try sops password first, fall back to default "admin"
-        # || true on every jq call prevents set -e from exiting on parse errors
-        TOKEN=""
-        for CURRENT_PASS in "$PASSWORD" "admin"; do
-          RESP=$(curl -s -X POST "$BASE/api/login" \
-            -H "Content-Type: application/json" \
-            -d "{\"username\":\"admin\",\"password\":\"$CURRENT_PASS\"}" 2>/dev/null) || true
-          TOKEN=$(printf '%s' "$RESP" | jq -r '.token // empty' 2>/dev/null) || true
-          [ -n "$TOKEN" ] && break
-        done
+        # Request bodies are built by jq from the ENVIRONMENT and piped to curl:
+        # splicing "$PASSWORD" into a JSON string broke on a quote, and on any
+        # command line it was readable by every user via /proc/<pid>/cmdline.
+        # || true on every substitution keeps set -e from exiting on a parse
+        # error — a failed attempt just falls through to the next one.
+        export USERNAME PASSWORD
+        login() { # $1 = user, $2 = password; prints the token or nothing
+          LU="$1" LP="$2" jq -n '{username: $ENV.LU, password: $ENV.LP}' \
+            | curl -s -X POST "$BASE/api/login" \
+                -H "Content-Type: application/json" --data-binary @- 2>/dev/null \
+            | jq -r '.token // empty' 2>/dev/null
+        }
+        TOKEN=$(login "$USERNAME" "$PASSWORD") || true
+        [ -n "$TOKEN" ] || TOKEN=$(login admin "$PASSWORD") || true
+        [ -n "$TOKEN" ] || TOKEN=$(login admin admin) || true
 
         if [ -z "$TOKEN" ]; then
           echo "FileBrowser: could not authenticate — skipping credential sync" >&2
@@ -4280,19 +4283,18 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
 
         # Fetch current user object, patch username + password, write back
         USER_DATA=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/users/1" 2>/dev/null) || true
-        UPDATED=$(printf '%s' "$USER_DATA" | jq \
-          --arg u "$USERNAME" --arg p "$PASSWORD" \
-          '.username = $u | .password = $p' 2>/dev/null) || true
+        UPDATED=$(printf '%s' "$USER_DATA" \
+          | jq '.username = $ENV.USERNAME | .password = $ENV.PASSWORD' 2>/dev/null) || true
 
         if [ -z "$UPDATED" ]; then
           echo "FileBrowser: could not build update payload — skipping" >&2
           exit 0
         fi
 
-        curl -s -X PUT "$BASE/api/users/1" \
+        printf '%s' "$UPDATED" | curl -s -X PUT "$BASE/api/users/1" \
           -H "Authorization: Bearer $TOKEN" \
           -H "Content-Type: application/json" \
-          -d "$UPDATED" > /dev/null
+          --data-binary @- > /dev/null
 
         echo "FileBrowser credentials synced (user: $USERNAME)."
       '';
@@ -4304,7 +4306,8 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
 # Native NixOS module — manages its own PostgreSQL and Redis automatically.
 # Public URL: photos.bifrost-vault.com (via Cloudflare tunnel)
 # Port: 2283
-# Post-boot: create admin account at http://localhost:2283 on first visit.
+# The admin account is created from sops by immich-admin-seed.service below —
+# nothing to click on first visit.
 # ══════════════════════════════════════════════════════════════════════════════
 
     services.immich = {
@@ -4342,17 +4345,16 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
         PASSWORD=$(cat ${config.sops.secrets."admin-password".path})
         BASE="http://localhost:2283"
 
-        # Wait up to 2 minutes for Immich
-        for i in $(seq 1 24); do
-          if curl -sf "$BASE/api/server/ping" > /dev/null 2>&1; then break; fi
-          echo "Waiting for Immich... ($i/24)"
-          sleep 5
-        done
+        ${waitForHttp { name = "Immich"; url = "$BASE/api/server/ping"; tries = 24; interval = 5; }}
 
-        CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-          -X POST "$BASE/api/auth/admin-signup" \
-          -H "Content-Type: application/json" \
-          -d "{\"email\":\"$USERNAME@asgard.local\",\"password\":\"$PASSWORD\",\"name\":\"$USERNAME\"}" 2>/dev/null) || true
+        # Body built by jq from the environment, not spliced by hand — see
+        # filebrowser-credentials for why (quotes, /proc/<pid>/cmdline).
+        export USERNAME PASSWORD
+        CODE=$(jq -n '{email: ($ENV.USERNAME + "@asgard.local"), password: $ENV.PASSWORD, name: $ENV.USERNAME}' \
+          | curl -s -o /dev/null -w "%{http_code}" \
+              -X POST "$BASE/api/auth/admin-signup" \
+              -H "Content-Type: application/json" \
+              --data-binary @- 2>/dev/null) || true
 
         if [ "$CODE" = "201" ]; then
           echo "Immich admin created."
@@ -4449,7 +4451,9 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     virtualisation.podman = {
       enable = true;
     };
-    # Allow containers to reach host-bound services (arr, immich, etc.)
+    # Allow containers to reach host-bound services (arr, immich, etc.).
+    # `podman0` is netavark's default bridge — the backend this podman uses.
+    # (`cni-podman0`, the CNI-era name, was listed too and matched nothing.)
     # tailscale0 trusted so all services are reachable from any tailnet device by hostname
     # `veth-vpn-br` is the HOST side of the veth pair into the Mullvad namespace.
     # Without it trusted, the namespace can ping the host but every TCP connection
@@ -4465,7 +4469,7 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     #
     # Safe: the only peer on this link is the VPN namespace, which contains just
     # SABnzbd and is not reachable from outside the host.
-    networking.firewall.trustedInterfaces = [ "podman0" "cni-podman0" "tailscale0" "veth-vpn-br" ];
+    networking.firewall.trustedInterfaces = [ "podman0" "tailscale0" "veth-vpn-br" ];
     networking.firewall.allowedTCPPorts = [
       8096 # Jellyfin — open to LAN so home devices connect directly (no CF tunnel / upload round-trip)
     ]; # everything else accessed via Tailscale (trustedInterfaces)
@@ -4487,7 +4491,7 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       };
       script = ''
         tc=${pkgs.iproute2}/bin/tc
-        dev=enp3s0
+        dev=${lanInterface}
         # htb doesn't support in-place change, so "replace" fails on an existing
         # root — tear down and rebuild from scratch (also clears classes/filters)
         $tc qdisc del dev $dev root 2>/dev/null || true
@@ -4529,9 +4533,14 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     # OAuth credentials live in ~/.claude/.credentials.json (set up via `claude login`).
     # managed-settings intentionally left empty so OAuth takes precedence.
 
-    # --- Shared media group (GID 1001) ---
+    # --- Shared media group ---
     # All service users and containers use this group for /data/media access.
-    users.groups.media = { gid = 1001; };
+    #
+    # The group itself is nixflix's, and so is its gid: 169, set with mkForce
+    # in nixflix's jellyfin module. This file used to declare `gid = 1001`,
+    # which lost to that mkForce without a word — and the containers' PGID was
+    # copied from the dead value. Anything that needs the number reads
+    # config.users.groups.media.gid instead of restating it.
     users.users.${activeUser}.extraGroups = [ "media" ];
     users.users.jellyfin.extraGroups = [ "media" "render" "video" ];
 
@@ -4625,8 +4634,14 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       "d /data/media/tv             0775 root  media -"
       "d /data/media/movies         0775 root  media -"
       "d /data/media/music          0775 root  media -"
+      # books + audiobooks are 0777 where every sibling is 0775 because the book
+      # containers used to run as PGID 1001, a group that does not exist here
+      # (see "Shared media group"), so group-write was no use to them. PGID is
+      # now the real media gid — but files already written under 1001 keep that
+      # group, so these stay 0777 until those are chgrp'd to media by hand.
       "d /data/media/books          0777 root  media -"
       "d /data/media/manga          0775 root  media -"
+      # /downloads is on the NVMe root, for fast SABnzbd unpacking.
       "d /downloads                 0775 root  media -"
       "d /downloads/usenet          0775 root  media -"
       "d /data/photos               0775 root  media -"
@@ -4636,7 +4651,7 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       "d /var/lib/audiobookshelf             0775 root  media -"
       "d /var/lib/audiobookshelf/config      0775 root  media -"
       "d /var/lib/audiobookshelf/metadata    0775 root  media -"
-      # ⚠️ Must be owned by the container's PUID/PGID (1000/1001), NOT root.
+      # ⚠️ Must be owned by the container's PUID/PGID (1000/media), NOT root.
       # Shelfarr's Rails app drops to uid 1000, and its SQLite DBs run in WAL
       # mode — so on every write it may need to CREATE `-wal`/`-shm` files in
       # this directory. With the directory root-owned the existing DB files are
@@ -4644,9 +4659,10 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       # clean shutdown checkpoints the WAL away and the app can never recreate
       # it. Presents as `SQLite3::ReadOnlyException: attempt to write a readonly
       # database` and a hard 500 on EVERY login, because solid_cache writes on
-      # the session path. Numeric ids on purpose: gid 1001 has no name on this
-      # host (the `media` group is gid 169).
-      "d /var/lib/shelfarr                   0755 1000  1001  -"
+      # the session path. The gid is read from the media group, exactly like the
+      # container's PGID, so the two cannot drift apart again (they were both a
+      # literal 1001 — a gid with no group behind it).
+      "d /var/lib/shelfarr                   0755 1000  ${toString config.users.groups.media.gid}  -"
 
       "d /var/lib/filebrowser       0775 root  media -"
       "d /var/lib/decluttarr        0755 root  root  -"
@@ -4676,11 +4692,8 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
     sops.secrets."lidarr-api-key"           = {};
     sops.secrets."prowlarr-api-key"         = {};
     sops.secrets."jellyseerr-api-key"       = {};
-    # audiobookshelf-api-key: declare here + add to homepage-env once you have the key from ABS Settings → API Keys
     sops.secrets."sabnzbd-api-key"              = {};
     sops.secrets."sabnzbd-nzb-key"              = {};
-    sops.secrets."sabnzbd-username"             = {};
-    sops.secrets."sabnzbd-password"             = {};
     sops.secrets."usenet/frugalusenet/username"    = {};
     sops.secrets."usenet/frugalusenet/password"    = {};
     sops.secrets."usenet/newshosting/username"     = {};
