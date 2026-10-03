@@ -9,10 +9,12 @@
         framebuffer from the start instead of a tiny text-mode splash.
 
         This is an option rather than a `lib.mkDefault` list on
-        `boot.initrd.kernelModules` on purpose: every host's `hardwareConfig`
-        block sets `boot.initrd.kernelModules = [ ]` at normal priority, which
-        would silently discard a lower-priority default and take the splash with
-        it — with no error to explain why.
+        `boot.initrd.kernelModules` on purpose: a nixos-generate-config hardware
+        file (Hosts/Sisyphus/_hardware.nix, Hosts/Asgard/_hardware.nix) sets
+        `boot.initrd.kernelModules = [ ]` at normal priority, which would
+        silently discard a lower-priority default and take the splash with it —
+        with no error to explain why. (Kit-Kat's facter-generated hardware does
+        not set it, but the option keeps every host working the same way.)
       '';
     };
 
