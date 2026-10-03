@@ -184,7 +184,7 @@
     # "2 of 3 on" and the lamps' combined watts, server-rendered from the
     # bridge's snapshot; asgard.js keeps both live.
     bridgeOnCount = ''{{ $on := 0 }}${lib.concatMapStrings (p: ''{{ if eq (.JSON.String "${key p.entity}") "on" }}{{ $on = add $on 1 }}{{ end }}'') lamps}{{ $on }} of ${lampCount} on'';
-    bridgeLampWatts = ''{{ printf "%.1f" ${lib.foldl (acc: p: "(add ${acc} ${bridgeWatts p.power})") (bridgeWatts (lib.head lamps).power) (lib.tail lamps)} }}'';
+    bridgeLampWatts = ''{{ printf "%.1f" ${lib.foldl (acc: p: "(add ${acc} ${bridgeWatts p.power})") "0.0" lamps} }}'';
 
     # Home page: the lights, first thing on the page — the controls that get used
     # most, reachable without leaving the landing page, on a phone too.
