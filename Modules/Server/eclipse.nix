@@ -52,6 +52,10 @@
         # Generated from the same list ha-bridge uses, so the backends cannot
         # drift apart — see Modules/Server/_origins.nix.
         DASH_ORIGINS = lib.concatStringsSep "," (import ./_origins.nix config.asgard);
+        # wolf-bridge on Sisyphus (Modules/Gaming/wolf.nix): the Eclipse panel's
+        # "Streams" card lists Wolf's sessions and can end a stuck one. The
+        # bridge answers only Asgard's tailnet IP, so the panel proxies it.
+        WOLF_BRIDGE_URL = "http://sisyphus:9560";
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${../../Resources/Eclipse-Control/eclipse-control.py}";

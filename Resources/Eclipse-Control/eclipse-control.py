@@ -35,6 +35,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 
 ECLIPSE = os.environ.get("ECLIPSE_HOST", "100.80.62.3")
 KEY = os.environ.get("ECLIPSE_KEY", "/run/secrets/eclipse-ssh-key")
@@ -482,6 +484,69 @@ def _sync(lib_id, label):
         sync_lock.release()
 
 
+# ── Wolf sessions (Moonlight streams served by Sisyphus) ─────────────────────
+# Wolf never reaps a session whose client vanished (Claude/wolf.md), and a stuck
+# one keeps its virtual pads alive. wolf-bridge on Sisyphus (Modules/Gaming/
+# wolf.nix) lists and stops sessions, and only answers Asgard — so the browser
+# never calls it; this panel proxies it server-side.
+WOLF_BRIDGE = os.environ.get("WOLF_BRIDGE_URL", "http://sisyphus:9560").rstrip("/")
+_ECLIPSE_IPS = {"at": 0.0, "ips": {ECLIPSE}}
+
+
+def _eclipse_ips():
+    """The Pi's own addresses (tailnet + LAN), learned over the SSH link we
+    already hold, so a session from it can be labelled "Eclipse (TV)" whichever
+    network Moonlight used. Refreshed every 10 minutes in the background — an
+    offline Pi makes that ssh take seconds, and the session list mustn't wait
+    on a cosmetic label."""
+    if time.time() - _ECLIPSE_IPS["at"] > 600:
+        _ECLIPSE_IPS["at"] = time.time()
+
+        def refresh_ips():
+            ok, out = ssh("ip -o -4 addr show | awk '{print $4}'", timeout=8)
+            if ok:
+                _ECLIPSE_IPS["ips"] = {ECLIPSE} | {
+                    ln.split("/")[0] for ln in out.split() if ln and not ln.startswith("127.")
+                }
+        threading.Thread(target=refresh_ips, daemon=True).start()
+    return _ECLIPSE_IPS["ips"]
+
+
+def _bridge(method, path, timeout=4):
+    req = urllib.request.Request(WOLF_BRIDGE + path, method=method,
+                                 headers={"X-Dash": "1"} if method == "POST" else {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except ValueError:
+            return e.code, {"ok": False, "error": f"bridge answered {e.code}"}
+
+
+def wolf_sessions():
+    try:
+        status, body = _bridge("GET", "/sessions")
+    except (OSError, ValueError) as e:
+        return {"wolf": "unreachable", "sessions": [], "error": str(e)[:160]}
+    if status != 200:
+        return {"wolf": "unreachable", "sessions": [], "error": f"bridge answered {status}"}
+    ips = _eclipse_ips()
+    for sess in body.get("sessions", []):
+        sess["client_label"] = "Eclipse (TV)" if sess.get("client_ip") in ips else (sess.get("client_ip") or "unknown")
+    return body
+
+
+def wolf_stop(session_id):
+    if not session_id.isdigit():
+        return 400, {"ok": False, "error": "bad session id"}
+    try:
+        return _bridge("POST", f"/sessions/{session_id}/stop", timeout=8)
+    except (OSError, ValueError) as e:
+        return 502, {"ok": False, "error": f"Sisyphus unreachable: {e}"[:160]}
+
+
 ACTIONS = {
     "restart-kodi": ("Restart Kodi", act_restart_kodi),
     "reboot": ("Reboot Pi", act_reboot),
@@ -633,6 +698,58 @@ PAGE = r"""<!doctype html>
   button.busy svg { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* ── wolf sessions ── */
+  .wolf { display: grid; gap: 8px; margin-bottom: 20px; }
+  .wolf-empty {
+    display: flex; align-items: center; gap: 10px;
+    color: var(--dim); font-size: 12px; padding: 13px 14px;
+    border: 1px dashed var(--line); border-radius: 10px;
+  }
+  .wolf-empty i {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none;
+  }
+  .wolf-empty.down i { background: var(--bad); }
+  .wolf-row {
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
+    padding: 11px 12px 11px 14px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card);
+    transition: opacity .3s, transform .3s, border-color .2s;
+  }
+  .wolf-row.stale { border-color: hsla(38, 88%, 62%, .42); }
+  .wolf-row.gone { opacity: 0; transform: translateX(14px); }
+  .wolf-ico {
+    position: relative; width: 36px; height: 36px; border-radius: 10px;
+    display: grid; place-items: center;
+    background: hsla(142, 62%, 56%, .1); color: var(--ok);
+  }
+  .wolf-ico svg { width: 18px; height: 18px; stroke-width: 1.7; }
+  .wolf-ico::after {   /* live pulse */
+    content: ""; position: absolute; inset: -1px; border-radius: 11px;
+    border: 1px solid hsla(142, 62%, 56%, .55); animation: wolfpulse 2.4s ease-out infinite;
+  }
+  .wolf-row.stale .wolf-ico { background: hsla(38, 88%, 62%, .12); color: var(--warn); }
+  .wolf-row.stale .wolf-ico::after { border-color: hsla(38, 88%, 62%, .55); }
+  @keyframes wolfpulse { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(1.35); } }
+  .wolf-app { font-weight: 700; font-size: 13.5px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .wolf-badge {
+    font-size: 9.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--warn); border: 1px solid hsla(38, 88%, 62%, .4); border-radius: 999px; padding: 1px 7px;
+  }
+  .wolf-meta { color: var(--dim); font-size: 11.5px; margin-top: 3px; }
+  .wolf-meta b { color: var(--fg); font-weight: 500; }
+  button.wolf-kill {
+    flex-direction: row; height: 36px; min-width: 96px; padding: 0 14px; gap: 7px;
+    font-size: 11.5px;
+  }
+  button.wolf-kill svg { width: 15px; height: 15px; }
+  button.wolf-kill:hover:not(:disabled) {
+    border-color: hsla(0, 70%, 60%, .45); background: hsla(0, 70%, 55%, .09); color: var(--bad);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wolf-ico::after { animation: none; }
+    .wolf-row { transition: none; }
+  }
+
   /* ── activity log ── */
   .log-wrap {
     margin-top: 4px; border: 1px solid var(--line); border-radius: 10px;
@@ -650,7 +767,7 @@ PAGE = r"""<!doctype html>
     border-bottom: 1px solid hsla(160, 30%, 50%, .06);
   }
   .log-item:last-child { border-bottom: none; }
-  .log-item .t { flex: none; width: 44px; opacity: .7; }
+  .log-item .t { flex: none; min-width: 58px; margin-right: 10px; opacity: .7; font-variant-numeric: tabular-nums; }
   .log-item .m { color: var(--fg); }
   .log-item.good .m { color: var(--ok); }
   .log-item.err  .m { color: var(--bad); }
@@ -680,6 +797,9 @@ PAGE = r"""<!doctype html>
   </div>
 
   <div class="stats" id="stats"></div>
+
+  <div class="section-label">Streams &middot; Wolf on Sisyphus</div>
+  <div class="wolf" id="wolf"><div class="wolf-empty"><i></i>checking&hellip;</div></div>
 
   <div class="section-label">Playback</div>
   <div class="grid">
@@ -861,13 +981,93 @@ buttons.forEach(function (btn) {
     }, 4000);
   });
 });
+// ── Wolf sessions ─────────────────────────────────────────────────────────────
+// A Moonlight stream that outlives its client keeps Wolf's virtual pads alive
+// (Claude/wolf.md). This lists what Wolf is serving and stops one on a double
+// tap. Rows are keyed by session id so a refresh never resets an armed button.
+var STALE_SECS = 3 * 3600;
+var wolfState = { armed: null, killing: {} };
+var ICON_STREAM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m10 8.5 4 2-4 2z"/></svg>';
+var ICON_STOP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+function fmtFor(secs) {
+  var h = Math.floor(secs / 3600), m = Math.floor(secs % 3600 / 60);
+  return h ? h + 'h ' + m + 'm' : (m ? m + 'm' : '<1m');
+}
+function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+function wolfRender(data) {
+  var box = document.getElementById('wolf');
+  if (data.wolf !== 'up') {
+    box.innerHTML = '<div class="wolf-empty down"><i></i>' +
+      (data.wolf === 'down' ? 'Wolf isn\'t running on Sisyphus' : 'Sisyphus unreachable') + '</div>';
+    return;
+  }
+  var list = (data.sessions || []).filter(function (x) { return !wolfState.killing[x.id]; });
+  if (!list.length) { box.innerHTML = '<div class="wolf-empty"><i></i>No active streams</div>'; return; }
+  var now = Date.now() / 1000;
+  box.innerHTML = list.map(function (x) {
+    var age = x.started ? now - x.started : 0;
+    var stale = age > STALE_SECS;
+    var armed = wolfState.armed === x.id;
+    return '<div class="wolf-row' + (stale ? ' stale' : '') + '" data-id="' + esc(x.id) + '">' +
+      '<div class="wolf-ico">' + ICON_STREAM + '</div>' +
+      '<div><div class="wolf-app">' + esc(x.app) +
+        (stale ? '<span class="wolf-badge">stuck?</span>' : '') + '</div>' +
+      '<div class="wolf-meta"><b>' + esc(x.client_label || x.client) + '</b>' +
+        (x.video ? ' &middot; ' + esc(x.video.replace('x', '×').replace('@', ' @ ') + 'Hz') : '') +
+        (x.started ? ' &middot; <span title="since the bridge first saw it">streaming ' + fmtFor(age) + '</span>' : '') +
+      '</div></div>' +
+      '<button class="wolf-kill' + (armed ? ' armed' : '') + '" data-kill="' + esc(x.id) + '">' + ICON_STOP +
+        '<span>' + (armed ? 'Tap to kill' : 'End') + '</span></button>' +
+    '</div>';
+  }).join('');
+}
+var wolfLast = null;
+function wolfRefresh() {
+  fetch('wolf/sessions').then(function (r) { return r.json(); })
+    .then(function (d) { wolfLast = d; wolfRender(d); })
+    .catch(function () { wolfRender({ wolf: 'unreachable' }); });
+}
+document.getElementById('wolf').addEventListener('click', function (ev) {
+  var btn = ev.target.closest('button[data-kill]');
+  if (!btn) return;
+  var id = btn.dataset.kill;
+  if (wolfState.armed !== id) {           // first tap arms it for 3 s
+    wolfState.armed = id;
+    if (wolfLast) wolfRender(wolfLast);
+    setTimeout(function () {
+      if (wolfState.armed === id) { wolfState.armed = null; if (wolfLast) wolfRender(wolfLast); }
+    }, 3000);
+    return;
+  }
+  wolfState.armed = null;
+  var row = btn.closest('.wolf-row');
+  row.classList.add('gone');                // optimistic: slide it away now
+  wolfState.killing[id] = true;
+  logAdd('ending stream ' + id + '…', '');
+  fetch('wolf/stop/' + encodeURIComponent(id), { method: 'POST', headers: { 'X-Dash': '1' } })
+    .then(function (r) { return r.json().then(function (j) { return { code: r.status, j: j }; }); })
+    .then(function (res) {
+      // 404 = Wolf no longer has it: already gone is what we wanted.
+      if (res.j.ok || res.code === 404) {
+        logAdd(res.j.lingering ? 'stream told to stop — Wolf is still tearing it down' : 'stream ended', 'good');
+      } else {
+        delete wolfState.killing[id];
+        logAdd('could not end stream: ' + (res.j.error || res.code), 'err');
+      }
+    })
+    .catch(function (e) { delete wolfState.killing[id]; logAdd('could not end stream: ' + e, 'err'); })
+    .then(function () { setTimeout(function () { wolfState.killing = {}; wolfRefresh(); }, 900); });
+});
+
 refresh();
+wolfRefresh();
+setInterval(function () { if (!document.hidden) wolfRefresh(); }, 5000);
 // Only while someone can see it. An iframe reports its parent tab's visibility,
 // so a backgrounded dashboard stops costing the Pi an SSH call every 10s; it
 // catches up the moment the tab is shown again.
 setInterval(function () { if (!document.hidden) refresh(); }, 10000);
 document.addEventListener('visibilitychange', function () {
-  if (!document.hidden) refresh();
+  if (!document.hidden) { refresh(); wolfRefresh(); }
 });
 </script></body></html>
 """
@@ -934,6 +1134,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(200, PAGE, "text/html; charset=utf-8")
         elif path == "status":
             self._send(200, json.dumps(get_status()), "application/json")
+        elif path == "wolf/sessions":
+            self._send(200, json.dumps(wolf_sessions()), "application/json")
         elif path in FONTS and FONT_DIR:
             try:
                 with open(os.path.join(FONT_DIR, FONTS[path]), "rb") as fh:
@@ -963,6 +1165,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?")[0].strip("/")
+        if path.startswith("wolf/stop/"):
+            if self.headers.get("X-Dash") != "1":
+                self._send(403, json.dumps({"ok": False, "error": "missing X-Dash header"}),
+                           "application/json")
+                return
+            code, body = wolf_stop(path[len("wolf/stop/"):])
+            self._send(code, json.dumps(body), "application/json")
+            return
         if not path.startswith("act/"):
             self._send(404, json.dumps({"ok": False, "message": "not found"}),
                        "application/json")
