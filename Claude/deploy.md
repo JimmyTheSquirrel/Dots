@@ -223,7 +223,7 @@ it, all of them still in the boot menu.
 
 The `apollo-*` commands still exist and still work standalone — `apollo-connect` in
 particular is worth keeping in muscle memory — they just don't all need to be
-remembered. The navi cheatsheet is down to `system-rebuild`, `nix-gc`, `git-sync`,
+remembered. The navi cheatsheet (`dots.cheat`, shipped by `Modules/Shell/deploy-tools.nix`) is down to `system-rebuild`, `nix-gc`, `git-sync`,
 `sops`, and three SSH targets.
 
 CLI form is unchanged: `system-rebuild USER SYSTEM [--boot] [--target HOST]`.

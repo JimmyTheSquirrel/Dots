@@ -32,6 +32,8 @@
       self.nixosModules.noctalia
       self.nixosModules.skwd
       self.nixosModules.navi
+      # rock's admin helpers: system-rebuild, git-sync, nix-gc, apollo-*.
+      self.nixosModules.deploy-tools
       self.nixosModules.spicetify
       self.nixosModules.discord
       self.nixosModules.tailscale

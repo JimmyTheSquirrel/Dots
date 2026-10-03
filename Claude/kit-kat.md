@@ -49,12 +49,14 @@ adding her machine to `secrets.yaml` would hand it `mullvad-wg-private-key`,
 `tailscale-api-key` — an **admin** key that can rewrite tailnet ACLs and mint auth
 keys. Her file holds one secret and nothing else.
 
-Because the hash is declarative, `passwd` will not survive a rebuild. Changing her
-password means `sops Secrets/kit-kat.yaml`.
+With `users.mutableUsers` at its default (`true`), the hash is applied only when
+the account is **created** — it is what gives a fresh install a working login.
+After that `passwd` works and survives rebuilds, and editing the secret changes
+nothing on an existing machine.
 
-Note: `rock`'s own password is **not** managed this way. `Modules/Core/sops.nix`
-declares `user-password-hash` but nothing in the repo consumes it, so Sisyphus's
-login hash lives only in `/etc/shadow`, set by `passwd`.
+`rock` works the same way since 2026-10-03: the `sops` module sets his
+`hashedPasswordFile` from `Secrets/secrets.yaml`'s `user-password-hash`, so a fresh
+Sisyphus or Asgard gets his password, and the existing machines are untouched.
 
 ## Her look
 

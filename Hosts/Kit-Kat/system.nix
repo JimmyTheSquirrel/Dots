@@ -212,8 +212,10 @@
           # see Modules/Core/sops.nix). This is what gives her a working password on the
           # very first boot; without it a fresh install has none at all.
           #
-          # Because it is declarative, `passwd` will not stick across a rebuild —
-          # changing her password means updating the secret.
+          # With users.mutableUsers at its default (true) the hash is applied only
+          # when the account is CREATED: after the first install `passwd` works and
+          # survives rebuilds, and editing the secret no longer changes anything.
+          # See the comment on hashedPasswordFile in Modules/Core/sops.nix.
           hashedPasswordFile = config.sops.secrets.user-password-hash.path;
         };
 
