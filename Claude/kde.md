@@ -1,4 +1,10 @@
-# KDE Plasma — Elektra
+# KDE Plasma — Elektra (RETIRED)
+
+> **Nothing imports `Modules/Desktops/kde.nix` any more (2026-10-02).** Elektra was a
+> KDE boot profile on Sisyphus's own disk; that slot became **Kit-Kat**, separate
+> hardware running Niri (`Claude/kit-kat.md`). Odysseus is Hyprland. This file is kept
+> as reference: the keybind table is what the Niri bindings mirror, and it is the
+> starting point if a Plasma host is ever wanted again.
 
 **Module:** `Modules/Desktops/kde.nix`
 **Pattern:** `plasma-manager` (direct module, not wrapper-modules)

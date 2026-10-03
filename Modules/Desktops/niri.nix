@@ -17,6 +17,13 @@
   # Panel column order. Within each category the convention is:
   # plain Mod binds first, then Mod+Shift binds, then Mod+WheelScroll last.
   #
+  # ⚠️ Possibly obsolete on skwd v2 — do not remove on a static-wallpaper test.
+  # 2026-09-15: with skwd-walld running and a static wallpaper, `playerctl
+  # --list-all` showed only `spotify`, no skwd-music on the bus at all. Either v2
+  # dropped the inert player, or it only appears for video / Wallpaper Engine
+  # wallpapers. These flags cost nothing, so they stay until someone checks with
+  # a video wallpaper playing. Same for the blacklist in Modules/noctalia.nix.
+  #
   # Bare `playerctl` targets the first MPRIS bus name it finds, and skwd-daemon
   # registers an inert `org.mpris.MediaPlayer2.skwd-music` that sorts before
   # `spotify`. It advertises CanControl/CanPlay/CanGoNext = true but does
@@ -67,7 +74,10 @@
       key = "Mod+W";
       title = "Wallpaper";
       category = "Applications";
-      action.spawn-sh = "skwd wall toggle";
+      # v2 has no `skwd` CLI and no resident picker process: the binary starts
+      # the picker on demand (~150ms) and exits when closed, so there is
+      # nothing to toggle. Re-running it focuses the existing instance.
+      action.spawn-sh = "skwd-wall-v2";
     }
     {
       key = "Mod+B";
@@ -381,6 +391,7 @@ in {
     config,
     pkgs,
     lib,
+    activeUser,
     ...
   }: {
     programs.niri = {
@@ -490,24 +501,16 @@ in {
       # game. Games that request zwp_pointer_constraints_v1 themselves already work
       # unaided — this is for the ones that don't, usually borderless-windowed mode.
       #
-      # Reads last-wallpaper.json from skwd-wall cache and applies swaybg immediately.
-      # Runs early in spawn-at-startup so there's no black gap while skwd-daemon
-      # initialises (which only happens after systemd graphical-session.target fires).
+      # NOTE: `wallpaper-restore` used to live here — a login-time swaybg instance
+      # that painted the niri overview backdrop, matched by a `^wallpaper$`
+      # layer-rule. Removed 2026-09-15 along with the rest of the swaybg
+      # workaround: skwd v2 serves the backdrop natively from its own
+      # `skwd-paper-backdrop` surface, enabled by `niri.overviewBackdrop` in
+      # ~/.config/skwd-wall-v2/config.json and matched by the layer-rule further
+      # down this file. That retires three moving parts — this script, its
+      # spawn-at-startup entry, and the swaybg swap block that used to sit in
+      # noctalia-sync-wallpaper (which is now gone entirely).
       #
-      # swaybg's layer-shell namespace is "wallpaper", which the `place-within-backdrop`
-      # layer-rule below matches — so this instance paints the OVERVIEW BACKDROP, not the
-      # per-workspace background (skwd-paper owns that, namespace "skwd-paper"). Both sit
-      # on the background layer; niri lifts the matched one into the backdrop. That is the
-      # documented two-wallpaper-tool setup. Keep the flags identical to the swaybg call in
-      # noctalia-sync-wallpaper (noctalia.nix) — it matches on `pgrep -f 'swaybg -m fill -i'`
-      # to retire this login-time instance when the wallpaper changes mid-session.
-      (writeShellScriptBin "wallpaper-restore" ''
-        CACHE="$HOME/.cache/skwd-wall/last-wallpaper.json"
-        [ -f "$CACHE" ] || exit 0
-        WALL=$(${pkgs.jq}/bin/jq -r .path "$CACHE" 2>/dev/null)
-        [ -n "$WALL" ] && [ -f "$WALL" ] || exit 0
-        exec ${pkgs.swaybg}/bin/swaybg -m fill -i "$WALL"
-      '')
       # Spotify startup launcher: delayed start for session init, opens to liked songs.
       # Used in niri spawn-at-startup — needs the sleep for session initialization.
       (writeShellScriptBin "spotify-startup" ''
@@ -550,71 +553,73 @@ in {
       '')
     ];
 
-    # Override Steam .desktop so the app launcher uses steam-open (with sleep 1 delay).
-    # Niri's spawn mechanism requires a delay or Steam silently fails (niri issue #2463).
-    home-manager.users.rock.xdg.desktopEntries.steam = {
-      name = "Steam";
-      exec = "steam-open %U";
-      icon = "steam";
-      terminal = false;
-      categories = ["Network" "FileTransfer" "Game"];
-      mimeType = ["x-scheme-handler/steam" "x-scheme-handler/steamlink"];
-    };
+    home-manager.users.${activeUser} = {
+      # Override Steam .desktop so the app launcher uses steam-open (with sleep 1 delay).
+      # Niri's spawn mechanism requires a delay or Steam silently fails (niri issue #2463).
+      xdg.desktopEntries.steam = {
+        name = "Steam";
+        exec = "steam-open %U";
+        icon = "steam";
+        terminal = false;
+        categories = ["Network" "FileTransfer" "Game"];
+        mimeType = ["x-scheme-handler/steam" "x-scheme-handler/steamlink"];
+      };
 
-    # Override Spotify .desktop so the app launcher uses spotify-open instead of spotify.
-    # This means the launcher always opens Liked Songs without touching the spotify binary.
-    home-manager.users.rock.xdg.desktopEntries.spotify = {
-      name = "Spotify";
-      genericName = "Music Player";
-      exec = "spotify-open %U";
-      icon = "${pkgs.spotify}/share/spotify/icons/spotify-linux-512.png";
-      terminal = false;
-      categories = ["Audio" "Music" "Player" "AudioVideo"];
-      mimeType = ["x-scheme-handler/spotify"];
-    };
+      # Override Spotify .desktop so the app launcher uses spotify-open instead of spotify.
+      # This means the launcher always opens Liked Songs without touching the spotify binary.
+      xdg.desktopEntries.spotify = {
+        name = "Spotify";
+        genericName = "Music Player";
+        exec = "spotify-open %U";
+        icon = "${pkgs.spotify}/share/spotify/icons/spotify-linux-512.png";
+        terminal = false;
+        categories = ["Audio" "Music" "Player" "AudioVideo"];
+        mimeType = ["x-scheme-handler/spotify"];
+      };
 
-    # Stable symlink to the full baked niri config (keybinds + window rules) — this is
-    # the file the compositor actually runs. The wrapper-modules config lives at a store
-    # path that changes every rebuild, so this is a fixed path for inspecting it.
-    # Debug aid only; nothing reads it at runtime.
-    home-manager.users.rock.home.file.".config/niri/niri-full-config.kdl".source =
-      "${self.packages.${pkgs.stdenv.hostPlatform.system}.wrappedNiri}/niri-config.kdl";
+      # Stable symlink to the full baked niri config (keybinds + window rules) — this is
+      # the file the compositor actually runs. The wrapper-modules config lives at a store
+      # path that changes every rebuild, so this is a fixed path for inspecting it.
+      # Debug aid only; nothing reads it at runtime.
+      home.file.".config/niri/niri-full-config.kdl".source =
+        "${self.packages.${pkgs.stdenv.hostPlatform.system}.wrappedNiri}/niri-config.kdl";
 
-    # ~/.config/niri/config.kdl and the niri-keybinds.kdl it includes exist ONLY for
-    # noctalia's kenn/keybind-cheatsheet plugin, which parses config.kdl (its built-in
-    # default for the `niri_config` setting) and follows the `include` directives there.
-    #
-    # Niri itself NEVER reads these files. The wrapped package pins its own config path,
-    # so ~/.config/niri/config.kdl is not consulted even with NIRI_CONFIG unset — check
-    # with `env -u NIRI_CONFIG niri validate`, which reports the store path. Editing
-    # niri-keybinds.kdl therefore cannot change a live keybind; edit mkKeybinds and
-    # rebuild, which regenerates this file from the same list as the baked config.
-    #
-    # Both files are installed as real files rather than home.file symlinks (the plugin
-    # snapshots paths and a store symlink swap can race its reader) and are rewritten
-    # unconditionally, so they never drift from the baked config.
-    # `after = ["writeBoundary"]` is the raw form of lib.hm.dag.entryAfter — home-manager's
-    # lib.hm extension is only in scope inside home-manager.users.<name> submodules, and
-    # this is a NixOS module. Ordering after writeBoundary keeps `--dry-run` read-only;
-    # the previous "after linkGeneration" wrote to $HOME even on a dry run.
-    home-manager.users.rock.home.activation.niriCheatsheet = {
-      after = ["writeBoundary"];
-      before = [];
-      data = ''
-        mkdir -p "$HOME/.config/niri"
-        install -m 644 ${mkKeybindsKdl {inherit pkgs lib;}} "$HOME/.config/niri/niri-keybinds.kdl"
-        install -m 644 ${niriIncludesKdl pkgs} "$HOME/.config/niri/config.kdl"
+      # ~/.config/niri/config.kdl and the niri-keybinds.kdl it includes exist ONLY for
+      # noctalia's kenn/keybind-cheatsheet plugin, which parses config.kdl (its built-in
+      # default for the `niri_config` setting) and follows the `include` directives there.
+      #
+      # Niri itself NEVER reads these files. The wrapped package pins its own config path,
+      # so ~/.config/niri/config.kdl is not consulted even with NIRI_CONFIG unset — check
+      # with `env -u NIRI_CONFIG niri validate`, which reports the store path. Editing
+      # niri-keybinds.kdl therefore cannot change a live keybind; edit mkKeybinds and
+      # rebuild, which regenerates this file from the same list as the baked config.
+      #
+      # Both files are installed as real files rather than home.file symlinks (the plugin
+      # snapshots paths and a store symlink swap can race its reader) and are rewritten
+      # unconditionally, so they never drift from the baked config.
+      # `after = ["writeBoundary"]` is the raw form of lib.hm.dag.entryAfter — home-manager's
+      # lib.hm extension is only in scope inside home-manager.users.<name> submodules, and
+      # this is a NixOS module. Ordering after writeBoundary keeps `--dry-run` read-only;
+      # the previous "after linkGeneration" wrote to $HOME even on a dry run.
+      home.activation.niriCheatsheet = {
+        after = ["writeBoundary"];
+        before = [];
+        data = ''
+          mkdir -p "$HOME/.config/niri"
+          install -m 644 ${mkKeybindsKdl {inherit pkgs lib;}} "$HOME/.config/niri/niri-keybinds.kdl"
+          install -m 644 ${niriIncludesKdl pkgs} "$HOME/.config/niri/config.kdl"
 
-        # noctalia writes noctalia.kdl from its niri theme template on first run; seed an
-        # empty one so a fresh install has no dangling include for the plugin to chase.
-        [ -e "$HOME/.config/niri/noctalia.kdl" ] || : > "$HOME/.config/niri/noctalia.kdl"
+          # noctalia writes noctalia.kdl from its niri theme template on first run; seed an
+          # empty one so a fresh install has no dangling include for the plugin to chase.
+          [ -e "$HOME/.config/niri/noctalia.kdl" ] || : > "$HOME/.config/niri/noctalia.kdl"
 
-        # Drop the plugin's parsed-bindings cache so it re-reads the regenerated file.
-        rm -f "$HOME/.local/state/noctalia/plugins/data/kenn/keybind-cheatsheet/bindings-cache.json"
+          # Drop the plugin's parsed-bindings cache so it re-reads the regenerated file.
+          rm -f "$HOME/.local/state/noctalia/plugins/data/kenn/keybind-cheatsheet/bindings-cache.json"
 
-        # Superseded by niri-keybinds.kdl — clean up leftovers from earlier generations.
-        rm -f "$HOME/.config/niri/keybinds-for-cheatsheet.kdl"
-      '';
+          # Superseded by niri-keybinds.kdl — clean up leftovers from earlier generations.
+          rm -f "$HOME/.config/niri/keybinds-for-cheatsheet.kdl"
+        '';
+      };
     };
 
     # Disable GNOME SSH agent to avoid conflict with programs.ssh.startAgent
@@ -645,8 +650,6 @@ in {
           spawn-at-startup = [
             # Launch shell/bar first for instant visual feedback
             "noctalia"
-            # Apply last wallpaper immediately — before skwd-daemon's systemd service fires
-            "wallpaper-restore"
             # D-Bus environment setup runs in background (& at end)
             "sh -c 'dbus-update-activation-environment --systemd --all &'"
             "sh -c 'systemctl --user import-environment --all &'"
@@ -862,8 +865,32 @@ in {
               geometry-corner-radius 12
               draw-border-with-background false
             }
+            // ⚠️ Both spellings, and that is not paranoia. GTK takes the app-id
+            // from prgname, so it depends on which binary started the process:
+            // windows served by the autostarted `Thunar --daemon` come up as
+            // "Thunar", while one launched straight off `.../bin/thunar` (Mod+E
+            // above) comes up as "thunar". niri matches app-id case-sensitively,
+            // so the plain `^thunar$` this rule used to carry never matched a
+            // daemon-served window at all. Confirmed 2026-09-25 against
+            // `niri msg windows`.
+            //
+            // ⚠️ Verifying this rule needs care, and getting it wrong once
+            // already cost an afternoon. Thunar's background is very dark
+            // (#1d1d20 ≈ 29,29,32), so at 0.90 the wallpaper contributes only
+            // 10%: over a DARK wallpaper the composite is numerically identical
+            // to an opaque window, which on 2026-09-25 produced a confident and
+            // wrong "the rule does nothing" reading. Sample where the wallpaper
+            // is bright and compare against the client's own buffer colour —
+            // verified that day at 34–42 per channel against a 29 buffer, i.e.
+            // exactly 0.9*29 + 0.1*wallpaper.
+            //
+            // The uniform fade is also why this reads as "dim" rather than
+            // "glassy": niri fades text along with the background. Only a
+            // client-side alpha (gtk.css) can fade the background alone, and
+            // that route was built on 2026-09-25 and rejected on taste — see
+            // Claude/misc.md before rebuilding it.
             window-rule {
-              match app-id="^thunar$"
+              match app-id="^[Tt]hunar$"
               opacity 0.90
             }
             window-rule {
@@ -882,10 +909,22 @@ in {
               match app-id="^helium$"
               opacity 0.85
             }
+            // This line is the ONLY thing making Spotify see-through — same story as
+            // the steam rule below. Spotify is CEF and its surface has no alpha
+            // channel, so no amount of CSS in Modules/spicetify.nix can do it:
+            // verified 2026-09-16 over CDP by forcing `html, body { background:
+            // transparent }` (window stayed solid black) and again with CEF's
+            // --enable-transparent-visuals flag (no change). Deleting this line in
+            // favour of a translucent CSS backdrop is exactly what turned Spotify's
+            // background fully black.
+            // niri's opacity is uniform — it fades text along with the background — so
+            // this can never match noctalia's bar, which fades background only. 0.75 is
+            // a deliberate choice for more visible wallpaper, accepting softer text;
+            // raise toward 0.85 (what steam/helium/vesktop use) if it reads too washed.
             window-rule {
               match app-id="^spotify$"
-              opacity 0.75
               open-on-output "HDMI-A-1"
+              opacity 0.75
             }
             // This rule is what actually makes Steam glass — Steam's CEF surface
             // has no alpha channel, so the Millennium theme in Modules/steam.nix
@@ -897,18 +936,39 @@ in {
               match app-id="^steam$"
               opacity 0.85
             }
-            // Cult of the Lamb has no in-game monitor selector, so pin its window to
-            // HDMI-A-1 (the output Sunshine captures, output_name=HDMI-A-1). open-fullscreen
-            // makes it fill the 1080p output so Sunshine streams a full-frame capture.
-            // This rule is unconditional — it has nothing to do with whether Moonlight is
-            // connected. Sunshine captures a fixed output either way.
-            // Two match directives (niri ORs them) because the app-id depends on how it launches:
-            //   - bare Steam/Xwayland  -> app-id "steam_app_<appid>"
-            //   - under gamescope      -> app-id is UNSET, so only the title can match
-            // The game is launched via gamescope (Steam launch options) to stop Unity pausing
-            // when it loses focus, so in practice the title rule is the one that fires.
+            // ---- Streamed games land on HDMI-A-1 (the output Sunshine captures) ----
+            //
+            // The streaming model is: Moonlight opens Sunshine's "Steam Big Picture"
+            // app, and games are chosen from inside Big Picture. So the game window
+            // is whatever Steam happens to launch — it is NOT a per-game Sunshine
+            // entry, and there is no in-game monitor selector to rely on.
+            //
+            // Hence a GENERIC rule: any `steam_app_<id>` goes to HDMI-A-1. Previously
+            // this was pinned per game (only `steam_app_1313140`), which meant every
+            // other title opened on the DP-2 ultrawide while Sunshine dutifully
+            // streamed the desktop — hit with Stray on 2026-09-27.
+            // `open-fullscreen` makes it fill the 1080p output so the capture is
+            // full-frame with no gaps.
+            //
+            // Unconditional on purpose: it does not care whether Moonlight is
+            // connected, because Sunshine captures a fixed output either way.
+            //
+            // ⚠️ Obsolete if the Wolf trial replaces Sunshine (Modules/wolf.nix) —
+            // Wolf gives each session its own virtual display, so there is nothing
+            // to pin. Harmless to keep as the Sunshine fallback.
             window-rule {
-              match app-id="^steam_app_1313140$"
+              match app-id="^steam_app_"
+              open-on-output "HDMI-A-1"
+              open-fullscreen true
+            }
+            // Cult of the Lamb needs its own rule ON TOP of the generic one above:
+            // it is launched via gamescope (a Steam launch option, to stop Unity
+            // pausing when it loses focus), and under gamescope the toplevel is
+            // gamescope's own window with **app-id UNSET** — so `^steam_app_` cannot
+            // match it. The title is the only usable handle. Verified 2026-09-27:
+            // `niri msg windows` showed `Title: "Cult Of The Lamb"` / `App ID: (unset)`.
+            // Any other game given a gamescope launch option will need the same.
+            window-rule {
               match title="^Cult Of The Lamb$"
               open-on-output "HDMI-A-1"
               open-fullscreen true
@@ -922,8 +982,33 @@ in {
               open-floating true
             }
 
+            // The niri overview backdrop. skwd v2 serves this natively from a
+            // second layer-shell surface, gated by `niri.overviewBackdrop` in
+            // ~/.config/skwd-wall-v2/config.json (with backdropFollowWallpaper,
+            // backdropDim and the blur keys alongside it).
+            //
+            // Without this rule that surface is just another background-layer
+            // client: it is created after skwd-paper, so it paints ON TOP of the
+            // real wallpaper and the whole desktop goes blurry. Seen 2026-09-15 at
+            // --blur 20, against a wallpaper that was not even the current one
+            // because backdropFollowWallpaper defaults to false.
+            //
+            // The rule matches nothing while overviewBackdrop is false, so it is
+            // safe to keep regardless of the setting — and keeping it means the
+            // settings UI cannot break the desktop by flipping that toggle.
+            //
+            // This REPLACED a `^wallpaper$` rule plus a swaybg instance (started
+            // by a `wallpaper-restore` script at login and re-spawned by
+            // noctalia-sync-wallpaper on every swap). All three are gone.
+            //
+            // This is NOT the declined one-tool refactor: that one put
+            // place-within-backdrop on ^skwd-paper$ itself, which collapsed the
+            // desktop and the backdrop into one surface and cost the
+            // workspace-switch slide. The backdrop is a SECOND surface, so
+            // skwd-paper still owns the desktop and the slide survives.
+            // See memory/niri-wallpaper-two-tool-setup.md.
             layer-rule {
-              match namespace="^wallpaper$"
+              match namespace="^skwd-paper-backdrop$"
               place-within-backdrop true
             }
           '';

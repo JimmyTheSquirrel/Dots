@@ -6,7 +6,7 @@
         "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
         "logo": {
           "type": "kitty-direct",
-          "source": "/home/rock/Dots/Resources/Terminal-Images/terminal-logo-small.png",
+          "source": "${../Resources/Terminal-Images/terminal-logo-small.png}",
           "height": 14,
           "padding": {
             "top": 0,

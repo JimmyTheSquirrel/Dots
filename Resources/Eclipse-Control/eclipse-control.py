@@ -35,10 +35,27 @@ JELLYFIN_REMOTE = "http://100.126.205.100:8096"
 JELLYFIN_ADDON_DIR = "/storage/.kodi/userdata/addon_data/plugin.video.jellyfin"
 
 # maxBitrate is an index into the addon's own Mbps list (see Claude/eclipse.md).
-# 23 = "1000 Mbps" i.e. uncapped - safe on the LAN, which has gigabit headroom
-# and is exempt from wan-egress-shaping. 10 = 8 Mbps - matches the real ceiling
-# measured on Eclipse's remote link (WiFi regulatory-domain bug caps it around
-# 10-13 Mbps regardless of settings; 8 Mbps direct-streams cleanly under that).
+# 23 = 1000 Mbps i.e. uncapped, 17 = 20 Mbps, 10 = 8 Mbps.
+#
+# LAN is uncapped because the path genuinely carries it - but NOT because it is
+# wired. Eclipse's "wired" run goes through an ASUS RP-BE58 repeater
+# (192.168.0.68), so one hop is wireless, and the throughput depends entirely
+# on which band that repeater's backhaul is using:
+#
+#   5 GHz backhaul (correct): 196 Mbps down / 115 up, 6.6ms avg ping, 0% loss
+#   2.4 GHz fallback (bad):    47.6 down / 43.4 up,  30ms avg, 146ms spikes, 2% loss
+#
+# Both measured 2026-09-26 against the memory-served sink on SPEEDTEST_LAN_PORT.
+# On 5 GHz there is ~2.8x headroom over the heaviest file in the library
+# ("The Drama", 51GB, 68.9 Mbps), so uncapped is correct and a cap would only
+# force pointless 4K transcodes.
+#
+# ⚠️ The repeater can silently fall back to 2.4 GHz after any power interruption
+# and stay there - it sat that way for ~10 days before being noticed, because
+# the Pi's own diagnostics stay green (1000Mb/s, zero errors) throughout. If
+# playback starts stuttering, measure the link FIRST and power-cycle the
+# repeater if it reads ~45 Mbps. Only set this to "17" as a stopgap if the
+# repeater cannot be fixed; a value between 45 and 196 buys nothing either way.
 JELLYFIN_BITRATE_LAN = "23"
 JELLYFIN_BITRATE_REMOTE = "10"
 
@@ -46,11 +63,16 @@ JELLYFIN_BITRATE_REMOTE = "10"
 # (tailscaled runs with --accept-dns=false here, no MagicDNS, see
 # Claude/eclipse.md), so the speed test target below must be a bare IP.
 ASGARD_TAILSCALE_IP = "100.126.205.100"
+ASGARD_LAN_IP = "192.168.0.226"
 SPEEDTEST_SIZE_MB = 25
+# Separate listener for the LAN speed test. Serves the zero payload and NOTHING
+# else - no status, no actions - so it is safe to open on the LAN interface,
+# unlike PORT which carries the whole control surface. See act_speedtest().
+SPEEDTEST_LAN_PORT = int(os.environ.get("ECLIPSE_SPEEDTEST_LAN_PORT", "9557"))
 
 # Cache of the last speed test result, so the panel keeps showing a number
 # across page reloads instead of resetting to "never tested" every time.
-LAST_SPEEDTEST = {"mbps": None, "when": 0.0}
+LAST_SPEEDTEST = {"mbps": None, "up_mbps": None, "when": 0.0}
 
 CONNECTOR = "/sys/class/drm/card1-HDMI-A-1"
 KODI_SEND = "/usr/bin/kodi-send"
@@ -142,6 +164,7 @@ def get_status():
     )
     st["jellyfin_mode"] = _jellyfin_mode(st["jellyfin"])
     st["speed_mbps"] = LAST_SPEEDTEST["mbps"]
+    st["speed_up_mbps"] = LAST_SPEEDTEST["up_mbps"]
     st["speed_when"] = LAST_SPEEDTEST["when"]
     return st
 
@@ -151,12 +174,32 @@ def act_speedtest():
 
     Deliberately not a ping or a tiny request - this addon has no ABR (see
     Claude/eclipse.md), so what matters is sustained throughput at the sizes
-    a real remux actually pulls. Downloads a fixed-size blob of zeros served
-    by this same process (see the speedtest-data route below), which sidesteps
-    needing a Jellyfin API key on Eclipse and measures the same Tailscale path
-    real playback uses.
+    a real remux actually pulls. Downloads a fixed-size blob of zeros, which
+    sidesteps needing a Jellyfin API key on Eclipse.
+
+    Measures whichever path playback is ACTUALLY using right now, picked from
+    the Jellyfin address the addon is currently pointed at:
+
+      lan     -> ASGARD_LAN_IP:SPEEDTEST_LAN_PORT   (direct, the fast path)
+      remote  -> ASGARD_TAILSCALE_IP:PORT           (WireGuard, much slower)
+
+    This used to always test the Tailscale path. With the addon on LAN that
+    reported ~19 Mbps of WireGuard overhead on a gigabit link - a real number
+    for the remote path, but not the one anyone wants when the box is local.
+
+    The LAN test needs its own port because PORT (9554) is deliberately absent
+    from allowedTCPPorts and reachable only over trusted tailscale0. Opening it
+    to the LAN would expose every action on this panel - including `reboot` -
+    to anything on the wifi. SPEEDTEST_LAN_PORT serves the payload and nothing
+    else, so it is safe to open.
     """
-    url = "http://" + ASGARD_TAILSCALE_IP + ":" + str(PORT) + "/speedtest-data"
+    st = get_status()
+    if _jellyfin_mode(st.get("jellyfin", "")) == "remote":
+        url = "http://" + ASGARD_TAILSCALE_IP + ":" + str(PORT) + "/speedtest-data"
+        path = "Tailscale"
+    else:
+        url = "http://" + ASGARD_LAN_IP + ":" + str(SPEEDTEST_LAN_PORT) + "/"
+        path = "LAN"
     ok, out = ssh("curl -s -o /dev/null -w '%{speed_download}' '" + url + "'", timeout=60)
     if not ok:
         return False, "speed test failed: " + out
@@ -165,8 +208,29 @@ def act_speedtest():
     except ValueError:
         return False, "speed test failed: bad reading (" + out + ")"
     LAST_SPEEDTEST["mbps"] = round(mbps, 1)
+
+    # Upload, same payload in the other direction. Streamed from dd via `curl
+    # -T -` so the Pi never writes a 25MB temp file to its SD card, and drained
+    # by SpeedtestHandler.do_PUT. Only meaningful on the LAN path - the remote
+    # path PUTs to /speedtest-data on the control port, which has no PUT route,
+    # so upload is skipped (and left as None) when testing over Tailscale.
+    up_mbps = None
+    if path == "LAN":
+        up_cmd = ("dd if=/dev/zero bs=1M count=" + str(SPEEDTEST_SIZE_MB)
+                  + " 2>/dev/null | curl -s -o /dev/null -w '%{speed_upload}'"
+                  + " -X PUT -T - '" + url + "'")
+        up_ok, up_out = ssh(up_cmd, timeout=60)
+        if up_ok:
+            try:
+                up_mbps = round(float(up_out.strip()) * 8 / 1_000_000, 1)
+            except ValueError:
+                up_mbps = None
+    LAST_SPEEDTEST["up_mbps"] = up_mbps
     LAST_SPEEDTEST["when"] = time.time()
-    return True, "{:.1f} Mbps down".format(mbps)
+
+    if up_mbps is not None:
+        return True, "{:.1f} down / {:.1f} up Mbps over {}".format(mbps, up_mbps, path)
+    return True, "{:.1f} Mbps down over {}".format(mbps, path)
 
 
 def act_restart_kodi():
@@ -189,10 +253,13 @@ def act_jellyfin_toggle():
     re-read data.json and reconnect.
 
     Bundles the maxBitrate cap with the address on purpose: it's the same
-    decision either way. LAN = uncapped direct play (gigabit, no shaping).
-    Remote = capped to what the WiFi regulatory-domain bug actually allows
-    (see Claude/eclipse.md) - direct play at full bitrate over that link
-    just stalls, capping it is what makes it watchable.
+    decision either way. LAN = uncapped direct play, which the RP-BE58's
+    5 GHz backhaul carries at ~196 Mbps (see the JELLYFIN_BITRATE_LAN
+    comment - and note that number collapses to ~45 if the repeater falls
+    back to 2.4 GHz). Remote = capped to ~8 Mbps, the ceiling the WiFi
+    regulatory-domain bug actually allows (see Claude/eclipse.md) - direct
+    play at full bitrate over that link just stalls, and capping it is what
+    makes it watchable.
     """
     ok, current = ssh(
         'grep -oE \'"address": *"[^"]+"\' ' + JELLYFIN_ADDON_DIR
@@ -517,7 +584,7 @@ PAGE = r"""<!doctype html>
 </div>
 <script>
 var buttons = Array.prototype.slice.call(document.querySelectorAll('button[data-act]'));
-var history = [];
+var logHistory = [];
 
 function fmtUptime(s) {
   if (!s) return '-';
@@ -604,9 +671,9 @@ function refresh() {
   });
 }
 function logAdd(text, cls) {
-  history.unshift({ t: fmtClock(new Date()), text: text, cls: cls || '' });
-  history = history.slice(0, 6);
-  document.getElementById('log').innerHTML = history.map(function (e) {
+  logHistory.unshift({ t: fmtClock(new Date()), text: text, cls: cls || '' });
+  logHistory = logHistory.slice(0, 6);
+  document.getElementById('log').innerHTML = logHistory.map(function (e) {
     return '<div class="log-item ' + e.cls + '"><span class="t">' + e.t + '</span>' +
            '<span class="m">' + e.text + '</span></div>';
   }).join('');
@@ -728,5 +795,81 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     allow_reuse_address = True
 
 
+class SpeedtestHandler(http.server.BaseHTTPRequestHandler):
+    """LAN-facing data sink. Answers GET with the zero payload and nothing else.
+
+    Kept as a separate handler on a separate port ON PURPOSE. The main Handler
+    carries /status and every /act/ verb including `reboot`, and PORT is
+    tailnet-only for that reason. This one has no control surface at all, so
+    opening it on the LAN interface risks nothing beyond wasted bandwidth.
+    """
+
+    def do_GET(self):
+        size = SPEEDTEST_SIZE_MB * 1024 * 1024
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(size))
+        self.end_headers()
+        chunk = b"\0" * (256 * 1024)
+        sent = 0
+        try:
+            while sent < size:
+                n = min(len(chunk), size - sent)
+                self.wfile.write(chunk[:n])
+                sent += n
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def do_PUT(self):
+        """Drain an upload and discard it - the counterpart to do_GET.
+
+        Read in chunks rather than one .read(n): the client streams this with
+        `curl -T -`, so it arrives chunked and buffering the whole 25MB just to
+        throw it away would be pointless memory churn.
+        """
+        remaining = self.headers.get("Content-Length")
+        try:
+            if remaining is not None:
+                remaining = int(remaining)
+                while remaining > 0:
+                    got = self.rfile.read(min(256 * 1024, remaining))
+                    if not got:
+                        break
+                    remaining -= len(got)
+            else:
+                # Chunked transfer - no Content-Length to count down from.
+                while True:
+                    line = self.rfile.readline(65)
+                    if not line:
+                        break
+                    size = int(line.strip().split(b";")[0] or b"0", 16)
+                    if size == 0:
+                        self.rfile.readline()
+                        break
+                    left = size
+                    while left > 0:
+                        got = self.rfile.read(min(256 * 1024, left))
+                        if not got:
+                            break
+                        left -= len(got)
+                    self.rfile.readline()
+        except (BrokenPipeError, ConnectionResetError, ValueError):
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_POST(self):
+        self.send_response(405)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
 if __name__ == "__main__":
+    threading.Thread(
+        target=Server(("0.0.0.0", SPEEDTEST_LAN_PORT), SpeedtestHandler).serve_forever,
+        daemon=True,
+    ).start()
     Server(("0.0.0.0", PORT), Handler).serve_forever()

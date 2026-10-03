@@ -839,7 +839,7 @@ Sisyphus runs **Sunshine** as a game streaming host, accessible remotely via **T
 
 **Modules:**
 - `Modules/sunshine.nix` — Sunshine user service (Sisyphus only) — streams desktop to Moonlight clients
-- `Modules/tailscale.nix` — Tailscale VPN (Sisyphus only, auth key via sops)
+- `Modules/tailscale.nix` — Tailscale VPN (Sisyphus only). **Enable only; it reads no auth key.**
 - `Modules/controller.nix` — DualSense desktop navigation daemon (Sisyphus only)
 
 **Moonlight client:** `moonlight-qt` is in `base.nix` and available on all three systems. Use it to connect to a Sunshine host.
@@ -848,7 +848,7 @@ Sisyphus runs **Sunshine** as a game streaming host, accessible remotely via **T
 - Sunshine runs as a **user service** (`autoStart = true`) — starts automatically when Niri logs in via the graphical session
 - `hardware.uinput.enable = true` allows Sunshine to send virtual controller/keyboard/mouse input to Linux
 - `openFirewall = true` + `trustedInterfaces = [ "tailscale0" ]` means Sunshine is reachable over Tailscale without extra firewall rules
-- Tailscale auth key is stored in sops (`secrets.yaml` → `tailscale-auth-key`) and auto-authenticates on rebuild
+- ⚠️ CORRECTION: `Modules/tailscale.nix` does NOT auto-authenticate. A `tailscale-auth-key` is in sops, but the module never reads it — the only consumer is the second tailscaled on Asgard (`Modules/marsbar.nix`). Every other node was joined by hand with `sudo tailscale up`.
 
 **5G / Moonlight streaming optimisations (server-side):**
 - **Kernel UDP buffers** — `net.core.rmem_max` and `wmem_max` set to 25 MB (default ~212 KB is too small for bursty 5G traffic), `netdev_max_backlog = 5000`

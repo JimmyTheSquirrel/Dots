@@ -43,7 +43,7 @@ Synced by `skwd-wall.nix` activation script:
 
 - `--spice-text` = `on_primary_container` — light tinted accent, gives warmth to body text
 - `--spice-subtext` = `on_surface_variant` — slightly dimmer, for secondary text
-- `--spice-main` = overridden to `#0d0d0d !important` in `additionalCss` — neutral dark, ignores matugen surface tint
+- `--spice-main` = pinned to `#0d0d0d !important` in `additionalCss` — neutral dark, deliberately ignores the matugen surface tint so the backdrop is identical on every wallpaper. Unpinned it resolves to `surface` (near-black but wallpaper-tinted: `#161306`, `#15130c`). Briefly unpinned 2026-09-16, re-pinned by choice the same day
 - `--spice-banner` = `primary` (from matugen) — accent color for "Liked Songs" / playlist titles
 
 ## CSS Fixes (additionalCss)
@@ -52,7 +52,11 @@ Synced by `skwd-wall.nix` activation script:
 
 **Pane borders/labels:** Always show in `--spice-border-active` color (matugen primary). Removed hover-only coloring from `user.css`.
 
-**Transparency:** Spotify window opacity set to `0.75` in Niri window rules. Pane container backgrounds (Nav, Library, Main, Playing) forced transparent so wallpaper shows through. `--spice-main` stays solid `#0d0d0d` so UI elements remain readable. **Niri opacity changes require logout/login.**
+**Transparency:** comes **only** from the Niri window rule — `opacity 0.75` on `^spotify$` in `Modules/Desktops/niri.nix`. Pane container backgrounds (Nav, Library, Main, Playing) plus `body` are forced transparent, so `html` paints one flat opaque `--spice-main` and Niri fades the composited window. **Niri opacity changes require logout/login.**
+
+**CSS cannot do this — do not try again.** Spotify is CEF and its window surface has no alpha channel (the same reason Steam needs its own Niri rule, see `Claude/steam.md`). Verified 2026-09-16 over CDP: forcing `html, body { background: transparent !important }` left the window solid black, and relaunching with CEF's `--enable-transparent-visuals` changed nothing. An attempt to paint `html body` at 55% with `color-mix` — intended to fade background only, the way noctalia's bar does — produced a fully black backdrop instead, because `html` still paints an opaque `--spice-main` beneath it.
+
+**Why not the bar's 0.55:** Niri's opacity is uniform and fades text along with the background. Matching noctalia's bar exactly is not achievable for a CEF window — the bar's `bar.main background_opacity` fades background only. `0.75` is the chosen trade-off (more visible wallpaper, softer text); `0.85` is what steam/helium/vesktop use if it reads too washed.
 
 **Now-playing (Playing pane) seekbar:** The text theme uses `position: absolute` + `width: 100vw` on `.playback-bar` (full viewport width). Overridden in `additionalCss`:
 - Centered with `left: 50%; transform: translateX(-50%); width: 75%`

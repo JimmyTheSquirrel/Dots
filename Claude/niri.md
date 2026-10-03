@@ -16,6 +16,11 @@
 **Window rules** (in `extraConfig` as raw KDL — `match app-id` syntax can't be expressed in Nix):
 - Global: `corner-radius 12`, `clip-to-geometry true`, `geometry-corner-radius`
 - Opacity: spotify 0.75, steam 0.85, vesktop 0.85, helium 0.85, discord 0.80, codium 0.80, thunar 0.90
+- ⚠️ The thunar rule matches **`^[Tt]hunar$`**, both spellings — GTK takes the
+  app-id from prgname (`Thunar --daemon` → `Thunar`, `bin/thunar` → `thunar`)
+  and niri matches case-sensitively, so the old `^thunar$` left daemon-served
+  windows opaque. Verifying it needs a **bright** wallpaper behind: at 0.90 over
+  a dark one the composite is indistinguishable from opaque. See `Claude/misc.md`.
 - Floating: pavucontrol, Picture-in-Picture
 - Spotify opens on HDMI-A-1 (secondary monitor)
 
@@ -138,7 +143,15 @@ The play/pause/next/prev binds use `playerctlCmd` (a `let` binding in `niri.nix`
 playerctl --player=spotify,%any --ignore-player=skwd-music
 ```
 
-**Bare `playerctl` is a no-op on this system.** skwd-daemon registers an inert
+> ⚠️ **Unverified on skwd v2 (as of 2026-09-15).** With `skwd-walld` running and a
+> **static** wallpaper applied, `playerctl --list-all` shows only `spotify` — no
+> `skwd-music` on the bus at all. It may be that v2 dropped the inert player, or
+> that it only appears for **video / Wallpaper Engine** wallpapers (this host has
+> `wallpaperMute = true`). The flags below are harmless either way, so they stay
+> until someone checks with a video wallpaper playing. Do not remove them on the
+> strength of a static-wallpaper test.
+
+**Bare `playerctl` is a no-op on this system.** skwd-daemon (v1) registers an inert
 `org.mpris.MediaPlayer2.skwd-music` player that sorts before `spotify`, and it advertises
 `CanControl` / `CanPlay` / `CanPause` / `CanGoNext` = `true` while doing nothing. playerctl
 picks it, fires the method at it, and exits 0 — so every media key silently did nothing.
@@ -197,6 +210,92 @@ Each entry is `{ key; title; category; action; }`. The list is consumed twice:
 `title` and `category` are cheatsheet-only; the wrapper-modules `binds` schema takes `action` alone. **Add or change a bind in `mkKeybinds` and both outputs stay in step — never hand-edit the generated KDL.**
 
 This replaced a hand-maintained parallel heredoc that had already drifted: `Mod+Shift+Slash` was missing from the cheatsheet, and its `Mod+Shift+S` read `grim -g $(slurp) | wl-copy` — no `-` operand and an unquoted `$(slurp)`, which word-splits so grim takes the `WxH` half as an output filename.
+
+## 🔑 "Pointer works but `Mod`+drag does nothing" — a LATCHED mouse button
+
+**First check, before anything else:** ask the kernel which buttons it currently believes
+are *held*, on every device. Diagnosed 2026-10-01; cost several wrong turns because a
+latched button is **invisible to every normal input test** — it emits no events, so
+`dd if=/dev/input/eventN` and full event-stream decoding both show a perfectly healthy
+mouse. `EVIOCGKEY` is the only thing that sees it.
+
+```bash
+# which buttons/keys does the kernel think are DOWN right now, per device?
+python3 - <<'EOF'
+import fcntl, os
+SIZE=96; EVIOCGKEY=(2<<30)|(SIZE<<16)|(0x45<<8)|0x18   # _IOR('E',0x18,SIZE)
+n={272:"BTN_LEFT",273:"BTN_RIGHT",274:"BTN_MIDDLE",275:"BTN_SIDE",276:"BTN_EXTRA",
+   29:"L_CTRL",42:"L_SHIFT",56:"L_ALT",125:"L_SUPER",126:"R_SUPER"}
+for ev in sorted(x for x in os.listdir("/dev/input") if x.startswith("event")):
+    try: fd=os.open(f"/dev/input/{ev}", os.O_RDONLY|os.O_NONBLOCK)
+    except Exception: continue
+    try:
+        b=bytearray(SIZE); fcntl.ioctl(fd, EVIOCGKEY, b)
+        h=[n.get(c,f"code{c}") for c in range(SIZE*8) if b[c//8]>>(c%8)&1]
+        if h: print(f"  {ev}: {h}")
+    finally: os.close(fd)
+EOF
+```
+
+**The symptom explained:** with any mouse button latched down, niri will not begin a new
+interactive move/resize, so `Mod`+left-drag is dead — while plain click-to-focus keeps
+working, because that is a different button. Easy to misread as a stuck *modifier* or a
+stale pointer grab. It is neither.
+
+**The fix — no root, no unplugging.** `rock` is in the `input` group, so the event node is
+writable, and a write to an evdev node goes through the kernel's `input_inject_event()`,
+which updates real device state **and** propagates to libinput, so niri gets the release
+it has been waiting for. Inject a release for each latched code:
+
+```bash
+python3 - <<'EOF'
+import os, struct, time
+DEV="/dev/input/event3"; STUCK=[274,275,276]      # <- from the probe above
+ev=lambda t,c,v:(lambda n:struct.pack("llHHi",int(n),int(n%1*1e6),t,c,v))(time.time())
+fd=os.open(DEV, os.O_WRONLY)
+for code in STUCK:
+    os.write(fd, ev(1,code,0))    # EV_KEY, release
+    os.write(fd, ev(0,0,0))       # EV_SYN / SYN_REPORT
+    time.sleep(0.05)
+os.close(fd)
+EOF
+```
+
+A release is only accepted if it *changes* state, so this is safe — on a button that is
+genuinely up it does nothing. Re-run the probe to confirm.
+
+⚠️ **Scope: this works on real evdev devices, NOT on uhid-backed virtual pads.** Tried
+2026-10-03 on a latched `Wolf DualSense (virtual) pad` (`event256`): the write is accepted,
+and `EVIOCGKEY` reads back the same four codes, because the HID driver owns the key state
+and re-asserts it. The probe above is still the right first move — it is what *found* that
+pad — but a stuck virtual pad has to be **destroyed** (end the session), not released. See
+`Claude/wolf.md` → "Quit-by-chord strands the virtual pad".
+
+**Culprit here:** the **HP 330 Wireless Mouse and Keyboard Combo** (`03f0:6341`, USB `5-1`
+on CPU-attached controller `0000:12:00.4`) latched `BTN_MIDDLE` + `BTN_SIDE` + `BTN_EXTRA`
+and then went silent — zero events in a 120 s capture. A receiver losing its mouse
+mid-click. It recurs.
+
+⚠️ **Not** the documented Slipstream fault: that one is `1-5` on the *chipset* controller
+`0000:0f:00.0` with `error -110` enumeration failures. This device enumerated cleanly.
+
+Permanent option, if that combo is plugged in but unused — make libinput never show it to
+the compositor, so a latched button cannot reach niri again:
+
+```
+ENV{ID_VENDOR_ID}=="03f0", ENV{ID_MODEL_ID}=="6341", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+```
+
+Costs the combo as an input device entirely, so only do it if the keyboard half is unused.
+
+### Red herrings ruled out (don't re-investigate)
+
+- **A display hotplug minutes earlier** (`disconnecting connector: "DP-2"` → reconnect) was
+  pure coincidence. Tempting, because orphaning an in-flight grab is plausible.
+- **Stale pointer grab / stuck modifier** — `EVIOCGKEY` showed no modifier held on any device.
+- **The Corsair M65** was flawless throughout: 11551 motion + 255 button events in 120 s.
+- **Wolf's `seat9` isolation** had not captured the real mouse — no `ID_SEAT` on any pointer.
+- **Millennium wedging** — `cef_log.txt` was only 47 KB, not the spam signature.
 
 ## Niri reads ONE config — the baked one
 
@@ -279,39 +378,58 @@ IPC actions used by keybinds:
 - App launcher: `noctalia msg panel-toggle launcher`
 - Power menu: `noctalia msg panel-toggle session`
 - Widget edit mode: `noctalia msg desktop-widgets-edit`
-- Wallpaper: `skwd wall toggle`
+- Wallpaper: `skwd-wall-v2` (v2 has no `skwd` CLI and no resident picker — the binary starts in ~150 ms and exits on close. `skwd wall toggle` is v1, i.e. Elektra/Odysseus only.)
 
 ## Startup Sequence
 
 1. Noctalia shell launches first (instant visual feedback)
-2. **`wallpaper-restore`** paints the wallpaper immediately (see below)
-3. D-Bus environment setup runs in background (`sh -c '... &'`)
-4. Stale Spotify singleton locks cleared (`~/.cache/spotify/SingletonLock`, `SingletonSocket`) — cause Spotify to silently exit if not cleaned
-5. Spotify launches via `spotify-startup` (3-second delay, opens to Liked Songs)
+2. D-Bus environment setup runs in background (`sh -c '... &'`)
+3. Stale Spotify singleton locks cleared (`~/.cache/spotify/SingletonLock`, `SingletonSocket`) — cause Spotify to silently exit if not cleaned
+4. Spotify launches via `spotify-startup` (3-second delay, opens to Liked Songs)
+
+**`wallpaper-restore` was step 2 until 2026-09-15** and is gone — v2's daemon runs with `--wait-for-session` and paints as soon as the Wayland socket exists, so there is no longer a gap to paper over. See below.
 
 Startup optimization: D-Bus environment commands run in background so visual elements load first.
 
-### Black background on login — `wallpaper-restore`
+### Black background on login — `wallpaper-restore` (DELETED 2026-09-15)
 
-**Symptom:** wallpaper missing (black) on some/all workspaces right after login.
+**`wallpaper-restore`, swaybg and the `^wallpaper$` layer-rule are all gone.**
+skwd v2 serves the overview backdrop natively from a `skwd-paper-backdrop`
+layer-shell surface, paired with this rule in `Modules/Desktops/niri.nix`:
 
-**Cause:** `skwd-daemon` is a systemd user service gated on `After = ["graphical-session.target"]`, so it only paints once the session target is reached — well after niri has drawn its first frame. This got worse after noctalia's startup was sped up, since there's now less incidental delay masking the gap.
-
-**Fix:** a `wallpaper-restore` script in `environment.systemPackages`, spawned from niri's `spawn-at-startup` right after `noctalia`. It reads the cached last wallpaper and paints it with swaybg immediately — no waiting on systemd:
-
-```nix
-(writeShellScriptBin "wallpaper-restore" ''
-  CACHE="$HOME/.cache/skwd-wall/last-wallpaper.json"
-  [ -f "$CACHE" ] || exit 0
-  WALL=$(${pkgs.jq}/bin/jq -r .path "$CACHE" 2>/dev/null)
-  [ -n "$WALL" ] && [ -f "$WALL" ] || exit 0
-  exec ${pkgs.swaybg}/bin/swaybg -m fill -i "$WALL"
-'')
+```kdl
+layer-rule {
+    match namespace="^skwd-paper-backdrop$"
+    place-within-backdrop true
+}
 ```
 
-Absolute nix store paths are required — `spawn-at-startup` does not get a full `PATH`. `skwd-daemon` takes over the layer-shell surface once it starts; swaybg sits on the plain background layer underneath, so there's no conflict.
+Enabled by `niri.overviewBackdrop` in `~/.config/skwd-wall-v2/config.json`, which
+Nix pins to `true` alongside `backdropFollowWallpaper`. Full account in
+`Claude/skwd-wall.md`.
 
-**This only takes effect after a rebuild AND re-login** — `spawn-at-startup` is baked into the niri wrapper binary.
+**⚠️ The rule and the surface must land together.** With `overviewBackdrop = true`
+but no matching layer-rule loaded, the surface is an ordinary background-layer
+client created *after* `skwd-paper` — so it paints **over** the desktop and
+everything goes blurry. Since the rule is baked into the niri wrapper, a rebuild
+alone is not enough: **it needs a re-login.** Verify with `niri msg layers`.
+
+**The original problem this solved, for the record:** `skwd-daemon` is a systemd
+user service gated on `After = ["graphical-session.target"]`, so it only painted
+once the session target was reached — well after niri drew its first frame,
+leaving a black gap. v2's daemon starts with `--wait-for-session` and paints as
+soon as the Wayland socket exists, so the gap no longer needs papering over.
+
+Two details worth keeping, since they bit us before:
+
+- `spawn-at-startup` does **not** get a full `PATH` — absolute store paths only.
+- Reading `last-wallpaper.json` is correct **at login** (nothing is being applied,
+  so it is current) but **wrong inside a wallpaper-change hook** — skwd writes
+  that file *after* running hooks, so a hook reading it acts on the previous
+  wallpaper. See `Claude/skwd-wall.md`.
+
+v1 hosts (Elektra, Odysseus) still use swaybg; the script moved to
+`Modules/skwd-wall.nix`.
 
 **Noctalia startup delay on Sisyphus:** Noctalia is launched via niri `spawn-at-startup` (NOT systemd), so it's not queued behind server services. However, the server stack (Jellyfin, Immich, arr services) causes CPU/IO contention at login time which slows QML startup. Fixed in `Hosts/Sisyphus/system.nix` — heavy server services are delayed with `after = [ "graphical.target" ]` so they don't start until SDDM is up. Do NOT put this in `server.nix` — Asgard is headless and `graphical.target` is never reached there.
 

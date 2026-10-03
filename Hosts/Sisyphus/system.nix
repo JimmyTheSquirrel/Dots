@@ -64,7 +64,7 @@ in {
       self.nixosModules.base
       self.nixosModules.grub
       self.nixosModules.plymouth
-      self.nixosModules.sddm
+      self.nixosModules.sddm-nier
       self.nixosModules.polkit
       self.nixosModules.thunar
       self.nixosModules.niri
@@ -78,16 +78,21 @@ in {
       self.nixosModules.helium
       self.nixosModules.git
       self.nixosModules.fastfetch
+      self.nixosModules.btop
       self.nixosModules.vscodium
       self.nixosModules.noctalia
-      self.nixosModules.skwd-wall
+      # skwd-wall v2 (Rust). Elektra and Odysseus are still on nixosModules.skwd-wall
+      # (v1/QuickShell) until the v2 beta settles — see Modules/Skwd.nix.
+      self.nixosModules.skwd
       self.nixosModules.navi
       self.nixosModules.spicetify
       self.nixosModules.discord
-      self.nixosModules.rain-effect
       self.nixosModules.tailscale
       self.nixosModules.sunshine
-      self.nixosModules.controller
+      # Wolf — multi-session Moonlight server, on TRIAL alongside Sunshine.
+      # Does NOT autostart: it binds the same Moonlight ports as Sunshine, so
+      # exactly one of the two may run. See Modules/wolf.nix.
+      self.nixosModules.wolf
       self.nixosModules.rpcs3
 
       # System-specific settings

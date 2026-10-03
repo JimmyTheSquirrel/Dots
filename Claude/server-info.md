@@ -8,6 +8,52 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 
 ---
 
+## Fans and sensors (added 2026-09-19)
+
+Board is a **Gigabyte B760M H DDR4** — 1× CPU_FAN + 2× SYS_FAN, in a **Jonsbo N5** case.
+
+⚠️ **The N5's drive-cage fans are physically uncontrollable where the case puts them.** They hang
+off the case backplane on raw 12V from a Molex power port — **no PWM wire, no tach wire**. No
+driver can ever see or control them; they run 100% forever, and fitting quieter fans only lowers
+the noise floor of a full-speed fan. The only fix is moving them onto a motherboard SYS_FAN header
+(a Y-splitter works; the header does 24W and two 120mm fans draw ~2–3W). Detection ≠ control —
+making Linux read drive temps does nothing if there is no channel to act on them.
+
+### Getting Linux to see the fans at all
+
+Config lives in `Hosts/Asgard/system.nix`. Without it the box reports **zero** fans — hwmon shows
+only temperatures and not one `fan*_input` or `pwm*`, not even the CPU fan. Two separate blockers,
+and **both** must be handled or the fix silently no-ops:
+
+1. The **in-tree `it87` does not support the IT8689E** on this board. It fails `No such device`
+   *even with the resource conflict bypassed* — so the widely-cited
+   `acpi_enforce_resources=lax` fix **alone is not sufficient**. Only the out-of-tree driver works
+   (`it87: Found IT8689E chip at 0xa40, revision 2`).
+2. ACPI claims the region (`/proc/ioports: 0a40-0a4f : pnp 00:00`), so even the working driver is
+   refused `Device or resource busy`.
+
+⚠️ **`boot.extraModulePackages` is not enough.** Both copies land in the merged module tree and
+depmod registers only `it87.ko.xz` (in-tree), so `modprobe it87` loads the **broken** one. Check
+with `modprobe --show-depends it87`. Hence: `boot.blacklistedKernelModules = [ "it87" ]` plus a
+systemd oneshot that `insmod`s the out-of-tree `.ko` **by absolute path** with
+`ignore_resource_conflict=1` — chosen over the global `acpi_enforce_resources=lax` kernel param
+because it is scoped to one driver and **needs no reboot**.
+
+⚠️ **`insmod` does not resolve dependencies** — `it87` needs `hwmon_vid`, so the unit has
+`ExecStartPre = modprobe hwmon_vid`. Without it the unit dies `Unknown symbol in module` **only on
+a cold boot**: after a `nixos-rebuild switch` hwmon_vid is already resident, so the bug hides until
+the machine actually reboots. Test module units by `rmmod`-ing the whole dependency chain, not just
+the module.
+
+**Monitoring only.** BIOS Smart Fan 6 drives the curves (`pwm*_enable=2`). Do **not** also enable
+`fancontrol` — two controllers on the same PWM registers makes fans oscillate. The curves
+themselves are BIOS state this repo cannot reproduce; see `Claude/next-up.md` item 6.
+
+`lm_sensors` and `smartmontools` are installed here too — `smartctl` was missing entirely, so drive
+temperatures could not be read at all.
+
+---
+
 ## Current Status (as of 2026-06-25)
 
 ### Deployed on dedicated Asgard hardware
@@ -42,11 +88,16 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
 | SABnzbd            | 8080 | Tailscale only | Inside Mullvad VPN namespace. socat proxy from host. Dark theme: `web_color = "Night"` |
 | Audiobookshelf     | 13378 | Tailscale only | Podman container |
 | Shelfarr           | 5056 | Tailscale only | Podman container — book request portal |
+| **Suwayomi**       | 4567 | Tailscale only | Manga server (native NixOS service). **Package pinned to 2.3.x on purpose — nixpkgs' 2.1 finds ZERO sources.** See *Manga* below |
 | ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
 | tailscale-status-proxy | 9553 | internal only | HTTP proxy for Glance Yggdrasil widget |
 | **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Native server-stats + network panel + tabbed service monitors + Yggdrasil Network widget |
 | network-panel      | 9555 | Tailscale only | Live throughput from `/proc/net/dev` + last speed-test result; `POST /run` triggers a test. Backs the Glance Network group |
+| eclipse-control    | 9554 | Tailscale only | Eclipse TV-box panel — status JSON + `/act/<name>` verbs (incl. `reboot`). **Deliberately off the LAN**; that is why the LAN speed test needed 9557 |
+| eclipse speedtest sink | 9557 | **LAN + Tailscale** | Zero-filled payload only, no control surface. Opened via `networking.firewall.interfaces."enp3s0"` so the Pi can measure LAN throughput. Safe to expose *because* it has no verbs |
+| **glance-marsbar** | 8890 | **loopback only** | Partner dashboard. Reachable solely via the `marsbar` tailnet node's serve proxy — see `Claude/marsbar.md` |
+| ha-bridge          | 9556 | Tailscale only | Holds the HA token server-side; `GET /states`, `POST /toggle/<entity>` against a hard allowlist |
 | **ttyd**           | 7681 | Tailscale only | Web terminal (Glance "Terminal" page iframe + Management bookmark). Login prompt (root `login` entrypoint) — log in as `rock`, passwordless sudo for reboot/shutdown |
 | **Grafana**        | 3001 | Tailscale only | System stats (bar gauge panels) + logs. Anonymous viewing enabled for iframe embedding |
 | **Prometheus**     | 9090 | Tailscale only | Metrics collection. CORS enabled (`--web.cors.origin=.*`) for Glance JS polling |
@@ -135,23 +186,40 @@ Everything is declarative. A fresh deploy needs only the sops secrets populated 
   at the time — **it has since been deleted (2026-08-23)** along with every other stock profile.
   All queues were 0 afterwards — no upgrade wave.
 
-  #### ⚠️ Edit `server.nix` on ASGARD, not on Sisyphus
+  #### ✅ The two clones were RECONCILED on 2026-09-16 — check before assuming divergence
 
-  **The Sisyphus copy of `Modules/server.nix` is stale for recyclarr, not merely behind.** Verified
-  2026-09-08: its recyclarr block is a ~45-line stub driven by `custom_format_groups`, while
-  Asgard's is ~570 lines with explicit `custom_formats` and per-CF scores (producing a 566-line
-  `recyclarr.yml`). Editing the Sisyphus copy and patching across **does not work** — the baselines
-  differ by hundreds of lines, and deploying the Sisyphus version would silently wipe every custom
-  format score. Edit `~/Dots/Modules/server.nix` on Asgard directly, back it up first, and leave the
-  Sisyphus copy alone. Sanity check before touching anything:
+  **This used to say "the Sisyphus copy is materially WRONG, edit on Asgard only". That is no
+  longer true and following it would now be the mistake.** Asgard's 878 lines of uncommitted work
+  were committed (`30c3ac6`, `b985c36`, `f83c52f`), pushed to `origin/main`, and merged into
+  Sisyphus's `steam-ricing`. `Modules/server.nix` is now **byte-identical on both clones**
+  (3786 lines). Editing either copy and patching across works again.
+
+  **How the divergence happened, so it can be avoided:** server work is done directly on Asgard,
+  whose clone builds from `~/Dots` on `main`. Sisyphus cut `steam-ricing` from `ac62333`, *before*
+  Asgard's `db72868`/`dc228c8` landed, so its `server.nix` sat ~1400 lines behind while looking
+  perfectly valid. **Nothing warns you** — it builds fine, it is just the wrong config.
+
+  Verify convergence before touching `server.nix`, rather than trusting this doc:
 
   ```bash
+  ssh asgard 'sha256sum ~/Dots/Modules/server.nix'
+  sha256sum ~/Dots/Modules/server.nix          # must match
   ssh asgard 'sudo wc -l /var/lib/recyclarr/recyclarr.yml'   # expect ~566, not ~45
   ```
 
-  See `memory/asgard-clone-diverged.md`. Radarr's live profile is **`Asgard - Movies`** (id 9) and is
-  the *only* profile that exists — the "Remux + WEB 1080p/2160p" names above are the upstream
-  template ids, not what is deployed.
+  ⚠️ **Asgard cannot push.** Its `origin` is an HTTPS URL with no credentials and there is no user
+  SSH key, so `git push` fails with `could not read Username`. Push its commits *from Sisyphus*:
+
+  ```bash
+  git remote add asgard asgard:Dots     # one-off
+  git fetch asgard main
+  git push origin asgard/main:main      # fast-forward
+  ```
+
+  Asgard's git identity is also `Rock <Rock>` — an invalid email, so its commits do not attribute
+  on GitHub.
+
+  Radarr's live profile is **`Asgard - Movies`** (id 9). See `memory/asgard-clone-diverged.md`.
 
   #### Dolby Vision Profile 5 blocked (2026-09-08)
 
@@ -318,6 +386,179 @@ mixed: 4 dual-audio Kitsune files, 20 English-only DSNP.
 
 ---
 
+## Books — Audiobookshelf + Shelfarr, wired by `books-setup.service`
+
+**Shelfarr (`:5056`) is the Jellyseerr-for-books**: search a title, request it, Prowlarr
+finds it, SABnzbd fetches it, Audiobookshelf (`:13378`) serves it.
+
+### It had never worked — and looked perfectly healthy
+
+Until **2026-09-17** this whole pipeline was dead. Shelfarr had run since June 2026 with
+`0 acquisition_providers` and `0 download_clients`, and **Audiobookshelf had never been
+initialised at all** — `isInit: false`, no root user, no libraries. `/data/media/books`
+was empty. Both containers were `active`, both answered HTTP, both showed green on Glance.
+
+The cause was the "Post-boot (one-time)" comment in `Modules/server.nix` telling you to
+click through two web UIs. Nobody ever did. **A running container is not a working
+pipeline** — check what's wired *between* services, not whether each one is up.
+
+### `books-setup.service` now does it declaratively
+
+Idempotent, runs every rebuild, converges a fresh install:
+
+1. Audiobookshelf — `POST /init` to create the root user from sops `admin-username`/`admin-password`
+2. Audiobookshelf — create the **Ebooks** (`/ebooks`) and **Audiobooks** (`/audiobooks`) libraries, keyed by name so re-runs don't duplicate
+3. Audiobookshelf — mint an API key for Shelfarr
+4. Shelfarr — set the indexer, download client and ABS connection from sops secrets
+
+### ⚠️ Four traps, all of which fail silently
+
+**1. Shelfarr config MUST go through `bin/rails runner`, never `sqlite3`.**
+`AcquisitionProvider` and `DownloadClient` both declare `encrypts :api_key`. A raw SQL
+insert writes the key in **plaintext** and Rails throws on decrypt later. `sqlite3` is
+present in the container, which makes the wrong approach look available.
+
+**2. `bin/rails` will not boot without two generated secrets.** Both live in the storage
+volume and are created by the container entrypoint on first run:
+
+```bash
+podman exec shelfarr sh -c '. /rails/storage/.encryption_keys; \
+  export SECRET_KEY_BASE=$(cat /rails/storage/.secret_key_base); \
+  cd /rails && ./bin/rails runner "..."'
+```
+
+Without them you get `KeyError: ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY`, then
+`Missing secret_key_base`. Neither is in sops — they're per-install volume state.
+
+**3. Prowlarr is NOT an `AcquisitionProvider`.** That model is for *custom* direct-download
+providers; its `test_connection` returns **false** for a Prowlarr URL. Prowlarr is
+configured through `Setting` rows instead — `indexer_provider`, `prowlarr_url`,
+`prowlarr_api_key`. Using the wrong model gives you a config that looks populated and
+finds nothing.
+
+**4. Containers cannot reach host services on `localhost`.** Use
+**`http://host.containers.internal:<port>`** — verified working for 9696, 8080 and 13378.
+
+### Verifying it
+
+```bash
+sudo podman exec shelfarr sh -c '. /rails/storage/.encryption_keys; export SECRET_KEY_BASE=$(cat /rails/storage/.secret_key_base); cd /rails && ./bin/rails runner "
+  puts %(indexer=#{IndexerClient.provider} ok=#{IndexerClient.test_connection})
+  puts %(results=#{Array(IndexerClient.search(%q(Project Hail Mary))).size})"'
+```
+
+Verified 2026-09-17: `indexer=prowlarr ok=true`, SABnzbd `true`, search returned **14
+results**. Note `IndexerClient.search` is a **class** method and takes no `media_type:`
+keyword — calling it on an instance raises `NoMethodError`.
+
+**Not yet proven end-to-end:** no request has actually completed a download into
+`/data/media/books`. The SAB category (`books`) and the post-processing hand-off to ABS are
+configured but untested.
+
+---
+
+## Manga — Suwayomi (port 4567)
+
+Headless Tachiyomi/Mihon server. Tracks ongoing series from web sources and
+auto-downloads new chapters; Mihon on the phone/tablet reads from it over the tailnet.
+
+Native `services.suwayomi-server`, **not** a container — so everything except the
+per-library source/series picks is declarative. Those live in Suwayomi's own DB and are
+genuine UI state, like noctalia's `settings.toml`.
+
+### Two paths on purpose
+
+```
+dataDir        /var/lib/suwayomi-server   H2 database + config   (NVMe)
+downloadsPath  /data/media/manga          the chapters           (mergerfs pool)
+```
+
+The database must **not** sit on `/data/media`. That is mergerfs/FUSE, and SQLite-on-FUSE
+is the same locking-corruption trap this repo already dodges for the arrs via the
+`/data/.state` bind mount. Only media goes on the pool. `suwayomi-server` also carries
+`RequiresMountsFor = /data/media`, without which a boot with the pool missing would
+re-download the entire library onto the NVMe root.
+
+### ⚠️ Three traps, each of which fails SILENTLY
+
+**1. nixpkgs' version is unusable — the pin is load-bearing.**
+nixpkgs ships **2.1.1867** (Jul 2025), which only understands the legacy flat
+`index.min.json` repo format. Keiyoushi — effectively the only source repo that matters —
+migrated to the Mihon 0.20.1+ manifest (`index.pb`, protobuf) and now serves the old path
+as a **two-entry deprecation stub**: `"Outdated App"` and `"Update to Mihon 0.20.1+"`.
+
+On 2.1 the unit is `active`, the port answers HTTP 200, the web UI loads — and there are
+**zero real sources**. Confirmed live, not inferred:
+
+```bash
+curl -s http://localhost:4567/api/v1/extension/list   # 2.1 → exactly 2 stub entries
+```
+
+`server.nix` therefore pins **2.3.2243** via `overrideAttrs`. Jar sha256 `821141b3…` was
+cross-checked against upstream's published `Checksums.sha256`. Drop the override only once
+nixpkgs ships ≥ 2.3 — and read trap 2 when you do.
+
+**2. The config key was renamed in that same jump.** `server.extensionRepos` (2.1) →
+**`server.extensionStores`** (2.3). `server.conf` is HOCON and **unknown keys are silently
+ignored**, so the old name costs you a debugging round with no error anywhere. The NixOS
+module still declares the *old* option (it targets 2.1), so that key is emitted too, as a
+harmless empty list.
+
+**3. Two upstream defaults each disable auto-download for exactly the series you want.**
+
+| key | upstream default | set to | why |
+|---|---|---|---|
+| `excludeEntryWithUnreadChapters` | `true` | `false` | skips auto-download for any entry with an unread chapter — i.e. every ongoing series |
+| `excludeNotStarted` | `true` | `false` | a series you added but haven't opened counts as "not started" and is never updated |
+| `excludeUnreadChapters` | `true` | `false` | same problem for anything with a backlog |
+| `excludeCompleted` | `true` | `true` | kept — finished series genuinely have nothing to fetch |
+
+Left at defaults, `autoDownloadNewChapters = true` does almost nothing.
+
+### Other settings worth knowing
+
+- `port = 4567` — Suwayomi's own default. **The NixOS module defaults to 8080**, which on
+  this box is SABnzbd's socat proxy. Leaving it at the module default collides with a live
+  service.
+- `downloadAsCbz = true` — keeps files portable; Mihon, Komga, Kavita and plain readers all
+  open CBZ. The default (loose images in a folder) does not travel.
+- `globalUpdateInterval = 6` — hours; 6 is the minimum the server accepts.
+- `openFirewall = false` — `tailscale0` is already in `trustedInterfaces`.
+
+### FlareSolverr (`:8191`) — deployed, but not the fix you'd expect
+
+Headless-Chrome proxy that clears Cloudflare interstitials. Added 2026-09-17, shared by
+Suwayomi (`http://localhost:8191` — native host service) and Shelfarr
+(`http://host.containers.internal:8191` — container). Prowlarr could also use it as an
+indexer proxy; that is **not** configured.
+
+**It works.** Verified directly:
+
+```bash
+curl -s -X POST http://localhost:8191/v1 -H 'Content-Type: application/json' \
+  -d '{"cmd":"request.get","url":"https://comick.io/","maxTimeout":60000}'
+# → {"status":"ok","message":"Challenge not detected!", ...}  6.4 MB of HTML
+```
+
+**But Comick and Manganato still fail in Suwayomi.** Their error moved from
+*"Cloudflare bypass currently disabled"* to plain **HTTP 403** — i.e. FlareSolverr *is*
+engaged and those extensions are broken for their own reasons. `comick.io` now redirects to
+`comick.dev`, and Manganato's domain has churned repeatedly. **Treat those two as stale
+extensions, not a Cloudflare problem — do not re-debug FlareSolverr for them.** MangaDex
+and MangaFire both work.
+
+### Repo URL
+
+```
+https://github.com/keiyoushi/extensions/raw/repo/index.pb
+```
+
+The legacy `…/repo/index.min.json` also resolves on 2.3 — it reads `repo.json` and follows
+its `index_v2` pointer to the same file — but pointing straight at the real index skips a
+redirect that exists only for old clients.
+
+---
+
 ## Observability Stack
 
 ### Architecture
@@ -330,6 +571,58 @@ Grafana (3001) — reads Loki + Prometheus, provisioned datasources
 
 ### Glance Dashboard (port 8888)
 2-column layout: **Stats + network + service health** (full) | **Clock + Yggdrasil** (small)
+
+#### Styling — mint-green glass (reworked 2026-09-19)
+
+⚠️ **Glance frames widget content itself.** Styling `.widget` as a card produces a
+visible **box inside a box**, because of Glance's own rule:
+
+```css
+.widget-content:not(.widget-content-frameless), .widget-content-frame {
+  background: var(--color-widget-background);
+  border: 1px solid var(--color-widget-content-border);
+  box-shadow: 0px 3px 0px 0px ...;
+}
+```
+
+Pick **one** container. We keep the outer `.widget` card and flatten the inner
+frame to `transparent / none / none`. Keep the two in sync — re-adding a border to
+`.widget` without removing the flattening brings the nesting straight back.
+`.widget-content-frameless` is Glance's own opt-out but is applied to only a couple
+of widget types, so it cannot be relied on.
+
+Find these rules with `curl <glance>/static/<hash>/css/bundle.css`; the hash changes
+between versions, so read it out of the page HTML first.
+
+Techniques in use (all plain CSS, no assets):
+- **Ambient colour orbs** — four large blurred radial gradients on `body::before`
+  (mint / cyan / violet / gold, alpha 0.05–0.09, `z-index: -1`). The cards are
+  semi-transparent with a backdrop blur, so these tint everything above them. This
+  is what gives colour variety **without** repainting borders or touching data
+  colours. Higher alpha turns it into a lava lamp and kills text contrast.
+- **Alpha-channel gradients**, not a solid colour at low opacity — a flat `rgba()`
+  fill greys the background evenly; a gradient between two alphas lets the orbs
+  through unevenly, which is what actually reads as glass.
+- **Inset top highlight** (`box-shadow: inset 0 1px 0`) instead of a border.
+- `backdrop-filter: blur(11px) saturate(125%)` — the saturate stops blurred darks
+  going muddy.
+- Device-card accent hue rotates per card (`nth-child(3n+2)`, `nth-child(3n)`).
+
+An **orange** variant was tried and rejected; mint-green is the "mission control"
+homelab look and the one to keep. Asgard is green, marsbar is purple — deliberately
+distinct. Bulk hue shifts are easy with `sed 's/hsla(160,/hsla(25,/g'`, but check
+afterwards for stragglers on neighbouring hues (140/164/168 were missed once).
+
+#### Light toggles
+
+Power switches render `<span class="pw-pill pw-on|pw-off">` immediately before
+`<button class="pw-toggle">`, as siblings — which makes a pure-CSS sliding switch
+possible via `.pw-pill.pw-on ~ .pw-toggle`, driven by state the existing script
+already paints. `font-size: 0` on the button hides its "TOGGLE" text.
+
+⚠️ Light state **used to never auto-refresh here** — `refreshAll()` ran only after a
+click on this page, so a light toggled from marsbar, the HA app, an automation or a
+physical switch left the pills stale until reload. Now `setInterval(refreshAll, 3000)`.
 
 **Glance renders each widget server-side exactly ONCE per page load.** `page.js`
 calls `fetchPageContent()` a single time from `setupPage()` — there is no

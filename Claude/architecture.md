@@ -2,12 +2,11 @@
 
 ## Multi-Boot System
 
-All three desktop environments are bootable from GRUB without rebuilding. Uses **named profiles** at `/nix/var/nix/profiles/system-profiles/`:
+Both local desktop environments are bootable from GRUB without rebuilding. Uses **named profiles** at `/nix/var/nix/profiles/system-profiles/`:
 
 ```
 NixOS - System Select           <- GRUB submenu
   Sisyphus (Niri)
-  Elektra (KDE Plasma 6)
   Odysseus (Hyprland)
 Windows                         <- Detected by os-prober
 ```
@@ -22,7 +21,11 @@ Windows                         <- Detected by os-prober
 - Profiles are GC roots — garbage collection won't delete them
 - Each profile maintains its own generations for rollback
 - `nix-collect-garbage -d` removes old generations but keeps current builds
-- Profiles at `/nix/var/nix/profiles/system-profiles/{sisyphus,elektra,odysseus}`
+- Profiles at `/nix/var/nix/profiles/system-profiles/{sisyphus,odysseus}`
+- ⚠️ An `elektra` profile still exists there from before that slot became Kit-Kat
+  (separate hardware — see `Claude/kit-kat.md`). Nothing builds it any more, but it
+  still holds GC roots: `sudo nix-env -p /nix/var/nix/profiles/system-profiles/elektra
+  --delete-generations old`, then remove the symlink.
 
 **Workflow:**
 ```bash
@@ -97,3 +100,24 @@ Niri and Noctalia use `wrapper-modules` to create wrapped packages with settings
 - Settings use wrapper-modules syntax (e.g., `spawn-sh` instead of `spawn`, `Mod` instead of `Super`)
 - Actions use `_: {}` instead of `null` for empty arguments
 - Use `extraConfig` for raw KDL that can't be expressed in Nix (e.g., niri window-rules with `match` syntax)
+
+## Remote machines
+
+Not everything in this flake is a boot profile on this disk. **Kit-Kat** (her machine)
+and **Asgard** (the server) are separate hardware, reached over the tailnet and
+deployed with `nixos-rebuild --target-host` — no `-p <profile>`, because each is
+single-boot and uses the default system profile. `system-rebuild` handles both shapes;
+see `Claude/deploy.md`.
+
+`Hosts/Rescue/system.nix` is a third shape again: an ISO, not an installed system.
+
+**Per-host hardware comes in two flavours in this repo.** The two local profiles share
+one hand-written `hardwareConfig` let-binding with this machine's disk UUIDs. Kit-Kat
+instead uses **disko** (declarative partitioning, inlined as a let-binding) plus
+**nixos-facter** (`facter.json`, generated over SSH during the install). The facter
+path is the better one for any new machine.
+
+⚠️ `Hosts/<Host>/*.nix` is **imported by import-tree** like anything else, so a second
+`.nix` file in a host directory is read as a flake-parts module — which is why
+`hardware.nix` next to each host is a no-op stub, and why disko configs are inlined in
+`system.nix` rather than put in a `disko.nix`. A `.json` file is safe.

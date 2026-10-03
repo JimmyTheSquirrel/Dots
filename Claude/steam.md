@@ -59,8 +59,54 @@ exact nixpkgs commit because the Bun dependency is a fixed-output derivation
 whose hash is sensitive to version drift. Overriding it changes the bun version
 and breaks the FOD hash.
 
-Millennium is currently **3.4.0-beta.7** — a beta patching the live Steam
-client. If it breaks Steam, roll back the generation.
+Millennium is currently **3.5.0** (bumped 2026-09-27 from 3.4.0-beta.7). It
+patches the live Steam client, so if it breaks Steam, roll back the generation.
+
+### ⚠️ Millennium goes stale silently — and Steam updates break it
+
+**Keep this input current.** Steam self-updates on its own schedule and its
+internal JS API is not stable. When Millennium falls behind, it does not fail
+loudly — it wedges in a retry loop and everything *looks* fine.
+
+Happened 2026-09-10: a Steam update removed `window.App.BFinishedInitStageOne`,
+which Millennium polls to detect that Steam has finished starting. We were
+pinned to an 2026-08-05 build, so it retried forever:
+
+```
+Uncaught (in promise) TypeError: window.App?.BFinishedInitStageOne is not a function
+  source: https://millennium.ftp/<hash>/millennium.js
+```
+
+- **~250 errors/second**, roughly every 4 ms
+- **230,397 occurrences** in a 50 MB sample, with *no other console output at all*
+- grew `~/.local/share/Steam/logs/cef_log.txt` to **7.1 GB** (~4.4 GB/day; it
+  does truncate when Steam restarts)
+- **Millennium never reached its plugin loader** — the `quickcss-watcher` plugin
+  logs on both success *and* failure and appeared in the log neither way
+
+Diagnosis, in order:
+
+```bash
+# 1. is the injected JS erroring?
+tail -c 2000000 ~/.local/share/Steam/logs/cef_log.txt \
+  | grep -ao 'CONSOLE(1)\] "[^"]\{0,140\}' | sort | uniq -c | sort -rn | head
+# 2. does the API it wants still exist in Steam?
+grep -roh "BFinishedInitStageOne" ~/.local/share/Steam/steamui/ | wc -l   # 0 = Steam removed it
+# 3. how far behind are we?
+curl -s "https://api.github.com/repos/SteamClientHomebrew/Millennium/releases?per_page=10" \
+  | grep -oE '"tag_name": *"[^"]*"|"published_at": *"[^"]*"'
+```
+
+Fix is `nix flake update millennium`. **Check `cef_log.txt`'s size occasionally**
+— a multi-GB file is the cheapest possible signal that the injector is wedged,
+and nothing else surfaces it.
+
+> **Millennium does not create windows.** It injects CSS/JS into contexts Steam
+> already owns. When diagnosing focus-stealing, stray popups or window placement,
+> Millennium is the wrong suspect — those are Steam's own toplevels plus niri
+> window rules. Verified 2026-09-27: Steam's notification toasts are real 283×70
+> windows, but **niri reports no window-open event for them** (override-redirect,
+> so a niri `window-rule` cannot match them either).
 
 ## Paths (Linux — they are NOT under a common root)
 
@@ -521,7 +567,47 @@ A missing `libXtst.so.6` means Millennium's `extraProfile` never ran, which mean
 the wrong Steam launched. Anything else you add to `programs.steam.package` in
 future is subject to the same trap.
 
+## Steam account / Friends state — NOT managed by Nix
+
+None of this is declarative. It is Steam's own state, and nothing in this repo
+writes any of it — worth knowing before blaming a module.
+
+| What | Where |
+|---|---|
+| Account login, auto-login, offline mode | `~/.steam/steam/config/loginusers.vdf` |
+| `AutoLoginUser` | `~/.steam/registry.vdf` |
+| Friends/chat prefs, persona state | `userdata/<accountid>/config/localconfig.vdf` |
+
+**`"SignIntoFriends"` in `localconfig.vdf` is the "click Friends → Sign in every
+launch" bug.** It is the *"Sign in to Friends & Chat when Steam starts"* toggle.
+At `0`, Steam logs into your **account** perfectly — `connection_log.txt` shows a
+clean `RecvMsgClientLogOnResponse 'OK'` with a valid JWT — but never connects the
+friends/chat service, so the panel sits signed out. Diagnosed 2026-09-27 after
+the healthy connection log had ruled out any credential problem.
+
+```bash
+grep -n "SignIntoFriends" ~/.local/share/Steam/userdata/*/config/localconfig.vdf
+```
+
+⚠️ **Steam rewrites `localconfig.vdf` on exit**, so an edit made while Steam is
+running is silently clobbered. Close Steam first, or just use the UI
+(Friends & Chat → gear → the same toggle), which is the cleaner route.
+
+Nearby in the same file: `FriendStoreLocalPrefs_<id>` holds `ePersonaState`
+(`0` Offline, `1` Online, **`7` Invisible** — currently 7, deliberately). That is
+a *separate* key from `SignIntoFriends`: Invisible means fully connected to
+friends and chat while appearing offline to others, which is not the same as
+being signed out.
+
+**Rule out the account login first.** `logs/connection_log.txt` records every
+logon attempt with the JWT and its expiry, so one look there separates "Steam
+can't log in" from "a Steam setting is off" — they present identically as
+"Steam keeps asking me to sign in".
+
 ## Troubleshooting
+
+**"Steam asks me to sign in every launch":** check `SignIntoFriends` above — the
+account login is probably fine. Confirm in `logs/connection_log.txt`.
 
 **Millennium not loading:** first check the hiPrio wrapper trap above. Then check
 the symlink actually points into the store —

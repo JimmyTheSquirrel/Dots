@@ -1,5 +1,8 @@
-# Rain Effect Overlay
+# Rain Effect (RETIRED)
 
+> **Dropped from every host on 2026-10-03.** `Modules/rain-effect.nix` is still in the
+> tree and still builds; nothing imports it. Re-enable with one import line. Kept
+> because the C/GLES2 layer-shell work would be painful to recreate.
 **Module:** `Modules/rain-effect.nix` (Sisyphus only)
 
 GLSL rain-on-glass overlay rendered on the Wayland `bottom` layer — above the wallpaper, below all windows.

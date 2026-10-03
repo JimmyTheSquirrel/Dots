@@ -85,8 +85,52 @@ ssh asgard 'curl -sI http://localhost:8123 | head -3'
 First start is slow (it builds its initial DB). Onboarding is at `http://asgard:8123` — create
 the owner account there; it is **not** declarable.
 
+## Glance
+
+Added to `Modules/server.nix` **on Asgard directly** (backup: `server.nix.bak-ha-20260916-1949`),
+in **both** the `All` and `Management` monitor groups. That config has **no bookmarks column by
+design** — a comment near line 322 says new services go in the *monitors*, because monitor rows
+are already clickable and a sidebar made the page scroll.
+
+⚠️ HA returns **302** on `/` until onboarding is finished. If Glance shows it down, either
+complete onboarding (after which `/` is 200) or add `alt-status-codes: [302]` to the site entry.
+
+## ⚠ Power cost maths — never divide an ESPHome counter by a wall clock
+
+Fixed 2026-09-19 after a reboot made every cost on the Monitoring page absurd:
+Asgard was projected at **$1047/yr** while drawing 35.5 W (true ~$95/yr). Wrong by
+~11×, and plausible-looking enough that it did not read as a bug.
+
+**Both cumulative counters reset on device restart.** Neither is a safe divisor:
+
+1. `total_energy ÷ hours-since-uptime_sensor` — the original approach. The reboot
+   reset the uptime but **not** the energy counter, so days of kWh were divided by
+   5.5 h: `2.165 / 5.5 * 24 = 9.45 kWh/day` → $1047/yr.
+2. `total_daily_energy ÷ hours-since-midnight` — tried next, **also wrong**. That
+   counter resets on device restart *as well as* at midnight, so it held 5.5 h of
+   energy while the clock said 22 h → under-reported at **$43/yr**.
+   (`0.356 kWh / 5.5 h = 64 W`, matching the real draw — the counter was fine, the
+   assumed window was not.)
+
+**The fix:** project from **instantaneous power**, `avg_kWh_per_day = W * 0.024`.
+A snapshot rather than a measured average, so it moves with load, but it is always
+internally consistent and cannot be wrong by an order of magnitude. Label these
+**"at current draw"**, never "average". Verified against hand calculation after
+deploying: Asgard 56.7 W → $151/yr, all five plugs 69.6 W → $186/yr.
+
+A true average would need HA's long-term statistics API, which is out of reach from
+the Jinja template Glance runs.
+
+**Rule of thumb:** if a projection must use a cumulative counter, sanity-check it
+against `W * 0.024` and distrust it when they diverge.
+
+Tunables live in the `let` block of `Modules/server.nix`: `powerRate` (0.3041 $/kWh,
+the GloBird *balance* rate), `powerRefW` (150 W draw-bar ceiling),
+`powerSupplyDaily`.
+
 ## Not done yet
 
-- Not added to the Glance dashboard (bookmarks/monitors live in `server.nix` — the file to avoid).
 - No Cloudflare tunnel route; tailnet-only by design.
-- No backup of `/var/lib/hass`.
+- No backup of `/var/lib/hass` — and it is the *only* place device pairings exist.
+- `upnp` and `cast` components not built in, so discovery logs a harmless `UnknownHandler` for
+  the router and any Chromecast device. Add them to `extraComponents` to silence it.

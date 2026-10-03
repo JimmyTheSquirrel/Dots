@@ -7,27 +7,46 @@
     pkgs,
     activeUser,
     ...
-  }: {
+  }: let
+    pkgs-unstable = import inputs.nixpkgs-unstable {
+      inherit (pkgs.stdenv.hostPlatform) system;
+      config.allowUnfree = true;
+    };
+    # Widevine CDM comes from unstable, NOT from stable nixpkgs. Stable pins
+    # 4.10.2934.0, which Crunchyroll's licence server rejects outright: the whole
+    # playback chain succeeds (auth/play/manifest all 200) and only
+    # POST /license/v1/license/widevine returns 403, surfacing as "Not Available
+    # KAT-6005". Verified 2026-09-16 — swapping to 4.10.3050.0 fixes playback.
+    # Deprecated CDM versions get cut off by licence servers, so this will need
+    # bumping again; when stable catches up to >= 4.10.3050.0, drop this override.
+    widevine-cdm = pkgs-unstable.widevine-cdm;
+  in {
     home-manager.users.${activeUser} = {config, ...}: {
-      # Widevine CDM for DRM video (Crunchyroll etc). Helium is ungoogled-chromium
-      # based — it has no component updater to fetch the CDM itself, so provide it
-      # in the profile using the component-updater layout Chromium scans on Linux,
-      # plus the hint file telling it which version directory to load.
-      # Note: works for Crunchyroll/YouTube; Netflix additionally requires browser
-      # certification (VMP) and will still refuse to play.
-      home.file = let
-        widevineProfileDir = "${config.home.homeDirectory}/.config/net.imput.helium/WidevineCdm";
-      in {
-        ".config/net.imput.helium/WidevineCdm/${pkgs.widevine-cdm.version}".source = "${pkgs.widevine-cdm}/share/google/chrome/WidevineCdm";
-        # Helium rewrites this hint file at runtime (resolving the symlink to the
-        # store path), which makes HM's backup step fail on every later rebuild.
-        # force = true: overwrite it instead of backing it up.
-        ".config/net.imput.helium/WidevineCdm/latest-component-updated-widevine-cdm" = {
-          text = builtins.toJSON {
-            Path = "${widevineProfileDir}/${pkgs.widevine-cdm.version}";
-          };
-          force = true;
+      # Widevine CDM for DRM video (Crunchyroll etc). The Helium package bundles a
+      # CDM (see the widevine-cdm override below), but that copy is registered by the
+      # component updater ~400ms AFTER startup, while Chromium decides which CDM to
+      # register once, at process start, from this hint file. Miss the hint and the
+      # renderer logs "Widevine enabled but no library found" and com.widevine.alpha
+      # stays unavailable for the life of the process. The hint file is load-bearing.
+      #
+      # Point it at the STORE path, never at a path inside the profile: the component
+      # updater deletes a profile-local version directory (same version is already
+      # preinstalled in the package), which leaves a profile-relative hint dangling.
+      # Widevine then fails silently and Crunchyroll shows KAT-6005 — intermittently,
+      # because Helium rewrites the hint to the store path mid-session, so the *next*
+      # launch works until the next rebuild restores the broken hint.
+      #
+      # force = true: Helium rewrites this file at runtime, so HM must overwrite
+      # rather than back up. Our content now matches what Helium itself writes.
+      # Note: VMP/host verification is NOT a factor here — it is unimplemented on
+      # Linux for every browser (no .sig files exist, Chrome included), so licence
+      # servers must accept PLATFORM_UNVERIFIED. Don't chase it. Netflix refuses for
+      # its own reasons.
+      home.file.".config/net.imput.helium/WidevineCdm/latest-component-updated-widevine-cdm" = {
+        text = builtins.toJSON {
+          Path = "${widevine-cdm}/share/google/chrome/WidevineCdm";
         };
+        force = true;
       };
 
       xdg.mimeApps = {
@@ -43,7 +62,7 @@
         (
           let
             helium-pkg = (inputs.helium.packages.${pkgs.stdenv.hostPlatform.system}.default).override {
-              widevine-cdm = pkgs.widevine-cdm;
+              inherit widevine-cdm;
             };
             helium-dark-theme = pkgs.runCommand "helium-dark-theme" {} ''
               mkdir -p $out

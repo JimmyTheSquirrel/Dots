@@ -1,7 +1,15 @@
+# RETIRED 2026-10-03 — no host imports this module any more.
+#
+# The GLSL rain overlay was dropped from Sisyphus and deliberately never given to
+# Kit-Kat. Kept in-tree rather than deleted: it is a few hundred lines of hand-
+# written C/GLES2 wlr-layer-shell work that would be painful to recreate, and
+# re-enabling it is one import line. Resources/Rain-Effect/drop-shine.png and
+# Claude/rain-effect.md stay with it.
+
 { self, inputs, ... }: {
   flake.nixosModules.rain-effect = { pkgs, activeUser, ... }:
   let
-    shinePath = "${self}/Resources/Rain-Effect/drop-shine.png";
+    shinePath = ../Resources/Rain-Effect/drop-shine.png;
 
     # ── C source: single-pass refractive rain overlay ──────────────────────────
     # Computes rain normals + wallpaper refraction in one fragment shader pass.
@@ -512,9 +520,17 @@
 
       _find_wallpaper() {
         [ -f "$WALLFILE" ] && [ -s "$WALLFILE" ] && cat "$WALLFILE" && return
-        local walldir
-        walldir=$(${pkgs.jq}/bin/jq -r '.paths.wallpaper // empty' \
-          "$HOME/.config/skwd-wall/config.json" 2>/dev/null)
+        local walldir cfg
+        # rain-effect is Sisyphus-only, and Sisyphus is v2-only — the v1 fallback
+        # that used to sit here (~/.config/skwd-wall/config.json) was dropped on
+        # 2026-09-15 once the migration finished. It was not harmless to keep: a
+        # leftover v1 config still exists in $HOME, so if the v2 lookup ever
+        # returned empty this would silently resolve the wallpaper directory from
+        # five-month-old v1 state instead of failing visibly.
+        cfg="$HOME/.config/skwd-wall-v2/config.json"
+        if [ -f "$cfg" ]; then
+          walldir=$(${pkgs.jq}/bin/jq -r '.paths.wallpaper // empty' "$cfg" 2>/dev/null)
+        fi
         walldir="''${walldir/#\~/$HOME}"
         [ -n "$walldir" ] && [ -d "$walldir" ] && \
           find "$walldir" -maxdepth 1 -type f \

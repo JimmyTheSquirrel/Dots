@@ -1,3 +1,11 @@
+# RETIRED 2026-10-02 — no host imports this module any more.
+#
+# It configured Elektra, which was a KDE boot profile on Sisyphus's own disk. That
+# profile became Hosts/Kit-Kat (separate hardware, Niri) and Odysseus is Hyprland,
+# so nothing consumes plasma-manager now. Kept because the keybind table below is
+# the reference for what the Niri bindings were mirroring, and because reviving a
+# Plasma host should not mean rewriting it. See Claude/kde.md.
+
 { inputs, ... }: {
   flake.nixosModules.kde = { pkgs, activeUser, ... }: {
     # ============================================================

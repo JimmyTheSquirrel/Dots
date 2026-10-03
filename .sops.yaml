@@ -1,0 +1,50 @@
+keys:
+  # PC key (~/.config/sops/age/keys.txt)
+  - &pc age1he4hsv9cgdpj6l86eq0tp3cmdmg544v3kw9wunw4z94dc5gjegvsy37aaf
+
+  # Apollo USB backup key (/run/media/rock/Apollo/keys/age-keys.txt)
+  - &apollo age1e7gwwejhck67d36zjak3l0k5jpwlj23eluma9jaku0ae48eypveq9z3qyj
+
+  # Kit-Kat's machine. Derived from its ssh host key with `ssh-to-age`, not a
+  # hand-copied age key, so Modules/sops.nix's `sops-kitkat` can decrypt on the
+  # very first activation after nixos-anywhere --extra-files plants that host key.
+  #
+  # Generated 2026-10-02 from her ssh host key, which lives OUTSIDE this repo at
+  #   ~/.local/share/apollo/Kit-Kat/etc/ssh/ssh_host_ed25519_key
+  # and is planted during the install by nixos-anywhere --extra-files, so sops can
+  # decrypt on her very first activation. Derive with: ssh-to-age -i <that>.pub
+  - &kitkat age185mqahaq2pac7szxvzkmlg5mdv4lcjgvtjkwu2ly24cc3mva3pssh4yuw2
+
+creation_rules:
+  # ORDER MATTERS: sops uses the FIRST matching rule, and the catch-all below
+  # would otherwise swallow kit-kat.yaml and encrypt it to only the two keys
+  # above — leaving her machine unable to decrypt its own password hash.
+  #
+  # Her file is deliberately separate from secrets.yaml rather than her key being
+  # added to it: sops encrypts a whole file to every recipient, so one shared file
+  # would give her machine the mullvad key, the cloudflare tunnel credentials, the
+  # eclipse ssh key and tailscale-api-key (an admin key). See Modules/sops.nix.
+  - path_regex: '[Ss]ecrets/kit-kat\.yaml$'
+    key_groups:
+      - age:
+        - *pc
+        - *apollo
+        - *kitkat
+
+  # This file MUST live at the repo root, not in Secrets/. sops resolves path_regex
+  # relative to the directory holding .sops.yaml, so while it sat at
+  # Secrets/.sops.yaml the tested path was `secrets.yaml` and a rule mentioning
+  # `Secrets/` could never match — which is the real reason creating a new
+  # encrypted file always failed with "no matching creation rules". The earlier
+  # `secrets/` -> `[Ss]ecrets/` change did not fix that, and unquoted `[` is also
+  # a YAML flow sequence, which made the config fail to load outright, so both
+  # regexes below are quoted.
+  #
+  # Editing an EXISTING encrypted file always worked regardless, because sops
+  # reads recipients from that file's own metadata and never consults this one —
+  # which is why the breakage hid for so long.
+  - path_regex: '[Ss]ecrets/.*\.yaml$'
+    key_groups:
+      - age:
+        - *pc
+        - *apollo

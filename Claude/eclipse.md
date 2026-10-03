@@ -14,12 +14,20 @@
 
 ```bash
 ssh root@100.80.62.3            # tailnet; key auth; pubkey at /storage/.ssh/authorized_keys
-ssh root@192.168.0.183          # LAN;     same key
+ssh root@192.168.0.182          # LAN;     same key  (was .183, moved again 2026-09-28)
 ```
 
-**Use the tailnet address.** The LAN lease is not reserved and has already moved once — it was
-`.184` until 2026-08-04, which produced a confusing `No route to host` mid-session. Find the
-current one with `tailscale status | grep eclipse`, which prints the direct LAN endpoint.
+**Use the tailnet address.** The LAN lease is not reserved and has now moved **twice** —
+`.184` until 2026-08-04, `.183` until 2026-09-28, now `.182`. The first move produced a
+confusing `No route to host` mid-session. Find the current one with
+`tailscale status | grep eclipse`, which prints the direct LAN endpoint.
+
+⚠️ **This address drift is worth fixing properly with a DHCP reservation on the router.**
+Both Eclipse and Sisyphus are on DHCP, and Sisyphus's `192.168.0.13` is what Moonlight
+stores as the stream host — if *that* one moves, streaming breaks with no obvious cause.
+Do **not** "fix" it by streaming over the tailnet: the tailnet path between these two is
+already direct over the same LAN wire, so it only adds WireGuard CPU on the Pi and a
+1280 vs 1500 MTU (~17% more packets). See `Claude/wolf.md`.
 
 Root fs is **read-only**; `/storage` is the writable home. Root password was set in the
 first-boot wizard to the `admin-password` sops secret.
@@ -202,20 +210,199 @@ sed-replaces both files, and restarts Kodi. The status row's "Jellyfin" cell (al
 same field, so the button's label always reflects the actual current state rather than assuming one.
 
 **Bundled with the addon's own `maxBitrate` cap, not just the server address** (2026-09-12) — the
-same toggle also sed-replaces `settings.xml`'s `maxBitrate` between `JELLYFIN_BITRATE_LAN` (`"23"` =
-1000 Mbps, i.e. uncapped) and `JELLYFIN_BITRATE_REMOTE` (`"10"` = 8 Mbps). This addon has zero ABR —
-confirmed absent in its source and upstream's tracker — so on the remote link, direct play at full
+same toggle also sed-replaces `settings.xml`'s `maxBitrate` between `JELLYFIN_BITRATE_LAN` (`"23"`
+= uncapped) and `JELLYFIN_BITRATE_REMOTE` (`"10"` = 8 Mbps). This addon has zero ABR —
+confirmed absent in its source and upstream's tracker — so on the remote link direct play at full
 bitrate just stalls; an addon-side cap is what actually makes it watchable (distinct from and *on top
 of* the server-side `RemoteClientBitrateLimit` below, which only fires the moment the client no
-longer looks local). LAN stays uncapped since it's exempt from `wan-egress-shaping` and has gigabit
-headroom.
+longer looks local).
 
-**Speed Test button, same page** — `act_speedtest()` has Eclipse SSH-curl a 25MB zero-filled blob
-served by this same eclipse-control process (`/speedtest-data` route, chunked so it never buffers
-25MB in RAM) over `ASGARD_TAILSCALE_IP:9554` — the exact path real playback uses, not a generic
-speedtest server. Reads `curl -w '%{speed_download}'`, caches the last result in-process (resets on
-`eclipse-control.service` restart, by design — it's a point-in-time reading, not history). Confirmed
-the WiFi regdom bug's ceiling this way: consistently ~10-16 Mbps regardless of what's tried below.
+**LAN is uncapped because the path measures 196 Mbps**, not because "LAN means gigabit" — see
+*Known-good baseline* below. Verified 2026-09-27: the heaviest file in the library (*The Drama*,
+51 GB, 68.9 Mbps 4K remux) direct-plays at **1.00× realtime with zero stalls**, decoder
+`HEVC` with no CPU fallback.
+
+⚠️ **Because the toggle rewrites `maxBitrate` on every press, a value hand-edited on Eclipse is
+undone the next time anyone touches that button.** The durable place to change it is
+`Resources/Eclipse-Control/eclipse-control.py`, then rebuild Asgard.
+
+If the repeater ever regresses to 2.4 GHz and cannot be fixed promptly, `"17"` (20 Mbps) makes
+playback watchable again. Verify a cap is actually firing by playing an oversized title and
+checking the URL the addon builds:
+
+```bash
+/usr/bin/grep -a -oE "master\.m3u8[^\" ]{0,400}" /storage/.kodi/temp/kodi.log | tail -1
+#   &TranscodeReasons=ContainerBitrateExceedsLimit      ← the cap fired
+```
+
+Healthy uncapped direct play instead shows `static=true` + `PlayMethod: DirectStream` and **no**
+`master.m3u8` line at all.
+
+**Speed Test button, same page** — `act_speedtest()` has Eclipse SSH-curl a 25MB zero-filled blob,
+chunked so it never buffers 25MB in RAM. Reads `curl -w '%{speed_download}'`, caches the last result
+in-process (resets on `eclipse-control.service` restart, by design — it's a point-in-time reading,
+not history). Confirmed the WiFi regdom bug's ceiling this way: consistently ~10-16 Mbps.
+
+#### Reworked 2026-09-19 — it now measures the path playback ACTUALLY uses
+
+It was hardcoded to `ASGARD_TAILSCALE_IP`, so with Jellyfin on LAN it reported ~19 Mbps of
+**WireGuard overhead** rather than the real link. It now picks the target from the current
+Jellyfin mode (`lan` → LAN, `remote` → Tailscale) and the result says which.
+
+⚠️ **A LAN test needs its own port.** `9554` is deliberately absent from `allowedTCPPorts`
+(tailnet-only) because it carries every `/act/` verb including `reboot` — opening it to the LAN
+to enable the test would expose those to anything on the wifi. So there is a second listener,
+`SPEEDTEST_LAN_PORT` **9557**, with a `SpeedtestHandler` that has **no control surface at all**,
+opened via `networking.firewall.interfaces."enp3s0".allowedTCPPorts`. Verified after: 9557
+reachable on LAN, **9554 still HTTP 000 on LAN**.
+
+Upload was added too — `dd | curl -T -` streamed into `do_PUT`, so nothing is written to the
+Pi's SD card. LAN path only. Result: **44.1 down / 41.0 up Mbps**.
+
+#### 🔍 The link runs through an ASUS RP-BE58 repeater — and its backhaul band is everything
+
+> ⚠️ **This section previously concluded "Eclipse is the bottleneck, not the network."
+> That was wrong.** It is the network. Corrected 2026-09-26 — the evidence below supersedes it.
+> The old conclusion cost real time, because every subsequent stutter got filed under
+> "the Pi is just slow" and the link was never re-measured.
+
+## ✅ Known-good baseline — RP-BE58 on its 5 GHz backhaul
+
+**This is what the link should look like. Measure against these numbers before theorising.**
+Captured 2026-09-26 immediately after power-cycling the repeater onto 5 GHz:
+
+| Test | 2.4 GHz backhaul (bad) | **5 GHz backhaul (correct)** | Ratio |
+|---|---|---|---|
+| Download, single stream | 47.6 Mbps | **196 Mbps** | 4.1× |
+| Download, 4 parallel | 57 Mbps | **201 Mbps** | 3.5× |
+| Upload | 43.4 Mbps | **115 Mbps** | 2.6× |
+| Eclipse → gateway, avg | 30.2 ms | **6.65 ms** | 4.5× |
+| Eclipse → gateway, max | 146 ms | **11.7 ms** | 12× |
+| Eclipse → gateway, loss | **2%** | **0%** | — |
+| Asgard → Eclipse, max | **471 ms** | **9.96 ms** | **47×** |
+
+A single stream already saturates the path (196 vs 201 Mbps across four), so one `curl` against
+the 9557 sink is a sufficient test — no need to parallelise.
+
+**Regression signature — the repeater silently dropping to its 2.4 GHz backhaul:**
+
+- throughput collapses to **~45 Mbps symmetric** (not one-directional — that matters)
+- ping to the gateway goes from ~6 ms avg to **~30 ms avg with 100–470 ms spikes**
+- **packet loss appears** (~2%), where 5 GHz shows exactly 0%
+- everything on the Pi still looks perfect: `1000Mb/s full duplex`, zero error counters
+
+It sat in this state for roughly ten days before anyone measured it, because Kodi merely
+stutters rather than failing, and the Pi's own diagnostics stay green throughout. **A power cycle
+of the repeater is what fixed it** — it re-scanned and re-associated on 5 GHz. Suspect this after
+any power interruption in that room; a repeater that falls back to 2.4 GHz will happily stay
+there indefinitely rather than re-evaluating.
+
+```bash
+# one-command health check, from Eclipse
+curl -s -o /dev/null -m 25 -w '%{speed_download}\n' http://192.168.0.226:9557/
+#   ~24000000 B/s (196 Mbps) = healthy 5 GHz
+#   ~6000000  B/s (48 Mbps)  = fallen back to 2.4 GHz, power-cycle the repeater
+```
+
+### How the repeater was identified
+
+Eclipse's ethernet does not run to the router. It goes through an **ASUS RP-BE58** WiFi 7
+repeater at **`192.168.0.68`** (admin UI: ASUSWRT, `Main_Login.asp`, `Server: httpd/3.0`), so one
+hop of the "wired" path is wireless. The Pi cannot see this — the repeater presents a clean
+auto-negotiated gigabit port.
+
+**The giveaway is a MAC mismatch.** The repeater does MAC translation for its downstream client,
+so the rest of the LAN resolves Eclipse's IP to the *repeater's* MAC:
+
+```bash
+# on Asgard
+ip neigh | grep 192.168.0.182     # → lladdr 30:c5:99:98:76:54   ← the repeater
+# on Eclipse
+ip link show eth0                 # → link/ether 88:a2:9e:d6:53:dd ← the actual Pi
+```
+
+Same MAC `30:c5:99:98:76:54` holds **two** addresses — `192.168.0.68` (its own management IP) and
+`192.168.0.182` (Eclipse's, proxied). Find any such bridge with a ping sweep plus `ip neigh`;
+a MAC holding two IPs is the fingerprint. Translation is one-directional: Eclipse still sees the
+real MACs of Asgard and the gateway, which is why it looks normal from the Pi's side.
+
+For reference, the five ESPHome smart plugs are the `8c:fd:49:*` block
+(`.14`, `.49`, `.58`, `.150`, `.206`).
+
+### Why "all the checks pass" is not evidence of a healthy link
+
+Every local check comes back clean even when the backhaul is bad:
+
+| Checked | Result | What it actually proves |
+|---------|--------|-------------------------|
+| Interface | `eth0` up, `wlan0` **down** | genuinely on the cable — and irrelevant |
+| Link speed | negotiated **1000Mb/s full duplex** | only to the *extender*, not end to end |
+| Errors | **zero** rx/tx/crc/frame/dropped | the wireless hop is transparent to the Pi's NIC |
+| Throttling | `0x0`, 62.6°C, full clocks | not thermal |
+| CPU during test | **75.6% idle** | ⬅ **kills the "Pi under load" theory outright** |
+
+Always measure against `SPEEDTEST_LAN_PORT` (9557), which serves zeros **from memory** — no disk
+in the path, so a slow result cannot be blamed on the array. Don't measure through Jellyfin and
+then draw conclusions about the network.
+
+**The latency comparison is the cheapest decisive test.** Same gateway, two sources, while the
+backhaul was on 2.4 GHz:
+
+| Path | min / avg / max | Loss |
+|---|---|---|
+| Asgard → gateway | 0.43 / **0.59** / 0.89 ms | 0% |
+| Eclipse → gateway | 2.3 / **30.2** / 146 ms | **2%** |
+| Asgard → Eclipse | 2.5 / **51.0** / **471 ms** | 0% |
+
+Asgard's leg is textbook wired gigabit. Eclipse's leg to the *same* gateway was 50× worse and
+dropping packets. ARP confirms one L2 segment, no router hop — so the only variable is the run
+to the Pi. It needs nothing installed and rules the host in or out in one command.
+
+**How to tell this apart from a genuinely slow host**, since the symptoms overlap:
+
+- Measure with Kodi **idle**. If the ceiling holds while the CPU is 75% idle, it is not the Pi.
+- Test **both directions**. A host-side limit is usually asymmetric; a shared medium is not.
+- Test **parallel streams**. A single-flow TCP limit scales out; a medium ceiling does not.
+- Compare **ping to the gateway from two different hosts**. This is the cheapest and most
+  decisive test, and it needs nothing installed.
+
+> The old table's last row — "same sink from Sisyphus: 872 Mbps" — was already pointing at the
+> Eclipse leg. It got misread as "the Pi is slow" instead of "Sisyphus has a real cable and
+> Eclipse does not." Same trap as [[eclipse-diagnosis-order]]: **confirm the physical run before
+> accepting a host-side theory.** Ask what the far end of the cable plugs into.
+
+**Practical impact.** A 4K remux direct-playing wants 60–100 Mbps:
+
+- **On 5 GHz (196 Mbps):** fine — ~2.8× headroom even for the heaviest file in the library
+  (*The Drama*, 51 GB, **68.9 Mbps**). No cap needed.
+- **On 2.4 GHz (~45 Mbps):** impossible. This is what `JELLYFIN_BITRATE_LAN` in
+  `eclipse-control.py` exists to cap (see *Switching between LAN and remote*).
+
+So the cap is a **fallback for the degraded state, not the steady state**. If playback starts
+stuttering, measure the link *first* — if it reads ~45 Mbps, power-cycle the repeater rather
+than reaching for the cap.
+
+⚠️ **A cap between ~45 and ~196 Mbps buys nothing.** Either it is above the degraded ceiling
+(so it fails anyway when the backhaul drops) or below what the healthy link easily carries (so
+it forces pointless 4K transcodes). The only two meaningful settings are **`23` (uncapped) for
+the healthy 5 GHz state** and **`17` (20 Mbps) to ride out a regression** — don't split the
+difference.
+
+**Do not reach for the NFS "Native mode" export to fix this.** Direct paths bypass Jellyfin's
+transcoder, so an oversized file then demands its full source bitrate — strictly worse on a
+capped link, not better.
+
+### 🐛 Every button on the panel was dead — `var history` shadowing
+
+Fixed 2026-09-19. `logAdd()` did `history.unshift(...)` against a top-level `var history = []`.
+**`window.history` is a read-only Window attribute, so a global `var history` never overrides
+it** — `history` stayed the History object and `.unshift` threw `TypeError`. `run()` died at
+`logAdd()` **before the fetch**, so clicking any button applied the busy class, disabled the
+others, and then silently did nothing. Renamed to `logHistory`.
+
+**Fingerprint:** button goes busy + others disable + Activity log never changes + no request in
+flight ⇒ the handler threw between the DOM updates and the fetch. Never name a global `history`,
+`location`, `name`, `status`, `top` or `self` in browser JS.
 
 ### Remote playback was capped to 12 Mbps and stuttering — fixed 2026-09-11
 
@@ -270,9 +457,13 @@ signature as the *old* house's 2.4 GHz congestion writeup above, on a **differen
 network) as the remaining bottleneck, not anything server-side. Not yet resolved from that end;
 mitigated for now by capping the addon's `maxBitrate` to index `10` (~8 Mbps) so Jellyfin transcodes
 down to something that reliably fits a jittery link instead of attempting a ~20 Mbps direct stream.
-**This is imperative Eclipse-side state** (`addon_data/plugin.video.jellyfin/settings.xml`), reset to
-default `23` (uncapped) if Eclipse ever gets a better link (5 GHz / non-guest network / ethernet) at
-the new house — worth revisiting before assuming the guest-WiFi theory is the final answer.
+**This is imperative Eclipse-side state** (`addon_data/plugin.video.jellyfin/settings.xml`), raised
+if Eclipse ever gets a better link (5 GHz / non-guest network / ethernet).
+
+> ⚠️ **"Ethernet" arrived and did not deliver.** Eclipse is wired today and still only gets
+> ~45 Mbps, because the run goes through a **WiFi extender bridge** — see *The ~45 Mbps ceiling*
+> above. Do not read "it's on ethernet now" as "the link problem is solved"; measure it.
+> Going uncapped needs a genuine cable run, not a port that reports gigabit.
 
 **`plugin.video.jellyfin` is a sync backend, NOT an app.** It copies server metadata into Kodi's
 own DB so content appears under Kodi's native Movies/TV Shows. There is no Jellyfin screen to
@@ -515,6 +706,171 @@ is set, so Jellyfin picks `hevc_qsv`. Backup of the pre-change file: `settings.x
 
 1080p H.264 in software is fine on a Pi 5 — it is specifically **4K** H.264 that cannot keep up.
 
+> **This is also why game streaming must use HEVC.** Sunshine used to force H.264, so Moonlight
+> software-decoded every frame at **54.5% CPU**; on HEVC the Pi hardware-decodes at **20%** while
+> carrying *more* bitrate. See `Claude/streaming.md` → *HEVC is the correct codec here*.
+
+## ⚠️ Two independent audio paths — Kodi uses ALSA, Moonlight uses PulseAudio
+
+This box runs **both**, and only one of them is reliably configured. It explains the otherwise
+baffling "Jellyfin has sound but the game stream is silent".
+
+| Consumer | Path | State |
+|---|---|---|
+| **Kodi** | **ALSA direct** — `hdmi:CARD=vc4hdmi0,DEV=0` | ✅ works, never touches PulseAudio |
+| **Moonlight** | **PulseAudio** (`SDL audio driver: pulseaudio`) | ❌ falls back to `auto_null` |
+
+PulseAudio never claims the vc4hdmi card, so its only sink is the null one and audio is discarded:
+
+```bash
+pactl list short sinks     # 0  auto_null  module-null-sink.c   ← the bug
+aplay -l                   # card 0: vc4hdmi0 ... card 1: vc4hdmi1   ← the real outputs, unclaimed
+```
+
+Live fix (`pactl load-module module-alsa-sink device=hdmi:CARD=vc4hdmi0,DEV=0 sink_name=hdmi_out`)
+works but is **in-memory only**. The durable fix is to make Moonlight skip PulseAudio entirely with
+`SDL_AUDIODRIVER=alsa` — the same path Kodi already proves works. Full detail in
+`Claude/streaming.md` → *No stream audio*.
+
+**Don't debug this as a network or Sunshine problem.** The client log will happily report
+`Received first audio packet after N ms` while playing it into the void.
+
+## The Kodi GUI renders at 1080p on a 4K panel — that is CORRECT
+
+`kodi.log` reports `GUI format 1920x1080, Display 3840x2160 @ 60.000000 Hz`. The interface is
+rendered at 1080p and upscaled by the TV. This is Kodi's own shipped default —
+`videoscreen.limitguisize = 3` ("1080"), with `default: 3` — **not** something misconfigured here.
+A 4K GUI is expensive on a Pi, hence the cap. **Video playback is unaffected**: it bypasses the
+GUI layer entirely and plays at source resolution on its own DRM plane.
+
+Raise it with `videoscreen.limitguisize = 4` ("Unlimited / 1080 >30Hz") for a native-4K UI, but
+expect sluggish scrolling and skin animations on a Pi 5. Revert to `3` if so.
+
+> ⚠️ **A GUI at `1280x720` is a different thing and IS a fault.** It means Kodi started while
+> something else still held DRM (typically Moonlight) and misdetected the display. 720p upscaled
+> to 4K looks obviously soft. Fix: make sure nothing else holds `card1`, then restart Kodi — see
+> the DRM-owner check in `Claude/streaming.md`. Confirm with:
+> `grep -a "GUI format" /storage/.kodi/temp/kodi.log | tail -1`
+
+## Moonlight's own UI text is too small on the TV — enlarge via fake DPI
+
+Done 2026-10-01. The addon's launcher picks `QT_SCALE_FACTOR` from the detected
+resolution (`0.6` @720p, `0.64` @1080p, `1.17` @1440p, **`1.28` @2160p**) and
+upstream warns in the script itself: *"QT_SCALE_FACTOR higher than 1.28 corrupts the
+layout."* **So raising the scale factor is not the lever.**
+
+The lever is the *physical* screen size, which upstream sets right after and
+documents as the TV knob: *"This setting makes the fonts conveniently large on a TV,
+the lower the size the bigger the fonts."* Qt derives DPI from pixels ÷ mm, so
+shrinking it enlarges fonts without touching layout scale:
+
+```sh
+QT_QPA_EGLFS_PHYSICAL_WIDTH  = QT_SCALE_FACTOR * 437 / FONT_BOOST
+QT_QPA_EGLFS_PHYSICAL_HEIGHT = QT_SCALE_FACTOR * 250 / FONT_BOOST
+# FONT_BOOST=1.5 @4K: 559x320mm -> 372x213mm,  ~174 DPI -> ~262 DPI
+```
+
+Stream resolution is unaffected — this only changes reported DPI. One number to
+retune; back off if text starts clipping.
+
+**Where it lives.** `launch_moonlight-qt.sh` prefers
+`$ADDON_PROFILE_PATH/bootstrap_moonlight-qt.local.sh` over the addon's own
+bootstrap, so the override sits in `addon_data` and survives addon updates. It is a
+**fork** of the upstream script (the hook replaces, it does not source), so pristine
+copy kept as `bootstrap_moonlight-qt.upstream.bak` — re-sync after an addon update;
+only `FONT_BOOST` and the two `QT_QPA_EGLFS_PHYSICAL_*` lines differ.
+
+### 🔑 Two `$0` traps when forking that bootstrap — both break it badly
+
+A naive copy fails, and the second failure is nasty because Moonlight *appears* to
+start:
+
+1. **`launch_moonlight-qt.sh` invokes the local script by ABSOLUTE path**, so
+   upstream's `cd "$(dirname "$0")"` lands in `addon_data` instead of the addon bin
+   dir. Symptom: `can't open './get-platform.sh'`, Moonlight never starts at all.
+2. **`get-platform.sh` is SOURCED and itself does `cd "$(dirname "$0")"`** — and in a
+   sourced script `$0` is the *caller*. So it silently moves cwd **after** step 1's
+   fix, and the later `ADDON_BIN_PATH=$(realpath ".")` resolves wrong. Upstream never
+   trips this because the launcher passes its bootstrap by *relative* name, making
+   `dirname` a harmless `.`.
+
+Trap 2's consequence is the dangerous one: `$ADDON_BIN_PATH/kodi_hooks/libreelec`
+is then not found, so **`systemctl stop kodi` never runs**, Kodi keeps DRM master,
+and Moonlight spams `Could not queue DRM page flip on screen HDMI1 (Permission
+denied)` onto a dead screen.
+
+**Fingerprint — two processes holding `card1`:**
+
+```bash
+for p in $(ls /proc | grep -E '^[0-9]+$'); do for fd in /proc/$p/fd/*; do
+  case "$(readlink $fd 2>/dev/null)" in */dri/card1) echo "$p $(cat /proc/$p/comm)";; esac
+done; done | sort -u
+# healthy = exactly ONE holder (kodi.bin, or moonlight-qt while streaming)
+```
+
+**Fix: make the fork independent of `$0`** — an absolute `cd` at the top, and set
+`ADDON_BIN_PATH` to a literal path instead of `realpath "."` (then `cd` back to it,
+since `get-platform.sh` will have moved cwd).
+
+**Also check `Using Kodi hooks for libreelec...` is present** in
+`$ADDON_PROFILE_PATH/moonlight-qt.log`. Its *absence* is the whole tell — and the
+log is written by `tee` from the launcher, so it exists even when nothing appears
+on screen.
+
+Safe way to test without taking the TV: truncate a copy of the script just before
+the `Check for distro specific hooks` block and run that — it exercises all the path
+and env logic but stops short of stopping Kodi or launching Moonlight.
+
+## Closing the Wolf session when Moonlight exits (2026-10-01, verified)
+
+**The problem.** Wolf keeps a lobby *and the running game* alive long after the client
+disconnects — measured **2 h 08 m** between `Moonlight stream over, leaving lobby` and
+`stopping lobby / Stopped container`. Backing out of a stream therefore left the game
+burning GPU on Sisyphus and holding the shared `steamapps`.
+
+**The fix**, in `bootstrap_moonlight-qt.local.sh`:
+
+```sh
+_moonlight_quit_wolf() {
+  H=$(sed -n 's/^1\\localaddress=//p' "$HOME/.config/.../Moonlight.conf" | head -1)
+  QT_QPA_PLATFORM=offscreen "$MOONLIGHT_PATH/bin/moonlight-qt" quit "$H"
+}
+trap '_moonlight_quit_wolf; _moonlight_restart_kodi' EXIT
+```
+
+**Measured result: lobby torn down in 2 seconds** (hook at `12:28:39` →
+`Stopped container: /Wolf-UI_… 12:28:41`), Kodi back at the correct
+`GUI format 1920x1080, Display 3840x2160`, one process holding `card1`.
+
+### 🔑 Four things that make this non-obvious
+
+1. **Code placed after `./moonlight-qt "$@"` is NEVER reached.** Proven with a marker
+   writing *directly to a file* (bypassing the `tee` pipeline): it never appeared,
+   while the EXIT trap demonstrably ran. The transient `systemd-run` service tears
+   its cgroup down when the stream process dies. **The EXIT trap is the only
+   dependable hook** — the first attempt put the teardown after the launch line and
+   it silently never executed.
+2. **`quit` only works once the stream has ENDED.** Firing
+   `moonlight-qt quit <host>` while your own client is mid-stream exits 0 and does
+   **nothing** — Wolf logs not a line. Two test cycles were wasted on this.
+3. **`QT_QPA_PLATFORM=offscreen` does NOT stop it touching the display.** The quit
+   invocation still logs `Sharing DRM FD with SDL`, `GPU driver: vc4`,
+   `Enabled 36-bit HDMI Deep Color` — Qt's platform plugin is offscreen but SDL still
+   initialises DRM. What keeps it safe is the trap *ordering*: quit runs before
+   `_moonlight_restart_kodi`, so it never overlaps Kodi grabbing DRM back.
+4. **moonlight-qt ignores SIGTERM while streaming** — it needs `SIGKILL`. Any test
+   harness that assumes TERM ends a stream will conclude the hook is broken when it
+   is merely never invoked.
+
+⚠️ **Trade-off:** this gives up Wolf's resume-later behaviour — disconnecting now kills
+the running game instead of leaving it to rejoin. Delete the trap block to restore it.
+
+Each session appends one timestamp line to `/storage/moonlight-hook-debug.log`
+(moonlight-qt's own ~20 lines of SDL/Qt noise go to `/dev/null`). Also expect a burst
+of `Could not queue DRM page flip … (Permission denied)` at *stream start* — that is
+the Kodi→Moonlight DRM handover and is transient; a *continuous* stream of them is the
+real two-holders fault described above.
+
 ## HDR output does not work — HDR content looks desaturated and grainy
 
 **Symptom:** washed-out colour *and* visible grain, especially in dark scenes. It reads like a bad
@@ -750,9 +1106,25 @@ All three are enums — `Settings.GetSettings {"level":"expert"}` returns the va
 Startup is still the weak point — Kodi begins playing before the cache has banked anything, which is
 why pausing for ~30s after pressing play works. There is no prebuffer-size setting in Kodi 21.
 
-Demand-side lever if it regresses: the Jellyfin addon's `maxBitrate` is `23` = *1000 Mbps [default]*,
-i.e. uncapped. Values are indexes into a list (`6`=4 Mbps, `8`=6 Mbps, `10`=8 Mbps); capping makes
-Asgard transcode down instead of direct-playing a ~10 Mbps remux.
+Demand-side lever if it regresses: the Jellyfin addon's `maxBitrate`, currently **`23` = uncapped**
+(correct — the 5 GHz path carries 196 Mbps). Capping makes Asgard transcode down instead of
+direct-playing a remux the link cannot carry; **`17` = 20 Mbps is the value to use if the
+repeater falls back to 2.4 GHz.** Values are indexes into the addon's own list — the full
+mapping, straight from `resources/language/*/strings.po` (ids `#33214`+):
+
+| idx | Mbps | idx | Mbps | idx | Mbps | idx | Mbps |
+|----|------|----|------|----|------|----|------|
+| 0 | 0.5 | 7 | 5 | 13 | 12 | 19 | 30 |
+| 1 | 1.0 | 8 | 6 | 14 | 14 | 20 | 35 |
+| 2 | 1.5 | 9 | 7 | 15 | 16 | 21 | 40 |
+| 3 | 2.0 | 10 | 8 | 16 | 18 | 22 | 100 |
+| 4 | 2.5 | 11 | 9 | **17** | **20** | 23 | 1000 *(default)* |
+| 5 | 3.0 | 12 | 10 | 18 | 25 | 24 | Maximum |
+| 6 | 4.0 | | | | | | |
+
+Editing this by hand needs `systemctl stop kodi` first — the addon caches its settings in memory
+and **rewrites `settings.xml` on exit**, so a live edit is silently clobbered. Drop the
+`default="true"` attribute when writing a non-default value.
 
 ## Skin — Bingie (current, since 2026-09-12)
 

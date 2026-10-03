@@ -7,21 +7,27 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 
 | Topic | File | Covers |
 |-------|------|--------|
+| **Next up / backlog** | `Claude/next-up.md` | Open work: wallpapers into `Resources/`, noctalia + skwd settings that are GUI-only. **Read before a fresh install or wipe** |
+| **Deploying / installer USB** | `Claude/deploy.md` | The Apollo stick: `apollo-iso` / `apollo-key` / `apollo-connect` / `apollo-deploy`. **nixos-anywhere skips kexec on our ISO, so an SSH-over-tailnet install survives.** Ventoy + Secure Boot caveats |
+| **Kit-Kat** (her machine) | `Claude/kit-kat.md` | Separate NVIDIA hardware running Hyprland. **Her own sops file**, disko + facter, what was left out. Replaced the Elektra KDE profile |
 | Niri compositor | `Claude/niri.md` | Layout, keybinds, window rules, startup, Spotify/Steam launchers |
-| Noctalia shell | `Claude/noctalia.md` | Bar, IPC, clock plugin, declarative widget config, font packaging |
-| SKWD wallpaper | `Claude/skwd-wall.md` | Matugen flow, integrations, troubleshooting cache |
+| Noctalia shell | `Claude/noctalia.md` | Bar, IPC, clock plugin, font packaging, **idle/monitor power-save**. **Nix owns `settings.toml`** — the bar/lockscreen/widget layout lives in `lockedSettings` and a rebuild forces it back over any GUI change, so edit Nix, not the GUI |
+| SKWD wallpaper | `Claude/skwd-wall.md` | Matugen flow, integrations, troubleshooting cache. **Sisyphus + Kit-Kat are on v2 (Rust), Odysseus still on v1**
 | Spicetify | `Claude/spicetify.md` | Text theme, CDP color injection, CSS fixes |
-| Rain effect | `Claude/rain-effect.md` | GLSL shader, parameters, known bugs |
+| ~~Rain effect~~ | `Claude/rain-effect.md` | **RETIRED 2026-10-03** — GLSL overlay, no longer imported by any host |
 | Helium browser | `Claude/helium.md` | Extensions, policies, dark theme, Bitwarden |
 | Game streaming | `Claude/streaming.md` | Sunshine, Moonlight, Tailscale, DualSense daemon |
+| **Wolf** (Moonlight server) | `Claude/wolf.md` | Virtual-desktop streaming host on Sisyphus. **True 4K (Sunshine was capped at 1080p)**, seat9 input isolation, Steam library sharing, and the **`fake-udev` gamepad fix** without which pads work in Steam but are invisible to games |
 | Steam theming | `Claude/steam.md` | Millennium injector, SpaceTheme/Zehn, matugen colours, why opacity comes from Niri |
-| Eclipse TV box | `Claude/eclipse.md` | Pi 5 LibreELEC/Kodi, Jellyfin addon, skin menu, CEC, headless workflow |
-| KDE Plasma | `Claude/kde.md` | Elektra panel, keybinds, plasma-manager |
+| Eclipse TV box | `Claude/eclipse.md` | Pi 5 LibreELEC/Kodi, Jellyfin addon, **HEVC-only decode (no H.264 HW)**, **no HDR output**, Dolby Vision, skin menu, CEC, headless workflow |
+| ~~KDE Plasma~~ | `Claude/kde.md` | **RETIRED** — Elektra's panel/keybinds/plasma-manager. No host imports `kde.nix` any more; kept for reference
 | Emulators | `Claude/emulators.md` | RPCS3, Ryubing, PS3 game prep |
 | Secrets | `Claude/secrets.md` | sops-nix, adding secrets, key locations |
 | Architecture | `Claude/architecture.md` | Multi-boot GRUB, Plymouth, module patterns |
 | Shell/misc | `Claude/misc.md` | Starship, Fastfetch, btop, Navi, Discord, media viewers, audio (PipeWire fixes) |
-| Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Jellyseerr API, Homepage config |
+| Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Jellyseerr API, Homepage config, recyclarr (**edit `server.nix` on Asgard, not here** — it drifts) |
+| Home Assistant | `Claude/home-assistant.md` | Smart plugs on Asgard `:8123`. `extraComponents` gates which integrations exist at all; device pairings are **not** declarative |
+| MarsBar dashboard | `Claude/marsbar.md` | Partner-facing Glance on its **own tailnet node** (`marsbar:1111`). Lights + Jellyfin/Jellyseerr + Eclipse controls. Isolation is a Tailscale **ACL**, not in this repo |
 
 ## Core Principles
 
@@ -39,7 +45,8 @@ When making changes, always ask: "Will this work on a fresh install without manu
 ```bash
 system-rebuild                        # Interactive menu (recommended)
 system-rebuild rock Sisyphus          # Build and switch immediately
-system-rebuild rock Elektra --boot    # Build for GRUB, don't switch
+system-rebuild rock Odysseus --boot   # Build for GRUB, don't switch
+system-rebuild kitkat Kit-Kat         # Push to her machine over the tailnet
 nix flake update                      # Update flake inputs
 ```
 
@@ -49,9 +56,11 @@ Helper is a `writeShellScriptBin` in `Modules/navi.nix` (single source of truth 
 
 ```
 flake.nix                    # Entry point — flake-parts + import-tree
+.sops.yaml                   # sops creation rules — MUST live at the repo root
 ├── Hosts/                   # System configurations (auto-imported)
 │   ├── Sisyphus/system.nix  # Niri compositor (primary desktop)
-│   ├── Elektra/system.nix   # KDE Plasma 6
+│   ├── Kit-Kat/system.nix   # Niri on her NVIDIA machine (was Elektra/KDE)
+│   ├── Rescue/system.nix    # Apollo deployer + rescue ISO
 │   └── Odysseus/system.nix  # Hyprland desktop
 ├── Modules/                 # Self-contained modules (auto-imported)
 │   ├── Desktops/
@@ -59,15 +68,21 @@ flake.nix                    # Entry point — flake-parts + import-tree
 │   │   ├── kde.nix          # KDE Plasma — plasma-manager
 │   │   └── hyprland.nix     # Hyprland — system + home combined
 │   ├── noctalia.nix         # Desktop shell/bar — wrapper-modules
-│   ├── skwd-wall.nix        # Wallpaper selector + matugen integration
+│   ├── skwd-wall.nix        # Wallpaper selector v1 (QuickShell) — Odysseus
+│   ├── Skwd.nix             # Wallpaper selector v2 (Rust) — Sisyphus, Kit-Kat.
+│   │                        #   nixosModule + our matugen integrations only.
 │   ├── helium.nix           # Helium browser — policies, Bitwarden, theme
 │   ├── spicetify.nix        # Spotify theming
 │   ├── discord.nix          # Vesktop with transparency
-│   ├── rain-effect.nix      # GLSL rain overlay (Sisyphus only)
-│   ├── controller.nix       # DualSense desktop nav daemon (Sisyphus only)
+│   ├── grub-celeste.nix     # GRUB + CelesteGRUB theme (Kit-Kat only)
+│   ├── nvidia.nix           # NVIDIA driver + wlroots/GBM bits (Kit-Kat only)
+│   ├── rain-effect.nix      # GLSL rain overlay — RETIRED, unimported
 │   ├── sunshine.nix         # Game streaming host (Sisyphus only)
 │   ├── tailscale.nix        # VPN (Sisyphus only)
+│   ├── marsbar.nix          # Partner dashboard — 2nd Glance + 2nd tailscaled
+│   │                        #   node (`marsbar:1111`), Asgard only
 │   ├── rpcs3.nix            # RPCS3 + Ryubing emulators
+│   ├── sddm-umbrella.nix    # SDDM "Women · Umbrella" greeter (Kit-Kat only)
 │   ├── sddm.nix             # SDDM login theme (silentSDDM + video background)
 │   ├── base.nix             # Common packages and settings
 │   ├── grub.nix             # GRUB multi-system boot menu
@@ -88,22 +103,36 @@ flake.nix                    # Entry point — flake-parts + import-tree
 │   └── Sddm/                           # silentSDDM video background (pixel-emerald.mp4 — live)
 ├── Claude/                  # Topic docs (read on demand)
 ├── Secrets/                 # Encrypted secrets
-│   ├── .sops.yaml           # Age key config
-│   └── secrets.yaml         # Encrypted values
+│   └── secrets.yaml         # Encrypted values (+ kit-kat.yaml, her machine only)
 └── server-info.md           # Asgard media server reference
 ```
 
-## The Three Systems
+## The Machines
 
-| System | Desktop | Entry Point | Key Modules |
-|--------|---------|-------------|-------------|
-| **Sisyphus** | Niri | `Hosts/Sisyphus/system.nix` | niri, noctalia, skwd-wall, spicetify, rain-effect, sunshine, tailscale, controller |
-| **Elektra** | KDE Plasma 6 | `Hosts/Elektra/system.nix` | kde, skwd-wall, spicetify, discord |
-| **Odysseus** | Hyprland | `Hosts/Odysseus/system.nix` | hyprland, noctalia, skwd-wall, spicetify |
+Two of these are **boot profiles on one physical disk**, selected from the GRUB
+"System Select" submenu via named system profiles. Kit-Kat and Asgard are separate
+hardware on the tailnet, pushed to with `--target-host`.
 
-All three share: base, grub, sddm, audio, locale, steam, polkit, sops, zsh, kitty, git, navi, starship, fastfetch, btop, moonlight-qt, rpcs3, helium, brave, discord
+| System | Desktop | Entry Point | Where | Key Modules |
+|--------|---------|-------------|-------|-------------|
+| **Sisyphus** | Niri | `Hosts/Sisyphus/system.nix` | this disk | niri, noctalia, **skwd** (v2), spicetify, sunshine, wolf, tailscale |
+| **Odysseus** | Hyprland | `Hosts/Odysseus/system.nix` | this disk | hyprland, noctalia, skwd-wall (v1), spicetify |
+| **Kit-Kat** | Hyprland | `Hosts/Kit-Kat/system.nix` | her machine, **NVIDIA** | hyprland, noctalia, skwd (v2), nvidia, grub-celeste, sddm-umbrella, sops-kitkat, disko + facter |
+| **Asgard** | headless | `Hosts/Asgard/system.nix` | server | server, home-assistant, marsbar |
+| **Apollo** | Niri (live) | `Hosts/Rescue/system.nix` | USB stick | the deployer/rescue ISO — `Claude/deploy.md` |
 
-**Displays:** DP-2 (2560x1080 @ 144Hz primary, 8-bit) + HDMI-A-1 (1920x1080 @ 60Hz secondary)
+**Elektra is retired.** It was a third KDE boot profile on this disk; that slot
+became Kit-Kat's real machine. `Modules/Desktops/kde.nix` and `Claude/kde.md` are
+kept for reference but no host imports them.
+
+Shared by Sisyphus + Odysseus: base, grub, polkit, thunar, audio, locale, steam,
+sops, zsh, kitty, helium, git, fastfetch, btop, vscodium, navi, spicetify.
+Shared by all five: locale, zsh, git, fastfetch, btop — and nothing else. (An
+earlier version of this table over-claimed: `sddm` is Odysseus-only, Sisyphus uses
+`sddm-nier`; `starship` is missing on Odysseus; `brave` on Sisyphus; `discord` on
+Odysseus; `rpcs3` is Sisyphus-only; `screenshot` is missing on Sisyphus.)
+
+**Displays (Sisyphus/Odysseus):** DP-2 (2560x1080 @ 144Hz primary, 8-bit) + HDMI-A-1 (1920x1080 @ 60Hz secondary)
 
 DP-2's 144Hz needs an explicit `mode` line — its EDID advertises 60Hz as *preferred*. See `Claude/niri.md`.
 
@@ -123,7 +152,8 @@ DP-2's 144Hz needs an explicit `mode` line — its EDID advertises 60Hz as *pref
 - `wrapper-modules` — wraps packages with settings baked in (niri, noctalia)
 - `noctalia` — desktop shell
 - `niri` — scrollable tiling compositor (niri-flake)
-- `skwd-wall` — wallpaper selector with matugen (github:liixini/skwd-wall)
+- `skwd-wall` — wallpaper selector v1/QuickShell, matugen. **Odysseus only** now. **Pinned to an exact rev**, because the repo's default branch is now v2 — a bare `github:liixini/skwd-wall` would resolve to the v2 flake and a routine `nix flake update` would swap v1 out from under it
+- `skwd-wall-v2` — wallpaper selector v2/Rust (`github:liixini/skwd-wall/nix`), Sisyphus. Upstream's official NixOS support: prebuilt release binaries + `nixosModules.default`. **Never add `nixpkgs.follows`** — the binaries are autoPatchelf'd against upstream's pinned nixpkgs, and matching it is what keeps our derivations hash-identical to the store paths upstream publishes in `channel.json`
 - `helium` — browser (github:amaanq/helium-flake, not in nixpkgs)
 - `spicetify-nix` — declarative Spotify theming
 - `millennium` — Steam client CSS/JS injector (`?dir=packages/nix`). **Never add `nixpkgs.follows`** — upstream's pinned nixpkgs is load-bearing for a Bun FOD hash

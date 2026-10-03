@@ -27,7 +27,9 @@
       configPath = "${config.home.homeDirectory}/.config/skwd-wall";
       compositor = {
         Sisyphus = "niri";
-        Elektra = "kde";
+        # Elektra is gone — that profile became Hosts/Kit-Kat (Niri, separate
+        # hardware) and does not import this v1 module at all. Anything unlisted
+        # falls through to the "niri" default below.
         Odysseus = "hyprland";
       }.${hostName} or "niri";
       # btop's theme is generated from the same Material You palette as everything
@@ -42,7 +44,72 @@
       # ============================================================
       # PACKAGE
       # ============================================================
-      home.packages = [ skwdPackage pkgs.matugen ] ++ lib.optional (compositor == "kde") qdbus6Shim;
+      home.packages = [ skwdPackage pkgs.matugen ]
+        ++ lib.optional (compositor == "kde") qdbus6Shim
+        ++ [
+          # swaybg is only needed for the script below, which only v1 hosts use.
+          pkgs.swaybg
+
+          # noctalia-sync-wallpaper — MOVED HERE from Modules/noctalia.nix on
+          # 2026-09-15, because it is now a v1-only concern and noctalia.nix is
+          # shared with Sisyphus.
+          #
+          # Sisyphus (skwd v2) no longer has or needs it: skwd renders noctalia's
+          # palette directly and re-reads it via noctalia-apply-palette, and the
+          # niri overview backdrop is served by skwd's native skwd-paper-backdrop
+          # surface instead of swaybg. On v1 none of that exists, so this script
+          # stays exactly as it was — noctalia generates its own Material You
+          # colours and has to be pointed at the right image.
+          #
+          # It is registered as a postProcessing hook further down THIS file, so
+          # the script and its registration now live together.
+          #
+          # Elektra imports this module without noctalia, so the `noctalia msg`
+          # calls fail there — unchanged from before, since the hook was already
+          # registered unconditionally and failed the same way.
+          #
+          # Binaries by store path: skwd-daemon runs hooks with a trimmed PATH, so
+          # bare pgrep/ps/sleep are not guaranteed to resolve.
+          (pkgs.writeShellScriptBin "noctalia-sync-wallpaper" ''
+            # $1 is skwd's %path% placeholder — the wallpaper just applied.
+            # Reading the cache instead is WRONG during a live change: skwd writes
+            # last-wallpaper.json AFTER running its hooks (measured 2026-08-16),
+            # so every swap would sync the PREVIOUS wallpaper. The cache is a
+            # fallback for manual invocation only, where nothing is in flight.
+            #
+            # Do NOT re-derive from `skwd status`: that field is null on a fresh
+            # session and has no directory component. A grep/sed version once
+            # yielded the literal '"current_wallpaper": null,' as a filename.
+            WALL="$1"
+            if [ -z "$WALL" ] || [ ! -f "$WALL" ]; then
+              CACHE="$HOME/.cache/skwd-wall/last-wallpaper.json"
+              [ -f "$CACHE" ] || exit 0
+              WALL=$(${pkgs.jq}/bin/jq -r '.path // empty' "$CACHE" 2>/dev/null)
+            fi
+            [ -n "$WALL" ] && [ -f "$WALL" ] || exit 0
+
+            # Skip the expensive wallpaper-set if noctalia started <10s ago: it
+            # already has last session's cached colours, and wallpaper-set blocks
+            # rendering ~5s at startup.
+            NOCTALIA_PID=$(${pkgs.procps}/bin/pgrep -x noctalia 2>/dev/null || true)
+            PROC_AGE=$(${pkgs.procps}/bin/ps -o etimes= -p "$NOCTALIA_PID" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d ' ')
+            if [ -z "$PROC_AGE" ] || [ "$PROC_AGE" -gt 10 ]; then
+              noctalia msg wallpaper-set "$WALL"
+            fi
+
+            # Swap the swaybg backdrop. Record current PIDs FIRST, start the
+            # replacement, then kill only those — a blanket pkill afterwards could
+            # take out the new instance, and killing first leaves a black frame.
+            # Match on the command line (-f): nixpkgs wraps swaybg, so comm is
+            # ".swaybg-wrapped" and -x swaybg never matches.
+            OLD=$(${pkgs.procps}/bin/pgrep -f 'swaybg -m fill -i' 2>/dev/null || true)
+            ${pkgs.swaybg}/bin/swaybg -m fill -i "$WALL" &
+            ${pkgs.coreutils}/bin/sleep 0.3
+            [ -n "$OLD" ] && kill $OLD 2>/dev/null || true
+
+            noctalia msg templates-apply
+          '')
+        ];
 
       # Hide from app launchers — skwd-wall is keybind-driven (Meta+W)
       xdg.desktopEntries."skwd-wall" = {
@@ -155,18 +222,34 @@ EOF
             && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
         fi
 
-        # Add noctalia integration or patch reload command
+        # Add the noctalia integration (template only — no reload command).
         # noctalia-sync-wallpaper: tells noctalia the actual skwd-wall wallpaper path so it
         # generates Material You colors from the correct image, then re-applies theme templates.
+        #
+        # It is wired as a postProcessing command, NOT integrations[].reload, because only
+        # postProcessing substitutes placeholders (%path% = the wallpaper just applied).
+        # reload commands get no arguments, which forced the script to read
+        # ~/.cache/skwd-wall/last-wallpaper.json — a file skwd writes AFTER running its
+        # hooks, so every swap synced the previous wallpaper. See the comment on
+        # noctalia-sync-wallpaper in Modules/noctalia.nix for the measurement.
         if [ -f "${configPath}/config.json" ]; then
           ${pkgs.jq}/bin/jq '
-            if (.integrations | map(.name) | contains(["noctalia"])) then
+            (if (.integrations | map(.name) | contains(["noctalia"])) then
               .integrations = (.integrations | map(if .name == "noctalia" then
-                .reload = "noctalia-sync-wallpaper"
+                del(.reload)
               else . end))
             else
-              .integrations += [{"name": "noctalia", "template": "noctalia-colors.json", "output": "~/.config/noctalia/colors.json", "reload": "noctalia-sync-wallpaper"}]
-            end
+              .integrations += [{"name": "noctalia", "template": "noctalia-colors.json", "output": "~/.config/noctalia/colors.json"}]
+            end)
+            # Idempotent: drop any previous form of this hook, then append the current one.
+            | .postProcessing = (((.postProcessing // [])
+                | map(select((.command // "") | test("noctalia-sync-wallpaper") | not)))
+                + [{"command": "noctalia-sync-wallpaper %path%", "type": "all"}])
+            # Fire the hook on session restore too. The reload command used to run at
+            # login; without this the palette would only resync on a manual swap.
+            # noctalia-sync-wallpaper skips the expensive wallpaper-set when noctalia is
+            # under 10s old, so this stays cheap at startup.
+            | .postProcessOnRestore = true
           ' "${configPath}/config.json" > "${configPath}/config.json.tmp" \
             && mv "${configPath}/config.json.tmp" "${configPath}/config.json"
         fi

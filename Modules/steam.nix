@@ -268,14 +268,30 @@ let
     darker   = "0, 107, 105";
     darkest  = "0, 80, 79";
   };
+  # Millennium is rock's Steam ricing (CSS/JS injector + matugen theming). It is
+  # opt-out per host because a second person's machine wants plain Steam: the
+  # injector rewrites Steam's client, pulls in its own openssl ABIs, and relinks
+  # libXtst on every launch. All upside if you want the theme, pure fragility if
+  # you don't — it is what stopped Steam launching at all on a fresh install.
+  steamOptions = { lib, ... }: {
+    options.my.steam.millennium = lib.mkEnableOption "Millennium Steam theming" // {
+      default = true;
+    };
+  };
+
 in {
   flake.lib.steam = {
     matugenTemplate = mkQuickCss matugenAccent;
     quickCssPath = ".config/millennium/quick.css";
   };
 
-  flake.nixosModules.steam = { pkgs, activeUser, ... }:
+  flake.nixosModules.steam = { pkgs, lib, config, activeUser, ... }:
   let
+    # Captured here because `config` is SHADOWED inside the
+    # home-manager.users.<name> submodule below — in there it refers to the
+    # home-manager config, which has no `my`.
+    millenniumEnabled = config.my.steam.millennium;
+
     millennium = inputs.millennium.packages.${pkgs.stdenv.hostPlatform.system}.millennium;
 
     # Millennium is a CSS/JS injector for the Steam client — it is what makes
@@ -311,6 +327,37 @@ in {
 
       extraEnv = {
         MILLENNIUM_RUNTIME_PATH = "${millennium}/lib/libmillennium_x86.so";
+
+        # 🎮 Don't adopt Wolf's virtual DualSense. Belt-and-braces for the
+        # stuck-pad bleed diagnosed 2026-10-03 — full writeup in the
+        # "ORPHANED-SESSION REAPER" comment in Modules/wolf.nix.
+        #
+        # Wolf creates its virtual pads in its container, but they appear as
+        # REAL devices in the host kernel. Wolf's udev rules park them on a
+        # phantom seat9, which hides them from niri — but NOT from Steam, which
+        # scans /dev/input and /dev/hidraw* directly instead of asking logind.
+        # So desktop Steam picks up a streaming session's pad as its own
+        # Controller 0 (its log: "Controller using HIDAPI driver, vid=0x054c,
+        # pid=0x0ce6" with nothing physically attached), and if that pad was
+        # left mid-chord by Moonlight's L1+R1+Select+Start quit shortcut, the
+        # held buttons propagate into whatever is running on the desktop.
+        #
+        # 0x054c/0x0ce6 is Sony's DualSense. ⚠️ This is a VID/PID match, so it
+        # ignores a GENUINE DualSense plugged into Sisyphus too — accepted
+        # because the real pad lives on Eclipse (couch/TV box) and reaches
+        # games through the stream, never through desktop Steam. If you ever
+        # want to use a DualSense directly at the desk, remove this line and
+        # rely on the reaper alone.
+        #
+        # ⚠️ UNVERIFIED as of 2026-10-03: this is the documented SDL ignore
+        # list and games inherit it, but whether Steam's bundled SDL honours it
+        # for Steam's OWN controller enumeration (the HIDAPI path above) has
+        # not been confirmed live. To check: start a Wolf session, then start
+        # desktop Steam, and confirm no new `vid=0x054c` line appears in
+        # ~/.local/share/Steam/logs/controller.txt. The reaper in
+        # Modules/wolf.nix is the fix that addresses the actual bug; this only
+        # narrows the window.
+        SDL_GAMECONTROLLER_IGNORE_DEVICES = "0x054c/0x0ce6";
       };
 
       # Re-linked on every launch rather than by an activation script, because
@@ -319,11 +366,20 @@ in {
       # is the "unavoidable imperative state" case from CLAUDE.md — it just
       # happens to self-heal.
       extraProfile = ''
+        # mkdir -p FIRST. On a machine where Steam has never run these directories
+        # do not exist yet, `ln -sf` fails with "No such file or directory", and
+        # because extraProfile runs in the launch wrapper that failure aborts the
+        # launch — Steam simply never starts, with no window and no obvious error.
+        # Hit on Kit-Kat's fresh install; invisible on a machine where Steam has
+        # run before, which is why it survived this long.
+        mkdir -p "$HOME/.local/share/Steam/ubuntu12_32" "$HOME/.local/share/Steam/ubuntu12_64"
         ln -sf ${millennium}/lib/libmillennium_bootstrap_x86.so "$HOME/.local/share/Steam/ubuntu12_32/libXtst.so.6"
         ln -sf ${millennium}/lib/libmillennium_bootstrap_hhx64.so "$HOME/.local/share/Steam/ubuntu12_64/libXtst.so.6"
       '';
     };
   in {
+    imports = [ steamOptions ];
+
     programs.steam = {
       enable = true;
       gamescopeSession.enable = true;
@@ -336,7 +392,10 @@ in {
         mangohud
       ];
 
-      package = steamPackage;
+      # Plain upstream Steam when Millennium is off — steamPackage is the
+      # millennium-wrapped build (extra openssl ABIs, MILLENNIUM_RUNTIME_PATH, the
+      # libXtst relink on every launch).
+      package = if millenniumEnabled then steamPackage else pkgs.steam;
     };
 
     programs.gamemode.enable = true;
@@ -404,7 +463,7 @@ in {
       themes = {
         "SpaceTheme" = spaceTheme;
         "Zehn" = zehn;
-        "dots-glass" = "${self}/Resources/Steam-Glass-Theme";
+        "dots-glass" = ../Resources/Steam-Glass-Theme;
       };
       activeTheme = "SpaceTheme";
 
@@ -475,7 +534,10 @@ in {
         chmod -R u+w "${themesRoot}/${name}"
       '';
     in {
-      home.activation.steamMillenniumThemes = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      # Skipped entirely when Millennium is off — it installs themes into
+      # ~/.steam/.../millennium/themes and patches Millennium's own settings JSON,
+      # none of which exists on a plain-Steam host.
+      home.activation.steamMillenniumThemes = lib.mkIf millenniumEnabled (lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         # quick.css cannot be a home-manager symlink: matugen rewrites this exact
         # path on every wallpaper change and store symlinks are read-only. Seed it
         # as a plain writable file, using btop's refresh rule — write the seed only
@@ -515,7 +577,7 @@ in {
           .plugins = (.plugins // {}) |
           .plugins.enabledPlugins = (((.plugins.enabledPlugins // []) + ["${pluginName}"]) | unique)
         ' "${configFile}" > "${configFile}.tmp" && mv "${configFile}.tmp" "${configFile}"
-      '';
+      '');
     };
   };
 }

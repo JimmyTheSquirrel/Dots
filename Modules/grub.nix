@@ -52,8 +52,11 @@ ENTRY
       }
 
       generate_entry "sisyphus" "Sisyphus (Niri)"
-      generate_entry "elektra" "Elektra (KDE Plasma 6)"
-      generate_entry "odysseus" "Odysseus (Hyprland)"
+      # Elektra is gone: that profile was repurposed into Hosts/Kit-Kat, which is
+      # separate hardware with its own systemd-boot. Emitting an entry here would
+      # advertise a profile nothing builds any more.
+      # Odysseus removed 2026-10-03 — no longer used. Sisyphus is the only local
+      # boot profile now; Kit-Kat is separate hardware with its own GRUB.
 
       echo '}' >> "$OUTPUT_FILE"
     '';

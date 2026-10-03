@@ -1,0 +1,82 @@
+# GRUB with the CelesteGRUB theme — Kit-Kat only.
+#
+# Deliberately separate from Modules/grub.nix, which is the multi-profile
+# bootloader for THIS machine: it hardcodes Sisyphus's rootFsUuid and generates a
+# "System Select" submenu from /nix/var/nix/profiles/system-profiles/*. Her
+# machine is single-boot, so none of that applies and importing it would emit menu
+# entries for profiles that do not exist on her disk.
+#
+# Theme: https://github.com/suilven641/CelesteGRUB (catalogued by
+# jacksaur/Gorgeous-GRUB, which is an index rather than the source).
+#
+# Upstream ships one tarball per resolution rather than a scalable theme, so the
+# 1080p build is pinned here to match her two 1920x1080 panels — read off the
+# machine over SSH while it was booted from the Apollo stick. On a different
+# resolution the layout is simply mispositioned, not broken; swap the file name
+# and the hash below.
+{ ... }: {
+  flake.nixosModules.grub-celeste = { pkgs, lib, ... }: let
+    celesteTheme = pkgs.stdenvNoCC.mkDerivation {
+      pname = "celeste-grub-theme";
+      version = "1080p-2025-07-29";
+
+      src = pkgs.fetchurl {
+        url = "https://raw.githubusercontent.com/suilven641/CelesteGRUB/7c8de0e6fa3a1f3d7ecef7bf0239dcbb033f5d02/CelesteGRUB1080p.tar.gz";
+        hash = "sha256-cGRsPyljXCZReNi62u+XozmFvBwliZNBpag8ri58ajI=";
+      };
+
+      # Pinned to a commit rather than a branch: this repo is a handful of release
+      # tarballs with no tags, so `main` moving would silently change the theme and
+      # break the hash on the next `nix flake update`-adjacent rebuild.
+
+      dontConfigure = true;
+      dontBuild = true;
+
+      installPhase = ''
+        runHook preInstall
+        # unpackPhase already cd'd into the tarball's single top-level directory
+        # (sourceRoot = CelesteGRUB1080p), so copy the CONTENTS of cwd, not a
+        # directory of that name — `cp -r CelesteGRUB1080p` fails with
+        # "No such file or directory" from inside it.
+        mkdir -p $out/share/grub/themes/CelesteGRUB
+        cp -r . $out/share/grub/themes/CelesteGRUB/
+        runHook postInstall
+      '';
+
+      meta = {
+        description = "Celeste-themed GRUB background and menu";
+        homepage = "https://github.com/suilven641/CelesteGRUB";
+        license = lib.licenses.gpl3Only;
+      };
+    };
+  in {
+    boot.loader = {
+      # Modules/Desktops/niri.nix does not touch the bootloader, but the host
+      # default is systemd-boot — turn it off explicitly so the two cannot both
+      # claim the ESP.
+      systemd-boot.enable = lib.mkForce false;
+
+      efi.canTouchEfiVariables = true;
+      efi.efiSysMountPoint = "/boot";
+
+      grub = {
+        enable = true;
+        efiSupport = true;
+        device = "nodev";
+        useOSProber = true;
+        configurationLimit = 10;
+
+        theme = "${celesteTheme}/share/grub/themes/CelesteGRUB";
+
+        # The theme is drawn at a fixed 1080p. Without pinning the mode GRUB often
+        # picks whatever EFI hands it (commonly 800x600 or 1024x768) and the
+        # background is cropped or letterboxed with the menu off-centre.
+        gfxmodeEfi = "1920x1080";
+        gfxmodeBios = "1920x1080";
+      };
+    };
+
+    # os-prober needs to be on PATH for `useOSProber` to find other installs.
+    environment.systemPackages = [ pkgs.os-prober ];
+  };
+}

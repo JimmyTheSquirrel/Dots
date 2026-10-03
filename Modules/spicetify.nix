@@ -1,5 +1,44 @@
-{ inputs, ... }: {
-  flake.nixosModules.spicetify = { pkgs, activeUser, ... }:
+{ inputs, ... }:
+let
+  spicetifyOptions = { lib, ... }: {
+    options.my.spicetify.theme = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "sleek";
+      description = ''
+        Name of an upstream `spicetify-nix` theme to use instead of the local
+        Text theme in `Resources/Spicetify-Text-Theme`.
+
+        `null` (the default) keeps the Text theme *and* the whole matugen live
+        colour pipeline: the `spicetify` / `spicetify-live` skwd integrations,
+        the `matugen-colors.js` extension and the `spotify-apply-colors` CDP
+        script. Setting a name here drops all four, because they exist only to
+        repaint the Text theme from the current wallpaper and would write into
+        `Themes/text/` — a directory that no longer exists.
+
+        Valid names are the attribute names of
+        `spicetify-nix.legacyPackages.<system>.themes` (sleek, dribbblish,
+        catppuccin, comfy, text, …).
+      '';
+    };
+
+    options.my.spicetify.colorScheme = lib.mkOption {
+      type = lib.types.str;
+      default = "Matugen";
+      example = "Coral";
+      description = ''
+        Colour scheme within the chosen theme — a section name from that
+        theme's `color.ini`, matched case-sensitively.
+
+        "Matugen" is the scheme the local Text theme carries and the one the
+        wallpaper pipeline rewrites, so it only makes sense alongside
+        `my.spicetify.theme = null`. Sleek ships 19, including Coral, Cherry,
+        Nord, Dracula and TokyoNight.
+      '';
+    };
+  };
+in {
+  flake.nixosModules.spicetify = { pkgs, lib, activeUser, ... }:
   let
     spicePkgs = inputs.spicetify-nix.legacyPackages.${pkgs.stdenv.hostPlatform.system};
 
@@ -32,13 +71,26 @@
       '';
     };
   in {
-    home-manager.users.${activeUser} = { config, ... }: {
+    imports = [ spicetifyOptions ];
+
+    home-manager.users.${activeUser} = { config, osConfig, ... }:
+    let
+      upstreamTheme = osConfig.my.spicetify.theme;
+      # The matugen pipeline is all-or-nothing and is tied to the Text theme —
+      # see the option description in this file.
+      useMatugen = upstreamTheme == null;
+    in {
       imports = [ inputs.spicetify-nix.homeManagerModules.default ];
 
       programs.spicetify = {
         enable = true;
 
-        theme = {
+        # An upstream theme is taken wholesale — no injectCss/additionalCss
+        # layering. The CSS below is written against the Text theme's variables
+        # and its transparency assumptions, so grafting it onto Sleek would
+        # fight the theme rather than tune it.
+        theme =
+          if !useMatugen then spicePkgs.themes.${upstreamTheme} else {
           name = "text";
           src = ../Resources/Spicetify-Text-Theme;
           appendName = false;
@@ -47,7 +99,27 @@
           overwriteAssets = false;
           sidebarConfig = false;
           additionalCss = ''
-            /* Transparent background for compositor transparency */
+            /* Transparent background for compositor transparency.
+
+               Spotify's see-through look comes ENTIRELY from the niri window-rule
+               (opacity 0.85 on ^spotify$ in Modules/Desktops/niri.nix). Do NOT try to
+               do it in CSS with an alpha background here — it cannot work, for the same
+               reason Steam's Millennium theme can't: Spotify is CEF and its window
+               surface has no alpha channel, so anything translucent composites against
+               opaque black, not against the wallpaper.
+
+               Measured 2026-09-16 over CDP: with `html, body { background: transparent }`
+               forced, the window still rendered solid black; adding CEF's
+               --enable-transparent-visuals flag changed nothing. A previous attempt
+               here painted `html body` at 55% via color-mix and produced exactly that
+               — a fully black backdrop, since `html` still paints an opaque
+               --spice-main underneath it.
+
+               So: every container below is transparent, `html` paints one flat opaque
+               --spice-main, and niri fades the composited result. The cost is that
+               niri's opacity is uniform — it fades text too — which is why the value
+               is 0.85 and not the bar's 0.55. noctalia's bar fades background only
+               (bar.main background_opacity); a CEF window cannot do that. */
             body,
             .Root,
             .Root__top-container,
@@ -140,7 +212,18 @@
               opacity: 1 !important;
             }
 
-            /* Neutral dark background — remove matugen surface color tint */
+            /* Neutral dark backdrop — deliberately does NOT follow the palette.
+               Without this pin, --spice-main resolves to matugen's `surface` role
+               (skwd template `{{colors.surface.default.hex}}`, Modules/Skwd.nix),
+               which is still near-black but carries the wallpaper's hue — observed
+               #161306 and #15130c. Pinned by choice 2026-09-16: the backdrop stays
+               identical on every wallpaper and is immune to a light-mode flip.
+               Accents, text and borders still follow matugen; only this flat
+               backdrop is frozen.
+
+               This wins over the CDP colour injection because the injection sets
+               --spice-main as a normal inline property, and an !important
+               stylesheet declaration outranks normal inline. */
             :root {
               --spice-main: #0d0d0d !important;
               --spice-rgb-main: 13, 13, 13 !important;
@@ -167,13 +250,14 @@
           '';
         };
 
-        colorScheme = "Matugen";
+        colorScheme = osConfig.my.spicetify.colorScheme;
 
         enabledExtensions = with spicePkgs.extensions; [
           adblock
           shuffle
-          { src = matugenExt; name = "matugen-colors.js"; }
-        ];
+        ]
+        ++ lib.optional useMatugen { src = matugenExt; name = "matugen-colors.js"; };
+
 
         enabledCustomApps = with spicePkgs.apps; [
           marketplace
@@ -183,7 +267,9 @@
       # spotify-apply-colors: injects current matugen colors into the running Spotify via CDP.
       # Spotify must be launched with --remote-debugging-port=9222 (see niri.nix).
       # Called by skwd-wall's spicetify-live integration reload command on wallpaper change.
-      home.packages = [
+      # Only built on the matugen path — nothing calls it otherwise, and skwd
+      # no longer seeds the integration that would.
+      home.packages = lib.optionals useMatugen [
         pkgs.websocat
         (pkgs.writeShellScriptBin "spotify-apply-colors" ''
           COLORS_FILE="$HOME/.config/spicetify/matugen-colors.json"

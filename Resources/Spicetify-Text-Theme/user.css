@@ -286,10 +286,19 @@ div[class*="minBlockSize_56px-padding_8px"] {
   background-color: transparent !important;
   background-image: none;
 }
+/* Elapsed / remaining timestamps.
+   NOT --spice-button-active: that maps to `accent-active`, which under a
+   Material palette is a dark *container* colour (#004a78 on the blue scheme),
+   so the numbers rendered near-black against the panel while every other label
+   used --spice-text. It only looked correct on the hand-tuned Orange/Blue
+   schemes, where accent-active happens to be light.
+   --spice-text is also the right source for the `difference` blend below: it
+   stays bright over the dark panel and inverts to dark where the filled seek
+   bar passes under it, which is the readability the blend mode exists for. */
 .playback-bar__progress-time-elapsed,
 .main-playbackBarRemainingTime-container {
   mix-blend-mode: difference;
-  color: var(--spice-button-active);
+  color: var(--spice-text);
 }
 .main-trackList-placeholder {
   background-color: var(--background-base);

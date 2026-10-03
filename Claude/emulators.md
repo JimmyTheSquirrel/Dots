@@ -1,11 +1,12 @@
 # Emulators — RPCS3 & Ryubing
 
-**Module:** `Modules/rpcs3.nix` (all three systems)
+**Module:** `Modules/rpcs3.nix` — **Sisyphus only.** (An earlier revision of this doc said "all three systems"; only `Hosts/Sisyphus/system.nix` imports it.)
 
 ## Installed Emulators
 
 - **`rpcs3`** — PS3 emulator (SSX 2012 and other PS3 games)
-- **`ryubing`** — Nintendo Switch emulator (community Ryujinx fork; official Ryujinx was shut down Oct 2024)
+- **`ryubing`** — Nintendo Switch emulator (community Ryujinx fork; official Ryujinx was shut down Oct 2024). nixpkgs stable and unstable are both on 1.3.3.
+  ⚠️ **The binaries are `Ryujinx`, `ryujinx` and `Ryujinx.sh` — there is no `ryubing` executable.** `rpcs3.nix` used to declare a desktop entry with `exec = "ryubing %f"` that could never have launched; the package ships its own `Ryujinx.desktop`.
 
 ## RPCS3 Config
 
