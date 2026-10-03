@@ -1,6 +1,6 @@
 # Home Assistant (Asgard)
 
-**Module:** `Modules/home-assistant.nix` (standalone — deliberately **not** in `server.nix`)
+**Module:** `Modules/Server/home-assistant.nix` (standalone — deliberately **not** in `server.nix`)
 **Host:** Asgard only. **Port:** 8123, tailnet-only (`http://asgard:8123`)
 **Version:** home-assistant 2026.5.4 (nixpkgs), deployed 2026-09-16
 **State dir:** `/var/lib/hass`
@@ -11,7 +11,7 @@ different thing.
 
 ## Why it isn't in `server.nix`
 
-Asgard's `Modules/server.nix` carries hundreds of lines of uncommitted local work and is
+Asgard's `Modules/Server/server.nix` carries hundreds of lines of uncommitted local work and is
 **materially divergent** from the Sisyphus copy — see `memory/asgard-clone-diverged.md`. A
 standalone module avoids ever having to patch that file.
 
@@ -64,7 +64,7 @@ Brand matters: if the plugs are Tuya-based, expect the vendor-app + cloud-creden
 Asgard builds from **its own clone** at `~/Dots` on `main`. Never push/pull — patch across:
 
 ```bash
-git diff Modules/home-assistant.nix > /tmp/x.patch
+git diff Modules/Server/home-assistant.nix > /tmp/x.patch
 cat /tmp/x.patch | ssh asgard 'cat > /tmp/x.patch'
 ssh asgard 'cd ~/Dots && git apply --check /tmp/x.patch'   # always --check first
 ssh asgard 'cd ~/Dots && git apply /tmp/x.patch'
@@ -87,7 +87,7 @@ the owner account there; it is **not** declarable.
 
 ## Glance
 
-Added to `Modules/server.nix` **on Asgard directly** (backup: `server.nix.bak-ha-20260916-1949`),
+Added to `Modules/Server/server.nix` **on Asgard directly** (backup: `server.nix.bak-ha-20260916-1949`),
 in **both** the `All` and `Management` monitor groups. That config has **no bookmarks column by
 design** — a comment near line 322 says new services go in the *monitors*, because monitor rows
 are already clickable and a sidebar made the page scroll.
@@ -124,7 +124,7 @@ the Jinja template Glance runs.
 **Rule of thumb:** if a projection must use a cumulative counter, sanity-check it
 against `W * 0.024` and distrust it when they diverge.
 
-Tunables live in the `let` block of `Modules/server.nix`: `powerRate` (0.3041 $/kWh,
+Tunables live in the `let` block of `Modules/Server/server.nix`: `powerRate` (0.3041 $/kWh,
 the GloBird *balance* rate), `powerRefW` (150 W draw-bar ceiling),
 `powerSupplyDaily`.
 

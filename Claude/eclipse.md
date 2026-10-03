@@ -84,7 +84,7 @@ Asgard serves a button panel at **`http://asgard:9554`**, embedded as an iframe 
 confirm). A status row polls every 10s — Eclipse reachable, Kodi state, HDMI link, active output
 mode, uptime. `/status` also returns `edid` and `needs_kodi_restart`.
 
-- Service: `systemd.services.eclipse-control` in `Modules/server.nix`
+- Service: `systemd.services.eclipse-control` in `Modules/Server/server.nix`
 - Implementation: `Resources/Eclipse-Control/eclipse-control.py`
 - Auth: dedicated keypair, private half in sops as `eclipse-ssh-key`, public half appended to
   Eclipse's `/storage/.ssh/authorized_keys` (backup at `authorized_keys.bak`)
@@ -106,7 +106,7 @@ cannot be borrowed cross-origin. The service therefore serves its own copy from
 Without this the panel silently falls back to the device's mono font and reads subtly foreign,
 especially on a phone.
 
-Design tokens are lifted from the custom CSS in `Modules/server.nix`, not eyeballed — border
+Design tokens are lifted from the custom CSS in `Modules/Server/server.nix`, not eyeballed — border
 `hsla(160,40%,40%,.15)`, radius `12px`, hover glow `hsla(160,50%,40%,.10)`, title letter-spacing
 `0.08em`. Theme accents are `positive-color hsl(142,72%,39%)` / `negative-color hsl(0,84%,60%)`.
 
@@ -446,7 +446,7 @@ tc auto-computed one from the rate — **~1600 bytes, one packet**. `tc -s class
 read-ahead (filecache `readfactor` 20x, see *Cache* above) bursts far past one packet on every read,
 so the shaper itself was throttling every burst, not just capping the long-run average. Fixed by
 giving class `1:20` an explicit `burst 300k cburst 300k` (~80ms at 30 Mbit) — see the comment in
-`Modules/server.nix` next to `wan-egress-shaping`. Confirmed live: overlimits went from thousands
+`Modules/Server/server.nix` next to `wan-egress-shaping`. Confirmed live: overlimits went from thousands
 per 15s to near-zero.
 
 **This alone didn't fully fix it either.** Live Kodi telemetry (`Player.GetProperties` →

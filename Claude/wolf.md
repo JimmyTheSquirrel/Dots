@@ -1,11 +1,11 @@
 # Wolf — multi-session Moonlight server (games-on-whales)
 
 **Status: working end-to-end as of 2026-09-28.** Sisyphus hosts, Eclipse streams.
-Module: `Modules/wolf.nix`. Trial standing *alongside* Sunshine, not a migration.
+Module: `Modules/Gaming/wolf.nix`. Trial standing *alongside* Sunshine, not a migration.
 
 > ⚠️ **Wolf and Sunshine cannot run together** — identical Moonlight ports.
 > Wolf is now `autoStart = true` (changed 2026-09-28; this doc said `false` until
-> 2026-10-03). That is only safe because `Modules/sunshine.nix` has
+> 2026-10-03). That is only safe because `Modules/Gaming/sunshine.nix` has
 > `autoStart = false` — a matched pair, never set both true.
 > **Sunshine is a USER unit:** `systemctl --user stop sunshine` (NOT `sudo systemctl`).
 >
@@ -40,7 +40,7 @@ exist, the udev ones never arrive. **Steam is immune because it also scans
 `/dev/input` directly**, which is exactly what makes the symptom so misleading.
 Upstream: [wolf#81](https://github.com/games-on-whales/wolf/issues/81).
 
-**Fix** (`WOLF_DOCKER_FAKE_UDEV_PATH = ""` lives in `Modules/wolf.nix`):
+**Fix** (`WOLF_DOCKER_FAKE_UDEV_PATH = ""` lives in `Modules/Gaming/wolf.nix`):
 
 ```nix
 WOLF_DOCKER_FAKE_UDEV_PATH = "";   # image defaults it to /etc/wolf/fake-udev
@@ -147,7 +147,7 @@ write to the evdev node is accepted and changes nothing. Tried on `event256`
 2026-10-03 — `EVIOCGKEY` read back the same four codes. (It *did* clear the
 derived `event259`.) **A stuck virtual pad has to be destroyed, not released.**
 
-### Fix — `wolf-stuck-pad-reaper` in `Modules/wolf.nix`
+### Fix — `wolf-stuck-pad-reaper` in `Modules/Gaming/wolf.nix`
 
 Detects the harm directly: a `Wolf * virtual *` device that reports held buttons
 via `EVIOCGKEY` **and** emits nothing for a full 60 s window. Both halves matter —
@@ -163,7 +163,7 @@ failures at all** (median 3/min, p90 13) — and a *healthy* stream also hits 3-
 a minute. The spam is bursty, not sustained; no count-per-window threshold
 separates them. This was built that way first and had to be rewritten.
 
-Second, narrower guard in `Modules/steam.nix`:
+Second, narrower guard in `Modules/Gaming/steam.nix`:
 `SDL_GAMECONTROLLER_IGNORE_DEVICES = "0x054c/0x0ce6"` on the host Steam package,
 so desktop Steam won't adopt a virtual DualSense even while one is live. Verified
 present and auto-exported (`set -a`) in the built FHS profile, beside the
@@ -518,7 +518,7 @@ means the encoder is starved of frames, not that the network is struggling.
 Packet loss was **zero throughout** the choppy period, so more bandwidth would
 have achieved nothing. **Check `pp_dpm_sclk` before touching bitrate.**
 
-Automated by `systemd.services.wolf-gpu-perf` in `Modules/wolf.nix`: sets `high`
+Automated by `systemd.services.wolf-gpu-perf` in `Modules/Gaming/wolf.nix`: sets `high`
 while a `Wolf<App>_<uuid>` container runs, reverts to `auto` otherwise (the menu
 container `Wolf-UI_<uuid>` has a hyphen and deliberately doesn't match). Verified
 in the journal: `GPU perf level: high -> auto`. Scoped to sessions because

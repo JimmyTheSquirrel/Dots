@@ -24,7 +24,7 @@
 
     # --- SKWD Wallpaper Selector (v2 — Rust; Sisyphus, Kit-Kat) ---
     # Upstream's official NixOS support. Ships prebuilt release binaries plus
-    # nixosModules.default; consumed by Modules/Skwd.nix.
+    # nixosModules.default; consumed by Modules/Desktop/skwd.nix.
     #
     # Deliberately no `inputs.nixpkgs.follows`: the binaries are autoPatchelf'd
     # against upstream's pinned nixpkgs, and matching it is what makes our

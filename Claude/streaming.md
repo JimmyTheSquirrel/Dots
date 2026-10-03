@@ -5,8 +5,8 @@
 Sisyphus runs **Sunshine** as a game streaming host, accessible remotely via **Tailscale**, streamed to Android phone or TV (via Eclipse Pi) using **Moonlight**.
 
 **Modules (Sisyphus only):**
-- `Modules/sunshine.nix` — Sunshine user service
-- `Modules/tailscale.nix` — Tailscale VPN. **Enable only; no auth key.** The module is 15 lines of `services.tailscale.enable` + firewall. Joining is `sudo tailscale up` by hand, except on the Apollo installer ISO and the marsbar node, which read a key from elsewhere.
+- `Modules/Gaming/sunshine.nix` — Sunshine user service
+- `Modules/Core/tailscale.nix` — Tailscale VPN. **Enable only; no auth key.** The module is 15 lines of `services.tailscale.enable` + firewall. Joining is `sudo tailscale up` by hand, except on the Apollo installer ISO and the marsbar node, which read a key from elsewhere.
 
 `moonlight-qt` is in `base.nix` and available on all three systems.
 
@@ -57,7 +57,7 @@ Hwaccel V4L2 HEVC stateless V4; devices: /dev/media0,/dev/video19; buffers: src 
 > only value which truly forces H.264.
 
 **`hevc_mode = 0` does NOT mean "off" — it means auto** (advertise whatever the encoder supports).
-This was wrong in this doc and in `Modules/sunshine.nix` until 2026-08-08. It went unnoticed for
+This was wrong in this doc and in `Modules/Gaming/sunshine.nix` until 2026-08-08. It went unnoticed for
 months because the Android client never requested HEVC; the Pi 5 *does* request it.
 
 - **Not `3` (Main10):** Eclipse cannot output HDR at all, so 10-bit only adds decode cost.
@@ -75,7 +75,7 @@ the earlier ones are probes and will happily report the right monitor while the 
 **Sunshine captures a fixed monitor — it does NOT move the game there.** `output_name` grabs
 HDMI-A-1, so a game only appears on the stream if it actually opens on HDMI-A-1. Games default to the
 primary (DP-2 ultrawide), which would stream the wrong (empty) monitor. Cult of the Lamb has no
-in-game monitor picker, so it's pinned with a **niri window rule** (`Modules/Desktops/niri.nix`,
+in-game monitor picker, so it's pinned with a **niri window rule** (`Modules/Desktop/niri.nix`,
 alongside the Spotify one):
 ```kdl
 window-rule {
@@ -125,13 +125,13 @@ noctalia msg caffeine-enable     # ... caffeine-disable when done
 A cleaner fix, if this becomes a nuisance, is Sunshine's own `global_prep_cmd`
 (do/undo at stream start/end) calling `caffeine-enable` / `caffeine-disable` —
 not wired up, because `sunshine.conf` is web-UI-owned here and only three keys
-are sed-enforced by `Modules/sunshine.nix`.
+are sed-enforced by `Modules/Gaming/sunshine.nix`.
 
 ## Tailscale
 
 - Stock Tailscale (no Headscale)
 - Sisyphus IP: `100.70.29.3`, Asgard IP: `100.126.205.100` (verify current with `tailscale ip`)
-- Auth on this host is handled **interactively** (`sudo tailscale up`). A `tailscale-auth-key` DOES exist in sops, but `Modules/tailscale.nix` does not read it — its only consumer is the second tailscaled on Asgard (`Modules/marsbar.nix`). The Apollo installer uses a separate `tailscale-installer-key` delivered on the USB stick, not from sops at runtime — see `Claude/deploy.md`.
+- Auth on this host is handled **interactively** (`sudo tailscale up`). A `tailscale-auth-key` DOES exist in sops, but `Modules/Core/tailscale.nix` does not read it — its only consumer is the second tailscaled on Asgard (`Modules/Server/marsbar.nix`). The Apollo installer uses a separate `tailscale-installer-key` delivered on the USB stick, not from sops at runtime — see `Claude/deploy.md`.
 
 ## Moonlight Setup (Android)
 

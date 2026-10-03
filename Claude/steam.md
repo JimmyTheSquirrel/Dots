@@ -1,6 +1,6 @@
 # Steam Theming (Millennium)
 
-**Module:** `Modules/steam.nix`
+**Module:** `Modules/Gaming/steam.nix`
 **Theme source:** `Resources/Steam-Glass-Theme/`
 **Flake input:** `github:SteamClientHomebrew/Millennium?dir=packages/nix`
 **Used on:** All three desktops (Millennium); the glass effect itself is Niri-only
@@ -37,7 +37,7 @@ Millennium is a CSS/JS injector for the Steam client. It hooks Steam by
 **replacing `libXtst.so.6`**: the bootstrap `.so` re-exports the real libXtst
 symbols and spawns Millennium alongside Steam.
 
-`Modules/steam.nix` does this via three `steam.override` knobs:
+`Modules/Gaming/steam.nix` does this via three `steam.override` knobs:
 
 - `extraLibraries` — Millennium + both openssl ABIs, **merged with** the existing
   `libpulseaudio`/`pipewire` audio fix (see below — don't drop it)
@@ -122,7 +122,7 @@ off XDG. Easy to get wrong.
 
 ## Themes
 
-Three are installed; `activeTheme` in `Modules/steam.nix` picks which renders.
+Three are installed; `activeTheme` in `Modules/Gaming/steam.nix` picks which renders.
 
 | Theme | Source | Role |
 |-------|--------|------|
@@ -140,7 +140,7 @@ is harmless, so switching themes keeps the matugen colours either way.
 
 ### Theme options are forced per theme
 
-`conditionsForced` in `Modules/steam.nix` is keyed by theme name, because each
+`conditionsForced` in `Modules/Gaming/steam.nix` is keyed by theme name, because each
 theme names its options differently — a setting forced for Zehn does nothing
 under SpaceTheme. Currently forced:
 
@@ -293,7 +293,7 @@ The parsed values are cached into `config.json` under
 
 ## Quick CSS — the local-tweak layer
 
-`~/.config/millennium/quick.css`, **managed by Nix** (`Modules/steam.nix`,
+`~/.config/millennium/quick.css`, **managed by Nix** (`Modules/Gaming/steam.nix`,
 via `xdg.configFile`). Millennium injects it into every Steam document on top of
 whatever theme is active.
 
@@ -377,7 +377,7 @@ Steam start, so every iteration needs a full restart.
 Steam follows the wallpaper like btop, noctalia and Spotify. The whole surface is
 **one accent triplet** — Zehn derives ~30 shades from it.
 
-`Modules/steam.nix` uses the same two-instantiation trick as `Modules/btop.nix`,
+`Modules/Gaming/steam.nix` uses the same two-instantiation trick as `Modules/Shell/btop.nix`,
 so the seed and the template can't drift:
 
 | | |
@@ -445,7 +445,7 @@ delete `~/.config/millennium/quick.css` and rebuild.
 
 ## Live reload (working)
 
-`Modules/steam.nix` installs a tiny Millennium plugin, `quickcss-watcher`, whose
+`Modules/Gaming/steam.nix` installs a tiny Millennium plugin, `quickcss-watcher`, whose
 only job is to call `Core_WatchQuickCss` at startup. That registers Millennium's
 file watcher on `quick.css`; on change it runs `UpdateStylesLive`, which walks
 every open Steam window and swaps the stylesheet contents in place. Wallpaper
@@ -524,7 +524,7 @@ modular SCSS + JS tweaks for exactly this area, good source of working selectors
 
 ### flake.lib needed declaring
 
-`Modules/flake-lib.nix` declares `flake.lib` as `lazyAttrsOf raw`. flake-parts
+`Modules/Core/flake-lib.nix` declares `flake.lib` as `lazyAttrsOf raw`. flake-parts
 leaves undeclared flake outputs as `types.raw`, which refuses to merge, so
 `steam.nix` exporting `flake.lib.steam` alongside `btop.nix`'s `flake.lib.btop`
 failed eval with *"Define the value only once"*. Any future module exporting
@@ -542,14 +542,14 @@ sudo nixos-rebuild switch -p Sisyphus --flake .#rock-Sisyphus --option eval-cach
 
 ## TRAP: the hiPrio `steam` wrapper in niri.nix
 
-`Modules/Desktops/niri.nix` puts a `lib.hiPrio (writeShellScriptBin "steam" …)`
+`Modules/Desktop/niri.nix` puts a `lib.hiPrio (writeShellScriptBin "steam" …)`
 in `environment.systemPackages` to add `-no-cef-sandbox`. Because it is hiPrio it
 **wins the `steam` name in the system path**, and the Steam `.desktop` override
 in the same file routes through `steam-open` → `steam`, so *every* launch goes
 through it.
 
 It must wrap **`config.programs.steam.package`**, never `pkgs.steam`. Wrapping
-bare `pkgs.steam` silently discards everything `Modules/steam.nix` configures.
+bare `pkgs.steam` silently discards everything `Modules/Gaming/steam.nix` configures.
 It did exactly that until 2026-08-10, shadowing both the Millennium injection and
 the libpulseaudio/pipewire audio fix.
 

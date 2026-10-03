@@ -1,6 +1,6 @@
 # MarsBar — partner-facing dashboard
 
-**Module:** `Modules/marsbar.nix` · imported by `Hosts/Asgard/system.nix`
+**Module:** `Modules/Server/marsbar.nix` · imported by `Hosts/Asgard/system.nix`
 **URL:** `http://marsbar:1111/` (tailnet only)
 **Built:** 2026-09-19
 
@@ -98,7 +98,7 @@ first names) can never leak this way — the Android client has no `tailscale ce
 ## Safety
 
 The light list in `marsbar.nix` **must stay a subset of `ALLOWED`** in
-`Modules/home-assistant.nix`. That set — not this UI — is what stops
+`Modules/Server/home-assistant.nix`. That set — not this UI — is what stops
 `switch.server_power_switch` and `switch.eclipse_switch` being toggled. Verified
 through the proxy: `POST /ha/toggle/switch.server_power_switch` → **403
 `not toggleable`**, relay left `on`.

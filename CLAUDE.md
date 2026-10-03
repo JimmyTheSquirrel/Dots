@@ -50,7 +50,7 @@ system-rebuild kitkat Kit-Kat         # Push to her machine over the tailnet
 nix flake update                      # Update flake inputs
 ```
 
-Helper is a `writeShellScriptBin` in `Modules/navi.nix` (single source of truth — works in interactive shells, navi, and scripts alike). Uses named profiles (`-p ${system}`) at `/nix/var/nix/profiles/system-profiles/`.
+Helper is a `writeShellScriptBin` in `Modules/Shell/navi.nix` (single source of truth — works in interactive shells, navi, and scripts alike). Uses named profiles (`-p ${system}`) at `/nix/var/nix/profiles/system-profiles/`.
 
 ## Directory Structure
 
@@ -119,10 +119,10 @@ hardware on the tailnet, pushed to with `--target-host`.
 | **Odysseus** | Hyprland | `Hosts/Odysseus/system.nix` | this disk | hyprland, noctalia, skwd-wall (v1), spicetify |
 | **Kit-Kat** | Hyprland | `Hosts/Kit-Kat/system.nix` | her machine, **NVIDIA** | hyprland, noctalia, skwd (v2), nvidia, grub-celeste, sddm-umbrella, sops-kitkat, disko + facter |
 | **Asgard** | headless | `Hosts/Asgard/system.nix` | server | server, home-assistant, marsbar |
-| **Apollo** | Niri (live) | `Hosts/Rescue/system.nix` | USB stick | the deployer/rescue ISO — `Claude/deploy.md` |
+| **Apollo** | Niri (live) | `Hosts/Apollo/system.nix` | USB stick | the deployer/rescue ISO — `Claude/deploy.md` |
 
 **Elektra is retired.** It was a third KDE boot profile on this disk; that slot
-became Kit-Kat's real machine. `Modules/Desktops/kde.nix` and `Claude/kde.md` are
+became Kit-Kat's real machine. `Modules/Desktop/kde.nix` and `Claude/kde.md` are
 kept for reference but no host imports them.
 
 Shared by Sisyphus + Odysseus: base, grub, polkit, thunar, audio, locale, steam,

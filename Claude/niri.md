@@ -1,6 +1,6 @@
 # Niri — Sisyphus Compositor
 
-**Module:** `Modules/Desktops/niri.nix`
+**Module:** `Modules/Desktop/niri.nix`
 **Pattern:** wrapper-modules with `perSystem`
 **Version:** 26.04 (via niri-flake)
 
@@ -38,7 +38,7 @@ was designed around. See `Claude/steam.md` and `Claude/spicetify.md`.
 `-no-cef-sandbox`) is `lib.hiPrio`, so it wins the `steam` name in the system
 path, and the `.desktop` override routes every launch through it via
 `steam-open`. It wrapped bare `pkgs.steam` until 2026-08-10, which silently
-discarded everything `Modules/steam.nix` configures — Millennium *and* the
+discarded everything `Modules/Gaming/steam.nix` configures — Millennium *and* the
 PipeWire audio fix. `nix eval` looked correct the whole time. See `Claude/steam.md`.
 
 **Hot corners:** disabled via `gestures { hot-corners { off } }` in extraConfig
@@ -186,7 +186,7 @@ build fails with *"is not of type `package`"*.
 
 Niri **does** advertise `zwp_pointer_constraints_v1` and `zwp_relative_pointer_manager_v1` (`nix run nixpkgs#wayland-utils`), so a game that requests pointer lock itself already works. **If the mouse escapes, check the game is in true fullscreen first** — borderless-windowed is the usual cause.
 
-For games that still escape, use **gamescope** — a nested compositor that owns the pointer outright. Already installed via `programs.steam.gamescopeSession` (`Modules/steam.nix`). Set per-game Steam launch options:
+For games that still escape, use **gamescope** — a nested compositor that owns the pointer outright. Already installed via `programs.steam.gamescopeSession` (`Modules/Gaming/steam.nix`). Set per-game Steam launch options:
 
 ```
 gamescope -W 2560 -H 1080 -f --force-grab-cursor -- %command%
@@ -198,7 +198,7 @@ gamescope -W 2560 -H 1080 -f --force-grab-cursor -- %command%
 
 If a monitor ever goes dark unexpectedly, `niri msg outputs` distinguishes the cases: `Disabled` with a full mode list = something turned the output off in software; a missing/empty entry = a real link or hardware fault.
 
-**Keybind definitions: one source of truth — `mkKeybinds` in `Modules/Desktops/niri.nix`.**
+**Keybind definitions: one source of truth — `mkKeybinds` in `Modules/Desktop/niri.nix`.**
 
 Each entry is `{ key; title; category; action; }`. The list is consumed twice:
 
@@ -395,7 +395,7 @@ Startup optimization: D-Bus environment commands run in background so visual ele
 
 **`wallpaper-restore`, swaybg and the `^wallpaper$` layer-rule are all gone.**
 skwd v2 serves the overview backdrop natively from a `skwd-paper-backdrop`
-layer-shell surface, paired with this rule in `Modules/Desktops/niri.nix`:
+layer-shell surface, paired with this rule in `Modules/Desktop/niri.nix`:
 
 ```kdl
 layer-rule {

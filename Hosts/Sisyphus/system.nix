@@ -1,66 +1,14 @@
-{ self, inputs, ... }:
-let
-  activeUser = "rock";
-  hostName = "Sisyphus";
+# Sisyphus — rock's main desktop. AMD, Niri, local GRUB profile "sisyphus".
+# Hardware: ./_hardware.nix.
+{ self, ... }: {
+  flake.nixosConfigurations.rock-Sisyphus = self.lib.mkHost {
+    activeUser = "rock";
+    hostName = "Sisyphus";
+    stateVersion = "25.05";
 
-  # Hardware configuration inline to avoid import-tree issues
-  hardwareConfig = { config, lib, modulesPath, ... }: {
-    imports = [
-      (modulesPath + "/installer/scan/not-detected.nix")
-    ];
-
-    boot.initrd.availableKernelModules = [ "nvme" "xhci_pci" "ahci" "usbhid" "usb_storage" "sd_mod" ];
-    boot.initrd.kernelModules = [ ];
-    boot.kernelModules = [ "kvm-amd" ];
-    boot.extraModulePackages = [ ];
-
-    fileSystems."/" = {
-      device = "/dev/disk/by-uuid/ee6c7638-4daf-4f37-aa05-bd6068c113f1";
-      fsType = "ext4";
-    };
-
-    fileSystems."/boot" = {
-      device = "/dev/disk/by-uuid/21BA-2C3E";
-      fsType = "vfat";
-      options = [ "fmask=0077" "dmask=0077" ];
-    };
-
-    swapDevices = [
-      { device = "/dev/disk/by-uuid/a0478bec-dbd0-4f91-8021-5a6dead6d769"; }
-    ];
-
-    nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
-    hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
-  };
-in {
-  flake.nixosConfigurations."${activeUser}-${hostName}" = inputs.nixpkgs.lib.nixosSystem {
-    system = "x86_64-linux";
-    specialArgs = { inherit inputs activeUser; };
     modules = [
-      # Hardware
-      hardwareConfig
+      ./_hardware.nix
 
-      # Home Manager setup
-      inputs.home-manager.nixosModules.home-manager
-      {
-        home-manager.useGlobalPkgs = true;
-        home-manager.useUserPackages = true;
-        home-manager.backupFileExtension = "backup";
-        home-manager.extraSpecialArgs = {
-          inherit inputs activeUser hostName;
-          pkgs-unstable = import inputs.nixpkgs-unstable {
-            system = "x86_64-linux";
-            config.allowUnfree = true;
-          };
-        };
-        home-manager.users.${activeUser} = {
-          home.username = activeUser;
-          home.homeDirectory = "/home/${activeUser}";
-          home.stateVersion = "25.05";
-        };
-      }
-
-      # All modules (system + home config combined)
       self.nixosModules.base
       self.nixosModules.grub
       self.nixosModules.plymouth
@@ -81,29 +29,17 @@ in {
       self.nixosModules.btop
       self.nixosModules.vscodium
       self.nixosModules.noctalia
-      # skwd-wall v2 (Rust). Elektra and Odysseus are still on nixosModules.skwd-wall
-      # (v1/QuickShell) until the v2 beta settles — see Modules/Skwd.nix.
       self.nixosModules.skwd
       self.nixosModules.navi
       self.nixosModules.spicetify
       self.nixosModules.discord
       self.nixosModules.tailscale
       self.nixosModules.sunshine
-      # Wolf — multi-session Moonlight server, on TRIAL alongside Sunshine.
-      # Does NOT autostart: it binds the same Moonlight ports as Sunshine, so
-      # exactly one of the two may run. See Modules/wolf.nix.
+      # Wolf is the live Moonlight host and autostarts. Sunshine stays installed
+      # with autoStart = false — the two bind the same Moonlight ports, so at most
+      # one may run. See Modules/Gaming/wolf.nix.
       self.nixosModules.wolf
       self.nixosModules.rpcs3
-
-      # System-specific settings
-      {
-        networking.hostName = hostName;
-        system.stateVersion = "25.05";
-
-        # Allow building aarch64 (Pi5) packages and ISOs on this x86_64 machine
-        #boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
-
-      }
     ];
   };
 }

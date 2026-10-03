@@ -1,209 +1,14 @@
-{ self, inputs, ... }:
-let
-  activeUser = "rock";
-  hostName = "Asgard";
+# Asgard — the headless media server. Intel, systemd-boot, disko-managed disks.
+# Hardware: ./_hardware.nix   Disks: ./_disko.nix   Services: Modules/Server/
+{ self, ... }: {
+  flake.nixosConfigurations.rock-Asgard = self.lib.mkHost {
+    activeUser = "rock";
+    hostName = "Asgard";
+    stateVersion = "25.05";
 
-  hardwareConfig = { config, lib, pkgs, modulesPath, ... }: {
-    imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
-
-    boot.initrd.availableKernelModules = [ "nvme" "xhci_pci" "ahci" "usbhid" "usb_storage" "sd_mod" ];
-    boot.initrd.kernelModules = [ ];
-    boot.kernelModules = [ "kvm-intel" ];
-
-    # ── Fan/voltage monitoring — Gigabyte B760M H DDR4, ITE IT8689E at 0xa40 ──────
-    #
-    # Without this the box reports ZERO fans: hwmon shows only temperatures (nvme,
-    # coretemp, gigabyte_wmi, jc42 DIMMs, acpitz) and not one fan*_input or pwm*
-    # entry — not even the CPU fan. Two separate things block it, and BOTH must be
-    # handled or you get a silent no-op:
-    #
-    #   1. The IN-TREE it87 does not support the IT8689E. It fails "No such device"
-    #      even when the resource conflict below is bypassed — verified directly, so
-    #      the ACPI workaround ALONE is not enough. Only the out-of-tree driver works:
-    #        it87: Found IT8689E chip at 0xa40, revision 2
-    #
-    #   2. ACPI claims the chip's I/O region (/proc/ioports: 0a40-0a4f : pnp 00:00),
-    #      so even the working driver is refused with "Device or resource busy".
-    #      `ignore_resource_conflict=1` bypasses it for THIS DRIVER ONLY — deliberately
-    #      preferred over the global acpi_enforce_resources=lax kernel param, which
-    #      relaxes the same protection for every driver on the system and needs a reboot.
-    #
-    # Why insmod-by-path instead of boot.kernelModules: extraModulePackages leaves BOTH
-    # copies in the merged module tree, and depmod registers only the in-tree one —
-    #   modules.dep:  kernel/drivers/hwmon/it87.ko.xz   (in-tree, broken here)
-    #   also present: kernel/drivers/hwmon/it87.ko      (out-of-tree, works)
-    # so `modprobe it87` resolves to the driver that cannot see this chip. insmod takes
-    # an explicit path and bypasses that resolution entirely. Blacklisting keeps anything
-    # else from autoloading the in-tree one first and squatting on the module name
-    # (blacklist affects modprobe only — it does not block the insmod below).
-    #
-    # MONITORING ONLY. BIOS Smart Fan 6 still drives the curves (pwm*_enable=2 = auto).
-    # Do NOT also enable `fancontrol` — two controllers fighting over the same PWM
-    # registers makes the fans oscillate.
-    #
-    # Covers the motherboard headers only. The Jonsbo N5 drive-cage fans hang off the
-    # case backplane on raw 12V from a Molex power port — no PWM wire, no tach wire —
-    # so no driver can ever see or control them. They must be moved onto a SYS_FAN
-    # header (fan3 is free) to be controllable at all.
-    boot.extraModulePackages = [ config.boot.kernelPackages.it87 ];
-    boot.blacklistedKernelModules = [ "it87" ];
-
-    systemd.services.it87 = {
-      description = "Load out-of-tree it87 hwmon driver (ITE IT8689E)";
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStartPre = [
-          # insmod does NOT resolve dependencies (that is modprobe's job), and it87
-          # needs hwmon_vid. Without this the unit dies "Unknown symbol in module" —
-          # but ONLY on a cold boot: after a nixos-rebuild switch hwmon_vid is already
-          # resident, so the failure hides until the machine actually reboots.
-          "${pkgs.kmod}/bin/modprobe hwmon_vid"
-          # Drop any already-loaded copy, so a restart (or a hand-loaded module left
-          # over from debugging) does not fail the unit with "File exists".
-          "-${pkgs.kmod}/bin/rmmod it87"
-        ];
-        ExecStart = "${pkgs.kmod}/bin/insmod ${config.boot.kernelPackages.it87}/lib/modules/${config.boot.kernelPackages.kernel.modDirVersion}/kernel/drivers/hwmon/it87.ko ignore_resource_conflict=1";
-        ExecStop = "${pkgs.kmod}/bin/rmmod it87";
-      };
-    };
-
-    environment.systemPackages = with pkgs; [
-      lm_sensors    # `sensors` — fan RPM + temps
-      smartmontools # `smartctl` — per-drive temperature, the metric a fan curve should track
-    ];
-
-    nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
-    hardware.cpu.intel.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
-  };
-
-  # Disko — declarative disk partitioning
-  #   NVMe (1TB): boot + root (+ /downloads for SABnzbd temp)
-  #   hdd  (8TB  ST8000VN002):  /mnt/disk1  — mergerfs branch 1, plus photos + arr state
-  #   hdd2 (12TB WD122KFBX):    /mnt/disk2  — mergerfs branch 2
-  #
-  # The two HDDs are pooled into a single /data/media by mergerfs — see Modules/server.nix.
-  # mergerfs merges the directory tree, not blocks: every file lives whole on one disk, so a
-  # dead drive costs only its own files. Media paths are unchanged for every service.
-  #
-  # Disks are addressed by /dev/disk/by-id/... deliberately. Adding the 12TB shuffled the letters
-  # (the 8TB moved sda -> sdb), which silently made the old `device = "/dev/sda"` point at the
-  # WRONG disk. Never use /dev/sdX here.
-  #
-  # WARNING: the disko *NixOS module* only generates fileSystems entries — it never formats.
-  # Formatting happens only via the separate disko script. NEVER run that script on Asgard: it
-  # would wipe both drives. Both partitions below already exist and were made by hand with
-  # matching partlabels (disk-hdd-data, disk-hdd2-data), per the Fresh Deploy Checklist.
-  #
-  # Both mounts are `nofail` DELIBERATELY. Without it, a disconnected HDD times the boot out after
-  # ~90s and drops to emergency mode *before networking* — the box goes completely unreachable and
-  # needs physical recovery (this happened on 2026-08-10). `nofail` is only safe because it is
-  # PAIRED with RequiresMountsFor= on every consuming service in Modules/server.nix: a missing disk
-  # then means "services refuse to start and the box stays reachable" instead of "arrs re-initialise
-  # on empty dirs the tmpfiles rules created on the NVMe". Never remove one without the other.
-  diskoConfig = {
-    disko.devices = {
-      disk = {
-        nvme = {
-          type = "disk";
-          device = "/dev/nvme0n1";
-          content = {
-            type = "gpt";
-            partitions = {
-              ESP = {
-                size = "512M";
-                type = "EF00";
-                content = {
-                  type = "filesystem";
-                  format = "vfat";
-                  mountpoint = "/boot";
-                  mountOptions = [ "fmask=0077" "dmask=0077" ];
-                };
-              };
-              root = {
-                size = "100%";
-                content = {
-                  type = "filesystem";
-                  format = "ext4";
-                  mountpoint = "/";
-                };
-              };
-            };
-          };
-        };
-        # 8TB — mergerfs branch 1. Also holds /data/photos (Immich) and /data/.state (arr
-        # SQLite DBs), which are bind-mounted out and deliberately kept OFF the FUSE pool.
-        hdd = {
-          type = "disk";
-          device = "/dev/disk/by-id/ata-ST8000VN002-2ZM188_WPV3KR6R";
-          content = {
-            type = "gpt";
-            partitions = {
-              data = {
-                size = "100%";
-                content = {
-                  type = "filesystem";
-                  format = "ext4";
-                  mountpoint = "/mnt/disk1";
-                  mountOptions = [ "defaults" "nofail" ];
-                };
-              };
-            };
-          };
-        };
-        # 12TB — mergerfs branch 2. Formatted with `-m 0` (no root reserve): a pure data disk
-        # needs none, and mergerfs `minfreespace` is the proper guard. Saves ~600GB.
-        hdd2 = {
-          type = "disk";
-          device = "/dev/disk/by-id/ata-WDC_WD122KFBX-68CCHN0_WD-B01NL0DD";
-          content = {
-            type = "gpt";
-            partitions = {
-              data = {
-                size = "100%";
-                content = {
-                  type = "filesystem";
-                  format = "ext4";
-                  mountpoint = "/mnt/disk2";
-                  mountOptions = [ "defaults" "nofail" ];
-                };
-              };
-            };
-          };
-        };
-      };
-    };
-  };
-in {
-  flake.nixosConfigurations."${activeUser}-${hostName}" = inputs.nixpkgs.lib.nixosSystem {
-    system = "x86_64-linux";
-    specialArgs = { inherit inputs activeUser; };
     modules = [
-      hardwareConfig
-
-      # Disko — declarative disk partitioning (NVMe + HDD)
-      inputs.disko.nixosModules.disko
-      diskoConfig
-
-      inputs.home-manager.nixosModules.home-manager
-      {
-        home-manager.useGlobalPkgs = true;
-        home-manager.useUserPackages = true;
-        home-manager.backupFileExtension = "backup";
-        home-manager.extraSpecialArgs = {
-          inherit inputs activeUser hostName;
-          pkgs-unstable = import inputs.nixpkgs-unstable {
-            system = "x86_64-linux";
-            config.allowUnfree = true;
-          };
-        };
-        home-manager.users.${activeUser} = {
-          home.username = activeUser;
-          home.homeDirectory = "/home/${activeUser}";
-          home.stateVersion = "25.05";
-        };
-      }
+      ./_hardware.nix
+      ./_disko.nix
 
       # Shared base modules (shell, git, fonts, nix settings, user setup)
       self.nixosModules.base
@@ -224,10 +29,7 @@ in {
       # MarsBar — partner-facing dashboard on its own tailnet node (marsbar:1111)
       self.nixosModules.marsbar
 
-      {
-        networking.hostName = hostName;
-        system.stateVersion = "25.05";
-
+      ({ activeUser, ... }: {
         # LAN advertises IPv6 (router RA) but has no working v6 upstream.
         # .NET apps (Jellyfin/arrs) try AAAA first and hang 100s per request —
         # broke TMDb metadata/poster fetching. Everything here is IPv4/Tailscale.
@@ -253,7 +55,7 @@ in {
         boot.loader.efi.canTouchEfiVariables = true;
 
         # Allow remote deploys from Sisyphus (nix-copy-closure needs trusted-users)
-        nix.settings.trusted-users = [ "rock" ];
+        nix.settings.trusted-users = [ activeUser ];
 
         # SSH for remote management
         services.openssh = {
@@ -272,7 +74,7 @@ in {
           "d /downloads              0775 root  media -"
           "d /downloads/usenet       0775 root  media -"
         ];
-      }
+      })
     ];
   };
 }

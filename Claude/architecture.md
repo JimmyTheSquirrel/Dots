@@ -40,7 +40,7 @@ system-rebuild rock Sisyphus --boot
 
 ## Plymouth Boot Splash
 
-**Module:** `Modules/plymouth.nix` (Sisyphus only)
+**Module:** `Modules/Boot/plymouth.nix` (Sisyphus only)
 
 Displays an animated boot splash screen instead of kernel log text.
 
@@ -109,7 +109,7 @@ deployed with `nixos-rebuild --target-host` — no `-p <profile>`, because each 
 single-boot and uses the default system profile. `system-rebuild` handles both shapes;
 see `Claude/deploy.md`.
 
-`Hosts/Rescue/system.nix` is a third shape again: an ISO, not an installed system.
+`Hosts/Apollo/system.nix` is a third shape again: an ISO, not an installed system.
 
 **Per-host hardware comes in two flavours in this repo.** The two local profiles share
 one hand-written `hardwareConfig` let-binding with this machine's disk UUIDs. Kit-Kat

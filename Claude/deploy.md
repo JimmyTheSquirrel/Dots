@@ -3,7 +3,7 @@
 One ISO, carried on the Ventoy stick (`Apollo`, exfat, 233 GB), that joins the
 tailnet by itself and then waits. Everything is initiated from Sisyphus.
 
-Built from `Hosts/Rescue/system.nix` — still the rescue disk (full Niri desktop,
+Built from `Hosts/Apollo/system.nix` — still the rescue disk (full Niri desktop,
 gparted, claude-code), now also the deployment target.
 
 ## The whole workflow
@@ -31,15 +31,15 @@ so nothing re-boots mid-install and the SSH session — along with the tailnet l
 carrying it — survives from start to finish. Without that, kexec would drop the
 connection the moment the install began.
 
-`nixos-anywhere` is already in `Modules/base.nix`, so it needs no flake input.
+`nixos-anywhere` is already in `Modules/Core/base.nix`, so it needs no flake input.
 
 ## The auth key lives on the stick, not in the ISO
 
 The key file lives at **`<stick>/keys/ts-authkey`** (next to the age backup that was
 already there), and the boot unit also accepts it at the stick root.
 
-`apollo-tailscale-up` (in `Hosts/Rescue/system.nix`, modelled on
-`marsbar-tailscale-up` in `Modules/marsbar.nix`) mounts the stick read-only at boot,
+`apollo-tailscale-up` (in `Hosts/Apollo/system.nix`, modelled on
+`marsbar-tailscale-up` in `Modules/Server/marsbar.nix`) mounts the stick read-only at boot,
 pulls the key out of that file — **skipping comment lines, and requiring at least 8
 characters after `tskey-`** — and runs
 `tailscale up --authkey=file:… --hostname=apollo --ssh`.
@@ -111,7 +111,7 @@ because the flake is public, so the target needs no credentials.
 ## Asgard is not deployable from here
 
 `system-rebuild` refuses `Asgard` without an explicit `--target`. This repo's
-`Modules/server.nix` drifts from the one on Asgard (`Claude/server-info.md`), so a
+`Modules/Server/server.nix` drifts from the one on Asgard (`Claude/server-info.md`), so a
 push would overwrite the live config with a stale copy. Edit it on Asgard.
 
 ## Checking a disk layout before you wipe anything
@@ -177,7 +177,7 @@ tailscale ssh rock@apollo                              # "requires an additional
 It was added here as a belt-and-braces "second way in" and was precisely what removed
 the first way in. The ISO now runs plain
 `tailscale up --authkey=file:… --hostname=apollo`, and access is OpenSSH plus the
-authorized key from `Modules/base.nix`.
+authorized key from `Modules/Core/base.nix`.
 
 ## The console is text, deliberately
 
@@ -236,7 +236,7 @@ both looked identical from the outside: monitors dark, machine apparently dead.
 (see above). But fixing that alone was not enough.
 
 **2. The display-manager framework claimed tty1 and then had nothing to run.**
-`Modules/Desktops/niri.nix` sets `services.xserver.enable = true`, which switches on
+`Modules/Desktop/niri.nix` sets `services.xserver.enable = true`, which switches on
 `services.displayManager`. That framework reserves tty1 for a display manager. Force
 `sddm` and `greetd` off but leave the framework on, and you get the worst case:
 `display-manager.service` **fails** (nothing to launch) *and* `getty@tty1` is never
@@ -261,7 +261,7 @@ systemd's upstream unit with nothing wanting a getty on it. Verified by checking
 the symlink in the built system:
 
 ```bash
-ls $(nix eval --raw .#nixosConfigurations.rock-Rescue.config.system.build.toplevel)/etc/systemd/system/getty.target.wants/
+ls $(nix eval --raw .#nixosConfigurations.rock-Apollo.config.system.build.toplevel)/etc/systemd/system/getty.target.wants/
 # must list getty@tty1.service
 ```
 

@@ -1,6 +1,6 @@
 # Noctalia — Desktop Shell
 
-**Module:** `Modules/noctalia.nix`
+**Module:** `Modules/Desktop/noctalia.nix`
 **Used on:** Sisyphus (Niri) and Odysseus (Hyprland)
 
 ## Architecture (v5)
@@ -28,7 +28,7 @@ The merge order above is upstream's, and it makes `nix-config.toml` structurally
 
 So `noctalia.nix` stops fighting the merge order and writes `settings.toml` directly:
 
-- **`lockedSettings`** in `Modules/noctalia.nix` is the canonical desktop state.
+- **`lockedSettings`** in `Modules/Desktop/noctalia.nix` is the canonical desktop state.
 - **`home.activation.noctaliaSettingsLock`** deep-merges it *over* the live file on every rebuild — locked keys forced, undeclared keys passed through — then runs `noctalia msg config-reload`.
 
 **Tune in the GUI freely; the next rebuild reverts it.** That is the intended workflow: GUI for testing, `lockedSettings` for keeping.
@@ -186,7 +186,7 @@ with inotify and reloads. (Contrast niri, whose config is baked into the wrapper
 
 ## Bar Configuration
 
-**The bar is locked** — edit `lockedSettings.bar.main` in `Modules/noctalia.nix` and rebuild. GUI changes to the bar survive only until the next rebuild.
+**The bar is locked** — edit `lockedSettings.bar.main` in `Modules/Desktop/noctalia.nix` and rebuild. GUI changes to the bar survive only until the next rebuild.
 
 ### Visual settings (TOML — `settings.toml` or `nix-config.toml`)
 
@@ -233,7 +233,7 @@ Widget definitions live in `bar.widgets.left/center/right`. **Noctalia v5 does n
 | `NotificationHistory` | right | Notification bell |
 | `Tray` | right | System tray |
 
-Editing `settings.json` has **no effect**. Change the bar in `lockedSettings.bar.main` (`Modules/noctalia.nix`), or in the GUI if you only want it until the next rebuild.
+Editing `settings.json` has **no effect**. Change the bar in `lockedSettings.bar.main` (`Modules/Desktop/noctalia.nix`), or in the GUI if you only want it until the next rebuild.
 
 Note `jq` is not on the interactive PATH here; use a full store path (`${pkgs.jq}/bin/jq` in Nix, or `nix run nixpkgs#jq` ad hoc).
 
@@ -354,7 +354,7 @@ Three traps, all of which fail *silently* because each output file still exists 
 
 | | |
 |---|---|
-| `builtin_ids` | **empty on purpose.** 20 available; the kitty / starship / btop ones write a theme file then run an `apply.sh` that appends an include to the app's main config — but `kitty.conf`, `starship.toml` and `btop.conf` are read-only Nix store symlinks here, so the append cannot land. btop is already covered by skwd's own integration, which renders the `Modules/btop.nix` mapping into the `dots` theme `btop.conf` actually selects. |
+| `builtin_ids` | **empty on purpose.** 20 available; the kitty / starship / btop ones write a theme file then run an `apply.sh` that appends an include to the app's main config — but `kitty.conf`, `starship.toml` and `btop.conf` are read-only Nix store symlinks here, so the append cannot land. btop is already covered by skwd's own integration, which renders the `Modules/Shell/btop.nix` mapping into the `dots` theme `btop.conf` actually selects. |
 | `community_ids` | `["discord"]` — writes `~/.config/vesktop/themes/noctalia.theme.css`, the theme vesktop has enabled. 65 available, fetched from git at runtime into `~/.local/state/noctalia/community-templates` (same trust model as plugin sources; not pinned by the flake). |
 
 **The `spicetify` and `steam` community templates do not fit this host.** spicetify's targets `Themes/Comfy/` + `Themes/Colorful/` and shells out to `spicetify apply` (which fights spicetify-nix); this host uses the `text` theme. steam's targets the SFP `Material-Theme` skin; this host uses Millennium + Zehn. Both stay on their own skwd integrations — see `Claude/steam.md` and `Claude/spicetify.md`.
@@ -408,7 +408,7 @@ On v1, `noctalia-sync-wallpaper` (in `Modules/skwd-wall.nix`) starts swaybg on e
 
 The skwd daemon runs reload commands with a trimmed PATH covering `/etc/profiles/per-user/$USER/bin` and `/run/current-system/sw/bin` (so `noctalia` and the `home.packages` scripts resolve), but `pkgs.writeShellScriptBin` sets no PATH of its own — so anything less common (`jq`, `pgrep`, `ps`, `sleep`, `tr`) must be referenced by full store path. Scripts in `~/.local/bin` are not on PATH at all (exit 127); use `home.packages` so the script itself is found, as with `spotify-apply-colors`.
 
-**On v2 that PATH is ours, not upstream's.** NixOS renders `systemd.user.services.<n>.path` as `Environment=PATH=…`, which **replaces** the inherited PATH — upstream's module lists only its own renderer packages, which would drop the user profile entirely and make every reload exit 127. `Modules/Skwd.nix` re-adds both dirs. See `Claude/skwd-wall.md`.
+**On v2 that PATH is ours, not upstream's.** NixOS renders `systemd.user.services.<n>.path` as `Environment=PATH=…`, which **replaces** the inherited PATH — upstream's module lists only its own renderer packages, which would drop the user profile entirely and make every reload exit 127. `Modules/Desktop/skwd.nix` re-adds both dirs. See `Claude/skwd-wall.md`.
 
 This script is wired as a skwd-wall `postProcessing` command — `noctalia-sync-wallpaper %path%` — **not** as the `noctalia` integration's reload command (managed in `skwd-wall.nix`). Only postProcessing substitutes the wallpaper path; see `Claude/skwd-wall.md`.
 

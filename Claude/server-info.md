@@ -3,7 +3,7 @@
 ## Overview
 
 Asgard is a NixOS media server running on dedicated hardware (Intel i5-14400, 1TB NVMe, 8TB HDD).
-Configuration defined in `Modules/server.nix`, host in `Hosts/Asgard/system.nix`.
+Configuration defined in `Modules/Server/server.nix`, host in `Hosts/Asgard/system.nix`.
 Everything is declarative. A fresh deploy needs only the sops secrets populated before building.
 
 ---
@@ -123,7 +123,7 @@ temperatures could not be read at all.
 - Immich — `services.immich`, manages its own PostgreSQL + Redis. `host = "0.0.0.0"` required — default `localhost` binds to `[::1]` (IPv6 only) making it unreachable. `ExecStartPre` script creates `.immich` marker files in all subdirs of `/data/photos/` (encoded-video, thumbs, upload, backups, library, profile) — Immich refuses to start without these.
 - Tailscale — `services.tailscale` (stock, no login-server flag)
 - Cloudflared — `services.cloudflared`
-- **WAN egress shaping** — `wan-egress-shaping.service` (in `Modules/server.nix`) caps WAN-bound upload on enp3s0 at 30 Mbit via HTB + fq_codel. Home uplink is 50 Mbit; Jellyfin transcode segments burst at full line rate every ~3s, spiking latency ~180ms and rubber-banding LAN game sessions. RFC1918 destinations bypass the cap (LAN direct-play unaffected). Inspect with `tc -s qdisc show dev enp3s0`.
+- **WAN egress shaping** — `wan-egress-shaping.service` (in `Modules/Server/server.nix`) caps WAN-bound upload on enp3s0 at 30 Mbit via HTB + fq_codel. Home uplink is 50 Mbit; Jellyfin transcode segments burst at full line rate every ~3s, spiking latency ~180ms and rubber-banding LAN game sessions. RFC1918 destinations bypass the cap (LAN direct-play unaffected). Inspect with `tc -s qdisc show dev enp3s0`.
 
 ### Native NixOS service (background sync)
 - **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Check with `journalctl -u recyclarr-sync`.
@@ -157,13 +157,13 @@ temperatures could not be read at all.
   verifying the storage work. Two separate upstream breaks:
 
   1. **Fixed:** `RECYCLARR_APP_DATA` was removed upstream and recyclarr now hard-errors on it, so
-     the sync never even started. Renamed to `RECYCLARR_CONFIG_DIR` in `Modules/server.nix`.
+     the sync never even started. Renamed to `RECYCLARR_CONFIG_DIR` in `Modules/Server/server.nix`.
   2. **Fixed:** TRaSH's config-templates repo dropped `includes.json` entirely and renamed every
      template, so `include: - template: …` resolves **nothing** — there are no include templates
      any more, and all 10 ids the config used were dead. The replacements are *whole-config*
      templates (`radarr-remux-web-1080p`, `radarr-remux-web-2160p`, sonarr `web-1080p`,
      `web-2160p`) which **cannot be used with `include:` at all**. Their contents are now inlined
-     in `Modules/server.nix` by `trash_id` — trash_ids are stable content hashes, whereas template
+     in `Modules/Server/server.nix` by `trash_id` — trash_ids are stable content hashes, whereas template
      names have churned twice. Scores and CF definitions still come live from the guide on every
      sync; only the selection is pinned.
 
@@ -191,7 +191,7 @@ temperatures could not be read at all.
   **This used to say "the Sisyphus copy is materially WRONG, edit on Asgard only". That is no
   longer true and following it would now be the mistake.** Asgard's 878 lines of uncommitted work
   were committed (`30c3ac6`, `b985c36`, `f83c52f`), pushed to `origin/main`, and merged into
-  Sisyphus's `steam-ricing`. `Modules/server.nix` is now **byte-identical on both clones**
+  Sisyphus's `steam-ricing`. `Modules/Server/server.nix` is now **byte-identical on both clones**
   (3786 lines). Editing either copy and patching across works again.
 
   **How the divergence happened, so it can be avoided:** server work is done directly on Asgard,
@@ -202,8 +202,8 @@ temperatures could not be read at all.
   Verify convergence before touching `server.nix`, rather than trusting this doc:
 
   ```bash
-  ssh asgard 'sha256sum ~/Dots/Modules/server.nix'
-  sha256sum ~/Dots/Modules/server.nix          # must match
+  ssh asgard 'sha256sum ~/Dots/Modules/Server/server.nix'
+  sha256sum ~/Dots/Modules/Server/server.nix          # must match
   ssh asgard 'sudo wc -l /var/lib/recyclarr/recyclarr.yml'   # expect ~566, not ~45
   ```
 
@@ -398,7 +398,7 @@ Until **2026-09-17** this whole pipeline was dead. Shelfarr had run since June 2
 initialised at all** — `isInit: false`, no root user, no libraries. `/data/media/books`
 was empty. Both containers were `active`, both answered HTTP, both showed green on Glance.
 
-The cause was the "Post-boot (one-time)" comment in `Modules/server.nix` telling you to
+The cause was the "Post-boot (one-time)" comment in `Modules/Server/server.nix` telling you to
 click through two web UIs. Nobody ever did. **A running container is not a working
 pipeline** — check what's wired *between* services, not whether each one is up.
 
@@ -867,7 +867,7 @@ Nixflix's `seerr-setup.service` connects Jellyfin → Jellyseerr but fails at li
 Jellyseerr's setup wizard stays open until libraries are toggled and setup is marked initialized.
 
 ### Our fix: `seerr-library-setup.service`
-Defined in `Modules/server.nix`, runs after `seerr-setup.service`.
+Defined in `Modules/Server/server.nix`, runs after `seerr-setup.service`.
 
 **What it does:**
 1. Waits for Jellyseerr to be responsive
@@ -1072,7 +1072,7 @@ the 8TB's `/data` simply became `/mnt/disk1`.
 re-downloadable via the arrs. **Immich photos are NOT re-downloadable and still have no backup.**
 SnapRAID parity would need a third drive ≥12TB.
 
-### Pool options (`Modules/server.nix`)
+### Pool options (`Modules/Server/server.nix`)
 
 | Option | Why |
 |--------|-----|
@@ -1124,13 +1124,13 @@ failed, and it dropped to **emergency mode, which runs before networking**. No S
 **Current state: both HDD mounts are `nofail`, and every consuming service has
 `RequiresMountsFor`.** These two must always travel together:
 
-- `nofail` alone is dangerous: `systemd.tmpfiles.rules` in `Modules/server.nix` creates `/data`,
+- `nofail` alone is dangerous: `systemd.tmpfiles.rules` in `Modules/Server/server.nix` creates `/data`,
   `/data/media` and `/data/.state/services` unconditionally, so a boot that continues without the
   disk creates them *empty on the NVMe* and the arrs re-initialise on top.
 - `RequiresMountsFor` alone is what makes `nofail` safe: services **fail closed** instead of
   running against an empty library.
 
-Guarded units (`Modules/server.nix`): `sonarr`, `radarr`, `lidarr`, `jellyfin`, the three
+Guarded units (`Modules/Server/server.nix`): `sonarr`, `radarr`, `lidarr`, `jellyfin`, the three
 `*-rootfolders`, `jellyfin-libraries`, `podman-{audiobookshelf,shelfarr,filebrowser}`,
 `immich-server`, and critically **`sonarr-missing-search` / `radarr-missing-search`** — those two
 would otherwise see an empty `/data/media`, conclude the whole library was missing, and trigger a

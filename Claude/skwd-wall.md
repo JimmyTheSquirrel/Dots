@@ -4,7 +4,7 @@
 
 | | v2 (Rust) | v1 (QuickShell) |
 |---|---|---|
-| Module | `Modules/Skwd.nix` (`nixosModules.skwd`) | `Modules/skwd-wall.nix` (`nixosModules.skwd-wall`) |
+| Module | `Modules/Desktop/skwd.nix` (`nixosModules.skwd`) | `Modules/skwd-wall.nix` (`nixosModules.skwd-wall`) |
 | Hosts | Sisyphus | Elektra, Odysseus |
 | Config | `~/.config/skwd-wall-v2/config.json` | `~/.config/skwd-wall/config.json` |
 | Cache | `~/.cache/skwd-wall-v2/` | `~/.cache/skwd-wall/` |
@@ -20,9 +20,9 @@ one daemon can ever be running.
 # v2 (Rust) — Sisyphus
 
 **Flake input:** `skwd-wall-v2` → `github:liixini/skwd-wall/nix`
-**Module:** `Modules/Skwd.nix`
+**Module:** `Modules/Desktop/skwd.nix`
 
-Upstream ships official NixOS support on the `nix` branch. `Modules/Skwd.nix`
+Upstream ships official NixOS support on the `nix` branch. `Modules/Desktop/skwd.nix`
 imports its `nixosModules.default` and adds **only** the colour-pipeline wiring
 (matugen integrations + templates). It builds nothing.
 
@@ -78,7 +78,7 @@ and restore them unless you actually meant to bump v1.
 
 ## What the migration deleted
 
-Gone from `Modules/Skwd.nix` — do not reintroduce:
+Gone from `Modules/Desktop/skwd.nix` — do not reintroduce:
 
 - the four `rustPlatform.buildRustPackage` derivations and their `postUnpack`
   copies (v2's crates resolve each other by *relative path*, which is why the
@@ -175,9 +175,9 @@ were deleted:**
 
 | deleted | was in |
 |---|---|
-| `pkgs.swaybg` | `Modules/noctalia.nix` |
-| `wallpaper-restore` script + its `spawn-at-startup` entry | `Modules/Desktops/niri.nix` |
-| the whole `noctalia-sync-wallpaper` script + skwd's `postProcessing` entry | `Modules/noctalia.nix`, `Modules/Skwd.nix` |
+| `pkgs.swaybg` | `Modules/Desktop/noctalia.nix` |
+| `wallpaper-restore` script + its `spawn-at-startup` entry | `Modules/Desktop/niri.nix` |
+| the whole `noctalia-sync-wallpaper` script + skwd's `postProcessing` entry | `Modules/Desktop/noctalia.nix`, `Modules/Desktop/skwd.nix` |
 
 plus the `^wallpaper$` layer-rule, replaced by `^skwd-paper-backdrop$`.
 
@@ -189,13 +189,13 @@ uses `postProcessing` any more** — the sole remaining hook is an
 gone too.
 
 Nix pins `niri.overviewBackdrop` and `niri.backdropFollowWallpaper` to `true`
-(the jq upsert in `Modules/Skwd.nix`). That is deliberate and unlike the other
+(the jq upsert in `Modules/Desktop/skwd.nix`). That is deliberate and unlike the other
 skwd settings, which are left to the UI: with swaybg deleted, a fresh install or
 an accidental UI toggle would otherwise leave **no backdrop at all**. The look
 knobs (`overviewBackdropBlurEnabled`, `overviewBackdropBlur`, `backdropDim`,
 `backdropTheme`) are *not* pinned — tune those freely.
 
-> ⚠️ **The script moved, it did not vanish.** `Modules/noctalia.nix` is shared
+> ⚠️ **The script moved, it did not vanish.** `Modules/Desktop/noctalia.nix` is shared
 > with Odysseus, which is still on v1 and still registers
 > `noctalia-sync-wallpaper %path%` as its postProcessing hook. The script and
 > `pkgs.swaybg` therefore moved into `Modules/skwd-wall.nix` (the v1 module), so
@@ -225,7 +225,7 @@ not even the current wallpaper, because `backdropFollowWallpaper` defaults to
 `skwd-paper-backdrop` (blurred), then `wallpaper` (swaybg, correctly lifted into
 the backdrop by the existing `^wallpaper$` rule).
 
-`Modules/Desktops/niri.nix` now carries the paired rule permanently:
+`Modules/Desktop/niri.nix` now carries the paired rule permanently:
 
 ```kdl
 layer-rule {
@@ -280,13 +280,13 @@ the same shape as v1**, so the whole colour pipeline carried over unchanged:
 Wiring Thunar to the wallpaper palette (adw-gtk3-dark + Papirus + matugen
 `colors.css`) was built on 2026-09-25 and **rejected on taste** — it was ripped
 back out the same day. Thunar keeps its stock GTK look; its transparency comes
-from the niri window-rule in `Modules/Desktops/niri.nix`, not from CSS. Don't
+from the niri window-rule in `Modules/Desktop/niri.nix`, not from CSS. Don't
 re-propose gtk3/gtk4 integrations without new information.
 
 ### ⚠️ Discord: colours-only, never a full theme
 
 The `discord` integration renders **nothing but custom properties on `:root`** —
-no selectors, no layout. `quickCss.css` (`Modules/discord.nix`) consumes them via
+no selectors, no layout. `quickCss.css` (`Modules/Apps/discord.nix`) consumes them via
 `rgba(var(--skwd-surface-rgb, 0, 0, 0), 0.4)`, with fallbacks so Discord degrades
 to its old flat black if the file is missing.
 
@@ -330,7 +330,7 @@ noctalia msg color-scheme-set custom skwd-wall
 
 Re-selecting the already-selected palette is what triggers it, and it fans out to
 noctalia's UI plus every enabled template on its own — no `templates-apply`
-after. That is all `noctalia-apply-palette` (in `Modules/noctalia.nix`) does.
+after. That is all `noctalia-apply-palette` (in `Modules/Desktop/noctalia.nix`) does.
 
 **It is an `integrations[].reload`, not a `postProcessing` hook** — the opposite
 of `noctalia-sync-wallpaper`. postProcessing fires *before* the templates render,
@@ -338,7 +338,7 @@ so putting the colour fan-out there pushes the previous palette. A reload takes
 no arguments, which is fine here because `color-scheme-set` needs no wallpaper
 path, and it is the only hook guaranteed to run after its own file is on disk.
 
-**No apostrophes in the jq program** in `Modules/Skwd.nix` — it is passed as a
+**No apostrophes in the jq program** in `Modules/Desktop/skwd.nix` — it is passed as a
 single-quoted shell argument, so one apostrophe in a comment ends the string and
 the activation script dies with `syntax error near unexpected token )`.
 
@@ -372,7 +372,7 @@ The `data/` component exists **only inside the package**. The daemon's own
 seeder writes to `~/.config/skwd-wall-v2/matugen/templates` and resolves
 `integrations[].template` against it.
 
-`Modules/Skwd.nix` wrote to `~/.config/skwd-wall-v2/data/matugen/templates/`
+`Modules/Desktop/skwd.nix` wrote to `~/.config/skwd-wall-v2/data/matugen/templates/`
 from the v2 migration until **2026-09-14**, so **the matugen colour pipeline
 never actually ran on v2.** Fixed now, but note how it hid:
 
@@ -404,7 +404,7 @@ v2 splits v1's single `skwd-daemon` into a supervisor that spawns a renderer per
 output. **The picker is no longer resident**: `skwd-wall-v2` starts in ~150 ms
 and exits on close.
 
-`Modules/Skwd.nix` overrides exactly two things on upstream's unit:
+`Modules/Desktop/skwd.nix` overrides exactly two things on upstream's unit:
 
 - **`path` += the user profile.** NixOS renders `path` as `Environment=PATH=…`,
   which **replaces** the inherited PATH rather than extending it — so upstream
@@ -512,7 +512,7 @@ After each wallpaper change skwd-wall runs matugen on the new wallpaper, renders
 
 **Steam has no reload command on purpose.** Steam cannot be told to re-read
 Millennium's Quick CSS from outside, so the new accent applies at the next Steam
-launch. Its template lives in `Modules/steam.nix` (like btop's), and renders a
+launch. Its template lives in `Modules/Gaming/steam.nix` (like btop's), and renders a
 single `R, G, B` triplet from which the Zehn theme derives ~30 shades. Note the
 integration is named `steam` in `integrations`, which is unrelated to the
 top-level `features.steam` / `steam` keys in this same config — those are
@@ -520,7 +520,7 @@ skwd-wall's own Steam Workshop wallpaper import. See `Claude/steam.md`.
 
 The `skwd-wall` built-in integration (`quickshell-colors.json`) is **required** — without it the selector UI stays pink/default.
 
-**btop template lives in `Modules/btop.nix`, not here.** `skwd-wall.nix` installs it from the store (`self.lib.btop.matugenTemplate`) rather than writing a heredoc, so the theme mapping has exactly one definition shared with the fallback theme baked into btop's module. Its reload command, `btop-reload-theme`, sends `SIGUSR2` — btop's hot-reload signal — so a running instance re-reads the theme off disk without restarting. See `Claude/misc.md`.
+**btop template lives in `Modules/Shell/btop.nix`, not here.** `skwd-wall.nix` installs it from the store (`self.lib.btop.matugenTemplate`) rather than writing a heredoc, so the theme mapping has exactly one definition shared with the fallback theme baked into btop's module. Its reload command, `btop-reload-theme`, sends `SIGUSR2` — btop's hot-reload signal — so a running instance re-reads the theme off disk without restarting. See `Claude/misc.md`.
 
 **Noctalia color note:** Noctalia v5 generates its own Material You colors from its **internal wallpaper path** — it does not use the `colors.json` matugen writes. The `noctalia-sync-wallpaper` script takes the wallpaper path **as its first argument**, calls `noctalia msg wallpaper-set <path>` to point noctalia at the correct wallpaper (so it regenerates the right palette), swaps the swaybg backdrop, then calls `noctalia msg templates-apply` to push the new palette to kitty, niri, gtk, etc.
 
@@ -560,7 +560,7 @@ Config shape (patched idempotently by the activation script in `Modules/skwd-wal
 
 Neither Elektra nor Odysseus needs this change: Elektra is KDE (no niri overview at all), and Odysseus is Hyprland. The v1 daemon does serve `skwd-paper-backdrop`, so the option exists if Odysseus ever wants it — but `place-within-backdrop` is a **niri** layer-rule, so on Hyprland there is nothing to pair it with.
 
-Sisyphus previously painted the niri overview backdrop with **swaybg**, which cost three moving parts: `pkgs.swaybg` + the `wallpaper-restore` login script (`Modules/Desktops/niri.nix`) + a launch/sleep/kill swap block inside `noctalia-sync-wallpaper`. skwd-wall does this natively.
+Sisyphus previously painted the niri overview backdrop with **swaybg**, which cost three moving parts: `pkgs.swaybg` + the `wallpaper-restore` login script (`Modules/Desktop/niri.nix`) + a launch/sleep/kill swap block inside `noctalia-sync-wallpaper`. skwd-wall does this natively.
 
 Verified present in the currently pinned daemon (`skwd-daemon` is a **separate flake input** of `skwd-wall`, locked 2026-07-02): the binary contains `crates/daemon/src/wall/overview_backdrop.rs`, spawns a `skwd-paper-backdrop` layer-shell surface, and writes `overview-backdrop.jpg`. **No flake update is required to try it.**
 
@@ -574,7 +574,7 @@ Config keys (all under a top-level `niri` object in `config.json`; UI is the sel
 | `backdropDim` | darken the backdrop, 0–100 |
 | `backdropAutoTheme` / `backdropTheme` | recolour the backdrop with a gowall palette |
 
-Paired niri layer rule — replaces the `^wallpaper$` rule in `Modules/Desktops/niri.nix`:
+Paired niri layer rule — replaces the `^wallpaper$` rule in `Modules/Desktop/niri.nix`:
 
 ```kdl
 layer-rule {

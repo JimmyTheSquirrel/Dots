@@ -1,6 +1,6 @@
 # Secrets Management — sops-nix
 
-**Module:** `Modules/sops.nix`
+**Module:** `Modules/Core/sops.nix`
 **Flake input:** `sops-nix`
 
 Uses **sops-nix** with age keys. Secrets decrypted at system activation, available at `/run/secrets/`.
@@ -10,7 +10,7 @@ Uses **sops-nix** with age keys. Secrets decrypted at system activation, availab
 - `.sops.yaml` — **at the repo ROOT** (not in `Secrets/`) — age public keys and path rules
 - `Secrets/secrets.yaml` — encrypted secrets, rock's machines (safe to commit)
 - `Secrets/kit-kat.yaml` — Kit-Kat's machine only, its own recipients (see below)
-- `Modules/sops.nix` — sops-nix module config
+- `Modules/Core/sops.nix` — sops-nix module config
 
 ## Key Locations
 
@@ -75,7 +75,7 @@ keys). So another person's machine gets its own file:
 - `.sops.yaml` has a **separate creation rule for it, listed FIRST**. sops uses the
   first matching rule, so the `[Ss]ecrets/.*\.yaml$` catch-all would otherwise
   swallow it and encrypt it without her key.
-- `Modules/sops.nix` defines a second module, `sops-kitkat`, pointing at that file.
+- `Modules/Core/sops.nix` defines a second module, `sops-kitkat`, pointing at that file.
 
 Her identity is **derived from the machine's ssh host key**, not a hand-copied age key:
 
@@ -88,7 +88,7 @@ that with `nixos-anywhere --extra-files` planting a **pre-generated** host key d
 the install and sops decrypts on the very first activation — no copying a key by
 hand, no install-then-reinstall. See `Claude/kit-kat.md`.
 
-`Modules/sops.nix`'s original module still uses the old pattern
+`Modules/Core/sops.nix`'s original module still uses the old pattern
 (`age.keyFile = /home/<user>/.config/sops/age/keys.txt`, one shared key copied to every
 machine by hand). The ssh-host-key approach above is the better one; rock's hosts have
 not been migrated to it.

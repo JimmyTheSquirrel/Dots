@@ -1,6 +1,6 @@
 # Helium Browser
 
-**Module:** `Modules/helium.nix`
+**Module:** `Modules/Apps/helium.nix`
 **Flake input:** `github:amaanq/helium-flake` (not in nixpkgs)
 **App-id on Wayland:** `helium` (used for Niri opacity rule)
 

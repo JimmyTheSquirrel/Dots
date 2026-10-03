@@ -1,6 +1,6 @@
 # Emulators — RPCS3 & Ryubing
 
-**Module:** `Modules/rpcs3.nix` — **Sisyphus only.** (An earlier revision of this doc said "all three systems"; only `Hosts/Sisyphus/system.nix` imports it.)
+**Module:** `Modules/Gaming/rpcs3.nix` — **Sisyphus only.** (An earlier revision of this doc said "all three systems"; only `Hosts/Sisyphus/system.nix` imports it.)
 
 ## Installed Emulators
 

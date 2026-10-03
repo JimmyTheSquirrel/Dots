@@ -1,6 +1,6 @@
 # Spicetify — Spotify Theming
 
-**Module:** `Modules/spicetify.nix`
+**Module:** `Modules/Apps/spicetify.nix`
 **Theme files:** `Resources/Spicetify-Text-Theme/`
 **Flake input:** `spicetify-nix`
 
@@ -52,7 +52,7 @@ Synced by `skwd-wall.nix` activation script:
 
 **Pane borders/labels:** Always show in `--spice-border-active` color (matugen primary). Removed hover-only coloring from `user.css`.
 
-**Transparency:** comes **only** from the Niri window rule — `opacity 0.75` on `^spotify$` in `Modules/Desktops/niri.nix`. Pane container backgrounds (Nav, Library, Main, Playing) plus `body` are forced transparent, so `html` paints one flat opaque `--spice-main` and Niri fades the composited window. **Niri opacity changes require logout/login.**
+**Transparency:** comes **only** from the Niri window rule — `opacity 0.75` on `^spotify$` in `Modules/Desktop/niri.nix`. Pane container backgrounds (Nav, Library, Main, Playing) plus `body` are forced transparent, so `html` paints one flat opaque `--spice-main` and Niri fades the composited window. **Niri opacity changes require logout/login.**
 
 **CSS cannot do this — do not try again.** Spotify is CEF and its window surface has no alpha channel (the same reason Steam needs its own Niri rule, see `Claude/steam.md`). Verified 2026-09-16 over CDP: forcing `html, body { background: transparent !important }` left the window solid black, and relaunching with CEF's `--enable-transparent-visuals` changed nothing. An attempt to paint `html body` at 55% with `color-mix` — intended to fade background only, the way noctalia's bar does — produced a fully black backdrop instead, because `html` still paints an opaque `--spice-main` beneath it.
 

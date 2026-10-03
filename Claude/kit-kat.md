@@ -7,8 +7,8 @@ Odysseus) with noctalia and skwd v2, on her own NVIDIA hardware.
 This replaced **Elektra**, which was a KDE boot profile on *Sisyphus's own disk* —
 all three local profiles shared one root UUID, one ESP and one swap, selected from
 the GRUB "System Select" submenu. Elektra is therefore gone from
-`Modules/grub.nix` and from the `system-rebuild` local menu;
-`Modules/Desktops/kde.nix` and `Claude/kde.md` are retained but unused.
+`Modules/Boot/grub.nix` and from the `system-rebuild` local menu;
+`Modules/Desktop/kde.nix` and `Claude/kde.md` are retained but unused.
 
 ## Deploy / rebuild
 
@@ -52,7 +52,7 @@ keys. Her file holds one secret and nothing else.
 Because the hash is declarative, `passwd` will not survive a rebuild. Changing her
 password means `sops Secrets/kit-kat.yaml`.
 
-Note: `rock`'s own password is **not** managed this way. `Modules/sops.nix`
+Note: `rock`'s own password is **not** managed this way. `Modules/Core/sops.nix`
 declares `user-password-hash` but nothing in the repo consumes it, so Sisyphus's
 login hash lives only in `/etc/shadow`, set by `passwd`.
 
@@ -60,8 +60,8 @@ login hash lives only in `/etc/shadow`, set by `passwd`.
 
 | Piece | Module | Source |
 |---|---|---|
-| Greeter | `Modules/sddm-umbrella.nix` | qylock `women-umbrella` (Totoro) |
-| Bootloader | `Modules/grub-celeste.nix` | CelesteGRUB 1080p |
+| Greeter | `Modules/Boot/sddm-umbrella.nix` | qylock `women-umbrella` (Totoro) |
+| Bootloader | `Modules/Boot/grub-celeste.nix` | CelesteGRUB 1080p |
 
 Both are deliberately separate modules rather than options on the shared ones:
 
@@ -73,7 +73,7 @@ Both are deliberately separate modules rather than options on the shared ones:
   `font/Itim-Regular.ttf` inside the theme directory, which is exactly where its
   `FontLoader` looks. That is the entire reason `sddm-nier.nix` has to override the
   derivation and this one does not.
-- **`grub-celeste` replaces systemd-boot** on her host. It is NOT `Modules/grub.nix`:
+- **`grub-celeste` replaces systemd-boot** on her host. It is NOT `Modules/Boot/grub.nix`:
   that one is this machine's multi-profile loader and hardcodes Sisyphus's
   `rootFsUuid` plus a System Select submenu for profiles that do not exist on her disk.
 - The theme is pinned to a **commit**, not a branch: upstream is a handful of release
@@ -86,12 +86,12 @@ Both are deliberately separate modules rather than options on the shared ones:
 
 ## NVIDIA
 
-`Modules/nvidia.nix`, imported only here. Every other machine is AMD, and two
+`Modules/Core/nvidia.nix`, imported only here. Every other machine is AMD, and two
 shared modules hardcode that:
 
-- `Modules/Desktops/niri.nix:402` sets `videoDrivers = ["amdgpu"]` → overridden
+- `Modules/Desktop/niri.nix:402` sets `videoDrivers = ["amdgpu"]` → overridden
   with `lib.mkForce ["nvidia"]`.
-- `Modules/plymouth.nix` defaults its initrd GPU module to `amdgpu` → the host sets
+- `Modules/Boot/plymouth.nix` defaults its initrd GPU module to `amdgpu` → the host sets
   `my.plymouth.initrdGpuModules = [ "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm" ]`.
 
 `hardware.nvidia.modesetting.enable = true` is **required** — niri is wlroots-style
@@ -105,7 +105,7 @@ GPU** — upstream suggests `open = true` on Turing or later (RTX, GTX 16xx).
 
 If niri black-screens from a TTY, in order of likelihood:
 1. plymouth's early KMS — drop `plymouth` from her imports to rule it out.
-2. the GBM/GLX env vars listed in the comment at the bottom of `Modules/nvidia.nix`.
+2. the GBM/GLX env vars listed in the comment at the bottom of `Modules/Core/nvidia.nix`.
 3. `rain-effect` is a GLES2 `wlr-layer-shell` overlay — expected to work on NVIDIA
    but unverified. Nothing depends on it; drop it if it misbehaves.
 
@@ -126,7 +126,7 @@ The Apollo stick is the recovery path for all of these. Keep it to hand.
 ## Known-wrong-but-harmless
 
 The wrapped niri config is a **`perSystem`** package
-(`Modules/Desktops/niri.nix:626-633`) — one store path shared by every host. So her
+(`Modules/Desktop/niri.nix:626-633`) — one store path shared by every host. So her
 monitor layout falls through to niri's auto-placement, and the `output "DP-2"` /
 `"HDMI-A-1"` blocks plus the `open-on-output "HDMI-A-1"` window rules silently
 no-op on her machine. Making outputs per-host means moving the wrapper out of
@@ -139,7 +139,7 @@ repo. See `Claude/next-up.md`.
 
 She was briefly configured for niri (a straight clone of Sisyphus) and moved to
 Hyprland before ever being installed. The swap is clean because
-`Modules/Desktops/hyprland.nix` enables SDDM, XWayland, the portals and
+`Modules/Desktop/hyprland.nix` enables SDDM, XWayland, the portals and
 `defaultSession` exactly as `niri.nix` does, and nothing outside `niri.nix` depends
 on it — `steam-open` / `spotify-open` / `wrappedNiri` are all internal to that module
 and exist only to work around a niri spawn bug.
@@ -149,7 +149,7 @@ for connectors that do not exist, so a wrong monitor name is harmless. Hyprland 
 not so forgiving: a config naming only `DP-2` and `HDMI-A-1` gives a machine with
 `DP-3`/`DP-4` no matching rule at all. So:
 
-- `Modules/Desktops/hyprland.nix` now takes `my.hyprland.{monitors,primaryMonitor,secondaryMonitor}`,
+- `Modules/Desktop/hyprland.nix` now takes `my.hyprland.{monitors,primaryMonitor,secondaryMonitor}`,
   defaulting to Odysseus's values so that host is unchanged.
 - It appends `",preferred,auto,1"` unconditionally **after** the host's rules, so an
   unlisted output still lights up. A specific rule always wins over the catch-all.
@@ -159,7 +159,7 @@ not so forgiving: a config naming only `DP-2` and `HDMI-A-1` gives a machine wit
 - Her modes are `preferred`, not pinned: the refresh rates were never measured, EDID
   picks correctly, and a wrong hardcoded mode is a black screen.
 
-`Modules/nvidia.nix` also sets `GBM_BACKEND`, `__GLX_VENDOR_LIBRARY_NAME`,
+`Modules/Core/nvidia.nix` also sets `GBM_BACKEND`, `__GLX_VENDOR_LIBRARY_NAME`,
 `LIBVA_DRIVER_NAME` and `NVD_BACKEND`. Hyprland is noticeably fussier about these
 than niri — without `GBM_BACKEND` it commonly starts and renders nothing. If the
 desktop misbehaves in a GL-ish way, comment those out first.

@@ -1,131 +1,26 @@
-# Kit-Kat — her machine. A separate physical box on the tailnet, NVIDIA, running a
-# clone of Sisyphus's Niri/noctalia/skwd desktop.
+# Kit-Kat — her machine. A separate physical box on the tailnet: NVIDIA (RTX 3070),
+# Hyprland + noctalia + skwd, GRUB with the Celeste theme.
 #
-# This host used to be "Elektra", a KDE boot profile on Sisyphus's own disk (same
-# root UUID, same ESP, selected from the GRUB "System Select" submenu). It is now
-# real hardware, which is why:
-#   - Modules/grub.nix is NOT imported: it hardcodes Sisyphus's rootFsUuid and
-#     emits menu entries for the three local profiles. This host is single-boot
-#     and uses systemd-boot.
-#   - the disks come from a disko config, not hand-written fileSystems by UUID.
-#   - the rest of the hardware comes from nixos-facter, generated over SSH during
-#     the install (see `apollo-deploy`).
+# This host used to be "Elektra", a KDE boot profile on Sisyphus's own disk. It is
+# now real hardware, which is why:
+#   - Modules/Boot/grub.nix is NOT imported: it hardcodes Sisyphus's root UUID and
+#     emits Sisyphus's profile entries. She gets Modules/Boot/grub-celeste.nix.
+#   - the disks come from disko (./_disko.nix), not hand-written fileSystems.
+#   - the rest of the hardware comes from nixos-facter (./_hardware.nix +
+#     ./facter.json), generated over SSH during the install (see `apollo-deploy`).
 #
 # Deploy:    apollo-deploy kitkat-Kit-Kat        (first install — ERASES the disk)
 # Rebuild:   system-rebuild kitkat Kit-Kat       (pushes over the tailnet)
-{ self, inputs, ... }:
-let
-  activeUser = "kitkat";
-  hostName = "Kit-Kat";
+{ self, ... }: {
+  flake.nixosConfigurations.kitkat-Kit-Kat = self.lib.mkHost {
+    activeUser = "kitkat";
+    hostName = "Kit-Kat";
+    stateVersion = "26.05";
 
-  # ✅ CONFIRMED 2026-10-02 off the machine itself, over SSH from the booted Apollo
-  # stick: KINGSTON SNV3S1000G, 931.5 GB. The only other block device present was
-  # the Apollo stick itself (sda, 233 GB SanDisk) — do not confuse them.
-  # Everything on this device is destroyed by `apollo-deploy`.
-  installDisk = "/dev/nvme0n1";
-
-  # Disko owns the partition table. Inlined as a let-binding rather than put in
-  # Hosts/Kit-Kat/disko.nix on purpose: import-tree imports EVERY .nix under
-  # Hosts/, so a second .nix here would be read as a flake-parts module. That is
-  # also why hardware.nix next door is a no-op stub. A .json file is safe.
-  diskoConfig = {
-    disko.devices.disk.main = {
-      device = installDisk;
-      type = "disk";
-
-      # Only used by disko's make-disk-image (building a raw/qcow image). It does
-      # NOT size the `--vm-test` VM: disko's test harness hardcodes
-      # `emptyDiskImages = 4096` MiB per disk (lib/tests.nix) with no option to
-      # change it, which is why a layout with a 16 G swap partition can never be
-      # VM-tested. See Claude/deploy.md.
-      imageSize = "32G";
-      content = {
-        type = "gpt";
-        partitions = {
-          ESP = {
-            priority = 1;
-            size = "1G";
-            type = "EF00";
-            content = {
-              type = "filesystem";
-              format = "vfat";
-              mountpoint = "/boot";
-              mountOptions = [ "fmask=0077" "dmask=0077" ];
-            };
-          };
-          # 32G, to match her 31.3 GB of RAM — hibernate writes the whole of RAM
-          # here, so anything smaller makes resumeDevice a lie. Measured off the
-          # machine itself; the earlier 16G was a guess made before we could see it.
-          # Costs 3% of a 931 GB disk.
-          swap = {
-            priority = 2;
-            size = "32G";
-            content = {
-              type = "swap";
-              resumeDevice = true;
-            };
-          };
-          root = {
-            priority = 3;
-            size = "100%";
-            content = {
-              type = "filesystem";
-              format = "ext4";
-              mountpoint = "/";
-            };
-          };
-        };
-      };
-    };
-  };
-
-  # nixos-facter replaces the hand-written hardware block. It does not exist until
-  # the first `apollo-deploy` generates it, so it is picked up conditionally —
-  # that way this host still evaluates (and `--vm-test` still works) beforehand.
-  facterReport = ./facter.json;
-  haveFacter = builtins.pathExists facterReport;
-
-  hardwareConfig = { lib, ... }: {
-    imports = lib.optional haveFacter { hardware.facter.reportPath = facterReport; };
-
-    warnings = lib.optional (!haveFacter) ''
-      Hosts/Kit-Kat/facter.json is missing, so this configuration has no hardware
-      report: no microcode, no detected kernel modules, no firmware. It is fine to
-      `build` or `--vm-test` like this, but do NOT switch it onto real hardware.
-      Generate it with: apollo-deploy kitkat-Kit-Kat
-    '';
-  };
-in {
-  flake.nixosConfigurations."${activeUser}-${hostName}" = inputs.nixpkgs.lib.nixosSystem {
-    system = "x86_64-linux";
-    specialArgs = { inherit inputs activeUser; };
     modules = [
-      # Hardware
-      inputs.disko.nixosModules.disko
-      diskoConfig
-      hardwareConfig
+      ./_hardware.nix
+      ./_disko.nix
 
-      # Home Manager setup
-      inputs.home-manager.nixosModules.home-manager
-      {
-        home-manager.useGlobalPkgs = true;
-        home-manager.useUserPackages = true;
-        home-manager.backupFileExtension = "backup";
-        home-manager.extraSpecialArgs = {
-          inherit inputs activeUser hostName;
-          pkgs-unstable = import inputs.nixpkgs-unstable {
-            system = "x86_64-linux";
-            config.allowUnfree = true;
-          };
-        };
-        home-manager.users.${activeUser} = {
-          home.username = activeUser;
-          home.homeDirectory = "/home/${activeUser}";
-          home.stateVersion = "26.05";
-        };
-      }
-
-      # All modules (system + home config combined)
       self.nixosModules.base
       self.nixosModules.polkit
       self.nixosModules.nvidia
@@ -157,40 +52,19 @@ in {
       self.nixosModules.tailscale
 
       # Deliberately NOT imported, and why:
-      #   grub      — this machine's multi-profile loader; she uses grub-celeste
+      #   grub      — Sisyphus's multi-profile loader; she uses grub-celeste
       #   sddm-nier — rock's greeter; hers is sddm-umbrella (both would collide)
-      #   kde       — she's on Niri now; Modules/Desktops/kde.nix is unused
-      #   skwd-wall — v1/QuickShell; conflicts with skwd (v2) by design
       #   sops      — that module is keyed to rock's hand-copied age key
       #   wolf      — Docker + a render node hardcoded to Sisyphus's RX 9060 XT
       #   sunshine  — pins output_name=HDMI-A-1 and grabs the desktop cursor
       #   rpcs3     — large, needs firmware she may never want
 
-      # System-specific settings
-      ({ config, lib, ... }: {
-        networking.hostName = hostName;
-
-        system.stateVersion = "26.05";
-        # Bootloader comes from Modules/grub-celeste.nix (GRUB + the CelesteGRUB
-        # theme), NOT from Modules/grub.nix — that one is this machine's multi-profile
-        # loader and hardcodes Sisyphus's root UUID.
-
-        # Plymouth's initrd GPU module. Wired here rather than in Modules/nvidia.nix
-        # because the option is declared by Modules/plymouth.nix, and nvidia.nix
+      ({ config, lib, activeUser, ... }: {
+        # Plymouth's initrd GPU module. Wired here rather than in Modules/Core/nvidia.nix
+        # because the option is declared by Modules/Boot/plymouth.nix, and nvidia.nix
         # must stay importable on a host that has no plymouth.
         my.plymouth.initrdGpuModules = [ "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm" ];
 
-        # Her panels are DP-3 and DP-4 — read from /sys/class/drm over SSH while she
-        # was booted from the Apollo stick (DP-1, DP-2 and both HDMI ports report
-        # disconnected). `preferred` rather than a pinned mode because the refresh
-        # rates were never measured; EDID picks correctly and a wrong hardcoded mode
-        # is a black screen. Modules/Desktops/hyprland.nix appends a catch-all after
-        # these, so an unlisted output still lights up.
-        # No Millennium — that is rock's Steam ricing. She gets plain upstream
-        # Steam: no CSS/JS injector, no extra openssl ABIs, no libXtst relink on
-        # every launch (which is what stopped Steam starting at all here).
-        # Square corners everywhere she can see them: Hyprland windows, the
-        # noctalia bar, and the lockscreen widgets each have their own radius.
         # The cat greets her on every new interactive shell. `--once` rather than
         # the looping mode so opening a terminal never blocks, and guarded on an
         # interactive TTY so it cannot corrupt scp/rsync or a non-interactive ssh
@@ -202,6 +76,8 @@ in {
             fi
           '';
 
+        # Square corners everywhere she can see them: Hyprland windows, the
+        # noctalia bar, and the lockscreen widgets each have their own radius.
         my.hyprland.rounding = 0;
 
         # Blur and shadows off — the cheapest per-frame GPU saving on a 60 Hz
@@ -219,18 +95,21 @@ in {
         # Sleek + Coral, instead of rock's local Text theme and its matugen
         # wallpaper pipeline. Setting `theme` also strips the two spicetify skwd
         # integrations, the matugen-colors.js extension and spotify-apply-colors
-        # — see the option description in Modules/spicetify.nix.
+        # — see the option description in Modules/Apps/spicetify.nix.
         my.spicetify = {
           theme = "sleek";
           colorScheme = "Coral";
         };
 
+        # No Millennium — that is rock's Steam ricing. She gets plain upstream
+        # Steam: no CSS/JS injector, no extra openssl ABIs, no libXtst relink on
+        # every launch (which is what stopped Steam starting at all here).
         my.steam.millennium = false;
 
         # ── Her noctalia desktop ──────────────────────────────────────────────
         #
         # Captured from what she actually dialled in through the GUI. It has to be
-        # here: Modules/noctalia.nix force-writes settings.toml on every rebuild,
+        # here: Modules/Desktop/noctalia.nix force-writes settings.toml on every rebuild,
         # so anything not recorded in Nix is silently reverted at the next switch.
         # Read back off her machine, not invented.
         my.noctalia.lockedSettingsExtra = {
@@ -337,7 +216,7 @@ in {
           description = "Kit Kat";
 
           # Her login password, from Secrets/kit-kat.yaml (NOT Secrets/secrets.yaml —
-          # see Modules/sops.nix). This is what gives her a working password on the
+          # see Modules/Core/sops.nix). This is what gives her a working password on the
           # very first boot; without it a fresh install has none at all.
           #
           # Because it is declarative, `passwd` will not stick across a rebuild —
@@ -356,7 +235,7 @@ in {
         nix.settings.trusted-users = [ activeUser ];
 
         # Needed for `system-rebuild kitkat Kit-Kat --target` to reach her. Your
-        # pubkey arrives via Modules/base.nix.
+        # pubkey arrives via Modules/Core/base.nix.
         services.openssh = {
           enable = true;
           settings.PasswordAuthentication = false;
