@@ -9,19 +9,56 @@ SSH rather than Kodi's JSON-RPC on purpose: the headline action is "restart Kodi
 when it has wedged", and a wedged Kodi cannot answer its own API. Kodi's HTTP
 server is disabled on Eclipse anyway (services.webserver = false, JSON-RPC bound
 to 127.0.0.1:9090).
+
+Status is polled by both dashboards (the admin iframe every 10s, MarsBar every
+15s, plus Glance's own server-side fetches), and every poll used to open a
+brand-new SSH session — key exchange and all, ~0.7s each. Two things keep that
+cheap now:
+
+  * SSH connection reuse (ControlMaster): one authenticated connection to the Pi
+    is kept open and every command rides it as a new channel, so a status
+    check costs one round trip instead of a handshake.
+  * a short status cache with in-flight de-duplication (get_status): requests
+    arriving within STATUS_TTL share one answer, and requests arriving while an
+    SSH call is already running wait for that call instead of starting another.
 """
 
+import atexit
 import http.server
 import json
 import os
+import shutil
+import signal
 import socketserver
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 
 ECLIPSE = os.environ.get("ECLIPSE_HOST", "100.80.62.3")
 KEY = os.environ.get("ECLIPSE_KEY", "/run/secrets/eclipse-ssh-key")
 PORT = int(os.environ.get("ECLIPSE_PORT", "9554"))
+
+# The dashboards allowed to call this cross-origin. Mirrors
+# Modules/Server/_origins.nix, which the unit can pass in as DASH_ORIGINS
+# (comma-separated); this default is what applies until it does. Neither
+# dashboard actually needs it today — the admin one iframes this panel (same
+# origin) and MarsBar proxies it onto her own origin — but it replaces a CORS
+# `*` that let ANY web page read status, and see do_POST for the part that
+# matters.
+DASH_ORIGINS = frozenset(o.strip() for o in os.environ.get(
+    "DASH_ORIGINS",
+    "http://asgard:8888,http://asgard.tailb54b82.ts.net:8888,"
+    "http://100.126.205.100:8888,http://marsbar:1111,"
+    "http://marsbar.tailb54b82.ts.net:1111",
+).split(",") if o.strip())
+
+# How long one status answer is reused. Short enough that a dashboard never
+# shows anything meaningfully old; long enough that several open dashboards,
+# Glance's server-side fetches and the panel's own poll collapse into one SSH
+# call between them.
+STATUS_TTL = 5.0
 
 # Jellyfin library IDs (see Claude/eclipse.md)
 MOVIES_ID = "f137a2dd21bbc1b99aa5c0f6bf02a805"
@@ -92,26 +129,90 @@ FONTS = {
 sync_lock = threading.Lock()
 
 
+def _control_dir():
+    """A private directory for the SSH control socket.
+
+    $RUNTIME_DIRECTORY when the unit sets RuntimeDirectory= (systemd creates
+    it, owns it and removes it). Otherwise a fresh mkdtemp() — 0700 and
+    unpredictably named, so nothing else on the box can pre-create or hijack
+    the socket path even in a shared /tmp — removed again on exit.
+    """
+    runtime = os.environ.get("RUNTIME_DIRECTORY", "").split(":")[0]
+    if runtime:
+        return runtime
+    path = tempfile.mkdtemp(prefix="eclipse-ssh-")
+    atexit.register(shutil.rmtree, path, True)
+    return path
+
+
+CONTROL_DIR = _control_dir()
+
+SSH_BASE = [
+    "ssh", "-i", KEY,
+    "-o", "BatchMode=yes",
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "LogLevel=ERROR",
+    "-o", "ConnectTimeout=6",
+    # Connection reuse. The first command opens a master connection that stays
+    # up for ControlPersist seconds after its last use; every command in the
+    # meantime is just a new channel on it. %C is a hash of host/port/user, so
+    # the socket path stays far under the 108-byte unix socket limit.
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPath=" + os.path.join(CONTROL_DIR, "%C"),
+    "-o", "ControlPersist=120",
+    # A master whose peer vanished (the Pi rebooted, its wifi dropped) would
+    # otherwise hand out channels that hang until each command's timeout.
+    # Keepalives notice a dead peer within ~30s and let the master exit.
+    "-o", "ServerAliveInterval=10",
+    "-o", "ServerAliveCountMax=2",
+    "root@" + ECLIPSE,
+]
+
+
+_inflight_lock = threading.Lock()
+_inflight = 0
+
+
+def _drop_master():
+    """Close the shared connection so the next command dials afresh — but only
+    if nothing else is using it: `-O exit` ends every session on the master,
+    and a library sync legitimately runs for tens of seconds. When something
+    else IS in flight, the keepalives above retire a dead master on their own.
+    """
+    with _inflight_lock:
+        if _inflight != 1:
+            return
+    try:
+        subprocess.run(SSH_BASE[:-1] + ["-O", "exit", SSH_BASE[-1]],
+                       capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+
 def ssh(remote_cmd, timeout=30):
     """Run a command on Eclipse. Returns (ok, output)."""
-    argv = [
-        "ssh", "-i", KEY,
-        "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
-        "-o", "ConnectTimeout=6",
-        "root@" + ECLIPSE,
-        remote_cmd,
-    ]
+    global _inflight
+    with _inflight_lock:
+        _inflight += 1
     try:
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(SSH_BASE + [remote_cmd], capture_output=True, text=True,
+                           timeout=timeout)
         out = (p.stdout + p.stderr).strip()
+        if p.returncode == 255:
+            # 255 is ssh's own failure (connect/auth/mux), not the remote
+            # command's. Do not let a wedged master poison the next call.
+            _drop_master()
         return p.returncode == 0, out
     except subprocess.TimeoutExpired:
+        # Usually a master whose connection died half-open.
+        _drop_master()
         return False, "timed out after " + str(timeout) + "s"
     except Exception as exc:
         return False, str(exc)
+    finally:
+        with _inflight_lock:
+            _inflight -= 1
 
 
 STATUS_CMD = (
@@ -134,7 +235,60 @@ def _jellyfin_mode(address):
     return "unknown"
 
 
+_status_lock = threading.Lock()
+_status = {"at": 0.0, "value": None, "inflight": None}
+
+
 def get_status():
+    """The Pi's status, at most STATUS_TTL old, from at most one SSH call.
+
+    The first caller after the cache expires does the SSH; anyone arriving
+    while it runs waits on its Event and shares the answer, rather than
+    opening a second session for the same few lines.
+    """
+    with _status_lock:
+        fresh = _status["value"] is not None and time.monotonic() - _status["at"] < STATUS_TTL
+        if fresh:
+            return _with_speedtest(_status["value"])
+        done = _status["inflight"]
+        leader = done is None
+        if leader:
+            done = _status["inflight"] = threading.Event()
+    if not leader:
+        done.wait(20)
+        with _status_lock:
+            value = _status["value"]
+        if value is not None:
+            return _with_speedtest(value)
+        # The leader failed outright; fall through and try ourselves.
+    try:
+        value = _fetch_status()
+    finally:
+        if leader:
+            with _status_lock:
+                _status["inflight"] = None
+            done.set()
+    with _status_lock:
+        _status.update(at=time.monotonic(), value=value)
+    return _with_speedtest(value)
+
+
+def invalidate_status():
+    """After an action, so the next poll shows its effect rather than the cache."""
+    with _status_lock:
+        _status["at"] = 0.0
+
+
+def _with_speedtest(st):
+    # Not cached with the rest: act_speedtest updates it independently.
+    st = dict(st)
+    st["speed_mbps"] = LAST_SPEEDTEST["mbps"]
+    st["speed_up_mbps"] = LAST_SPEEDTEST["up_mbps"]
+    st["speed_when"] = LAST_SPEEDTEST["when"]
+    return st
+
+
+def _fetch_status():
     ok, out = ssh(STATUS_CMD, timeout=15)
     st = {"reachable": ok, "kodi": "?", "hdmi": "?", "edid": 0,
           "uptime": 0, "mode": "", "jellyfin": "", "error": ""}
@@ -163,9 +317,6 @@ def get_status():
         st["hdmi"] == "connected" and st["kodi"] == "active" and not st["mode"]
     )
     st["jellyfin_mode"] = _jellyfin_mode(st["jellyfin"])
-    st["speed_mbps"] = LAST_SPEEDTEST["mbps"]
-    st["speed_up_mbps"] = LAST_SPEEDTEST["up_mbps"]
-    st["speed_when"] = LAST_SPEEDTEST["when"]
     return st
 
 
@@ -683,7 +834,8 @@ function run(btn) {
   buttons.forEach(function (b) { if (b !== btn) b.disabled = true; });
   btn.classList.add('busy');
   logAdd('running ' + name + '…', '');
-  fetch('act/' + name, { method: 'POST' })
+  // X-Dash is required by do_POST (see there); same-origin, so no preflight.
+  fetch('act/' + name, { method: 'POST', headers: { 'X-Dash': '1' } })
     .then(function (r) { return r.json(); })
     .then(function (j) { logAdd(j.message, j.ok ? 'good' : 'err'); })
     .catch(function (e) { logAdd(String(e), 'err'); })
@@ -710,20 +862,60 @@ buttons.forEach(function (btn) {
   });
 });
 refresh();
-setInterval(refresh, 10000);
+// Only while someone can see it. An iframe reports its parent tab's visibility,
+// so a backgrounded dashboard stops costing the Pi an SSH call every 10s; it
+// catches up the moment the tab is shown again.
+setInterval(function () { if (!document.hidden) refresh(); }, 10000);
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden) refresh();
+});
 </script></body></html>
 """
 
 
+_ZEROS = b"\0" * (256 * 1024)
+
+
+def send_zeros(handler):
+    """Stream the SPEEDTEST_SIZE_MB zero-filled speed-test payload.
+
+    Plain zeros generated on the fly - the point is raw throughput over the
+    path under test, not disk I/O or Jellyfin auth - in fixed chunks, so this
+    never buffers 25MB in RAM. Shared by the Tailscale route on the control port
+    (/speedtest-data) and the LAN-only SpeedtestHandler.
+    """
+    size = SPEEDTEST_SIZE_MB * 1024 * 1024
+    handler.send_response(200)
+    handler.send_header("Content-Type", "application/octet-stream")
+    handler.send_header("Content-Length", str(size))
+    handler.end_headers()
+    sent = 0
+    try:
+        while sent < size:
+            n = min(len(_ZEROS), size - sent)
+            handler.wfile.write(_ZEROS[:n])
+            sent += n
+    except (BrokenPipeError, ConnectionResetError):
+        pass
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    def _cors(self):
+        origin = self.headers.get("Origin")
+        if origin and origin in DASH_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Vary", "Origin")
 
     def _send(self, code, body, ctype):
         raw = body.encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(raw)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if ctype == "application/json":
+            self.send_header("Cache-Control", "no-store")
+        self._cors()
         self.end_headers()
         self.wfile.write(raw)
 
@@ -749,30 +941,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except OSError:
                 self._send(404, "font missing", "text/plain")
         elif path == "speedtest-data":
-            # Plain zero-filled payload, generated on the fly - the point is
-            # raw throughput over this exact Tailscale path, not disk I/O or
-            # Jellyfin auth. Chunked writes so this doesn't buffer 25MB in RAM.
-            size = SPEEDTEST_SIZE_MB * 1024 * 1024
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(size))
-            self.end_headers()
-            chunk = b"\0" * (256 * 1024)
-            sent = 0
-            try:
-                while sent < size:
-                    n = min(len(chunk), size - sent)
-                    self.wfile.write(chunk[:n])
-                    sent += n
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+            # Raw throughput over this exact Tailscale path (the remote case
+            # in act_speedtest).
+            send_zeros(self)
         else:
             self._send(404, "not found", "text/plain")
+
+    def do_OPTIONS(self):
+        # CORS preflight. Only the dashboards get a yes — which, with the
+        # X-Dash requirement below, is what keeps every other origin out.
+        origin = self.headers.get("Origin")
+        allowed = bool(origin) and origin in DASH_ORIGINS
+        self.send_response(204 if allowed else 403)
+        self._cors()
+        if allowed:
+            self.send_header("Access-Control-Allow-Methods", "GET, POST")
+            self.send_header("Access-Control-Allow-Headers", "X-Dash")
+            self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_POST(self):
         path = self.path.split("?")[0].strip("/")
         if not path.startswith("act/"):
             self._send(404, json.dumps({"ok": False, "message": "not found"}),
+                       "application/json")
+            return
+        # Every action is a body-less POST — a "simple" request that a browser
+        # sends cross-origin WITHOUT asking first. With the old CORS `*`, any web
+        # page open on a tailnet browser could reboot the Pi with one fetch().
+        # Requiring a custom header forces a preflight (do_OPTIONS), which only
+        # the dashboards pass; same-origin callers (this panel's own page,
+        # MarsBar through its serve proxy) just send it.
+        if self.headers.get("X-Dash") != "1":
+            self._send(403, json.dumps({"ok": False, "message": "missing X-Dash header"}),
                        "application/json")
             return
         name = path[4:]
@@ -783,6 +985,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         label, fn = entry
         ok, msg = fn()
+        invalidate_status()
         self._send(200, json.dumps({"ok": ok, "action": label, "message": msg or label}),
                    "application/json")
 
@@ -805,20 +1008,7 @@ class SpeedtestHandler(http.server.BaseHTTPRequestHandler):
     """
 
     def do_GET(self):
-        size = SPEEDTEST_SIZE_MB * 1024 * 1024
-        self.send_response(200)
-        self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Length", str(size))
-        self.end_headers()
-        chunk = b"\0" * (256 * 1024)
-        sent = 0
-        try:
-            while sent < size:
-                n = min(len(chunk), size - sent)
-                self.wfile.write(chunk[:n])
-                sent += n
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+        send_zeros(self)
 
     def do_PUT(self):
         """Drain an upload and discard it - the counterpart to do_GET.
@@ -868,6 +1058,9 @@ class SpeedtestHandler(http.server.BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    # systemd stops us with SIGTERM; turning it into a normal exit is what lets
+    # atexit remove a mkdtemp() control directory (see _control_dir).
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     threading.Thread(
         target=Server(("0.0.0.0", SPEEDTEST_LAN_PORT), SpeedtestHandler).serve_forever,
         daemon=True,

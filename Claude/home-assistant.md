@@ -71,8 +71,64 @@ ssh asgard 'cd ~/Dots && git apply /tmp/x.patch'
 ssh asgard 'cd ~/Dots && NIXOS_INSTALL_BOOTLOADER=0 sudo nixos-rebuild switch --flake .#rock-Asgard'
 ```
 
-**New `.nix` files must be `git add`-ed on Asgard too** — import-tree only sees tracked files,
-so an unstaged module is silently ignored.
+**New files must be `git add`-ed on Asgard too** — import-tree only sees tracked files,
+so an unstaged module is silently ignored, and a flake build cannot see an untracked
+`Resources/…` file or `Modules/Server/_plugs.nix` at all (eval fails "path does not
+exist"). `git apply` creates new files untracked.
+
+## ha-bridge — live plug state for the dashboards
+
+**Code:** `Resources/HA-Bridge/ha-bridge.py` · **unit:** `ha-bridge` · **port:** 9556 (tailnet only)
+**Config:** generated from `Modules/Server/_plugs.nix` into a JSON file (`HA_BRIDGE_CONFIG`)
+
+| Verb | What |
+|---|---|
+| `GET /events` | Server-Sent Events: `snapshot` on connect, then one `state` event per change, `link` when the HA connection changes, `ping` every 15s |
+| `GET /states` | the snapshot as `{entity: state}` — from memory, so free to call |
+| `POST /toggle/<entity>` | toggle an `ALLOWED` entity; needs `X-Dash: 1`; waits (≤2s) for HA to report the new state and returns it plus the whole snapshot |
+
+**Push, not poll.** One websocket to HA (`/api/websocket`, `subscribe_entities`
+filtered to the watched entities, so HA only sends what we care about) feeds the
+snapshot; every dashboard holds one EventSource (`Resources/Glance/lights.js`).
+Before this, every open page polled `/states` every 3s and **each poll made the
+bridge download HA's entire `/api/states`**. If the websocket drops, the bridge
+reconnects with backoff (1s → 30s) and meanwhile polls `/api/states/<entity>` for
+the watched entities only, every 10s, telling the pages (`link: polling`, shown as
+"Delayed").
+
+**Watched** = every plug relay (machines too — read-only is still worth seeing), the
+Living Room Lights group, and each plug's `sensor.<slug>_power`. **Allowed** = the
+group and the `light = true` plugs. Both come from `_plugs.nix`; adding a plug there
+updates the bridge, the HA group and MarsBar's tiles together.
+
+Python deps: `python3.withPackages (ps: [ps.aiohttp])` — the stdlib has no
+websocket client. aiohttp also serves the HTTP side.
+
+Test it from Asgard:
+
+```bash
+curl -sN http://localhost:9556/events          # snapshot, then live events
+curl -s  http://localhost:9556/states | jq
+curl -s -XPOST -H 'X-Dash: 1' http://localhost:9556/toggle/switch.colour_lamp_switch
+journalctl -u ha-bridge -n 50                  # link transitions + websocket errors
+```
+
+## The `ha-token` secret
+
+An **admin** long-lived token: anything holding it can call any HA service, including
+`switch.toggle` on `switch.server_power_switch`. It was mode `0444` (any local uid
+could read it and bypass the bridge's allowlist entirely). Now:
+
+- `ha-bridge` gets it as a systemd credential (`LoadCredential=ha-token:…`, read
+  from `$CREDENTIALS_DIRECTORY/ha-token`) — systemd copies the root-only file into a
+  directory only that unit's DynamicUser can read.
+- The main Glance still reads `/run/secrets/ha-token` itself (`${secret:ha-token}`
+  in its HA widgets), so the file is `0440 root:ha-token` and `glance.service` has
+  `SupplementaryGroups=ha-token`. **To finish:** give Glance its own credential
+  (`LoadCredential` + Glance's `${readFileFromEnv:VAR}`, or a `sops.templates` env
+  file), then drop the group and leave the secret at the default root-only `0400`.
+- `restartUnits = ["ha-bridge.service"]`: a credential is copied at unit start, so a
+  rotated token needs a restart to reach the bridge.
 
 ## Troubleshooting
 
@@ -84,6 +140,14 @@ ssh asgard 'curl -sI http://localhost:8123 | head -3'
 
 First start is slow (it builds its initial DB). Onboarding is at `http://asgard:8123` — create
 the owner account there; it is **not** declarable.
+
+## Living Room Lights group
+
+`switch.living_room_lights` is a `group` platform switch declared in
+`home-assistant.nix`; its members are generated from the `light = true` plugs in
+`Modules/Server/_plugs.nix`. HA derives the entity id from the group's `name`, so
+renaming it renames the entity — change `group.entity` in `_plugs.nix` in the same
+edit.
 
 ## Glance
 

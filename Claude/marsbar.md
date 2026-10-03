@@ -1,8 +1,10 @@
 # MarsBar — partner-facing dashboard
 
 **Module:** `Modules/Server/marsbar.nix` · imported by `Hosts/Asgard/system.nix`
+**Styling/scripts:** `Resources/MarsBar/marsbar.{css,js}` + the shared `Resources/Glance/lights.js`
+**Plugs:** `Modules/Server/_plugs.nix` (the one inventory — see Safety)
 **URL:** `http://marsbar:1111/` (tailnet only)
-**Built:** 2026-09-19
+**Built:** 2026-09-19 · live lights + restyle 2026-10-03
 
 A second, deliberately small Glance for the user's partner: house lights,
 Jellyfin/Jellyseerr links, and the Eclipse TV-box controls. Purple, so it is never
@@ -26,7 +28,10 @@ her browser ──► marsbar:1111 ──► tailscaled (userspace netstack, own
                                    └── /net-api/*    → 127.0.0.1:9555  network-panel
 ```
 
-Every backend binds **loopback only**. Nothing here opens a firewall port — the
+Only `glance-marsbar` binds **loopback only**. The three APIs are shared with the
+admin dashboard, which calls them directly over Asgard's tailnet address, so they
+listen on `0.0.0.0` and are kept off the LAN by the firewall (none is in
+`allowedTCPPorts`; only `tailscale0` is trusted). Nothing here opens a port — the
 serve proxy terminates inside tailscaled, so neither the LAN nor Asgard's own
 tailnet node can reach this dashboard.
 
@@ -67,14 +72,30 @@ remove a published endpoint.
 
 Multi-line HTML interpolated into a YAML block scalar arrives with its
 continuation lines at column 0 — below the scalar's indent — which silently ends
-the scalar and yields `yaml: line N: could not find expected ':'`. **Emit each
-card as ONE line.**
+the scalar and yields `yaml: line N: could not find expected ':'`. This forced
+every card onto ONE line while the config was hand-written YAML. **The config is
+now a Nix attrset serialised by `pkgs.formats.yaml`**, and the CSS/JS are real
+files in Glance's assets dir, so neither problem can recur — never go back to
+`readFile`-ing or interpolating anything into an indented block scalar.
 
-### Entity ids cannot be read from Glance templates
+### Entity ids in Glance templates need an escaped dot
 
-Keys like `switch.colour_lamp_switch` contain dots, and Glance treats a dot as a
-nested path, so `.JSON.String` on them never resolves. All light cards are rendered
-statically and painted by the `document.head` script.
+Keys like `switch.colour_lamp_switch` contain dots, and Glance resolves
+`.JSON.String` paths with gjson, where a dot means "nested" — so the plain key
+never resolves. **Escape the dot**: `{{ .JSON.String "switch\\.colour_lamp_switch" }}`
+(the Go string literal unescapes `\\` once, leaving gjson's `\.`). That is how each
+light tile is server-rendered with its real state (`stateOf` in `marsbar.nix`).
+
+### `rem` is 10px in Glance
+
+Glance sets `:root { font-size: 10px }` (9.4px under 550px wide). The old
+"bigger" labels at `1.1rem` were ~10px on her phone. Size against 10px.
+
+### Assets are cached for 2h
+
+Glance serves `/assets/` with a 2-hour `Cache-Control`. The scripts are linked with
+`?v=<content hash>` (the `asset` helper) so a deploy reaches her phone immediately;
+`custom-css-file` needs nothing because Glance stamps it with its own start time.
 
 ### HTTPS was tried and reverted
 
@@ -97,15 +118,26 @@ first names) can never leak this way — the Android client has no `tailscale ce
 
 ## Safety
 
-The light list in `marsbar.nix` **must stay a subset of `ALLOWED`** in
-`Modules/Server/home-assistant.nix`. That set — not this UI — is what stops
-`switch.server_power_switch` and `switch.eclipse_switch` being toggled. Verified
-through the proxy: `POST /ha/toggle/switch.server_power_switch` → **403
-`not toggleable`**, relay left `on`.
+Her light tiles, ha-bridge's `ALLOWED` set and the Living Room Lights group are
+all generated from **`Modules/Server/_plugs.nix`**, so the tiles can no longer
+drift out of the allowlist. A plug marked `light = false` (Asgard's and Eclipse's
+relays) is never drawn here and never toggleable anywhere. `ALLOWED` — not this UI
+— is what stops `switch.server_power_switch` and `switch.eclipse_switch` being
+toggled. Verified through the proxy: `POST /ha/toggle/switch.server_power_switch`
+→ **403 `not toggleable`**, relay left `on`.
 
-Three independent layers protect the server relay: the ACL, the bridge allowlist,
-and the HA token never leaving the server. Even a misconfigured ACL cannot cut
-power to Asgard.
+Four independent layers protect the server relay: the ACL, the bridge allowlist,
+the `X-Dash` header (below), and the HA token never leaving the server — it is now
+root-only too, not world-readable (`Claude/home-assistant.md`). Even a
+misconfigured ACL cannot cut power to Asgard.
+
+**Cross-site POSTs.** ha-bridge (`/toggle/*`), eclipse-control (`/act/*`) and
+network-panel (`/run`) refuse a POST without an `X-Dash: 1` header, and answer CORS
+only for the dashboard origins in `Modules/Server/_origins.nix` (never `*`). A
+custom header forces a CORS preflight, which only those origins pass, so a random
+web page open in a tailnet browser can no longer fire them with a one-line
+`fetch()`. Same-origin callers (MarsBar via serve, the eclipse panel's own page)
+just send the header.
 
 Not exposed to her: `reboot` (bounces the TV box) and `jellyfin-toggle` (changes
 stream routing). Both are one line to add in `tvActions` if wanted.
@@ -142,9 +174,40 @@ stream routing). Both are one line to add in `tvActions` if wanted.
   dashboard does. The iframe exists there because Glance's `html` widget sanitises
   markup — but `custom-api` + a `document.head` script has no such limit, which buys
   the purple theme for free and a layout that works on a phone.
-- `custom-api` widgets use **`cache: 1h`**. Nothing is rendered from those fetches —
-  the head scripts paint every value and poll — so re-fetching per navigation bought
-  only latency. The Eclipse one SSHes to the Pi and cost ~0.7s on every page load;
-  caching took repeat navigation from 0.82s to 0.003s.
-- Light state polls every **3s** (see `Claude/server-info.md` — the admin dashboard
-  needed the same fix; it previously never auto-refreshed at all).
+- The Eclipse and Network `custom-api` widgets use **`cache: 1h`**. Nothing is
+  rendered from those fetches — `marsbar.js` paints every value and polls — so
+  re-fetching per navigation bought only latency. The Eclipse one SSHes to the Pi
+  and cost ~0.7s on every page load; caching took repeat navigation from 0.82s to
+  0.003s.
+- The **Lights** widget is the exception, at `cache: 1s`: its `/states` answer
+  renders each tile's real state server-side (no grey flash, no reflow), and the
+  bridge answers from memory, so it costs nothing.
+- Pollers (`marsbar.js`): TV status every **15s**, network every **2s** — each only
+  on the page that has its widget, only while the tab is visible, and immediately
+  on becoming visible again.
+- Phone-first: one column at ~390px; on a desktop the lamps and actions flow into a
+  grid (`auto-fill, minmax(250px, 1fr)`) under a `width: slim` page.
+
+---
+
+## Live lights (no polling)
+
+`Resources/Glance/lights.js` — shared with the admin dashboard — holds one
+`EventSource` on `ha-bridge`'s `/events` (here `/ha/events`, through serve). The
+bridge keeps an in-memory snapshot from HA's websocket and pushes every change, so a
+lamp flipped from her phone, the HA app, an automation or the plug's own button
+shows on every open dashboard within a few hundred ms (measured ~2ms bridge →
+browser locally). Details in `Claude/home-assistant.md`.
+
+- **Tap** → the tile flips immediately (optimistic, a pulsing knob while
+  unconfirmed); the group tile flips its members too. A failed toggle rolls back and
+  shows "Failed".
+- **Badge** next to "Everything": `Live` (green) · `Delayed` (bridge is polling HA
+  because HA's websocket is down) · `Reconnecting…` (stream down — tiles go
+  desaturated so stale state never looks confident) · `Home Assistant offline`.
+- Works through `tailscale serve` unchanged: serve is a Go `httputil.ReverseProxy`,
+  which flushes `text/event-stream` immediately, and the bridge sends a `ping` event
+  every 15s (an event, not a `:` comment, so the page can detect a half-open stream
+  and reconnect).
+- A hidden tab parks its stream after 60s and re-syncs on return; a page without a
+  light tile never opens one.

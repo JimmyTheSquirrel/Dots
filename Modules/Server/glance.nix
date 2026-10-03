@@ -781,7 +781,7 @@
                 btn.addEventListener("click", function () {
                   btn.disabled = true;
                   btn.textContent = "Running";
-                  fetch(API + "/run", { method: "POST" })
+                  fetch(API + "/run", { method: "POST", headers: { "X-Dash": "1" } })
                     .then(tick)
                     .catch(function () { btn.textContent = "Failed"; });
                 });
@@ -860,7 +860,7 @@
                 btn.disabled = true;
                 btn.textContent = "···";
 
-                fetch(API + "/toggle/" + encodeURIComponent(entity), { method: "POST" })
+                fetch(API + "/toggle/" + encodeURIComponent(entity), { method: "POST", headers: { "X-Dash": "1" } })
                   .then(function (r) { return r.json(); })
                   .then(function (d) {
                     btn.disabled = false;

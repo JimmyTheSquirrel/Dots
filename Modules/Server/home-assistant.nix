@@ -2,98 +2,40 @@
   # Home Assistant — home automation (smart plugs, sensors, etc).
   # Asgard only. Web UI on :8123, tailnet-only like the rest of the stack.
   #
-  # NOT in Modules/Server/server.nix deliberately: Asgard's copy of server.nix carries
-  # large uncommitted local work and diverges from the Sisyphus copy, so it must
-  # not be edited from here. A standalone module sidesteps that entirely.
-  flake.nixosModules.home-assistant = {lib, pkgs, ...}: let
+  # Its own nixosModule rather than part of nixosModules.server, so the
+  # automation side can be dropped from (or added to) a host on its own.
+  flake.nixosModules.home-assistant = {config, lib, pkgs, ...}: let
+    # The one plug inventory (entity ids, labels, which are lamps). The bridge's
+    # allowlist, its watch list and the Living Room Lights group are all derived
+    # from it below — see Modules/Server/_plugs.nix.
+    inventory = import ./_plugs.nix;
+
     # ── Glance → HA bridge ───────────────────────────────────────────────────
     # Glance renders every widget server-side and injects the markup with
-    # innerHTML, so the dashboard cannot talk to HA by itself: a <script> in a
-    # widget template never executes, embedding the token would publish it in
-    # page source, and HA refuses cross-origin calls anyway. This holds the
-    # token server-side and exposes exactly two verbs.
+    # innerHTML, so the dashboards cannot talk to HA by themselves: a <script>
+    # in a widget template never executes, embedding the token would publish it
+    # in page source, and HA refuses cross-origin calls anyway. This holds the
+    # token server-side, keeps a live snapshot of the plugs over HA's websocket
+    # and pushes every change to the dashboards as Server-Sent Events. See
+    # Resources/HA-Bridge/ha-bridge.py.
     #
-    # ⚠ ALLOWED is the safety boundary, not the UI. The dashboard renders
+    # ⚠ `allowed` is the safety boundary, not the UI. The dashboards render
     # Asgard's and Eclipse's relays as locked, but a locked button is only a
-    # suggestion — anything reachable on the tailnet could POST here. Keeping
-    # those two entity IDs out of this set is what actually stops a stray
-    # request hard-cutting a running machine mid-write.
-    haBridge = pkgs.writeText "ha-bridge.py" ''
-      import json, os, time, urllib.request
-      from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    # suggestion — anything reachable on the tailnet could POST here. Those two
+    # are `light = false` in the inventory, which keeps them out of this list,
+    # and that is what actually stops a stray request hard-cutting a running
+    # machine mid-write.
+    haBridgeConfig = pkgs.writeText "ha-bridge.json" (builtins.toJSON {
+      allowed = inventory.toggleable;
+      watched = inventory.watched;
+      # The pages allowed to call it cross-origin (and so to pass the
+      # preflight its X-Dash header forces) — see Modules/Server/_origins.nix.
+      origins = import ./_origins.nix;
+    });
 
-      HA = "http://localhost:8123"
-      TOKEN_PATH = "/run/secrets/ha-token"
-      PORT = int(os.environ.get("HA_BRIDGE_PORT", "9556"))
-
-      ALLOWED = {
-          "switch.colour_lamp_switch",
-          "switch.lounge_room_lamp_switch",
-          "switch.christmas_lights_switch",
-          "switch.living_room_lights",
-      }
-
-      def ha(path, payload=None):
-          with open(TOKEN_PATH) as f:
-              token = f.read().strip()
-          req = urllib.request.Request(
-              HA + path,
-              data=json.dumps(payload).encode() if payload is not None else None,
-              headers={"Authorization": "Bearer " + token,
-                       "Content-Type": "application/json"},
-              method="POST" if payload is not None else "GET")
-          with urllib.request.urlopen(req, timeout=10) as r:
-              raw = r.read()
-              return json.loads(raw) if raw else None
-
-      class Handler(BaseHTTPRequestHandler):
-          def reply(self, code, obj):
-              body = json.dumps(obj).encode()
-              self.send_response(code)
-              self.send_header("Content-Type", "application/json")
-              self.send_header("Access-Control-Allow-Origin", "*")
-              self.send_header("Access-Control-Allow-Headers", "content-type")
-              self.send_header("Content-Length", str(len(body)))
-              self.end_headers()
-              self.wfile.write(body)
-
-          def do_OPTIONS(self):
-              self.reply(200, {})
-
-          def do_GET(self):
-              if self.path != "/states":
-                  return self.reply(404, {"error": "not found"})
-              try:
-                  rows = ha("/api/states") or []
-                  self.reply(200, {s["entity_id"]: s["state"] for s in rows
-                                   if s["entity_id"].split(".")[0] in ("switch", "light")})
-              except Exception as exc:
-                  self.reply(502, {"error": str(exc)})
-
-          def do_POST(self):
-              if not self.path.startswith("/toggle/"):
-                  return self.reply(404, {"error": "not found"})
-              entity = self.path[len("/toggle/"):]
-              if entity not in ALLOWED:
-                  return self.reply(403, {"error": "not toggleable", "entity": entity})
-              try:
-                  ha("/api/services/" + entity.split(".")[0] + "/toggle",
-                     {"entity_id": entity})
-                  # HA applies service calls asynchronously and a group switch
-                  # only settles once its members report back, so an immediate
-                  # read returns the OLD state and the button appears to do
-                  # nothing. Give it a beat before reading back.
-                  time.sleep(0.6)
-                  state = (ha("/api/states/" + entity) or {}).get("state")
-                  self.reply(200, {"entity": entity, "state": state})
-              except Exception as exc:
-                  self.reply(502, {"error": str(exc)})
-
-          def log_message(self, *args):
-              pass
-
-      ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
-    '';
+    # aiohttp: the stdlib has no websocket client, and it brings an async HTTP
+    # server too, which is what holding one open stream per dashboard wants.
+    haBridgePython = pkgs.python3.withPackages (ps: [ps.aiohttp]);
   in {
     services.home-assistant = {
       enable = true;
@@ -152,56 +94,84 @@
         # toggle from the dashboard, the HA app and automations alike, with its
         # state derived from the members (on if any member is on).
         #
-        # Members are the three lamp plugs. Asgard's and Eclipse's relays are
-        # deliberately NOT here — a group toggle that also cuts the server would
-        # be a spectacular way to lose an array.
+        # Members are every `light = true` plug in the inventory. Asgard's and
+        # Eclipse's relays can never end up here — a group toggle that also
+        # cuts the server would be a spectacular way to lose an array.
         switch = [
           {
             platform = "group";
-            name = "Living Room Lights";
-            entities = [
-              "switch.colour_lamp_switch"
-              "switch.lounge_room_lamp_switch"
-              "switch.christmas_lights_switch"
-            ];
+            inherit (inventory.group) name;
+            entities = inventory.group.members;
           }
         ];
       };
     };
 
-    # Bridge that lets the Glance dashboard toggle switches — see haBridge above.
+    # Bridge that lets the dashboards see and toggle switches — see
+    # haBridgeConfig above and Resources/HA-Bridge/ha-bridge.py.
     # Port 9556 is deliberately absent from allowedTCPPorts: reachable over the
-    # trusted tailscale0 only, exactly like network-panel on 9555.
+    # trusted tailscale0 only, exactly like network-panel on 9555. (It binds
+    # 0.0.0.0 because the admin Glance calls it directly over the tailnet;
+    # MarsBar reaches it through its own serve proxy at /ha.)
     systemd.services.ha-bridge = {
-      description = "Home Assistant toggle bridge for the Glance dashboard";
+      description = "Home Assistant live-state bridge for the Glance dashboards";
       after = ["home-assistant.service"];
       wants = ["home-assistant.service"];
       wantedBy = ["multi-user.target"];
-      environment.HA_BRIDGE_PORT = "9556";
+      environment = {
+        HA_BRIDGE_PORT = "9556";
+        HA_BRIDGE_CONFIG = "${haBridgeConfig}";
+      };
       serviceConfig = {
-        ExecStart = "${pkgs.python3}/bin/python3 ${haBridge}";
+        ExecStart = "${haBridgePython}/bin/python3 ${../../Resources/HA-Bridge/ha-bridge.py}";
         Restart = "always";
         RestartSec = 5;
         DynamicUser = true;
-        # ha-token is mode 0444 precisely so a DynamicUser can read it.
+        # The token arrives as a systemd credential: systemd (as root) copies
+        # the root-only sops file into a private, per-service directory
+        # ($CREDENTIALS_DIRECTORY) that only this unit's DynamicUser can read.
+        # This is what lets the secret itself stop being world-readable — see
+        # sops.secrets."ha-token" below.
+        LoadCredential = "ha-token:${config.sops.secrets."ha-token".path}";
         ProtectSystem = "strict";
         ProtectHome = true;
         PrivateTmp = true;
+        PrivateDevices = true;
+        ProtectKernelTunables = true;
+        ProtectControlGroups = true;
+        RestrictAddressFamilies = ["AF_INET" "AF_INET6" "AF_UNIX"];
+        LockPersonality = true;
       };
     };
 
-    # Long-lived access token for the Glance power-monitoring widgets
-    # (Modules/Server/server.nix) to authenticate to HA's REST API. Value is set by
-    # hand via `sops Secrets/secrets.yaml` — HA tokens can't be minted
-    # declaratively, they require an existing logged-in session.
+    # Long-lived access token for HA's API, used by ha-bridge (above) and by the
+    # Glance power-monitoring widgets (Modules/Server/glance.nix). Value is set by hand
+    # via `sops Secrets/secrets.yaml` — HA tokens can't be minted declaratively,
+    # they require an existing logged-in session.
     #
-    # mode = "0444": Glance runs as a systemd DynamicUser (random UID per
-    # start), so there's no static user to `owner =` this to. Readable by any
-    # local user, which is acceptable here — Asgard is single-user and the
-    # token only grants read access Glance already needs, over localhost.
+    # ⚠ This is an ADMIN token: anything holding it can call any HA service,
+    # including switch.toggle on switch.server_power_switch — Asgard's own mains
+    # feed. It used to be mode 0444 ("read access Glance already needs"), which
+    # let every local uid read it and cut the power, bypassing ha-bridge's
+    # allowlist entirely.
+    #
+    # Now: owned by root, readable only by the `ha-token` group.
+    #   • ha-bridge does not need the group — it gets a credential copy (above).
+    #   • Glance does, for now: its HA widgets read this file with Glance's
+    #     ${secret:ha-token} syntax, and as a DynamicUser it has no static uid
+    #     to `owner =` this to. A supplementary group works with DynamicUser.
+    # TODO: give glance.service its own LoadCredential + Glance's
+    # ${readFileFromEnv:…} (or a sops.templates env file) and drop the group
+    # and the SupplementaryGroups line below, leaving this root-only 0400.
     sops.secrets."ha-token" = {
-      mode = "0444";
+      mode = "0440";
+      group = "ha-token";
+      # A credential is copied at unit start, so a rotated token only reaches
+      # the bridge on restart.
+      restartUnits = ["ha-bridge.service"];
     };
+    users.groups.ha-token = {};
+    systemd.services.glance.serviceConfig.SupplementaryGroups = ["ha-token"];
 
     # Discovery protocols are multicast and arrive unsolicited, so the firewall
     # drops them unless explicitly allowed. Scoped to the LAN interface — the
