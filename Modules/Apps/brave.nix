@@ -77,28 +77,53 @@ in {
       programs.brave = {
         enable = true;
 
-        # Chromium only honours the LAST --enable-features it is given, so these
-        # have to be built as one comma-joined flag. Passing the flag twice (as
-        # this did until 2026-10-03) silently dropped UseOzonePlatform the moment
-        # forceDarkMode was turned on.
+        # Chromium only honours the LAST --enable-features it is given, so every
+        # feature has to travel in ONE comma-joined flag. Passing the flag twice
+        # (as this did until 2026-10-03) silently dropped the first set.
+        #
+        # The same rule bites across the wrapper: these args are appended AFTER
+        # the nixpkgs brave wrapper's own `--enable-features=AcceleratedVideo-
+        # DecodeLinuxGL,AcceleratedVideoEncoder` (plus WaylandWindowDecorations
+        # under NIXOS_OZONE_WL — pkgs/by-name/br/brave/make-brave.nix). So any
+        # flag emitted here REPLACES that one, and the old always-on
+        # `--enable-features=UseOzonePlatform[,…]` was quietly switching off
+        # VA-API video decode/encode and Wayland decorations on every launch.
+        # Hence: no flag at all unless there is a feature to add, and when there
+        # is, the wrapper's set is repeated first. Re-check that list against
+        # make-brave.nix when nixpkgs moves.
+        #
+        # UseOzonePlatform itself is gone: Ozone has been Chromium's only Linux
+        # backend for years, so the feature does nothing — `--ozone-platform`
+        # below is what selects Wayland.
         commandLineArgs =
           let
-            features = [ "UseOzonePlatform" ]
+            wrapperFeatures = [
+              "AcceleratedVideoDecodeLinuxGL"
+              "AcceleratedVideoEncoder"
+              "WaylandWindowDecorations"
+            ];
+            ourFeatures =
               # `--force-dark-mode` darkens the browser's own chrome; the
               # WebContentsForceDark feature is what darkens pages that have no
               # dark theme. Without the second, only the frame goes dark and
               # sites stay blinding, which reads as "it didn't work".
-              ++ lib.optional osConfig.my.brave.forceDarkMode "WebContentsForceDark";
+              lib.optional osConfig.my.brave.forceDarkMode "WebContentsForceDark";
           in
           [
             "--password-store=basic"
-            "--enable-features=${lib.concatStringsSep "," features}"
             "--ozone-platform=wayland"
             "--user-data-dir=${config.home.homeDirectory}/.config/BraveSoftware/Brave-Browser-${hostName}"
           ]
+          ++ lib.optional (ourFeatures != [ ])
+            "--enable-features=${lib.concatStringsSep "," (wrapperFeatures ++ ourFeatures)}"
           ++ lib.optional osConfig.my.brave.forceDarkMode "--force-dark-mode";
       };
 
+      # Normal priority on purpose. Modules/Apps/helium.nix sets the same three
+      # keys with lib.mkDefault, so wherever both browsers are imported (Kit-Kat)
+      # Brave is the default — by priority, not by which module happens to be
+      # listed first. (Both used to be normal priority; the lists concatenated
+      # in import order, and Brave won only by sitting earlier in the host file.)
       xdg.mimeApps = {
         enable = true;
         defaultApplications = {
@@ -107,8 +132,6 @@ in {
           "x-scheme-handler/https" = [ "brave-browser.desktop" ];
         };
       };
-
-      programs.zsh.shellAliases.brave = "brave";
     };
   };
 }

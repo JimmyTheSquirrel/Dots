@@ -18,7 +18,11 @@
     # bumping again; when stable catches up to >= 4.10.3050.0, drop this override.
     widevine-cdm = pkgs-unstable.widevine-cdm;
   in {
-    home-manager.users.${activeUser} = {config, ...}: {
+    home-manager.users.${activeUser} = {
+      config,
+      lib,
+      ...
+    }: {
       # Widevine CDM for DRM video (Crunchyroll etc). The Helium package bundles a
       # CDM (see the widevine-cdm override below), but that copy is registered by the
       # component updater ~400ms AFTER startup, while Chromium decides which CDM to
@@ -46,12 +50,21 @@
         force = true;
       };
 
+      # lib.mkDefault: Helium is the browser of last resort here. A host that
+      # also imports Modules/Apps/brave.nix (Kit-Kat) gets Brave, whose
+      # normal-priority definition replaces these outright instead of being
+      # concatenated with them in whatever order the modules were imported.
+      #
+      # Per KEY, not around the whole attrset: base.nix defines other keys of
+      # defaultApplications at normal priority, and a mkDefault on the whole
+      # set would lose to that on every host — Helium would stop being the
+      # default browser even where it is the only one.
       xdg.mimeApps = {
         enable = true;
         defaultApplications = {
-          "text/html" = [ "helium.desktop" ];
-          "x-scheme-handler/http" = [ "helium.desktop" ];
-          "x-scheme-handler/https" = [ "helium.desktop" ];
+          "text/html" = lib.mkDefault [ "helium.desktop" ];
+          "x-scheme-handler/http" = lib.mkDefault [ "helium.desktop" ];
+          "x-scheme-handler/https" = lib.mkDefault [ "helium.desktop" ];
         };
       };
 
@@ -98,14 +111,14 @@ EOF
               # Strip source maps — debug files not needed at runtime (saves ~28MB)
               find $out -name "*.map" -delete
               jq '. + {"key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmqKbvreshyXRuN2gikeR1idqR6KL0Di89JZcMyD4bjJRZVmQO7aznSGSALIHzSAUGYocUYBNDOP5QAhImxXyQ1qG8+goXs93v9GzrNJETdVuCEhqBggC4/DFabryJZDiKvZ2Jl0DM7MsWdoybZPwrj70V3aJ/nVNOMkf868scNTMliwitCqqjT5baTANsG0DkZWQExD4lSXzSZHH9MEO8q0iZ7RRlNuGRBAkZgNV8FwZRsPKm/rwQ9dy3VpgLcmLp5GiMt+kAEncqKAkuRYnhVXXBsKqIyYTMjHSLkLnpfFySyOPLBdS617i/PGNiP/MT6Xy6z//v5NozUgaAZ4gJQIDAQAB"}' \
-                $out/manifest.json > /tmp/manifest.json
-              mv /tmp/manifest.json $out/manifest.json
+                $out/manifest.json > "$TMPDIR/manifest.json"
+              mv "$TMPDIR/manifest.json" $out/manifest.json
             '';
           in
             pkgs.symlinkJoin {
               name = "helium";
               paths = [helium-pkg];
-              buildInputs = [pkgs.makeWrapper];
+              nativeBuildInputs = [pkgs.makeWrapper];
               postBuild = ''
                 wrapProgram $out/bin/helium \
                   --add-flags "--load-extension=${bitwarden-extension},${helium-dark-theme}" \
