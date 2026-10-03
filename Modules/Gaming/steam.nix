@@ -306,15 +306,6 @@ in {
 
     millennium = inputs.millennium.packages.${pkgs.stdenv.hostPlatform.system}.millennium;
 
-    # Millennium is a CSS/JS injector for the Steam client — it is what makes
-    # Steam themeable at all. Full writeup in Claude/steam.md; read it before
-    # changing anything here.
-    #
-    # The glass effect is NOT produced by this module. Steam's CEF surface has no
-    # alpha channel, so the theme cannot make Steam see-through — that comes from
-    # the `opacity 0.85` window rule on app-id "steam" in Modules/Desktop/niri.nix.
-    # The theme's job is only to make Steam look right at 85%.
-    #
     # The Steam EVERY host gets, Millennium or not. These used to exist only
     # inside the Millennium build, so a host with my.steam.millennium = false
     # (Kit-Kat) silently lost the audio fix along with the theming.
@@ -332,6 +323,15 @@ in {
       extraEnv = config.my.steam.extraEnv;
     };
 
+    # Millennium is a CSS/JS injector for the Steam client — it is what makes
+    # Steam themeable at all. Full writeup in Claude/steam.md; read it before
+    # changing anything here.
+    #
+    # The glass effect is NOT produced by this module. Steam's CEF surface has no
+    # alpha channel, so the theme cannot make Steam see-through — that comes from
+    # the `opacity 0.85` window rule on app-id "steam" in Modules/Desktop/niri.nix.
+    # The theme's job is only to make Steam look right at 85%.
+    #
     # Upstream ships a `millennium-steam` package, but it
     # is built against upstream's own pinned nixpkgs, which would pull a second
     # Steam into the closure and drop the audio-library override above. So the
