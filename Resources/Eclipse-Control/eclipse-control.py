@@ -41,8 +41,8 @@ KEY = os.environ.get("ECLIPSE_KEY", "/run/secrets/eclipse-ssh-key")
 PORT = int(os.environ.get("ECLIPSE_PORT", "9554"))
 
 # The dashboards allowed to call this cross-origin. Mirrors
-# Modules/Server/_origins.nix, which the unit can pass in as DASH_ORIGINS
-# (comma-separated); this default is what applies until it does. Neither
+# Modules/Server/_origins.nix, which Modules/Server/eclipse.nix passes in as
+# DASH_ORIGINS (comma-separated); this default only applies when run by hand. Neither
 # dashboard actually needs it today — the admin one iframes this panel (same
 # origin) and MarsBar proxies it onto her own origin — but it replaces a CORS
 # `*` that let ANY web page read status, and see do_POST for the part that

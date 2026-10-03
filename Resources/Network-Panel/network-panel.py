@@ -51,8 +51,8 @@ PORT = int(os.environ.get("NETPANEL_PORT", "9555"))
 RESULT = os.environ.get("NETPANEL_RESULT", "/var/lib/speedtest/latest.json")
 UNIT = os.environ.get("NETPANEL_UNIT", "speedtest.service")
 
-# Mirrors Modules/Server/_origins.nix; the unit can pass it in as DASH_ORIGINS
-# (comma-separated), and this default applies until it does. The admin Glance
+# Mirrors Modules/Server/_origins.nix, which Modules/Server/network.nix passes in
+# as DASH_ORIGINS (comma-separated); this default only applies when run by hand. The admin Glance
 # builds this panel's URL from location.hostname, so each name it is opened by
 # is listed.
 DASH_ORIGINS = frozenset(o.strip() for o in os.environ.get(

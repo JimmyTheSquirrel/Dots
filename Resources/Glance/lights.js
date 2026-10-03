@@ -17,7 +17,7 @@
 // what the main Glance needs so it keeps working when opened by IP. It must be a
 // file in the assets dir, not inline: Glance injects widget markup with
 // innerHTML, which never runs <script>, and inline JS in the YAML has already
-// broken the config once (see Modules/marsbar.nix).
+// broken the config once (see Modules/Server/marsbar.nix).
 //
 // ── Markup contract ─────────────────────────────────────────────────────────
 //   data-ha-entity="switch.x"   painted: gets data-ha-state="on|off|unavailable|

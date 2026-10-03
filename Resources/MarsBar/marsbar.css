@@ -2,7 +2,7 @@
    MarsBar — her dashboard's styling (marsbar:1111).
 
    Served by Glance from its assets dir as theme.custom-css-file. Glance's own
-   theme colours (purple, set in Modules/marsbar.nix) still drive everything
+   theme colours (purple, set in Modules/Server/marsbar.nix) still drive everything
    Glance draws itself; this file only adds the cards, the tiles and the vine.
 
    Phone-first: she uses it on a ~390px-wide screen, so every control is a big
