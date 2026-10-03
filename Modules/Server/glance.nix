@@ -22,9 +22,11 @@
 
     bridgePort = 9556; # ha-bridge (Modules/Server/home-assistant.nix) — light state
     netPort = 9555;    # network-panel (network.nix) — throughput + speed test
+    statsPort = 9552;  # asgard-stats (stats.nix) — the live Asgard / Storage / Now Playing cards
     tsPort = 9553;     # tailscale-status-proxy (network.nix) — the tailnet list
     haPort = 8123;     # Home Assistant — the power figures (/api/template)
     sabPort = 8080;    # SABnzbd, via the socat proxy into the Mullvad namespace
+    jellyfinPort = 8096; # also where Now Playing's posters load from
 
     # ── Assets (served at /assets/) ─────────────────────────────────────────
     # The CSS and JS live in real files, not in Nix strings inside the YAML.
@@ -39,6 +41,7 @@
       "asgard.css" = ../../Resources/Glance/asgard.css;
       "asgard.js" = ../../Resources/Glance/asgard.js;
       "lights.js" = ../../Resources/Glance/lights.js;
+      "stats.js" = ../../Resources/Glance/stats.js;
     };
     glanceAssets = pkgs.linkFarm "glance-assets" assetFiles;
 
@@ -101,7 +104,7 @@
     # Icons: `sh:` (selfh.st, coloured) where it has one, a CDN URL otherwise.
     # Avoid `si:` — monochrome.
     services = [
-      { title = "Jellyfin";       port = 8096;  icon = "sh:jellyfin";       tab = "Media"; }
+      { title = "Jellyfin";       port = jellyfinPort; icon = "sh:jellyfin";       tab = "Media"; }
       { title = "Jellyseerr";     port = 5055;  icon = "sh:jellyseerr";     tab = "Media"; }
       { title = "Immich";         port = 2283;  icon = "sh:immich";         tab = "Media"; }
       { title = "Audiobookshelf"; port = 13378; icon = "sh:audiobookshelf"; tab = "Media"; }
@@ -624,6 +627,24 @@
     };
 
     # ════════════════════════════════════════════════════════════════════════
+    # LIVE CARDS — Asgard, Storage, Now Playing (asgard-stats → stats.js)
+    # ════════════════════════════════════════════════════════════════════════
+    # Glance's `html` widget emits its source raw — no card, no title — so each
+    # one carries Glance's own widget markup and inherits the glass card. The
+    # skeleton holds the card's height until the first snapshot (≈instant: the
+    # stream sends one on connect), so nothing below jumps.
+    liveCard = { id, title, live ? false }: {
+      type = "html";
+      source = ''
+        <div class="widget widget-type-asgard-stats">
+          <div class="widget-header"><h2 class="uppercase">${title}</h2>${
+            lib.optionalString live ''<span class="ags-live" id="ags-live">connecting</span>''}</div>
+          <div class="widget-content"><div id="${id}"><div class="ags-skel"></div></div></div>
+        </div>
+      '';
+    };
+
+    # ════════════════════════════════════════════════════════════════════════
     # YGGDRASIL — the tree banner over every device on the tailnet
     # ════════════════════════════════════════════════════════════════════════
     # tailscale-status-proxy (Resources/Glance/tailscale-status.py) answers with
@@ -725,6 +746,7 @@
       document.head = ''
         <script src="${asset "lights.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "asgard.js"}" defer></script>
+        <script src="${asset "stats.js"}" data-api-port="${toString statsPort}" data-jellyfin-port="${toString jellyfinPort}" defer></script>
       '';
 
       # Mint-green — the "mission control" homelab look this dashboard has
@@ -760,22 +782,10 @@
                   url = "http://localhost:${toString bridgePort}/states";
                   template = homeLights;
                 }
-                {
-                  type = "server-stats";
-                  servers = [
-                    {
-                      type = "local";
-                      name = "Asgard";
-                      hide-mountpoints-by-default = true;
-                      # The pool is the DISK bar, so there is no separate storage
-                      # widget. (One existed, with a browser-side poller that
-                      # fetched localhost:<port> — the VIEWER's machine — so it
-                      # had never updated anywhere but on the server itself. Any
-                      # browser-side fetch must use location.hostname.)
-                      mountpoints."/data/media" = { name = "Media Pool"; hide = false; };
-                    }
-                  ];
-                }
+                # Was Glance's server-stats (three small bars, refreshed on load).
+                # Now a live stream from asgard-stats — see Modules/Server/stats.nix.
+                (liveCard { id = "ags-host"; title = "Asgard"; live = true; })
+                (liveCard { id = "ags-storage"; title = "Storage"; })
                 network
                 # One group rather than five stacked monitors. "All" is the
                 # default tab because "is everything up" is the question this
@@ -791,6 +801,7 @@
               size = "small";
               widgets = [
                 { type = "clock"; hour-format = "12h"; }
+                (liveCard { id = "ags-playing"; title = "Now Playing"; })
                 tailnet
               ];
             }

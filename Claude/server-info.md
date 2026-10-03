@@ -84,7 +84,7 @@ temperatures could not be read at all.
 - Jellyfin, Jellyseerr, SABnzbd — all healthy
 - Prowlarr — 3 indexers pre-configured (Miatrix, NZBgeek, NzbPlanet) via sops secrets, app sync configured to push to all arrs
 - SABnzbd — FrugalUsenet (primary) + Newshosting (backup), dual Usenet backbone, running inside Mullvad VPN namespace with kill switch
-- Glance dashboard (port 8888) — live light tiles (pushed from ha-bridge), native `server-stats` widget, live network panel + speed test, tabbed service monitors, Yggdrasil Network (every tailnet device), power Monitoring page — see *Dashboard — Glance*
+- Glance dashboard (port 8888) — live light tiles (pushed from ha-bridge), live Asgard / Storage / Now Playing cards (pushed from asgard-stats), live network panel + speed test, tabbed service monitors, Yggdrasil Network (every tailnet device), power Monitoring page — see *Dashboard — Glance*
 - FileBrowser, Immich, Audiobookshelf, Shelfarr — running
 - Decluttarr — running, config auto-generated from individual arr/sabnzbd API key secrets
 - Recyclarr — runs on boot + daily. **Only four quality profiles exist** (2026-08-23): "Asgard - Movies" (Radarr), "Asgard - TV" / "Asgard TV - 1080p" / "Asgard - Anime" (Sonarr). All TRaSH stock profiles were deleted so Jellyseerr shows a short list
@@ -92,8 +92,9 @@ temperatures could not be read at all.
 - **Tailscale** — stock Tailscale (free plan), tailnet `tailb54b82.ts.net`. Asgard (100.126.205.100), Sisyphus (100.70.29.3), rhys-s25 (100.68.29.23)
 - **Networking** — stock Tailscale, `tailscale0` trusted in firewall, all services reachable via `asgard:port` from tailnet devices
 - **Mullvad VPN** — SABnzbd confined to WireGuard network namespace (`/var/run/netns/vpn`), Mullvad Sydney exit, socat proxy host:8080 → namespace
+- **asgard-stats** — `Resources/Asgard-Stats/asgard-stats.py` (port 9552, Tailscale only), unit in `Modules/Server/stats.nix`. Pushes host stats over SSE every 2 s for the dashboard's Asgard, Storage and Now Playing cards. Its root companion `asgard-smart.timer` (every 5 min) runs `smartctl -n standby,3` per disk into `/var/lib/asgard-smart/smart.json` — **never wakes a sleeping drive**
 - **tailscale-status-proxy** — `Resources/Glance/tailscale-status.py` (port 9553, loopback) reads tailscaled's LocalAPI over its Unix socket and serves the Yggdrasil widget a sorted device list (MagicDNS names, online/offline, last seen, direct/relay)
-- **No metrics/log stack** — Prometheus, the exporters (node, Exportarr ×4, SABnzbd), cAdvisor, Loki, Alloy and Grafana were all **removed 2026-10-03** — unused. Glance's own `server-stats` widget covers host CPU/RAM/disk, its Downloads widgets ask SABnzbd's API directly, and logs are `journalctl -u <unit>`. Kavita, Komga and the tailnet NFS export of `/data/media` (the Eclipse "Native mode" trial) went in the same pass
+- **No metrics/log stack** — Prometheus, the exporters (node, Exportarr ×4, SABnzbd), cAdvisor, Loki, Alloy and Grafana were all **removed 2026-10-03** — unused. asgard-stats covers host CPU/RAM/temps/disks, its Downloads widgets ask SABnzbd's API directly, and logs are `journalctl -u <unit>`. Kavita, Komga and the tailnet NFS export of `/data/media` (the Eclipse "Native mode" trial) went in the same pass
 
 ---
 
@@ -114,8 +115,9 @@ temperatures could not be read at all.
 | **Suwayomi**       | 4567 | Tailscale only | Manga server (native NixOS service). **Package pinned to 2.3.x on purpose — nixpkgs' 2.1 finds ZERO sources.** See *Manga* below |
 | ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
+| asgard-stats       | 9552 | Tailscale only | `GET /stream` (SSE: 3 min of CPU/memory history on connect, then a snapshot every 2 s), `GET /snapshot`. Read-only: no verbs. CPU per thread, temps, fans, memory, every disk + the pool (`ismount`-checked), SMART from `asgard-smart`, Jellyfin now-playing. CORS only for `_origins.nix` |
 | tailscale-status-proxy | 9553 | **loopback only** | `GET /status` — the tailnet device list behind Glance's Yggdrasil widget (read server-side by Glance; no CORS) |
-| **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Lights, server-stats, network panel, tabbed service monitors, Yggdrasil Network, power Monitoring page |
+| **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Lights, live host/storage/now-playing cards, network panel, tabbed service monitors, Yggdrasil Network, power Monitoring page |
 | network-panel      | 9555 | Tailscale only | Live throughput from `/proc/net/dev` + last speed-test result; `POST /run` (needs `X-Dash: 1`) triggers a test. Backs the Glance Network group; CORS only for `_origins.nix` |
 | eclipse-control    | 9554 | Tailscale only | Eclipse TV-box panel — status JSON + `/act/<name>` verbs (incl. `reboot`; POSTs need `X-Dash: 1`). **Deliberately off the LAN**; that is why the LAN speed test needed 9557 |
 | eclipse speedtest sink | 9557 | **LAN + Tailscale** | Zero-filled payload only, no control surface. Opened via `networking.firewall.interfaces."enp3s0"` so the Pi can measure LAN throughput. Safe to expose *because* it has no verbs |
@@ -294,7 +296,7 @@ stack), 5000 (Kavita), 25600 (Komga) or 2049/111 (NFS) any more.
 - Backend: `virtualisation.oci-containers.backend = "podman"`. No Docker-compat socket — its only
   consumer was cAdvisor, and it is root-equivalent for the `podman` group
 - **Decluttarr:** `decluttarr-config.service` generates `/var/lib/decluttarr/config/config.yaml` from individual arr + sabnzbd sops secrets before the container starts. No separate `decluttarr-env` secret — reuses existing API key secrets directly. `remove_orphans: false` — do NOT enable this, it kills newly queued downloads before SABnzbd picks them up (within 2 minutes).
-- **Glance is NOT a container** — it runs as a native systemd service (`pkgs.glance`), needed for the `server-stats` widget to access host `/proc`/`/sys`. Config built as a Nix attrset and serialised by `pkgs.formats.yaml` into the store. Uses `DynamicUser = true`.
+- **Glance is NOT a container** — it runs as a native systemd service (`pkgs.glance`). Config built as a Nix attrset and serialised by `pkgs.formats.yaml` into the store. Uses `DynamicUser = true`.
 
 ---
 
@@ -587,14 +589,15 @@ redirect that exists only for old clients.
 ## Dashboard — Glance
 
 There is no metrics or log pipeline any more (see *Current Status*). Glance reads everything
-live: host stats from `/proc`/`/sys`, the network panel from `:9555`, SABnzbd's queue from its own
+live: host stats from asgard-stats on `:9552`, the network panel from `:9555`, SABnzbd's queue from its own
 API, power from Home Assistant, light state from ha-bridge. For logs, use `journalctl -u <unit>`.
 
 ### Glance Dashboard (port 8888)
 
 **Files:** `Modules/Server/glance.nix` (config + unit) · `Resources/Glance/asgard.css`,
 `asgard.js` (this dashboard) · `Resources/Glance/lights.js` (**shared with MarsBar**) ·
-`Resources/Glance/tailscale-status.py` (the tailnet list) · `yggdrasil-banner.png`.
+`Resources/Glance/stats.js` + `Resources/Asgard-Stats/asgard-stats.py` / `Modules/Server/stats.nix`
+(the live cards) · `Resources/Glance/tailscale-status.py` (the tailnet list) · `yggdrasil-banner.png`.
 Plugs come from `Modules/Server/_plugs.nix`, services from the `services` list in `glance.nix`.
 
 #### How it is built (rebuilt 2026-10-03)
@@ -698,8 +701,17 @@ for stragglers on neighbouring hues afterwards.
 Full column:
 - **Lights** — master switch (`switch.living_room_lights`) + one tile per lamp, the whole tile
   is the tap target. Rendered from ha-bridge `/states`, then live. Machines never appear here.
-- Native `server-stats`: CPU/RAM/Disk, `/data/media` shown as "Media Pool". There is no separate
-  storage widget (its old poller fetched `localhost` — the *viewer's* machine).
+- **Asgard** (live) — CPU / memory / CPU-temp rings, uptime, load, swap, NVMe temp, fans, a bar
+  per CPU thread and a 3-minute CPU + memory chart (autoscaled; the top label says to what).
+- **Storage** (live) — pool free/size, one segment per data disk (sized by capacity), and a row per
+  disk: usage, free, power-on age, temperature, spinning / asleep / solid state, SMART dot. A disk
+  that isn't mounted turns its row red instead of showing the NVMe's numbers through an empty dir.
+
+  Both are `html` widgets (`liveCard` in `glance.nix`) wrapping Glance's own `.widget` markup, filled
+  by `stats.js` from the asgard-stats SSE stream. `stats.js` **morphs** each render into the DOM
+  (attributes/text only) rather than swapping `innerHTML` — that is what lets rings and bars animate
+  between ticks and stops posters being re-fetched every 2 s. They replaced the native
+  `server-stats` widget (three small bars, refreshed only on page load).
 - **Network** `group` (Network / Speed test) — see below.
 - **Service health** `group` (All / Media / Downloads / Arr / Management), all generated from
   `services`. "All" is the default tab; the 13 services are all live units.
@@ -708,6 +720,9 @@ There is deliberately **no bookmarks column** — monitor rows are already click
 
 Small column:
 - Clock (12h).
+- **Now Playing** (live) — every active Jellyfin stream: poster (loaded from Jellyfin's anonymous
+  image endpoint on `:8096`), title, progress, time left, and direct / stream / transcode (with
+  codec, bitrate and HW vs CPU).
 - **Yggdrasil Network** — the tree banner (rune-ring SVG on `.ygg-widget::before`, the PNG on the
   header's `::before`) over every tailnet device: dot, MagicDNS name, IP, then OS · `direct` /
   `relay syd` / `idle` for online nodes and "seen 9h ago" for offline ones. Sorted by the proxy:
@@ -991,7 +1006,7 @@ curl -s -b /tmp/t.txt -X POST "http://localhost:5055/api/v1/settings/initialize"
 Homepage (`services.homepage-dashboard`) has been removed and replaced by Glance (port 8888).
 Glances (`services.glances`) was also removed — it was only used as a Homepage widget backend.
 
-All service monitoring is now done via Glance — its native `server-stats` widget, the network panel on :9555 and the `monitor` widgets generated from `services` in `glance.nix`.
+All service monitoring is now done via Glance — the live asgard-stats cards, the network panel on :9555 and the `monitor` widgets generated from `services` in `glance.nix`.
 
 ---
 
@@ -1181,10 +1196,10 @@ Omit `use_ino` — default and deprecated in mergerfs 2.x.
 - **Sonarr/Radarr report `freeSpace: null`** for root folders on the pool, and the `/api/v3/diskspace`
   endpoint returns empty. This is .NET's `DriveInfo` not classifying `fuse.mergerfs` as a fixed
   drive. Harmless — `accessible: true` and imports work — but free-space pre-checks are skipped.
-  Use Glance's server-stats "Media Pool" bar for pool capacity, not the arr UIs.
+  Use the dashboard's Storage card for pool capacity, not the arr UIs.
 - **Dashboards must read `/data/media`, not `/data`.** `/data` stopped being a mountpoint, so a
-  disk readout keyed on `/data` silently goes blank. Glance's server-stats widget names the
-  `/data/media` mountpoint explicitly for this reason.
+  disk readout keyed on `/data` silently goes blank. asgard-stats reads `POOL_MOUNT=/data/media`
+  explicitly for this reason, and the per-disk mounts come from the disko layout.
 - **`/mnt/disk2/media` must exist before the pool can mount** — mergerfs errors on a missing branch
   and tmpfiles runs too late to help. Created by hand at install time.
 - **Nix merge rule:** `systemd.services = lib.genAttrs ... ` collides with any

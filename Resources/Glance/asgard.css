@@ -834,6 +834,192 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   75% { transform: translateX(4px); }
 }
 @keyframes ag-tick { from { color: hsl(152, 90%, 80%); } }
+/* ════════════════════════════════════════════════════════════════════════════
+   LIVE HOST CARDS — Asgard / Storage / Now Playing (Resources/Glance/stats.js,
+   fed by asgard-stats over SSE). Glance's html widget emits markup raw, so
+   glance.nix wraps these in Glance's own .widget/.widget-header/.widget-content
+   and they inherit the glass card above.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* The ambient field now drifts — one slow, GPU-only transform loop, so the
+   colour under the glass breathes instead of sitting still. 90 s, tiny
+   amplitude: noticed after a while, never watched. */
+body::before { animation: ags-drift 90s ease-in-out infinite alternate; will-change: transform; }
+@keyframes ags-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(2.5%, -2%, 0) scale(1.04); }
+  100% { transform: translate3d(-2%, 1.5%, 0) scale(1.02); }
+}
+
+.widget-type-asgard-stats .widget-header { display: flex; align-items: center; gap: 10px; }
+.ags-live {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 1.05rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ag-text-faint);
+}
+.ags-live::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ag-text-faint);
+}
+.ags-live.on { color: var(--ag-up); }
+.ags-live.on::before { background: var(--ag-up); box-shadow: 0 0 0 0 var(--ag-up); animation: ags-ping 2s ease-out infinite; }
+.ags-live.off { color: var(--ag-warn); }
+.ags-live.off::before { background: var(--ag-warn); }
+@keyframes ags-ping { 0% { box-shadow: 0 0 0 0 hsla(152, 62%, 56%, 0.6); } 100% { box-shadow: 0 0 0 8px hsla(152, 62%, 56%, 0); } }
+
+/* The skeleton holds roughly the card's real height until the first snapshot,
+   so the page doesn't jump — on the skeleton only, so a card never keeps
+   dead space under its real content. */
+.ags-skel { height: 210px; border-radius: var(--ag-r-tile);
+  background: linear-gradient(100deg, hsla(160, 20%, 50%, 0.05) 30%, hsla(160, 30%, 60%, 0.10) 50%, hsla(160, 20%, 50%, 0.05) 70%);
+  background-size: 300% 100%; animation: ags-shimmer 1.6s linear infinite; }
+@keyframes ags-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+#ags-storage .ags-skel { height: 330px; }
+#ags-playing .ags-skel { height: 64px; }
+
+/* ── hero: rings + facts ── */
+.ags-hero { display: grid; grid-template-columns: auto 1fr; gap: 26px; align-items: center; }
+.ags-rings { display: flex; gap: 18px; }
+.ags-ring { position: relative; width: 104px; text-align: center; --c: var(--ag-up); }
+/* One hue per gauge, from the same mint → cyan → violet run as the ambient
+   field and the card edges — so three rings read as three things at a glance.
+   warn/bad come after and win. */
+.ags-ring.hue-mem { --c: var(--ag-cyan); }
+.ags-ring.hue-temp { --c: var(--ag-violet); }
+.ags-ring.warn { --c: var(--ag-warn); }
+.ags-ring.bad { --c: var(--ag-bad); }
+.ags-ring svg { width: 104px; height: 104px; transform: rotate(-90deg); overflow: visible; }
+.ags-ring-track { fill: none; stroke: color-mix(in srgb, var(--c) 13%, transparent); stroke-width: 7; }
+.ags-ring-fill {
+  fill: none; stroke: var(--c); stroke-width: 7; stroke-linecap: round;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--c) 55%, transparent));
+  transition: stroke-dasharray 1.2s var(--ag-ease), stroke 0.4s;
+}
+.ags-ring-v { position: absolute; top: 0; left: 0; width: 104px; height: 104px;
+  display: flex; align-items: baseline; justify-content: center; padding-top: 36px; }
+.ags-ring-v b { font-size: 2.6rem; font-weight: 600; color: var(--ag-text); font-variant-numeric: tabular-nums; line-height: 1; }
+.ags-ring-v i { font-style: normal; font-size: 1.2rem; color: var(--ag-text-dim); margin-left: 2px; }
+.ags-ring-l { margin-top: 6px; font-size: 1.1rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ag-text-dim); }
+
+.ags-facts { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 22px; }
+.ags-facts div { min-width: 0; }
+.ags-facts dt { font-size: 1.05rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ag-text-faint); }
+.ags-facts dd { margin: 2px 0 0; font-size: 1.45rem; color: var(--ag-text); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── per-core bars + sparkline ── */
+.ags-cpu { margin-top: 20px; display: grid; grid-template-columns: minmax(130px, 0.45fr) 1fr; grid-template-rows: 64px auto; gap: 8px 22px; }
+.ags-cores { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 3px; align-items: end; height: 64px;
+  padding-bottom: 1px; border-bottom: 1px solid var(--ag-line-soft); }
+.ags-cores i { display: block; border-radius: 3px 3px 1px 1px; min-height: 2px;
+  background: linear-gradient(to top, hsla(158, 56%, 46%, 0.55), var(--ag-up)); transition: height 0.8s var(--ag-ease); }
+.ags-cores i.warn { background: linear-gradient(to top, hsla(38, 80%, 50%, 0.5), var(--ag-warn)); }
+.ags-cores i.bad { background: linear-gradient(to top, hsla(0, 70%, 50%, 0.5), var(--ag-bad)); }
+.ags-spark-wrap { position: relative; min-width: 0; }
+.ags-spark-max { position: absolute; top: -2px; left: 0; font-size: 1rem; letter-spacing: 0.06em;
+  color: var(--ag-text-faint); pointer-events: none; }
+.ags-spark { width: 100%; height: 64px; display: block; overflow: visible;
+  border-bottom: 1px solid var(--ag-line-soft); }
+.ags-spark-grid { stroke: var(--ag-line-soft); stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; }
+.ags-spark-fill { fill: url(#ags-spark-g); }
+.ags-spark-line { fill: none; stroke: url(#ags-spark-s); stroke-width: 1.8; stroke-linejoin: round; vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 5px hsla(170, 70%, 60%, 0.45)); }
+.ags-spark-mem { fill: none; stroke: var(--ag-violet); stroke-width: 1.4; stroke-opacity: 0.8; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; }
+.ags-cpu-cap { grid-column: 1 / -1; display: flex; justify-content: space-between;
+  font-size: 1.05rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ag-text-faint); }
+.ags-cpu-cap b { font-weight: inherit; }
+.ags-cpu-cap b::before { content: ""; display: inline-block; width: 12px; height: 2px; margin: 0 6px 0 4px;
+  vertical-align: middle; border-radius: 2px; }
+.ags-cpu-cap .k-cpu::before { background: linear-gradient(90deg, #5fd4a8, #6cc6e8); }
+.ags-cpu-cap .k-mem::before { background: var(--ag-violet); }
+
+/* ── storage ── */
+.ags-big { font-size: 3rem; font-weight: 600; line-height: 1.05; color: var(--ag-text); font-variant-numeric: tabular-nums; }
+.ags-sub { font-size: 1.2rem; color: var(--ag-text-dim); }
+.ags-pool-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.ags-pool-pct { font-size: 2.2rem; font-weight: 600; color: var(--ag-up); text-align: right; line-height: 1; }
+.ags-pool-pct.warn { color: var(--ag-warn); } .ags-pool-pct.bad { color: var(--ag-bad); }
+.ags-pool-pct i { display: block; font-style: normal; font-size: 1.05rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ag-text-faint); font-weight: 400; margin-top: 4px; }
+.ags-segs { display: flex; gap: 4px; margin: 14px 0 18px; height: 30px; min-width: 0; }
+.ags-seg { min-width: 0; }
+.ags-seg { position: relative; border-radius: 9px; overflow: hidden; background: hsla(160, 25%, 55%, 0.09);
+  border: 1px solid var(--ag-line-soft); }
+.ags-seg i { position: absolute; inset: 0 auto 0 0; border-radius: 8px 0 0 8px;
+  background: linear-gradient(90deg, hsla(158, 56%, 46%, 0.75), var(--ag-up)); box-shadow: 0 0 14px -2px var(--ag-glow);
+  transition: width 0.9s var(--ag-ease); }
+.ags-seg-1 i { background: linear-gradient(90deg, hsla(196, 60%, 45%, 0.75), var(--ag-cyan)); box-shadow: 0 0 14px -2px hsla(196, 70%, 60%, 0.3); }
+.ags-seg-2 i { background: linear-gradient(90deg, hsla(265, 50%, 52%, 0.75), var(--ag-violet)); box-shadow: 0 0 14px -2px hsla(265, 60%, 66%, 0.3); }
+.ags-seg { display: flex; justify-content: space-between; align-items: center; }
+.ags-seg span, .ags-seg em { position: relative; z-index: 1; padding: 0 10px; line-height: 28px; font-style: normal;
+  font-size: 1.1rem; letter-spacing: 0.06em; color: hsl(170, 30%, 96%); text-shadow: 0 1px 3px hsla(180, 60%, 4%, 0.8);
+  white-space: nowrap; overflow: hidden; }
+.ags-seg em { color: var(--ag-text-dim); }
+.ags-seg-empty { flex: 1; display: grid; place-items: center; font-size: 1.2rem; color: var(--ag-bad);
+  border: 1px dashed hsla(0, 70%, 60%, 0.4); border-radius: 9px; }
+
+.ags-disks { display: grid; gap: 10px; }
+.ags-disk { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
+  padding: 10px 12px; border-radius: var(--ag-r-small); background: hsla(160, 20%, 40%, 0.05); border: 1px solid var(--ag-line-soft); }
+.ags-disk.bad { border-color: hsla(0, 70%, 60%, 0.45); background: hsla(0, 60%, 40%, 0.08); }
+.ags-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ag-up); box-shadow: 0 0 8px var(--ag-glow); }
+.ags-dot.warn { background: var(--ag-warn); box-shadow: 0 0 8px hsla(38, 88%, 64%, 0.5); }
+.ags-dot.bad { background: var(--ag-bad); box-shadow: 0 0 8px hsla(0, 78%, 66%, 0.5); }
+.ags-dot.asleep { background: transparent; border: 1.5px solid var(--ag-up); box-shadow: none; }
+.ags-disk-main { min-width: 0; display: grid; gap: 5px; }
+.ags-disk-name { font-size: 1.35rem; color: var(--ag-text); display: flex; gap: 8px; align-items: baseline; }
+.ags-disk-name span { font-size: 1.1rem; color: var(--ag-text-faint); }
+.ags-disk-side { text-align: right; }
+.ags-disk-side b { display: block; font-size: 1.7rem; font-weight: 600; color: var(--ag-text); font-variant-numeric: tabular-nums; }
+.ags-sub b { font-weight: inherit; color: var(--ag-text); white-space: nowrap; }
+.ags-disk-side span { font-size: 1.05rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ag-text-faint); }
+.ags-foot { margin-top: 12px; font-size: 1.1rem; letter-spacing: 0.06em; color: var(--ag-text-faint); }
+.ags-foot.bad { color: var(--ag-bad); }
+.ags-bar { height: 6px; border-radius: 99px; background: hsla(160, 25%, 55%, 0.10); overflow: hidden; }
+.ags-bar i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--ag-accent-strong), var(--ag-up));
+  transition: width 0.9s var(--ag-ease); }
+.ags-bar.warn i { background: linear-gradient(90deg, hsl(38, 70%, 48%), var(--ag-warn)); }
+.ags-bar.bad i { background: linear-gradient(90deg, hsl(0, 65%, 50%), var(--ag-bad)); }
+
+/* ── now playing ── */
+.ags-idle { display: flex; align-items: center; gap: 10px; font-size: 1.3rem; color: var(--ag-text-faint); padding: 6px 2px; }
+.ags-idle i { width: 8px; height: 8px; border-radius: 50%; background: var(--ag-text-faint); }
+.ags-play { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; align-items: center; }
+.ags-play + .ags-play { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--ag-line-soft); }
+/* The poster is a background image, not an <img>: one that fails to load just
+   leaves this gradient tile (with a play glyph) instead of a broken icon. */
+.ags-poster { width: 48px; height: 72px; border-radius: 8px; background-size: cover; background-position: center;
+  background-color: hsla(170, 25%, 30%, 0.25); box-shadow: 0 6px 16px -8px hsla(180, 60%, 3%, 0.9), inset 0 0 0 1px var(--ag-line-soft);
+  position: relative; }
+.ags-poster:not([style])::after { content: "▶"; position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 1.4rem; color: var(--ag-text-faint); }
+.ags-play-body { min-width: 0; }
+.ags-play-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.ags-play-title { min-width: 0; font-size: 1.5rem; font-weight: 600; color: var(--ag-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ags-play-sub { margin: 2px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ags-play.paused .ags-poster, .ags-play.paused .ags-bar { opacity: 0.5; }
+.ags-play-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 1.1rem; }
+.ags-play-meta span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ags-play-meta span:last-child { flex: none; }
+.ags-badge { flex: none; font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border-radius: 99px;
+  border: 1px solid var(--ag-line); color: var(--ag-up); white-space: nowrap; }
+.ags-badge.warn { color: var(--ag-warn); border-color: hsla(38, 88%, 64%, 0.4); }
+
+@media (max-width: 760px) {
+  .ags-hero { grid-template-columns: 1fr; gap: 18px; }
+  .ags-rings { justify-content: space-between; gap: 6px; }
+  .ags-ring, .ags-ring svg, .ags-ring-v { width: 92px; }
+  .ags-ring svg, .ags-ring-v { height: 92px; }
+  .ags-ring-v { padding-top: 31px; }
+  .ags-cpu { grid-template-columns: 1fr; grid-template-rows: 40px 64px auto; }
+  .ags-cores { height: 40px; }
+  /* Narrow: the mount path drops under the name, and the segments keep only
+     their disk name — "1.70 TB free" is in the disk rows just below. */
+  .ags-disk-name { flex-wrap: wrap; row-gap: 0; }
+  .ags-disk-name span { flex-basis: 100%; }
+  .ags-seg em { display: none; }
+  .ags-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation: none !important;

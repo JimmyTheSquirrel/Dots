@@ -83,13 +83,14 @@ Modules/
   Gaming/                 # steam (+ Millennium), rpcs3, sunshine, wolf
   Server/                 # Asgard. default.nix (nixflix import, shared constants),
                           #   storage, arr, recyclarr, jellyfin, downloads, books, manga,
-                          #   photos, files, network, eclipse, glance, ttyd — all one
+                          #   photos, files, network, eclipse, glance, stats, ttyd — all one
                           #   nixosModules.server — plus home-assistant, marsbar, and the
                           #   _lib.nix / _plugs.nix (the one smart-plug list) / _origins.nix helpers
 Resources/                # static files the modules reference:
                           #   Glance/ (asgard.css/js, lights.js — shared with MarsBar —
-                          #   tailscale-status.py, yggdrasil banner), MarsBar/, HA-Bridge/,
-                          #   Eclipse-Control/, Network-Panel/, Scripts/ (deploy-tools),
+                          #   stats.js, tailscale-status.py, yggdrasil banner), MarsBar/,
+                          #   HA-Bridge/, Asgard-Stats/, Eclipse-Control/, Network-Panel/,
+                          #   Wolf-Bridge/ (Sisyphus), Scripts/ (deploy-tools + lib/ui.sh),
                           #   Fonts/, Spicetify-Text-Theme/, Steam-Glass-Theme/, Terminal-Images/
 Secrets/                  # secrets.yaml (rock's hosts), kit-kat.yaml (her machine only)
 Claude/                   # topic docs
