@@ -213,20 +213,38 @@ it, all of them still in the boot menu.
 
 ## One command, not six
 
-`system-rebuild` is the single entry point:
+`system-rebuild` is the single entry point — an inline terminal UI (gum menus,
+nom's live build tree, dix's package diff; it draws in normal scrollback and
+never takes over the screen). The home screen shows every machine's tailnet
+state (online / direct or relay / last seen), Sisyphus's current generation and
+the repo's branch, dirty state, ahead/behind and nixpkgs lock age, then:
 
 ```
-  1) Rebuild a system            -> Sisyphus / Kit-Kat, then switch/boot/build
-  2) Deploy onto NEW hardware    -> pick the host, then dry-run / vm-test / INSTALL
-  3) Apollo USB                  -> build+copy ISO / write key / connect
+  Rebuild Sisyphus       switch · boot · build
+  Push to Kit-Kat        waits for her machine if it's offline; asks HER sudo password
+  Asgard                 explains the drift guard; shell on Asgard, or push anyway
+  Update flake inputs    nix flake update + a per-input changelog, then offers a rebuild
+  Git sync / Garbage collect
+  Deploy new hardware    dry-run / vm-test / INSTALL via apollo-deploy
+  Apollo USB             build+copy ISO / write key / connect
 ```
+
+Every rebuild is build → diff → activate: `nom build` of the toplevel, `dix`
+against what's running (over ssh for Kit-Kat), then
+`nixos-rebuild <switch|boot> --store-path <built>` — so the flake is evaluated
+once and activation is still nixos-rebuild's own. Ends in a summary box (time,
+closure size and delta, generation) or a red box saying nothing was activated.
+The look lives in `Resources/Scripts/lib/ui.sh`, prepended to each tool by
+`Modules/Shell/deploy-tools.nix` (Gruvbox brights to match kitty; plain text
+when piped or with `NO_COLOR`).
 
 The `apollo-*` commands still exist and still work standalone — `apollo-connect` in
 particular is worth keeping in muscle memory — they just don't all need to be
 remembered. The navi cheatsheet (`dots.cheat`, shipped by `Modules/Shell/deploy-tools.nix`) is down to `system-rebuild`, `nix-gc`, `git-sync`,
 `sops`, and three SSH targets.
 
-CLI form is unchanged: `system-rebuild USER SYSTEM [--boot] [--target HOST]`.
+CLI form is unchanged: `system-rebuild USER SYSTEM [--boot|--build] [--target HOST]` —
+no menus, same build → diff → activate output.
 
 ## The blank screen on a booted stick — two separate causes
 

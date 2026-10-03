@@ -20,6 +20,11 @@
 # directly. import-tree never sees them (not .nix); builtins.readFile embeds the
 # text in each script's derivation. They interpolate nothing from Nix.
 #
+# Resources/Scripts/lib/ui.sh is the shared look (palette, header, boxes, gum
+# prompts, spinners). It is PREPENDED to a script's text (`ui = true` below)
+# rather than sourced at runtime, so shellcheck checks library + script as one
+# file and there is no path to get wrong.
+#
 # ── Apollo: the deployer USB ───────────────────────────────────────────────────
 # Hosts/Apollo/system.nix builds the ISO. These four commands are the whole
 # workflow from this side; nothing is ever initiated by the stick itself.
@@ -35,10 +40,17 @@
 { ... }: {
   flake.nixosModules.deploy-tools = { pkgs, activeUser, ... }:
   let
-    script = name: runtimeInputs: pkgs.writeShellApplication {
-      inherit name runtimeInputs;
-      text = builtins.readFile ../../Resources/Scripts/${name}.sh;
+    uiLib = builtins.readFile ../../Resources/Scripts/lib/ui.sh;
+    uiInputs = [ pkgs.gum pkgs.ncurses pkgs.coreutils ];
+
+    scriptWith = { ui ? false }: name: runtimeInputs: pkgs.writeShellApplication {
+      inherit name;
+      runtimeInputs = runtimeInputs ++ pkgs.lib.optionals ui uiInputs;
+      text = pkgs.lib.optionalString ui (uiLib + "\n")
+        + builtins.readFile ../../Resources/Scripts/${name}.sh;
     };
+    script = scriptWith { };
+    uiScript = scriptWith { ui = true; };
 
     apollo-resolve = script "apollo-resolve" [ pkgs.jq ];
 
@@ -51,13 +63,38 @@
       apollo-resolve
     ];
 
+    git-sync = uiScript "git-sync" [ pkgs.git ];
+    nix-gc = uiScript "nix-gc" [ ];
+    apollo-iso = script "apollo-iso" [ pkgs.coreutils pkgs.util-linux ];
+    apollo-key = script "apollo-key" [ pkgs.coreutils pkgs.util-linux pkgs.sops ];
+    apollo-connect = script "apollo-connect" [ pkgs.coreutils pkgs.openssh apollo-resolve ];
+
+    # The home screen + menus. nom draws the live build tree, dix the package
+    # diff; tailscale, nix and nixos-rebuild deliberately come from the system
+    # PATH (see the header) so they match the daemons they talk to.
+    system-rebuild = uiScript "system-rebuild" [
+      pkgs.jq
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.git
+      pkgs.openssh
+      pkgs.nix-output-monitor
+      pkgs.dix
+      git-sync
+      nix-gc
+      apollo-iso
+      apollo-key
+      apollo-connect
+      apollo-deploy
+    ];
+
     commands = [
-      (script "system-rebuild" [ pkgs.coreutils apollo-deploy ])
-      (script "git-sync" [ pkgs.git pkgs.coreutils ])
-      (script "nix-gc" [ ])
-      (script "apollo-iso" [ pkgs.coreutils pkgs.util-linux ])
-      (script "apollo-key" [ pkgs.coreutils pkgs.util-linux pkgs.sops ])
-      (script "apollo-connect" [ pkgs.coreutils pkgs.openssh apollo-resolve ])
+      system-rebuild
+      git-sync
+      nix-gc
+      apollo-iso
+      apollo-key
+      apollo-connect
       apollo-deploy
     ];
   in {
