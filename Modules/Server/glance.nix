@@ -48,9 +48,9 @@
 
     # ── Glance YAML config ──
     # No secret is ever written into this file — it lands in the world-readable
-    # Nix store. The two that Glance needs are pulled in by Glance itself when it
-    # loads the config: `secret:ha-token` from /run/secrets, and the SABnzbd API
-    # key via `readFileFromEnv` (see systemd.services.glance below).
+    # Nix store. The two that Glance needs (the HA token and the SABnzbd API
+    # key) are pulled in by Glance itself when it loads the config, via
+    # `readFileFromEnv` (see systemd.services.glance below).
     #
     # Runs as native systemd service (not container) so server-stats widget
     # can read host CPU/memory/disk directly from /proc and /sys.
@@ -1297,12 +1297,12 @@
         # Auth via a long-lived access token: HA tokens can't be minted
         # declaratively (they require an existing logged-in session), so this
         # one was created by hand in the HA UI and stored in sops as
-        # `ha-token`. `''${secret:ha-token}` is Glance's OWN secret-file syntax
-        # (reads /run/secrets/ha-token when Glance loads this config — once,
-        # at startup, so a rotated token needs a Glance restart) — the token never
-        # touches the Nix store. See Modules/Server/home-assistant.nix for the
-        # sops.secrets declaration (mode 0444 — Glance is a DynamicUser, so
-        # there's no static user to own the file).
+        # `ha-token`. Glance substitutes it (its readFileFromEnv variable,
+        # HA_TOKEN_FILE) when it loads this config — once, at startup; the sops
+        # secret restarts glance.service when it changes — from a systemd
+        # credential, exactly like the SABnzbd key, so the token never touches
+        # the Nix store. See systemd.services.glance below. (Not spelled out
+        # with its dollar-brace here: Glance expands those even in comments.)
         #
         # Entities come from the Athom Plug V3 (ESPHome) feeding Asgard's PSU,
         # named "Server-power" in HA. It exposes far more than draw:
@@ -1386,7 +1386,7 @@
                   method: POST
                   body-type: json
                   headers:
-                    Authorization: Bearer ''${secret:ha-token}
+                    Authorization: Bearer ''${readFileFromEnv:HA_TOKEN_FILE}
                   body:
                     template: |-
                       {% set r = ${toString powerRate} %}
@@ -1513,7 +1513,7 @@
                   method: POST
                   body-type: json
                   headers:
-                    Authorization: Bearer ''${secret:ha-token}
+                    Authorization: Bearer ''${readFileFromEnv:HA_TOKEN_FILE}
                   body:
                     template: |-
                       {% set r = ${toString powerRate} %}
@@ -1597,7 +1597,7 @@
                   method: POST
                   body-type: json
                   headers:
-                    Authorization: Bearer ''${secret:ha-token}
+                    Authorization: Bearer ''${readFileFromEnv:HA_TOKEN_FILE}
                   body:
                     template: |-
                       {% set r = ${toString powerRate} %}
@@ -1645,7 +1645,7 @@
                   method: POST
                   body-type: json
                   headers:
-                    Authorization: Bearer ''${secret:ha-token}
+                    Authorization: Bearer ''${readFileFromEnv:HA_TOKEN_FILE}
                   body:
                     template: |-
                       {% set devs = [
@@ -1679,29 +1679,44 @@
 
     # ── Glance — native systemd service for host-level server-stats ──
     #
-    # The SABnzbd API key reaches the Downloads widgets through Glance's
-    # `readFileFromEnv` config variable: LoadCredential copies the 0400 sops
-    # secret into this unit's private credentials dir (readable by the
-    # DynamicUser, nobody else), SABNZBD_API_KEY_FILE points at it, and Glance
-    # substitutes the file's contents when it loads the config. That keeps the
-    # key out of the Nix store AND avoids making it world-readable — the 0444
-    # trade-off `ha-token` has to make for its /run/secrets lookup would hand
-    # full control of SABnzbd to every local user.
+    # Both secrets reach the widgets through Glance's `readFileFromEnv` config
+    # variable: LoadCredential copies each root-only (0400) sops secret into
+    # this unit's private credentials dir (readable by the DynamicUser, nobody
+    # else), an env var points at the copy, and Glance substitutes the file's
+    # contents when it loads the config. That keeps them out of the Nix store
+    # AND off every other local uid:
+    #   • SABNZBD_API_KEY_FILE — full control of SABnzbd (Downloads widgets)
+    #   • HA_TOKEN_FILE        — an ADMIN Home Assistant token (Monitoring page).
+    #     It used to be read with Glance's ''${secret:ha-token}, which reads
+    #     /run/secrets directly and so forced the secret to 0444 (later a 0440
+    #     group stopgap). Anything holding it can switch.toggle Asgard's own
+    #     mains feed, bypassing ha-bridge's allowlist. Declared by the
+    #     home-assistant module (Modules/Server/home-assistant.nix).
+    #
+    # Glance substitutes these as plain text over the whole config file before
+    # parsing it, so they work in any value — the HA widgets use the token
+    # inside a `headers:` map.
     #
     # ⚠ Glance resolves config variables at STARTUP and refuses to start if one
     # cannot be read, so a missing credential takes the whole dashboard down,
-    # not just the two widgets.
+    # not just the widgets that use it.
     systemd.services.glance = {
       description = "Glance Dashboard";
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
-      environment.SABNZBD_API_KEY_FILE = "/run/credentials/glance.service/sabnzbd-api-key";
+      environment = {
+        SABNZBD_API_KEY_FILE = "/run/credentials/glance.service/sabnzbd-api-key";
+        HA_TOKEN_FILE = "/run/credentials/glance.service/ha-token";
+      };
       serviceConfig = {
         ExecStart = "${pkgs.glance}/bin/glance --config ${glanceConfig}";
         Restart = "on-failure";
         DynamicUser = true;
-        LoadCredential = [ "sabnzbd-api-key:${config.sops.secrets."sabnzbd-api-key".path}" ];
+        LoadCredential = [
+          "sabnzbd-api-key:${config.sops.secrets."sabnzbd-api-key".path}"
+          "ha-token:${config.sops.secrets."ha-token".path}"
+        ];
       };
     };
 

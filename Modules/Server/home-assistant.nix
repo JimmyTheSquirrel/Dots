@@ -157,23 +157,18 @@
     # let every local uid read it and cut the power, bypassing ha-bridge's
     # allowlist entirely.
     #
-    # Now: owned by root, readable only by the `ha-token` group.
-    #   • ha-bridge does not need the group — it gets a credential copy (above).
-    #   • Glance does, for now: its HA widgets read this file with Glance's
-    #     ${secret:ha-token} syntax, and as a DynamicUser it has no static uid
-    #     to `owner =` this to. A supplementary group works with DynamicUser.
-    # TODO: give glance.service its own LoadCredential + Glance's
-    # ${readFileFromEnv:…} (or a sops.templates env file) and drop the group
-    # and the SupplementaryGroups line below, leaving this root-only 0400.
+    # Now sops' default: root-only 0400. Neither consumer reads this file
+    # itself — each gets a private copy as a systemd credential (LoadCredential:
+    # systemd, as root, copies it into a per-unit directory only that unit's
+    # DynamicUser can read):
+    #   • ha-bridge, above, reads $CREDENTIALS_DIRECTORY/ha-token
+    #   • glance.service (glance.nix) reads it through Glance's
+    #     ''${readFileFromEnv:HA_TOKEN_FILE}, the same way it gets the SABnzbd key
     sops.secrets."ha-token" = {
-      mode = "0440";
-      group = "ha-token";
-      # A credential is copied at unit start, so a rotated token only reaches
-      # the bridge on restart.
-      restartUnits = ["ha-bridge.service"];
+      # A credential is copied at unit start (and Glance reads its config only
+      # then), so a rotated token reaches both only on restart.
+      restartUnits = ["ha-bridge.service" "glance.service"];
     };
-    users.groups.ha-token = {};
-    systemd.services.glance.serviceConfig.SupplementaryGroups = ["ha-token"];
 
     # Discovery protocols are multicast and arrive unsolicited, so the firewall
     # drops them unless explicitly allowed. Scoped to the LAN interface — the
