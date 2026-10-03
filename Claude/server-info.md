@@ -2,8 +2,31 @@
 
 ## Overview
 
-Asgard is a NixOS media server running on dedicated hardware (Intel i5-14400, 1TB NVMe, 8TB HDD).
-Configuration defined in `Modules/Server/server.nix`, host in `Hosts/Asgard/system.nix`.
+Asgard is a NixOS media server running on dedicated hardware (Intel i5-14400, 1TB NVMe, 8TB + 12TB HDDs pooled by mergerfs).
+Configuration lives in `Modules/Server/` — one NixOS module (`flake.nixosModules.server`) split
+by area, every file defining that same module and flake-parts merging them. Host in
+`Hosts/Asgard/system.nix` (+ `_hardware.nix`, `_disko.nix`).
+
+| File | What |
+|------|------|
+| `default.nix` | the **only** nixflix import, `options.asgard` (tailnet IP/FQDN, LAN NIC, veth IPs — the shared facts), podman, firewall, media group, shared admin secrets, sysctls, system packages |
+| `storage.nix` | mergerfs pool, bind mounts, `RequiresMountsFor` guards, every tmpfiles rule |
+| `arr.nix` | Sonarr/Radarr/Lidarr/Prowlarr (nixflix), missing-search timers, `arr-policy` |
+| `recyclarr.nix` | Recyclarr config + sync, and the Seerr-after-sync ordering |
+| `jellyfin.nix` | Jellyfin + Jellyseerr (nixflix), `seerr-library-setup`, `jellyfin-providers`, QSV graphics |
+| `downloads.nix` | SABnzbd (nixflix) + the Mullvad namespace, Decluttarr |
+| `books.nix` / `manga.nix` / `photos.nix` / `files.nix` | ABS + Shelfarr + `books-setup` / Suwayomi + FlareSolverr / Immich / FileBrowser |
+| `network.nix` | Tailscale, status proxy, speed test, network panel, Cloudflare tunnel, WAN shaping |
+| `eclipse.nix` / `glance.nix` / `ttyd.nix` | Eclipse control endpoint / the whole Glance config + unit / web terminal |
+| `_lib.nix` | `waitForHttp` — imported by path (the `_` keeps import-tree off it) |
+| `home-assistant.nix`, `marsbar.nix` | separate modules, separate docs |
+
+Until 2026-10-03 all of it was one ~5,000-line `server.nix`; the split was a pure move — the system
+derivation was byte-identical before and after. **Gotcha found doing it:** a *list* option defined
+in several of these files concatenates in the order the files are merged (reverse-alphabetical
+here), not reading order — splitting `environment.systemPackages` across three files reordered
+`system-path`. Keep a list option in one file when its order matters.
+
 Everything is declarative. A fresh deploy needs only the sops secrets populated before building.
 
 ---
@@ -21,7 +44,7 @@ making Linux read drive temps does nothing if there is no channel to act on them
 
 ### Getting Linux to see the fans at all
 
-Config lives in `Hosts/Asgard/system.nix`. Without it the box reports **zero** fans — hwmon shows
+Config lives in `Hosts/Asgard/_hardware.nix`. Without it the box reports **zero** fans — hwmon shows
 only temperatures and not one `fan*_input` or `pwm*`, not even the CPU fan. Two separate blockers,
 and **both** must be handled or the fix silently no-ops:
 
@@ -70,7 +93,7 @@ temperatures could not be read at all.
 - **Networking** — stock Tailscale, `tailscale0` trusted in firewall, all services reachable via `asgard:port` from tailnet devices
 - **Mullvad VPN** — SABnzbd confined to WireGuard network namespace (`/var/run/netns/vpn`), Mullvad Sydney exit, socat proxy host:8080 → namespace
 - **tailscale-status-proxy** — Python HTTP service (port 9553) queries tailscaled Unix socket, serves simplified JSON for Glance Yggdrasil widget
-- **Observability stack** — Glance (8888, native systemd service), Prometheus (9090, node scrape 5s, CORS enabled), Loki (3100), Grafana (3001, anonymous viewing + iframe embedding), Alloy, Exportarr, cAdvisor, SABnzbd exporter
+- **No metrics/log stack** — Prometheus, the exporters (node, Exportarr ×4, SABnzbd), cAdvisor, Loki, Alloy and Grafana were all **removed 2026-10-03** — unused. Glance's own `server-stats` widget covers host CPU/RAM/disk, its Downloads widgets ask SABnzbd's API directly, and logs are `journalctl -u <unit>`. Kavita, Komga and the tailnet NFS export of `/data/media` (the Eclipse "Native mode" trial) went in the same pass
 
 ---
 
@@ -99,16 +122,11 @@ temperatures could not be read at all.
 | **glance-marsbar** | 8890 | **loopback only** | Partner dashboard. Reachable solely via the `marsbar` tailnet node's serve proxy — see `Claude/marsbar.md` |
 | ha-bridge          | 9556 | Tailscale only | Holds the HA token server-side; `GET /states`, `POST /toggle/<entity>` against a hard allowlist |
 | **ttyd**           | 7681 | Tailscale only | Web terminal (Glance "Terminal" page iframe + Management bookmark). Login prompt (root `login` entrypoint) — log in as `rock`, passwordless sudo for reboot/shutdown |
-| **Grafana**        | 3001 | Tailscale only | System stats (bar gauge panels) + logs. Anonymous viewing enabled for iframe embedding |
-| **Prometheus**     | 9090 | Tailscale only | Metrics collection. CORS enabled (`--web.cors.origin=.*`) for Glance JS polling |
-| **Loki**           | 3100 | Tailscale only | Log storage. Health: `:3100/ready` |
-| node_exporter      | 9100 | internal only  | Host system metrics |
-| cAdvisor           | 9101 | internal only  | Per-container metrics (Podman socket) |
-| sabnzbd-exporter   | 9387 | internal only  | SABnzbd queue/speed metrics |
-| exportarr-sonarr   | 9708 | internal only  | Sonarr arr metrics |
-| exportarr-radarr   | 9709 | internal only  | Radarr arr metrics |
-| exportarr-lidarr   | 9710 | internal only  | Lidarr arr metrics |
-| exportarr-prowlarr | 9711 | internal only  | Prowlarr arr metrics |
+| FlareSolverr       | 8191 | Tailscale only | Podman container — Cloudflare challenge solver for Suwayomi + Shelfarr |
+| Home Assistant     | 8123 | Tailscale only | Smart plugs — see `Claude/home-assistant.md` |
+
+Nothing listens on 3001 / 3100 / 9090 / 9100 / 9101 / 9387 / 9708–9711 (the removed metrics
+stack), 5000 (Kavita), 25600 (Komga) or 2049/111 (NFS) any more.
 
 ---
 
@@ -123,7 +141,7 @@ temperatures could not be read at all.
 - Immich — `services.immich`, manages its own PostgreSQL + Redis. `host = "0.0.0.0"` required — default `localhost` binds to `[::1]` (IPv6 only) making it unreachable. `ExecStartPre` script creates `.immich` marker files in all subdirs of `/data/photos/` (encoded-video, thumbs, upload, backups, library, profile) — Immich refuses to start without these.
 - Tailscale — `services.tailscale` (stock, no login-server flag)
 - Cloudflared — `services.cloudflared`
-- **WAN egress shaping** — `wan-egress-shaping.service` (in `Modules/Server/server.nix`) caps WAN-bound upload on enp3s0 at 30 Mbit via HTB + fq_codel. Home uplink is 50 Mbit; Jellyfin transcode segments burst at full line rate every ~3s, spiking latency ~180ms and rubber-banding LAN game sessions. RFC1918 destinations bypass the cap (LAN direct-play unaffected). Inspect with `tc -s qdisc show dev enp3s0`.
+- **WAN egress shaping** — `wan-egress-shaping.service` (in `Modules/Server/network.nix`) caps WAN-bound upload on enp3s0 at 30 Mbit via HTB + fq_codel. Home uplink is 50 Mbit; Jellyfin transcode segments burst at full line rate every ~3s, spiking latency ~180ms and rubber-banding LAN game sessions. RFC1918 destinations bypass the cap (LAN direct-play unaffected). Inspect with `tc -s qdisc show dev enp3s0`.
 
 ### Native NixOS service (background sync)
 - **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Check with `journalctl -u recyclarr-sync`.
@@ -139,8 +157,8 @@ temperatures could not be read at all.
 
   **The TRaSH stock profiles were deleted 2026-08-23** and their `trash_id` entries REMOVED from the
   recyclarr config. Do not put them back — recyclarr recreates any profile it is told to manage, and
-  they only cluttered Jellyseerr's dropdown. Jellyseerr defaults are set by
-  `seerr-radarr-profile`/`seerr-sonarr-profile`.
+  they only cluttered Jellyseerr's dropdown. Jellyseerr's defaults are set **by name** through
+  `nixflix.seerr.{radarr,sonarr}` — see *Jellyseerr default profiles* under Nixflix Notes.
 
   **`Asgard TV - 1080p` exists only for Game of Thrones.** Its sole 4K source is a Blu-ray remaster,
   ~17 GB/ep against 3.4 GB on disk — a 5x jump that would have added ~1 TB on its own, where the
@@ -157,13 +175,13 @@ temperatures could not be read at all.
   verifying the storage work. Two separate upstream breaks:
 
   1. **Fixed:** `RECYCLARR_APP_DATA` was removed upstream and recyclarr now hard-errors on it, so
-     the sync never even started. Renamed to `RECYCLARR_CONFIG_DIR` in `Modules/Server/server.nix`.
+     the sync never even started. Renamed to `RECYCLARR_CONFIG_DIR` (now in `Modules/Server/recyclarr.nix`).
   2. **Fixed:** TRaSH's config-templates repo dropped `includes.json` entirely and renamed every
      template, so `include: - template: …` resolves **nothing** — there are no include templates
      any more, and all 10 ids the config used were dead. The replacements are *whole-config*
      templates (`radarr-remux-web-1080p`, `radarr-remux-web-2160p`, sonarr `web-1080p`,
      `web-2160p`) which **cannot be used with `include:` at all**. Their contents are now inlined
-     in `Modules/Server/server.nix` by `trash_id` — trash_ids are stable content hashes, whereas template
+     in `Modules/Server/recyclarr.nix` by `trash_id` — trash_ids are stable content hashes, whereas template
      names have churned twice. Scores and CF definitions still come live from the guide on every
      sync; only the selection is pinned.
 
@@ -199,11 +217,12 @@ temperatures could not be read at all.
   Asgard's `db72868`/`dc228c8` landed, so its `server.nix` sat ~1400 lines behind while looking
   perfectly valid. **Nothing warns you** — it builds fine, it is just the wrong config.
 
-  Verify convergence before touching `server.nix`, rather than trusting this doc:
+  Verify convergence before touching `Modules/Server/`, rather than trusting this doc (it was a
+  single `server.nix` until 2026-10-03 — compare the whole directory now):
 
   ```bash
-  ssh asgard 'sha256sum ~/Dots/Modules/Server/server.nix'
-  sha256sum ~/Dots/Modules/Server/server.nix          # must match
+  ssh asgard 'cat ~/Dots/Modules/Server/*.nix | sha256sum'
+  cat ~/Dots/Modules/Server/*.nix | sha256sum          # must match
   ssh asgard 'sudo wc -l /var/lib/recyclarr/recyclarr.yml'   # expect ~566, not ~45
   ```
 
@@ -228,7 +247,7 @@ temperatures could not be read at all.
   except one carried Dolby Vision — nothing could tell them apart, so it grabbed the DV one. That is
   **Profile 5**, which plays *green* on Eclipse (see `Claude/eclipse.md`).
 
-  Fixed by adding to the existing `-10000` block in Asgard's `server.nix`:
+  Fixed by adding to the existing `-10000` block in the recyclarr config (`recyclarr.nix`):
 
   ```yaml
   - 923b6abef9b17f937fab56cfcf89e1f1  # DV (w/o HDR fallback)
@@ -271,13 +290,11 @@ temperatures could not be read at all.
 - VPN IP: 10.66.10.54, private key in sops: `mullvad-wg-private-key`
 
 ### Podman containers
-- Audiobookshelf, Shelfarr, File Browser Quantum, Decluttarr, cAdvisor, SABnzbd exporter
-- Backend: `virtualisation.oci-containers.backend = "podman"`
-- Docker compat socket (`podman.socket` at `/run/podman/podman.sock`) enabled for cAdvisor
+- Audiobookshelf, Shelfarr, FlareSolverr, File Browser Quantum, Decluttarr
+- Backend: `virtualisation.oci-containers.backend = "podman"`. No Docker-compat socket — its only
+  consumer was cAdvisor, and it is root-equivalent for the `podman` group
 - **Decluttarr:** `decluttarr-config.service` generates `/var/lib/decluttarr/config/config.yaml` from individual arr + sabnzbd sops secrets before the container starts. No separate `decluttarr-env` secret — reuses existing API key secrets directly. `remove_orphans: false` — do NOT enable this, it kills newly queued downloads before SABnzbd picks them up (within 2 minutes).
-- **SABnzbd exporter:** `docker.io/msroest/sabnzbd_exporter:latest` (NOT ghcr.io — that's a private 403). Env file written by `sabnzbd-exporter-env.service` with `SABNZBD_BASEURLS` + `SABNZBD_APIKEYS`.
-- **Glance:** Moved from container to native systemd service (`pkgs.glance`) — needed for `server-stats` widget to access host `/proc`/`/sys`. Config baked into Nix store via `pkgs.writeText "glance.yml"`. Uses `DynamicUser = true`.
-- **cAdvisor:** `gcr.io/cadvisor/cadvisor:latest`, `--privileged`, mounts Podman socket. Port 9101.
+- **Glance is NOT a container** — it runs as a native systemd service (`pkgs.glance`), needed for the `server-stats` widget to access host `/proc`/`/sys`. Config baked into Nix store via `pkgs.writeText "glance.yml"`. Uses `DynamicUser = true`.
 
 ---
 
@@ -293,8 +310,16 @@ What it does: series→profile mapping · `seriesType=anime` on the 5 anime · t
 profiles · sets Jellyfin `AudioLanguagePreference=eng` + `PlayDefaultAudioTrack=false` for every
 user except Rhys.
 
-Ordered **after** `seerr-*-profile` on purpose — Jellyseerr pointed at the stock "Any" profile,
-which this service deletes. Repoint first, then delete.
+Ordered **after** nixflix's `seerr-sonarr` / `seerr-radarr` on purpose — Jellyseerr pointed at the
+stock "Any" profile, which this service deletes. Repoint first, then delete. (It used to be ordered
+after the hand-written `seerr-*-profile` units, which only a timer ever started — so at boot that
+ordering did nothing.)
+
+**Best-effort by design, and now explicitly so.** The script runs under `set +e`: NixOS prepends
+`set -e` to every unit `script`, which had silently turned "log FAILED and carry on" into "abort at
+the first unguarded failed curl". It still fails loudly if Sonarr never answers at all.
+`jellyfin-providers` is the same. `books-setup` is the opposite — deliberately fail-fast, because each
+step feeds the next and `Restart=on-failure` (5 tries / 30 min) turns an early exit into a retry.
 
 Two things that block a profile delete and cost time if you don't know them:
 
@@ -398,7 +423,7 @@ Until **2026-09-17** this whole pipeline was dead. Shelfarr had run since June 2
 initialised at all** — `isInit: false`, no root user, no libraries. `/data/media/books`
 was empty. Both containers were `active`, both answered HTTP, both showed green on Glance.
 
-The cause was the "Post-boot (one-time)" comment in `Modules/Server/server.nix` telling you to
+The cause was the "Post-boot (one-time)" comment in the old `server.nix` telling you to
 click through two web UIs. Nobody ever did. **A running container is not a working
 pipeline** — check what's wired *between* services, not whether each one is up.
 
@@ -494,7 +519,7 @@ On 2.1 the unit is `active`, the port answers HTTP 200, the web UI loads — and
 curl -s http://localhost:4567/api/v1/extension/list   # 2.1 → exactly 2 stub entries
 ```
 
-`server.nix` therefore pins **2.3.2243** via `overrideAttrs`. Jar sha256 `821141b3…` was
+`manga.nix` therefore pins **2.3.2243** via `overrideAttrs`. Jar sha256 `821141b3…` was
 cross-checked against upstream's published `Checksums.sha256`. Drop the override only once
 nixpkgs ships ≥ 2.3 — and read trap 2 when you do.
 
@@ -559,15 +584,11 @@ redirect that exists only for old clients.
 
 ---
 
-## Observability Stack
+## Dashboard — Glance
 
-### Architecture
-```
-journald (all units) → Alloy → Loki (3100)
-node_exporter / cAdvisor / Exportarr / SABnzbd exporter → Prometheus (9090)
-Glance (8888) — reads Prometheus via custom-api widgets
-Grafana (3001) — reads Loki + Prometheus, provisioned datasources
-```
+There is no metrics or log pipeline any more (see *Current Status*). Glance reads everything
+live: host stats from `/proc`/`/sys`, the network panel from `:9555`, SABnzbd's queue from its own
+API, power from Home Assistant. For logs, use `journalctl -u <unit>`.
 
 ### Glance Dashboard (port 8888)
 2-column layout: **Stats + network + service health** (full) | **Clock + Yggdrasil** (small)
@@ -659,6 +680,15 @@ Small column:
   is load-bearing: as a descendant selector it drew a rule between group tab panes.
 
 **Page 2 — Downloads:**
+- **Queue** / **Remaining** — two `custom-api` widgets on `http://localhost:8080/api?mode=queue&output=json`
+  (`queue.noofslots_total`, and `queue.mbleft` ÷ 1024 — `mbleft` is a JSON *string*, `.Float` parses
+  it). They used to query Prometheus for the exporter's `sabnzbd_queue_*`.
+- **The API key never enters the Nix store.** The widget's `apikey` parameter is Glance's
+  `readFileFromEnv:SABNZBD_API_KEY_FILE` variable; `glance.service` gets the sops secret via
+  `LoadCredential` (private to the unit, readable by its DynamicUser) and points the env var at it.
+  Deliberately *not* the `secret:` form `ha-token` uses — that reads `/run/secrets/<name>` directly
+  and so needs the secret `0444`, which for SABnzbd's full-control key would hand it to every local
+  user. ⚠ Glance resolves these variables at startup and **refuses to start** if one can't be read.
 - SABnzbd iframe: `type: iframe`, `source: http://asgard:8080`, `height: 700`
 - SABnzbd auth removed — iframe loads without login (tailnet-only access)
 - UI prefs (compact/fullscreen/tabbed) set server-side via `web_compact/web_fullscreen/web_tabbed = true`, but iframe needs "Use global interface settings" ticked within its own browser context
@@ -750,24 +780,6 @@ fetch picks its family from DNS first; toggle
 Running the CLI by hand does **not** update the panel — only `speedtest.service`
 writes `latest.json`.
 
-### Grafana (port 3001)
-- Admin password from sops `grafana-admin-password` (owner = grafana)
-- `allow_embedding = true` + anonymous auth (Viewer role) — enables Glance iframe embedding
-- Loki + Prometheus datasources auto-provisioned via `provision.datasources.settings`
-- **CRITICAL:** NixOS Grafana module does NOT support `uid` field in datasource provisioning (generates `uid: null` → crash). Always use name strings: `datasource = "Prometheus"`
-- **System Stats dashboard** (uid: `asgard-system`, provisioned via `pkgs.writeTextDir`):
-  - 4 bar gauge panels (Retro LCD display mode) in 2x2 grid, refresh 1s
-  - CPU (panelId=1, dark-green), Disk /data (panelId=4, dark-red), Network (panelId=3, dark-purple), Memory (panelId=2, dark-yellow)
-  - Prometheus node scrape interval: 5s for near-real-time data
-- **Logs dashboard:** `{job="journald", unit=~"$unit"}` with `$unit` variable
-  - Variable type: Query, Label values for label `unit`, filter `{job="journald"}`
-  - Regex: `/^(sonarr|radarr|lidarr|prowlarr|sabnzbd|jellyfin|seerr|recyclarr|decluttarr|immich|podman|loki|grafana|prometheus|alloy)/`
-  - Multi-value + Include All option enabled
-- **DB path:** `/var/lib/grafana/data/grafana.db` — wipe when fundamentally changing datasource/dashboard provisioning
-
-### Alloy journald → Loki pipeline
-Config in Nix store (`pkgs.writeText "config.alloy"`). Labels extracted: `unit` (systemd unit), `host`, `level`. Alloy service needs `SupplementaryGroups = ["systemd-journal"]` to read the journal.
-
 ---
 
 ## Arr Stack — Auth
@@ -790,7 +802,9 @@ Forms auth with the `admin-password` sops secret. No manual wizard step needed o
 - `article_cache_size = "1G"` — RAM cache
 - `direct_unpack = false` + `direct_unpack_tested = true` — **BOTH keys required.** SAB's `directunpacker.py:test_disk_performance()` auto-enables direct_unpack on any disk >100 MB/s unless `tested=true`. Direct unpack races with obfuscated-NZB deobfuscation (SAB forum t=27128) → mislabeled _FAILED_ folders.
 - `pre_check = 0` — skips SAB's pre-download article verification (the slow "Checking" phase in the queue UI). **Applied via SAB HTTP API, NOT nix** — nixflix's override for this specific key doesn't land in the generated template (mystery, TBD).
-- `host_whitelist` — asgard, container.internal, VPN namespace IP
+- `host_whitelist` — `asgard`, the MagicDNS name, the tailnet IP, `host.containers.internal`, the VPN
+  namespace IP. Built from `config.asgard.*`; it carried the **pre-re-key** tailnet IP
+  (100.119.193.77) until then
 - `inet_exposure = 4` — safe because tailnet-only
 - `x_frame_options = 0` — needed for Glance iframe
 - `web_color = "Night"`, `web_compact`, `web_fullscreen`, `web_tabbed` — UI
@@ -817,7 +831,8 @@ Use `hostConfig.password._secret` only.
 - Arr services: `nixflix.sonarr.config.apiKey._secret`
 - Jellyfin: `nixflix.jellyfin.apiKey._secret` (no `config` wrapper)
 - Jellyfin users: `nixflix.jellyfin.users.admin.password._secret`
-- Seerr: `nixflix.seerr.apiKey._secret` (no `config` wrapper), requires `package = pkgs.jellyseerr`
+- Seerr: `nixflix.seerr.apiKey._secret` (no `config` wrapper). Package left at nixflix's default
+  `pkgs.seerr` — naming `pkgs.jellyseerr` only produced a rename warning on every eval
 
 **nixflix systemd services:**
 - `seerr.service` — the Jellyseerr process (NOT `jellyseerr.service`)
@@ -825,17 +840,34 @@ Use `hostConfig.password._secret` only.
 - `seerr-env.service` — writes API key header file
 - `jellyfin-setup-wizard.service` — Jellyfin initial setup (creates admin user + libraries)
 
-**Custom Jellyseerr quality profile services (in server.nix):**
-- `seerr-radarr-profile.service` + timer — sets Radarr default quality profile to "Asgard - Movies"
-- `seerr-sonarr-profile.service` + timer — sets Sonarr default to "Asgard - TV" **and the separate
-  `activeAnimeProfileId` to "Asgard - Anime"**. Jellyseerr keeps a distinct anime profile setting;
-  it previously pointed at the TV profile, so anime requests never got the fansub tier scoring.
-- Both run after `seerr-setup.service`, `Restart = on-failure` + `RestartSec = 30`, plus
-  `StartLimitBurst = 5` so a persistent failure gives up instead of looping.
-- **Auth is the `jellyseerr-api-key`, NOT a Jellyfin session cookie.** The older cookie flow is what
-  broke them — see below.
+**Jellyseerr default profiles — set by name, through nixflix (2026-10-03):**
 
-> ### ⚠️ These failed silently for three weeks — the fix is not the error you see
+```nix
+nixflix.seerr.radarr = lib.mkOptionDefault { Radarr.activeProfileName = "Asgard - Movies"; };
+nixflix.seerr.sonarr = lib.mkOptionDefault { Sonarr = {
+  activeProfileName = "Asgard - TV";
+  activeAnimeProfileName = "Asgard - Anime";   # Jellyseerr keeps a SEPARATE anime profile
+  animeSeriesType = lib.mkForce "anime";
+}; };
+```
+
+- **Why:** nixflix's `seerr-radarr` / `seerr-sonarr` units PUT the whole instance config on *every*
+  boot and rebuild, and with no name set they pick `.profiles[0]`. The two hand-written
+  `seerr-radarr-profile` / `seerr-sonarr-profile` timer units that used to "fix" this ran once, 12 min
+  after boot — so after any `nixos-rebuild switch` nixflix had the last word and **anime requests used
+  the TV profile**. Both units are gone; nixflix's own PUT now writes the right names.
+- ⚠️ **`mkOptionDefault` is load-bearing.** nixflix builds the instance (hostname, apiKey, root
+  folder, `isDefault`…) as the option's *default*. A normal definition replaces that default
+  wholesale; one at the same `mkOptionDefault` priority merges with it. `animeSeriesType` needs
+  `mkForce` because the default instance pins `"standard"` at that same priority.
+- Both units are ordered **after `recyclarr-sync`** (and `wants` it — otherwise only a timer starts
+  it, and `after` would order nothing), because recyclarr is what creates the profiles. nixflix exits
+  1 if a named profile is missing: on a fresh install that means "recyclarr hasn't synced yet", and it
+  converges on the next boot/rebuild. Note `seerr-sonarr` *requires* `seerr-radarr`.
+- `arr-policy` still decides which profile each **existing** series uses; an anime it doesn't list is
+  put back on `Asgard - TV`.
+
+> ### ⚠️ The old profile units failed silently for three weeks — the fix is not the error you see
 >
 > From 2026-07-31 to 2026-08-23 both units failed every 30s (**restart counter 2665**), which also
 > made every `nixos-rebuild switch` exit 4.
@@ -856,7 +888,9 @@ Use `hostConfig.password._secret` only.
 
 **Known nixflix bug (v1.2.0):** `seerr-setup.service` fails on library fetch step (`curl -sf` exits 22).
 The Jellyfin connection IS established on first run — only the library activation fails.
-Our `seerr-library-setup.service` handles this (see below).
+Our `seerr-library-setup.service` handles this (see below). Once Jellyseerr is initialised — i.e. on
+the live box, every boot — that unit exits at its first check; it is kept only as the fresh-install
+fallback, since `seerr-setup` cannot recover from that half-done state on its own.
 
 ---
 
@@ -867,7 +901,7 @@ Nixflix's `seerr-setup.service` connects Jellyfin → Jellyseerr but fails at li
 Jellyseerr's setup wizard stays open until libraries are toggled and setup is marked initialized.
 
 ### Our fix: `seerr-library-setup.service`
-Defined in `Modules/Server/server.nix`, runs after `seerr-setup.service`.
+Defined in `Modules/Server/jellyfin.nix`, runs after `seerr-setup.service`.
 
 **What it does:**
 1. Waits for Jellyseerr to be responsive
@@ -878,7 +912,9 @@ Defined in `Modules/Server/server.nix`, runs after `seerr-setup.service`.
 6. Marks done: `POST /api/v1/settings/initialize`
 
 ### Critical API notes
-- **Session cookie required** for all settings endpoints — API key (`X-Api-Key`) does NOT work
+- **Session cookie** for the wizard flow below (login → libraries → initialize). The *settings*
+  endpoints also accept `X-Api-Key` — see the "failed silently for three weeks" note above; an older
+  version of this bullet claimed otherwise
 - **Login endpoint:** `POST /api/v1/auth/jellyfin`
   - Fresh setup (no Jellyfin configured): send full payload `{username, password, hostname, port, useSsl, urlBase, email, serverType}`
   - After setup (Jellyfin already wired): send ONLY `{username, password}` — full payload returns HTTP 500 "already configured"
@@ -926,8 +962,6 @@ prowlarr-api-key
 jellyseerr-api-key
 sabnzbd-api-key
 sabnzbd-nzb-key
-sabnzbd-username                   # SABnzbd web UI username
-sabnzbd-password                   # SABnzbd web UI password
 usenet/frugalusenet/username       # FrugalUsenet NNTP username
 usenet/frugalusenet/password       # FrugalUsenet NNTP password
 indexer-api-keys/Miatrix           # Prowlarr indexer API key
@@ -938,14 +972,23 @@ jellyfin-admin-password
 cloudflare-tunnel                  # full credentials JSON from cloudflared tunnel create
 admin-username                     # shared admin username for FileBrowser, Immich seed (e.g. admin)
 admin-password                     # shared admin password for FileBrowser, Immich seed
-grafana-admin-password             # Grafana admin password — sops owner = "grafana"
 mullvad-wg-private-key             # WireGuard private key from Mullvad (SABnzbd VPN namespace)
 usenet/newshosting/username        # Newshosting NNTP username
 usenet/newshosting/password        # Newshosting NNTP password
 user-password-hash                 # bcrypt password hash ($ signs get mangled by sops --set)
+eclipse-ssh-key                    # Asgard → Eclipse SSH key (eclipse-control), mode 0400
+tailscale-auth-key                 # joins Asgard (authKeyFile) AND the marsbar node — Core/sops.nix
+ha-token                           # Home Assistant long-lived token, 0444 — home-assistant.nix
 ```
 
-**Cloudflare tunnel UUID:** `804d54a8-e7ad-4f34-812d-3052cf862c47` (in server.nix)
+**Still in `secrets.yaml` but no longer declared** (safe to delete from the file):
+`sabnzbd-username` / `sabnzbd-password` (never read — SAB's UI auth is off, tailnet-only),
+`grafana-admin-password` (Grafana removed), `kavita-token-key` (Kavita removed).
+
+**Cloudflare tunnel UUID:** `804d54a8-e7ad-4f34-812d-3052cf862c47` (in `network.nix`)
+
+Each `sops.secrets.*` declaration lives in the file of the service that owns it; only the shared
+`admin-username` / `admin-password` are in `default.nix`.
 **Tunnel created with:** `cloudflared tunnel create asgard` on Sisyphus
 
 ---
@@ -1072,7 +1115,7 @@ the 8TB's `/data` simply became `/mnt/disk1`.
 re-downloadable via the arrs. **Immich photos are NOT re-downloadable and still have no backup.**
 SnapRAID parity would need a third drive ≥12TB.
 
-### Pool options (`Modules/Server/server.nix`)
+### Pool options (`Modules/Server/storage.nix`)
 
 | Option | Why |
 |--------|-----|
@@ -1093,16 +1136,18 @@ Omit `use_ino` — default and deprecated in mergerfs 2.x.
 - **Sonarr/Radarr report `freeSpace: null`** for root folders on the pool, and the `/api/v3/diskspace`
   endpoint returns empty. This is .NET's `DriveInfo` not classifying `fuse.mergerfs` as a fixed
   drive. Harmless — `accessible: true` and imports work — but free-space pre-checks are skipped.
-  Use Glance/Grafana for pool capacity, not the arr UIs.
-- **Dashboards must query `/data/media`, not `/data`.** `/data` stopped being a mountpoint, so
-  `node_filesystem_*{mountpoint="/data"}` silently returns empty and the Glance disk readout
-  plus the Grafana disk panel go blank. Both were repointed at `/data/media`.
+  Use Glance's server-stats "Media Pool" bar for pool capacity, not the arr UIs.
+- **Dashboards must read `/data/media`, not `/data`.** `/data` stopped being a mountpoint, so a
+  disk readout keyed on `/data` silently goes blank. Glance's server-stats widget names the
+  `/data/media` mountpoint explicitly for this reason.
 - **`/mnt/disk2/media` must exist before the pool can mount** — mergerfs errors on a missing branch
   and tmpfiles runs too late to help. Created by hand at install time.
-- **Nix merge rule:** `systemd.services = lib.genAttrs ... ` collides with the many
-  `systemd.services.<name> = { ... }` definitions in `server.nix`. Dotted paths merge into attrset
-  *literals* only, never into a computed expression. The mount guards are therefore written as
-  individual `systemd.services.<name>.unitConfig.RequiresMountsFor = ...` lines.
+- **Nix merge rule:** `systemd.services = lib.genAttrs ... ` collides with any
+  `systemd.services.<name> = { ... }` definition *in the same file*. Dotted paths merge into attrset
+  *literals* only, never into a computed expression. That forced the mount guards into individual
+  `systemd.services.<name>.unitConfig.RequiresMountsFor = ...` lines while everything was one
+  `server.nix`; `storage.nix` defines no other services, so genAttrs would work now — the explicit
+  lines are kept because each can carry its own comment.
 - **ext4 root reserve reclaimed:** `tune2fs -m 0` on the 8TB freed **373 GB** (142G → 515G, 98% →
   94%). The 12TB was formatted `-m 0` from the start. A pure data disk needs no root reserve.
 
@@ -1124,13 +1169,14 @@ failed, and it dropped to **emergency mode, which runs before networking**. No S
 **Current state: both HDD mounts are `nofail`, and every consuming service has
 `RequiresMountsFor`.** These two must always travel together:
 
-- `nofail` alone is dangerous: `systemd.tmpfiles.rules` in `Modules/Server/server.nix` creates `/data`,
+- `nofail` alone is dangerous: `systemd.tmpfiles.rules` in `Modules/Server/storage.nix` creates `/data`,
   `/data/media` and `/data/.state/services` unconditionally, so a boot that continues without the
   disk creates them *empty on the NVMe* and the arrs re-initialise on top.
 - `RequiresMountsFor` alone is what makes `nofail` safe: services **fail closed** instead of
   running against an empty library.
 
-Guarded units (`Modules/Server/server.nix`): `sonarr`, `radarr`, `lidarr`, `jellyfin`, the three
+Guarded units (`Modules/Server/storage.nix`, plus the missing-search units and `books-setup` in
+their own files): `sonarr`, `radarr`, `lidarr`, `jellyfin`, the three
 `*-rootfolders`, `jellyfin-libraries`, `podman-{audiobookshelf,shelfarr,filebrowser}`,
 `immich-server`, and critically **`sonarr-missing-search` / `radarr-missing-search`** — those two
 would otherwise see an empty `/data/media`, conclude the whole library was missing, and trigger a
@@ -1146,7 +1192,7 @@ start — diagnosable remotely instead of needing hands on the machine.
 **NVMe** (`nvme0n1`): ESP (`/boot`) + root (`/`). Fast storage for OS + downloads.
 **HDD1** (8TB, partlabel `disk-hdd-data`): `/mnt/disk1` — mergerfs branch + photos + arr state.
 **HDD2** (12TB, partlabel `disk-hdd2-data`): `/mnt/disk2` — mergerfs branch.
-Disko partitioning declared inline in `Hosts/Asgard/system.nix`. **Never reference `/dev/sdX`** —
+Disko partitioning declared in `Hosts/Asgard/_disko.nix`. **Never reference `/dev/sdX`** —
 the letters shuffle between boots.
 
 ```
@@ -1163,17 +1209,24 @@ the letters shuffle between boots.
 
 /var/lib/
   filebrowser/               # File Browser state
-  grafana/data/              # Grafana DB + state
 ```
 
 ---
 
 ## Shared Media Group
 
-GID 1001. All services that need `/data/media` access are in this group:
-- `users.groups.media = { gid = 1001; }`
-- rock user, jellyfin user, readarr user
-- Containers use `PGID=1001`
+**GID 169** — the group and its gid are **nixflix's** (`mkForce`d in its jellyfin module). All
+services that need `/data/media` access are in this group:
+- rock and jellyfin (`extraGroups`), the arr services (nixflix's `SupplementaryGroups`), suwayomi
+  (primary group)
+- Containers: Shelfarr's `PGID` and its `/var/lib/shelfarr` tmpfiles owner are both
+  `config.users.groups.media.gid` — never a literal
+
+⚠️ **This doc and the config used to say "GID 1001"**, from a `users.groups.media.gid = 1001` that
+never took effect — nixflix's `mkForce` won silently. Shelfarr ran with `PGID=1001`, a gid with no
+group on the host, which is why `/data/media/books` and `/data/media/audiobooks` are `0777` where
+every sibling is `0775`. **Follow-up:** `chgrp -R media` those two trees (files written under gid
+1001), then drop them to `0775` in the tmpfiles rules.
 
 ---
 
@@ -1181,17 +1234,21 @@ GID 1001. All services that need `/data/media` access are in this group:
 
 1. Populate sops secrets: `sops ~/Dots/Secrets/secrets.yaml`
 2. Install NixOS: `nixos-install --flake .#rock-Asgard` (nixos-anywhere had issues, manual install worked)
-3. Set partition labels to match disko: `disk-nvme-ESP`, `disk-nvme-root`, `disk-hdd-data`
-4. On first boot:
-   - Join Tailscale: `sudo tailscale up` on Asgard (stock Tailscale, no Headscale)
-   - Immich admin account is auto-created by `immich-admin-seed.service`
-   - FileBrowser credentials auto-synced from sops by `filebrowser-credentials.service`
-   - Jellyfin branding CSS (hides seek-bar chapter tick marks; lives in Jellyfin state, not Nix):
-     `curl -X POST http://localhost:8096/System/Configuration/branding -H "Authorization: MediaBrowser Token=$(sudo cat /run/secrets/jellyfin-api-key)" -H "Content-Type: application/json" -d '{"LoginDisclaimer":"","CustomCss":".sliderMarker { display: none !important; }","SplashscreenEnabled":false}'`
-   - Jellyfin remote client bitrate limit — default 12 Mbps throttles any client Jellyfin doesn't
-     see as LAN (includes Eclipse over Tailscale, see `Claude/eclipse.md`). Also imperative state:
-     `curl -s -H "X-Emby-Token: $(sudo cat /run/secrets/jellyfin-api-key)" http://localhost:8096/System/Configuration | jq '.RemoteClientBitrateLimit = 40000000' | curl -s -X POST -H "X-Emby-Token: $(sudo cat /run/secrets/jellyfin-api-key)" -H "Content-Type: application/json" --data @- http://localhost:8096/System/Configuration`
-5. Everything else (arr wiring, Jellyseerr setup, Glance dashboard, Grafana) is automatic
+3. Set partition labels to match disko: `disk-nvme-ESP`, `disk-nvme-root`, `disk-hdd-data`,
+   `disk-hdd2-data`, and create `/mnt/disk2/media` by hand (mergerfs will not mount a missing branch)
+4. On first boot, all of these happen by themselves — listed so nobody goes looking for a step:
+   - Tailscale joins the tailnet from the sops `tailscale-auth-key` (`services.tailscale.authKeyFile`
+     → `tailscaled-autoconnect.service`, a no-op once logged in)
+   - Immich admin account is created by `immich-admin-seed.service`
+   - FileBrowser credentials are synced from sops by `filebrowser-credentials.service`
+   - Audiobookshelf + Shelfarr are wired by `books-setup.service`
+   - Jellyfin's branding CSS (hides the seek-bar chapter tick marks) is
+     `nixflix.jellyfin.branding.customCss` — it used to be a hand-run curl here, and nixflix wiped it
+     on every boot because the option defaulted to `""`
+   - Jellyfin's remote bitrate cap is `nixflix.jellyfin.system.remoteClientBitrateLimit` (40 Mbps)
+   - rock's password comes from the sops `user-password-hash` (Core/sops.nix) — there is no
+     `initialPassword` fallback on Asgard any more
+5. Everything else (arr wiring, Jellyseerr setup, Glance dashboard) is automatic
 
 ---
 
