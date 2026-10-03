@@ -1,7 +1,11 @@
 { ... }: {
-  flake.nixosModules.hyprland = { pkgs, lib, config, activeUser, ... }:
+  flake.nixosModules.hyprland = { lib, config, activeUser, ... }:
   let
     mainMod = "SUPER";
+
+    # Prefer Spotify, fall back to any real player, never skwd-music — the same
+    # string niri.nix binds; see the media-key note further down.
+    playerctlCmd = "playerctl --player=spotify,%any --ignore-player=skwd-music";
 
     # Shorthand so the opacity rules below stay readable.
     o = {
@@ -13,30 +17,11 @@
     options.my.hyprland = {
       monitors = lib.mkOption {
         type = lib.types.listOf lib.types.str;
-        default = [
-          "DP-2,2560x1080@144,0x0,1"
-          "HDMI-A-1,1920x1080@60,320x-1080,1"
-        ];
+        # Empty: Hyprland's catch-all `,preferred,auto,1` (appended below) lights
+        # up every output on its own. The connector names a host lists here are
+        # per-machine facts, so there is no sensible shared default.
+        default = [ ];
         description = "Hyprland `monitor=` lines, most specific first.";
-      };
-
-      primaryMonitor = lib.mkOption {
-        type = lib.types.str;
-        default = "DP-2";
-        description = "Connector that workspaces 1-6 are pinned to.";
-      };
-
-      secondaryWorkspace = lib.mkOption {
-        type = lib.types.nullOr lib.types.int;
-        default = null;
-        example = 2;
-        description = ''
-          Workspace number to pin to the secondary monitor and make its default.
-
-          null (Odysseus) puts workspaces 1-6 all on the primary monitor, which is
-          the original single-focus layout. Kit-Kat uses 2, so her pivoted side
-          monitor owns one numbered workspace rather than only named ones.
-        '';
       };
 
       effects = lib.mkOption {
@@ -80,30 +65,24 @@
         description = ''
           Opacity for the heavily-transparent apps (brave, discord, spotify, Steam).
 
-          Per-host because taste differs sharply: Odysseus runs the original heavy
-          look, Kit-Kat asked for it dialled right back.
+          Per-host because taste differs sharply: the default is the original
+          heavy look, Kit-Kat asked for it dialled right back.
         '';
       };
 
       wallpaperCommand = lib.mkOption {
         type = lib.types.str;
-        default = "skwd wall toggle";
+        default = "skwd-wall-v2";
         description = ''
           Command bound to Mod+W.
 
-          skwd v1 (Odysseus) ships an `skwd` CLI with a resident picker, hence
-          `skwd wall toggle`. v2 has NO `skwd` binary at all — it ships
+          skwd v2 (Modules/Desktop/skwd.nix) has NO `skwd` binary — it ships
           `skwd-wall-v2`, which starts the picker on demand and exits when closed,
-          so there is nothing to toggle. A v2 host binding the v1 command gets a
-          key that silently does nothing, which is exactly how Kit-Kat ended up
-          unable to change her wallpaper.
+          so there is nothing to toggle. The old default was v1's
+          `skwd wall toggle`, and a v2 host binding it gets a key that silently
+          does nothing, which is exactly how Kit-Kat ended up unable to change
+          her wallpaper. v1 is gone, so v2's command is now the default.
         '';
-      };
-
-      secondaryMonitor = lib.mkOption {
-        type = lib.types.str;
-        default = "HDMI-A-1";
-        description = "Connector for the named discord/spotify/blank workspaces.";
       };
     };
   };
@@ -114,57 +93,31 @@
     # ============================================================
     # SYSTEM CONFIG
     # ============================================================
+    # The X server, keymap, XCURSOR_*/NIXOS_OZONE_WL, Bluetooth and
+    # hardware.graphics are shared with niri and live in
+    # Modules/Desktop/desktop.nix; the greeter is Modules/Boot/sddm.nix. Only
+    # what is Hyprland's own stays here.
     programs.hyprland.enable = true;
     programs.xwayland.enable = true;
 
-    services.xserver.enable = true;
-    services.xserver.videoDrivers = [ "amdgpu" ];
-    services.xserver.xkb = {
-      layout = "au";
-      variant = "";
-    };
-
-    services.displayManager.sddm.enable = true;
     services.displayManager.defaultSession = "hyprland";
-    services.displayManager.sddm.settings.General = {
-      CursorTheme = "Bibata-Modern-Classic";
-      CursorSize = 24;
-    };
 
-    xdg.portal = {
-      enable = true;
-      extraPortals = [
-        pkgs.xdg-desktop-portal-gnome
-        pkgs.xdg-desktop-portal-hyprland
-      ];
-      config.common.default = "gtk";
-    };
-
-    xdg.mime = {
-      enable = true;
-      defaultApplications = {
-        "text/plain" = [ "codium.desktop" ];
-        "text/x-nix" = [ "codium.desktop" ];
-        "text/markdown" = [ "codium.desktop" ];
-        "application/json" = [ "codium.desktop" ];
-        "application/x-yaml" = [ "codium.desktop" ];
-        "application/toml" = [ "codium.desktop" ];
-        "text/yaml" = [ "codium.desktop" ];
-      };
-    };
+    # Portals. programs.hyprland already installs xdg-desktop-portal-hyprland,
+    # and its wayland-session.nix adds xdg-desktop-portal-gtk, so nothing needs
+    # adding to extraPortals — only the routing needs saying.
+    #
+    # This used to be `config.common.default = "gtk"` plus the GNOME portal, and
+    # that routed EVERYTHING to the gtk portal — screen sharing and screenshots
+    # included, which gtk does not implement. xdg-desktop-portal reads
+    # /etc/xdg/xdg-desktop-portal/ before the per-package defaults in share/, so
+    # the generated portals.conf (`common`) won over the hyprland-portals.conf
+    # that ships with Hyprland and says exactly this. The GNOME portal does
+    # nothing useful outside a GNOME/niri session, so it is gone too.
+    xdg.portal.config.hyprland.default = [ "hyprland" "gtk" ];
 
     environment.sessionVariables = {
-      NIXOS_OZONE_WL = "1";
-      XCURSOR_THEME = "Bibata-Modern-Classic";
-      XCURSOR_SIZE = "24";
       HYPRCURSOR_THEME = "Bibata-Modern-Classic";
       HYPRCURSOR_SIZE = "24";
-    };
-
-    hardware.bluetooth.enable = true;
-    hardware.graphics = {
-      enable = true;
-      enable32Bit = true;
     };
 
     # ============================================================
@@ -182,8 +135,9 @@
         # red config-error bar:
         #   hyprland.lua:5: <name> expected near '$'
         #
-        # Odysseus never hit this only because it is on stateVersion 25.05. Kit-Kat
-        # is a fresh 26.05 install and hit it immediately. Pinning here keeps the
+        # The retired Odysseus host never hit this only because it was on
+        # stateVersion 25.05. Kit-Kat is a fresh 26.05 install and hit it
+        # immediately. Pinning here keeps the
         # module self-consistent regardless of a host's stateVersion.
         configType = "hyprlang";
 
@@ -194,13 +148,16 @@
 
           "$terminal" = "kitty";
           "$fileManager" = "thunar";
-          "$menu" = "noctalia msg panel-toggle session";
 
+          # DXVK_ASYNC and WINE_FULLSCREEN_FSR used to be set here too, and both
+          # were no-ops: DXVK_ASYNC was read only by the dxvk-async fork, which
+          # GE-Proton dropped once DXVK's graphics-pipeline-library landed, and
+          # GE-Proton already defaults WINE_FULLSCREEN_FSR to 1 wherever its
+          # fullscreen hack still exists. For upscaling, use a gamescope launch
+          # option (see Modules/Gaming/steam.nix).
           env = [
             "XCURSOR_SIZE,24"
             "HYPRCURSOR_SIZE,24"
-            "WINE_FULLSCREEN_FSR,1"
-            "DXVK_ASYNC,1"
           ];
 
           general = {
@@ -264,12 +221,10 @@
 
           dwindle = {
             # `pseudotile` was removed as a dwindle option in Hyprland 0.5x — it is a
-            # dispatcher only now (Mod+P below). Leaving it here logs
+            # dispatcher only now (and not bound here). Leaving it here logs
             #   config option <dwindle:pseudotile> does not exist
             preserve_split = true;
           };
-
-          master = { new_status = "master"; };
 
           misc = {
             force_default_wallpaper = -1;
@@ -315,13 +270,6 @@
             touchpad = { natural_scroll = false; };
           };
 
-          device = [
-            {
-              name = "epic-mouse-v1";
-              sensitivity = -0.5;
-            }
-          ];
-
           # Keybinds
           # Keymap, deliberately mirroring rock's niri layout so the two machines
           # feel the same. Trimmed to what she actually uses: workspaces 1-5 (not
@@ -332,7 +280,8 @@
           # column model), Hotkey Overlay (Mod+Shift+Slash), Rain Effect (retired).
           #
           # Screenshots come from Modules/Desktop/screenshot.nix (Mod+Shift+S region,
-          # Mod+S fullscreen, Mod+Ctrl+S active window).
+          # Mod+Print fullscreen, Mod+Ctrl+S active window). Mod+S is focusmonitor
+          # below, not a screenshot.
           bind = [
             # ── Applications ──────────────────────────────────────────────────
             "${mainMod}, RETURN, exec, $terminal"
@@ -368,7 +317,8 @@
             "${mainMod} SHIFT, down, movewindow, d"
 
             # ── Workspaces ────────────────────────────────────────────────────
-            # 1-5 only. 1 and 3-5 live on the Philips, 2 on the pivoted Dell.
+            # 1-5 only, and unpinned — they act on whichever screen has focus
+            # (see `workspace = [ ]` below).
             "${mainMod}, 1, workspace, 1"
             "${mainMod}, 2, workspace, 2"
             "${mainMod}, 3, workspace, 3"
@@ -395,15 +345,19 @@
             ",XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
             ",XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
             ",XF86AudioMicMute, exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
-            ",XF86MonBrightnessUp, exec, brightnessctl -e4 -n2 set 5%+"
-            ",XF86MonBrightnessDown, exec, brightnessctl -e4 -n2 set 5%-"
+            # No XF86MonBrightness binds: brightnessctl is not installed, and both
+            # of her panels are external monitors with no backlight to drive.
           ];
 
+          # Same player selection as niri's media keys (playerctlCmd in
+          # Modules/Desktop/niri.nix): bare `playerctl` can pick skwd-daemon's
+          # inert skwd-music MPRIS player, which accepts every command and does
+          # nothing, so the keys silently go nowhere.
           bindl = [
-            ", XF86AudioNext, exec, playerctl next"
-            ", XF86AudioPause, exec, playerctl play-pause"
-            ", XF86AudioPlay, exec, playerctl play-pause"
-            ", XF86AudioPrev, exec, playerctl previous"
+            ", XF86AudioNext, exec, ${playerctlCmd} next"
+            ", XF86AudioPause, exec, ${playerctlCmd} play-pause"
+            ", XF86AudioPlay, exec, ${playerctlCmd} play-pause"
+            ", XF86AudioPrev, exec, ${playerctlCmd} previous"
           ];
 
           # Workspaces are NOT pinned to monitors and NOT persistent.
@@ -449,28 +403,24 @@
             "match:class ^$, match:title ^$, match:xwayland true, match:float true, no_focus on"
 
             # transparency
-            "match:class ^(thunar)$, opacity ${o.light} ${o.light}"
-            "match:class ^(brave)$, opacity ${o.strong} ${o.strong}"
+            #
+            # Classes mirror the app-ids niri.nix matches (verified there with
+            # `niri msg windows`); Hyprland matches the class case-sensitively,
+            # exactly like niri's app-id, and several of the old patterns here
+            # never matched anything:
+            #   ^(Steam)$   — the client's class is lowercase `steam`. Anchored, so
+            #                in-game `steam_app_<id>` windows stay opaque.
+            #   ^(discord)$ — the client here is Vesktop, class `vesktop`.
+            #   ^(brave)$   — Brave's class is `brave-browser`.
+            #   ^(thunar)$  — the autostarted `Thunar --daemon` serves windows as
+            #                `Thunar`; only a direct `bin/thunar` launch is
+            #                lowercase. See the matching rule in niri.nix.
+            "match:class ^[Tt]hunar$, opacity ${o.light} ${o.light}"
+            "match:class ^brave-browser$, opacity ${o.strong} ${o.strong}"
             "match:class ^(codium)$, opacity ${o.light} ${o.light}"
-            "match:class ^(discord)$, opacity ${o.strong} ${o.strong}"
+            "match:class ^(discord|vesktop)$, opacity ${o.strong} ${o.strong}"
             "match:class ^(spotify)$, opacity ${o.strong} ${o.strong}"
-            "match:class ^(Steam)$, opacity ${o.strong} ${o.strong}"
-
-            # Star Citizen / wine
-            "match:class ^(rsi-launcher)$, tile on"
-            "match:class ^(rsi-launcher)$, workspace 5 silent"
-            "match:class ^(StarCitizen)$, fullscreen on"
-            "match:class ^(StarCitizen)$, immediate on"
-            "match:class ^(StarCitizen)$, border_size 0"
-            "match:class ^(wine)$, match:float true, no_focus on"
-            "match:class ^(wineserver)$, no_focus on"
-          ];
-
-          layerrule = [
-            "match:namespace ^rofi-wal$, blur true"
-            "match:namespace ^rofi-wal$, blur_popups true"
-            "match:namespace ^rofi-wal$, dim_around true"
-            "match:namespace ^rofi-wal$, ignore_alpha 0.0"
+            "match:class ^steam$, opacity ${o.strong} ${o.strong}"
           ];
 
           exec-once = [
@@ -478,8 +428,11 @@
             "hyprctl dispatch exec [workspace 2 silent] spotify"
             "dbus-update-activation-environment --systemd --all"
             "systemctl --user import-environment --all"
-            "gnome-keyring-daemon --start --components=secrets,ssh,pkcs11"
-            "polkit-gnome-authentication-agent-1"
+            # No polkit agent here: Modules/Core/polkit.nix runs polkit-gnome as a
+            # graphical-session user service (the bare name was never on PATH
+            # anyway — it lives in libexec/). No gnome-keyring-daemon either: it
+            # is not installed on this host, and its ssh component would fight
+            # programs.ssh.startAgent (Modules/Core/base.nix) for SSH_AUTH_SOCK.
             "noctalia"
           ];
         };

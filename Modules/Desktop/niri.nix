@@ -56,7 +56,7 @@
       key = "Mod+E";
       title = "Files";
       category = "Applications";
-      action.spawn-sh = lib.getExe pkgs.xfce.thunar;
+      action.spawn-sh = lib.getExe pkgs.thunar;
     }
     {
       key = "Mod+F";
@@ -96,12 +96,6 @@
       title = "Power Menu";
       category = "Applications";
       action.spawn-sh = "noctalia msg panel-toggle session";
-    }
-    {
-      key = "Mod+Shift+R";
-      title = "Rain Effect";
-      category = "Applications";
-      action.spawn-sh = "rain-toggle";
     }
     {
       key = "Mod+Shift+Slash";
@@ -206,6 +200,9 @@
     }
 
     # ── Workspace - Movement ── (move the focused column)
+    # Native actions, like focus-workspace above. These used to be spawn-sh
+    # round-trips through `niri msg action …`, which forked a shell and a second
+    # niri process per keypress to reach the same action.
     {
       key = "Mod+Shift+Left";
       title = "Move Column Left";
@@ -222,43 +219,43 @@
       key = "Mod+Shift+Up";
       title = "Move to Workspace Up";
       category = "Workspace - Movement";
-      action.spawn-sh = "niri msg action move-column-to-workspace-up";
+      action.move-column-to-workspace-up = _: {};
     }
     {
       key = "Mod+Shift+Down";
       title = "Move to Workspace Down";
       category = "Workspace - Movement";
-      action.spawn-sh = "niri msg action move-column-to-workspace-down";
+      action.move-column-to-workspace-down = _: {};
     }
     {
       key = "Mod+Shift+1";
       title = "Move to Workspace 1";
       category = "Workspace - Movement";
-      action.spawn-sh = "niri msg action move-column-to-workspace 1";
+      action.move-column-to-workspace = 1;
     }
     {
       key = "Mod+Shift+2";
       title = "Move to Workspace 2";
       category = "Workspace - Movement";
-      action.spawn-sh = "niri msg action move-column-to-workspace 2";
+      action.move-column-to-workspace = 2;
     }
     {
       key = "Mod+Shift+3";
       title = "Move to Workspace 3";
       category = "Workspace - Movement";
-      action.spawn-sh = "niri msg action move-column-to-workspace 3";
+      action.move-column-to-workspace = 3;
     }
     {
       key = "Mod+Shift+4";
       title = "Move to Workspace 4";
       category = "Workspace - Movement";
-      action.spawn-sh = "niri msg action move-column-to-workspace 4";
+      action.move-column-to-workspace = 4;
     }
     {
       key = "Mod+Shift+5";
       title = "Move to Workspace 5";
       category = "Workspace - Movement";
-      action.spawn-sh = "niri msg action move-column-to-workspace 5";
+      action.move-column-to-workspace = 5;
     }
 
     # ── Workspace - Management ── (column sizing within a workspace)
@@ -393,73 +390,55 @@ in {
     lib,
     activeUser,
     ...
-  }: {
+  }: let
+    # Apollo imports this module but neither Steam nor Spicetify, so everything
+    # below that launches one of them is gated on the module that provides it.
+    # Ungated, the steam wrapper's `config.programs.steam.package` (which
+    # defaults to pkgs.steam whether or not Steam is enabled) and the Spotify
+    # .desktop icon's `pkgs.spotify` store path dragged BOTH clients into the
+    # deployer ISO, behind launchers for programs it does not have.
+    steamEnabled = config.programs.steam.enable;
+    # programs.spicetify is a Home Manager option, declared only when
+    # Modules/Apps/spicetify.nix is imported — hence `or false`.
+    spotifyEnabled = config.home-manager.users.${activeUser}.programs.spicetify.enable or false;
+  in {
     programs.niri = {
       enable = true;
       package = self.packages.${pkgs.stdenv.hostPlatform.system}.wrappedNiri;
+
+      # Thunar is the file manager, so the portal's file chooser is the plain
+      # GTK one rather than Nautilus's. Left at its default (true), the niri
+      # module adds Nautilus to services.dbus.packages purely to back
+      # xdg-desktop-portal-gnome's FileChooser — a second file manager in the
+      # closure for one dialog.
+      useNautilus = false;
     };
 
-    services.xserver.enable = true;
-    services.xserver.videoDrivers = ["amdgpu"];
-    services.xserver.xkb = {
-      layout = "au";
-      variant = "";
-    };
-
-    services.displayManager.sddm.enable = true;
+    # The X server, keymap, XCURSOR_*/NIXOS_OZONE_WL, Bluetooth and
+    # hardware.graphics are shared with Hyprland and live in
+    # Modules/Desktop/desktop.nix; the greeter is Modules/Boot/sddm.nix. Only
+    # what is niri's own stays here.
     services.displayManager.defaultSession = "niri";
-    services.displayManager.sddm.settings.General = {
-      CursorTheme = "Bibata-Modern-Classic";
-      CursorSize = 24;
-    };
 
-    xdg.portal = {
-      enable = true;
-      extraPortals = [
-        pkgs.xdg-desktop-portal-gnome
-        pkgs.xdg-desktop-portal-gtk
-      ];
-      config.common = {
-        default = "gtk";
-        "org.freedesktop.impl.portal.ScreenCast" = "gnome";
-        "org.freedesktop.impl.portal.Screenshot" = "gnome";
-        "org.freedesktop.impl.portal.RemoteDesktop" = "gnome";
-      };
-    };
-
-    xdg.mime = {
-      enable = true;
-      defaultApplications = {
-        "text/plain" = ["codium.desktop"];
-        "text/x-nix" = ["codium.desktop"];
-        "text/markdown" = ["codium.desktop"];
-        "application/json" = ["codium.desktop"];
-        "application/x-yaml" = ["codium.desktop"];
-        "application/toml" = ["codium.desktop"];
-        "text/yaml" = ["codium.desktop"];
-      };
-    };
+    # Portals: nothing to configure. programs.niri writes its own
+    # /etc/xdg/xdg-desktop-portal/niri-portals.conf (gnome first, then gtk; gtk
+    # for Access/Notification/FileChooser, gnome-keyring for Secret) and pulls
+    # in both xdg-desktop-portal-gnome and -gtk itself. A `config.common`
+    # mapping used to sit here as well, and it was dead: under
+    # XDG_CURRENT_DESKTOP=niri the portal reads niri-portals.conf and never
+    # falls back to the common portals.conf.
 
     environment.sessionVariables = {
-      NIXOS_OZONE_WL = "1";
-      XCURSOR_THEME = "Bibata-Modern-Classic";
-      XCURSOR_SIZE = "24";
       GTK_USE_PORTAL = "1";
     };
 
-    hardware.bluetooth.enable = true;
-    hardware.bluetooth.powerOnBoot = true;
-    hardware.bluetooth.settings.Policy.AutoEnable = "true";
-    services.blueman.enable = true;
-    hardware.graphics = {
-      enable = true;
-      enable32Bit = true;
-    };
-
     environment.systemPackages = with pkgs; [
-      xwayland-satellite
+      # No xwayland-satellite here: niri spawns it itself from the absolute
+      # store path baked into its config (`xwayland-satellite.path` below), so a
+      # copy on PATH was never used.
       playerctl
       kdePackages.qttools # Provides qdbus6 for Noctalia D-Bus calls
+    ] ++ lib.optionals steamEnabled [
       # Wrapped steam with GPU workaround for niri.
       #
       # MUST wrap config.programs.steam.package, NOT pkgs.steam. This script is
@@ -482,35 +461,7 @@ in {
           sleep 1 && steam "$@" &
         fi
       '')
-      # NOTE: pointer confinement for games is handled by gamescope, NOT by anything
-      # in this file. There used to be a `game-lock` script on Mod+G that confined the
-      # pointer by turning every other output OFF — removed 2026-08-05, that side effect
-      # was never wanted (it also relocated the disabled monitor's windows and workspaces
-      # and never moved them back).
-      #
-      # Niri still has no confinement primitive as of 26.04: `niri msg action` lists no
-      # pointer/confine/grab action, and a `confine-pointer` window rule fails
-      # `niri validate` as an unexpected node. A Wayland client cannot grab the pointer
-      # on another client's behalf either, so no external helper can do it.
-      #
-      # Use gamescope instead — it is a nested compositor that owns the pointer outright.
-      # Already available via programs.steam.gamescopeSession (Modules/Gaming/steam.nix).
-      # Per-game Steam launch options:
-      #   gamescope -W 2560 -H 1080 -f --force-grab-cursor -- %command%
-      # `--force-grab-cursor` forces relative mouse mode so the cursor cannot leave the
-      # game. Games that request zwp_pointer_constraints_v1 themselves already work
-      # unaided — this is for the ones that don't, usually borderless-windowed mode.
-      #
-      # NOTE: `wallpaper-restore` used to live here — a login-time swaybg instance
-      # that painted the niri overview backdrop, matched by a `^wallpaper$`
-      # layer-rule. Removed 2026-09-15 along with the rest of the swaybg
-      # workaround: skwd v2 serves the backdrop natively from its own
-      # `skwd-paper-backdrop` surface, enabled by `niri.overviewBackdrop` in
-      # ~/.config/skwd-wall-v2/config.json and matched by the layer-rule further
-      # down this file. That retires three moving parts — this script, its
-      # spawn-at-startup entry, and the swaybg swap block that used to sit in
-      # noctalia-sync-wallpaper (which is now gone entirely).
-      #
+    ] ++ lib.optionals spotifyEnabled [
       # Spotify startup launcher: delayed start for session init, opens to liked songs.
       # Used in niri spawn-at-startup — needs the sleep for session initialization.
       (writeShellScriptBin "spotify-startup" ''
@@ -553,10 +504,39 @@ in {
       '')
     ];
 
+    # NOTE: pointer confinement for games is handled by gamescope, NOT by anything
+    # in this file. There used to be a `game-lock` script on Mod+G that confined the
+    # pointer by turning every other output OFF — removed 2026-08-05, that side effect
+    # was never wanted (it also relocated the disabled monitor's windows and workspaces
+    # and never moved them back).
+    #
+    # Niri still has no confinement primitive as of 26.04: `niri msg action` lists no
+    # pointer/confine/grab action, and a `confine-pointer` window rule fails
+    # `niri validate` as an unexpected node. A Wayland client cannot grab the pointer
+    # on another client's behalf either, so no external helper can do it.
+    #
+    # Use gamescope instead — it is a nested compositor that owns the pointer outright.
+    # Already available via programs.steam.gamescopeSession (Modules/Gaming/steam.nix).
+    # Per-game Steam launch options:
+    #   gamescope -W 2560 -H 1080 -f --force-grab-cursor -- %command%
+    # `--force-grab-cursor` forces relative mouse mode so the cursor cannot leave the
+    # game. Games that request zwp_pointer_constraints_v1 themselves already work
+    # unaided — this is for the ones that don't, usually borderless-windowed mode.
+    #
+    # NOTE: `wallpaper-restore` used to live here — a login-time swaybg instance
+    # that painted the niri overview backdrop, matched by a `^wallpaper$`
+    # layer-rule. Removed 2026-09-15 along with the rest of the swaybg
+    # workaround: skwd v2 serves the backdrop natively from its own
+    # `skwd-paper-backdrop` surface, enabled by `niri.overviewBackdrop` in
+    # ~/.config/skwd-wall-v2/config.json and matched by the layer-rule further
+    # down this file. That retires three moving parts — this script, its
+    # spawn-at-startup entry, and the swaybg swap block that used to sit in
+    # noctalia-sync-wallpaper (which is now gone entirely).
+
     home-manager.users.${activeUser} = {
       # Override Steam .desktop so the app launcher uses steam-open (with sleep 1 delay).
       # Niri's spawn mechanism requires a delay or Steam silently fails (niri issue #2463).
-      xdg.desktopEntries.steam = {
+      xdg.desktopEntries.steam = lib.mkIf steamEnabled {
         name = "Steam";
         exec = "steam-open %U";
         icon = "steam";
@@ -567,11 +547,14 @@ in {
 
       # Override Spotify .desktop so the app launcher uses spotify-open instead of spotify.
       # This means the launcher always opens Liked Songs without touching the spotify binary.
-      xdg.desktopEntries.spotify = {
+      xdg.desktopEntries.spotify = lib.mkIf spotifyEnabled {
         name = "Spotify";
         genericName = "Music Player";
         exec = "spotify-open %U";
-        icon = "${pkgs.spotify}/share/spotify/icons/spotify-linux-512.png";
+        # The icon NAME the spotify package installs into share/icons/hicolor,
+        # not a `${pkgs.spotify}/…` path: a store path pulled the vanilla client
+        # into the closure next to the spiced one just to borrow its PNG.
+        icon = "spotify-client";
         terminal = false;
         categories = ["Audio" "Music" "Player" "AudioVideo"];
         mimeType = ["x-scheme-handler/spotify"];
@@ -615,9 +598,6 @@ in {
 
           # Drop the plugin's parsed-bindings cache so it re-reads the regenerated file.
           rm -f "$HOME/.local/state/noctalia/plugins/data/kenn/keybind-cheatsheet/bindings-cache.json"
-
-          # Superseded by niri-keybinds.kdl — clean up leftovers from earlier generations.
-          rm -f "$HOME/.config/niri/keybinds-for-cheatsheet.kdl"
         '';
       };
     };
@@ -629,412 +609,373 @@ in {
   perSystem = {
     pkgs,
     lib,
-    self',
     ...
-  }: {
-    packages.wrappedNiri = let
-      baseNiri = inputs.wrapper-modules.wrappers.niri.wrap {
-        inherit pkgs;
-        settings = {
-          # Disable client-side decorations
-          prefer-no-csd = _: {};
+  }: let
+    # GLSL shared by the window-open and window-close shaders below: value
+    # noise, fBm over it, and a domain-warped fBm. Both animations used to carry
+    # an identical copy of all four functions; interpolating one copy keeps them
+    # from drifting apart. (Interpolation does not re-indent, so in the
+    # generated config these lines sit flush left inside the shader string —
+    # whitespace only, GLSL does not care.)
+    glslNoise = ''
+      float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
 
-          # Niri pops its built-in "Important Hotkeys" overlay at every session start
-          # by default — i.e. on every login out of SDDM. Mod+Shift+Slash still opens
-          # it on demand (and Mod+B opens the noctalia cheatsheet panel).
-          hotkey-overlay.skip-at-startup = _: {};
+      float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }
 
-          # Screenshot save location
-          screenshot-path = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png";
+      float fbm(vec2 p) {
+          float v = 0.0;
+          float amp = 0.5;
+          for (int i = 0; i < 6; i++) {
+              v += amp * noise(p);
+              p *= 2.0;
+              amp *= 0.5;
+          }
+          return v;
+      }
 
-          spawn-at-startup = [
-            # Launch shell/bar first for instant visual feedback
-            "noctalia"
-            # D-Bus environment setup runs in background (& at end)
-            "sh -c 'dbus-update-activation-environment --systemd --all &'"
-            "sh -c 'systemctl --user import-environment --all &'"
-            # Clear stale Spotify singleton locks left over from previous sessions/reboots
-            "sh -c 'rm -f ~/.cache/spotify/SingletonLock ~/.cache/spotify/SingletonSocket'"
-            "spotify-startup"
-          ];
+      float warpedFbm(vec2 p, float t) {
+          vec2 q = vec2(fbm(p + vec2(0.0, 0.0)),
+                        fbm(p + vec2(5.2, 1.3)));
 
-          xwayland-satellite.path = lib.getExe pkgs.xwayland-satellite;
+          vec2 r = vec2(fbm(p + 6.0 * q + vec2(1.7, 9.2) + 0.25 * t),
+                        fbm(p + 6.0 * q + vec2(8.3, 2.8) + 0.22 * t));
 
-          # Cursor
-          cursor.xcursor-theme = "Bibata-Modern-Classic";
-          cursor.xcursor-size = 24;
+          vec2 s = vec2(fbm(p + 5.0 * r + vec2(3.1, 7.4) + 0.18 * t),
+                        fbm(p + 5.0 * r + vec2(6.7, 0.9) + 0.2 * t));
 
-          # Input settings
-          input.keyboard.xkb.layout = "us";
-          input.mouse.accel-profile = "flat";
-          # max-scroll-amount "0%" is what stops the left edge of the screen
-          # yanking the view sideways. Without it, moving the pointer to the edge
-          # lands it on the sliver of the neighbouring column, focus follows it,
-          # and niri scrolls that column into view — so a stray mouse movement
-          # silently changes what you're looking at. "0%" keeps focus-follows-mouse
-          # for windows already fully on screen and refuses any focus change that
-          # would require scrolling. NOT hot-corners, which are separately off.
-          # The `_: { ... }` form emits KDL *properties* on the node
-          # (`focus-follows-mouse max-scroll-amount="0%"`). A plain attrset would
-          # emit child nodes instead, which niri rejects here.
-          input.focus-follows-mouse = _: { max-scroll-amount = "0%"; };
-          input.touchpad.tap = _: {};
+          return fbm(p + 6.0 * s);
+      }
+    '';
+  in {
+    # The wrapper-modules package is used as-is. It already carries
+    # `passthru.providedSessions = [ "niri" ]` (copied from pkgs.niri), which is
+    # what programs.niri's displayManager.sessionPackages needs for SDDM to list
+    # the session. There used to be a `niri-with-delay` symlinkJoin around it
+    # whose bin/niri was a one-line `exec <wrapped niri> "$@"` — no delay, no
+    # change, just an extra exec and a second copy of the package tree.
+    packages.wrappedNiri = inputs.wrapper-modules.wrappers.niri.wrap {
+      inherit pkgs;
+      settings = {
+        # Disable client-side decorations
+        prefer-no-csd = _: {};
 
-          # Layout
-          layout.gaps = 4;
-          layout.center-focused-column = "never";
-          layout.focus-ring.width = 0; # Disable focus ring (using border instead)
-          layout.border.width = 2;
-          layout.border.active-color = "#333333";
-          layout.border.inactive-color = "#333333";
+        # Niri pops its built-in "Important Hotkeys" overlay at every session start
+        # by default — i.e. on every login out of SDDM. Mod+Shift+Slash still opens
+        # it on demand (and Mod+B opens the noctalia cheatsheet panel).
+        hotkey-overlay.skip-at-startup = _: {};
 
-          # Default column width (100% = full monitor width)
-          layout.default-column-width.proportion = 1.0;
+        # Screenshot save location
+        screenshot-path = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png";
 
-          # Window rules as raw KDL (wrapper-modules can't generate the correct match syntax)
-          extraConfig = ''
-            animations {
-              window-open {
-                duration-ms 1500
-                curve "ease-out-cubic"
-                custom-shader r"
-                  float hash(vec2 p) {
-                      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-                  }
+        # Shared by every host that runs niri, and this package is per-system, not
+        # per-host — so Apollo's config spawns spotify-startup too, finds no such
+        # command (Modules/Apps/spicetify.nix is not on the ISO), and niri just
+        # logs it. Harmless.
+        spawn-at-startup = [
+          # Launch shell/bar first for instant visual feedback
+          "noctalia"
+          # D-Bus environment setup runs in background (& at end)
+          "sh -c 'dbus-update-activation-environment --systemd --all &'"
+          "sh -c 'systemctl --user import-environment --all &'"
+          # Clear stale Spotify singleton locks left over from previous sessions/reboots
+          "sh -c 'rm -f ~/.cache/spotify/SingletonLock ~/.cache/spotify/SingletonSocket'"
+          "spotify-startup"
+        ];
 
-                  float noise(vec2 p) {
-                      vec2 i = floor(p);
-                      vec2 f = fract(p);
-                      f = f * f * (3.0 - 2.0 * f);
-                      float a = hash(i);
-                      float b = hash(i + vec2(1.0, 0.0));
-                      float c = hash(i + vec2(0.0, 1.0));
-                      float d = hash(i + vec2(1.0, 1.0));
-                      return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-                  }
+        xwayland-satellite.path = lib.getExe pkgs.xwayland-satellite;
 
-                  float fbm(vec2 p) {
-                      float v = 0.0;
-                      float amp = 0.5;
-                      for (int i = 0; i < 6; i++) {
-                          v += amp * noise(p);
-                          p *= 2.0;
-                          amp *= 0.5;
-                      }
-                      return v;
-                  }
+        # Cursor
+        cursor.xcursor-theme = "Bibata-Modern-Classic";
+        cursor.xcursor-size = 24;
 
-                  float warpedFbm(vec2 p, float t) {
-                      vec2 q = vec2(fbm(p + vec2(0.0, 0.0)),
-                                    fbm(p + vec2(5.2, 1.3)));
+        # Input settings
+        input.keyboard.xkb.layout = "us";
+        input.mouse.accel-profile = "flat";
+        # max-scroll-amount "0%" is what stops the left edge of the screen
+        # yanking the view sideways. Without it, moving the pointer to the edge
+        # lands it on the sliver of the neighbouring column, focus follows it,
+        # and niri scrolls that column into view — so a stray mouse movement
+        # silently changes what you're looking at. "0%" keeps focus-follows-mouse
+        # for windows already fully on screen and refuses any focus change that
+        # would require scrolling. NOT hot-corners, which are separately off.
+        # The `_: { ... }` form emits KDL *properties* on the node
+        # (`focus-follows-mouse max-scroll-amount="0%"`). A plain attrset would
+        # emit child nodes instead, which niri rejects here.
+        input.focus-follows-mouse = _: { max-scroll-amount = "0%"; };
+        input.touchpad.tap = _: {};
 
-                      vec2 r = vec2(fbm(p + 6.0 * q + vec2(1.7, 9.2) + 0.25 * t),
-                                    fbm(p + 6.0 * q + vec2(8.3, 2.8) + 0.22 * t));
+        # Layout
+        layout.gaps = 4;
+        layout.center-focused-column = "never";
+        layout.focus-ring.width = 0; # Disable focus ring (using border instead)
+        layout.border.width = 2;
+        layout.border.active-color = "#333333";
+        layout.border.inactive-color = "#333333";
 
-                      vec2 s = vec2(fbm(p + 5.0 * r + vec2(3.1, 7.4) + 0.18 * t),
-                                    fbm(p + 5.0 * r + vec2(6.7, 0.9) + 0.2 * t));
+        # Default column width (100% = full monitor width)
+        layout.default-column-width.proportion = 1.0;
 
-                      return fbm(p + 6.0 * s);
-                  }
+        # Window rules as raw KDL (wrapper-modules can't generate the correct match syntax)
+        extraConfig = ''
+          animations {
+            window-open {
+              duration-ms 1500
+              curve "ease-out-cubic"
+              custom-shader r"
+                ${glslNoise}
+                vec4 open_color(vec3 coords_geo, vec3 size_geo) {
+                    float p = niri_clamped_progress;
+                    vec2 uv = coords_geo.xy;
+                    float seed = niri_random_seed * 100.0;
 
-                  vec4 open_color(vec3 coords_geo, vec3 size_geo) {
-                      float p = niri_clamped_progress;
-                      vec2 uv = coords_geo.xy;
-                      float seed = niri_random_seed * 100.0;
+                    float t = p * 12.0 + seed;
 
-                      float t = p * 12.0 + seed;
+                    float fluid = warpedFbm(uv * 2.0 + seed, t);
 
-                      float fluid = warpedFbm(uv * 2.0 + seed, t);
+                    vec2 center = uv - 0.5;
+                    float dist = length(center * vec2(1.0, 0.7));
 
-                      vec2 center = uv - 0.5;
-                      float dist = length(center * vec2(1.0, 0.7));
+                    float appear = (1.0 - dist * 1.2) + (1.0 - fluid) * 0.7;
+                    float reveal = smoothstep(appear + 0.5, appear - 0.5, (1.0 - p) * 1.8);
 
-                      float appear = (1.0 - dist * 1.2) + (1.0 - fluid) * 0.7;
-                      float reveal = smoothstep(appear + 0.5, appear - 0.5, (1.0 - p) * 1.8);
+                    float distort_strength = (1.0 - p) * (1.0 - p) * 0.35;
+                    vec2 wq = vec2(fbm(uv * 2.0 + vec2(0.0, t * 0.2)),
+                                   fbm(uv * 2.0 + vec2(5.2, t * 0.2)));
+                    vec2 wr = vec2(fbm(uv * 2.0 + 4.0 * wq + vec2(1.7, 9.2)),
+                                   fbm(uv * 2.0 + 4.0 * wq + vec2(8.3, 2.8)));
+                    vec2 warped_uv = uv + (wr - 0.5) * distort_strength;
 
-                      float distort_strength = (1.0 - p) * (1.0 - p) * 0.35;
-                      vec2 wq = vec2(fbm(uv * 2.0 + vec2(0.0, t * 0.2)),
-                                     fbm(uv * 2.0 + vec2(5.2, t * 0.2)));
-                      vec2 wr = vec2(fbm(uv * 2.0 + 4.0 * wq + vec2(1.7, 9.2)),
-                                     fbm(uv * 2.0 + 4.0 * wq + vec2(8.3, 2.8)));
-                      vec2 warped_uv = uv + (wr - 0.5) * distort_strength;
+                    vec3 tex_coords = niri_geo_to_tex * vec3(warped_uv, 1.0);
+                    vec4 color = texture2D(niri_tex, tex_coords.st);
 
-                      vec3 tex_coords = niri_geo_to_tex * vec3(warped_uv, 1.0);
-                      vec4 color = texture2D(niri_tex, tex_coords.st);
-
-                      return color * reveal;
-                  }
-                "
-              }
-
-              window-close {
-                duration-ms 750
-                curve "ease-out-cubic"
-                custom-shader r"
-                  float hash(vec2 p) {
-                      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-                  }
-
-                  float noise(vec2 p) {
-                      vec2 i = floor(p);
-                      vec2 f = fract(p);
-                      f = f * f * (3.0 - 2.0 * f);
-                      float a = hash(i);
-                      float b = hash(i + vec2(1.0, 0.0));
-                      float c = hash(i + vec2(0.0, 1.0));
-                      float d = hash(i + vec2(1.0, 1.0));
-                      return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-                  }
-
-                  float fbm(vec2 p) {
-                      float v = 0.0;
-                      float amp = 0.5;
-                      for (int i = 0; i < 6; i++) {
-                          v += amp * noise(p);
-                          p *= 2.0;
-                          amp *= 0.5;
-                      }
-                      return v;
-                  }
-
-                  float warpedFbm(vec2 p, float t) {
-                      vec2 q = vec2(fbm(p + vec2(0.0, 0.0)),
-                                    fbm(p + vec2(5.2, 1.3)));
-
-                      vec2 r = vec2(fbm(p + 6.0 * q + vec2(1.7, 9.2) + 0.25 * t),
-                                    fbm(p + 6.0 * q + vec2(8.3, 2.8) + 0.22 * t));
-
-                      vec2 s = vec2(fbm(p + 5.0 * r + vec2(3.1, 7.4) + 0.18 * t),
-                                    fbm(p + 5.0 * r + vec2(6.7, 0.9) + 0.2 * t));
-
-                      return fbm(p + 6.0 * s);
-                  }
-
-                  vec4 close_color(vec3 coords_geo, vec3 size_geo) {
-                      float p = niri_clamped_progress;
-                      vec2 uv = coords_geo.xy;
-                      float seed = niri_random_seed * 100.0;
-
-                      float t = p * 12.0 + seed;
-
-                      float fluid = warpedFbm(uv * 2.0 + seed, t);
-
-                      vec2 center = uv - 0.5;
-                      float dist = length(center * vec2(1.0, 0.7));
-
-                      float dissolve = (1.0 - dist) * 1.2 + fluid * 0.7;
-                      float remain = smoothstep(dissolve + 0.5, dissolve - 0.5, p * 1.8);
-
-                      float distort_strength = p * p * 0.4;
-                      vec2 wq = vec2(fbm(uv * 2.0 + vec2(0.0, t * 0.2)),
-                                     fbm(uv * 2.0 + vec2(5.2, t * 0.2)));
-                      vec2 wr = vec2(fbm(uv * 2.0 + 4.0 * wq + vec2(1.7, 9.2)),
-                                     fbm(uv * 2.0 + 4.0 * wq + vec2(8.3, 2.8)));
-                      vec2 warped_uv = uv + (wr - 0.5) * distort_strength;
-
-                      vec3 tex_coords = niri_geo_to_tex * vec3(warped_uv, 1.0);
-                      vec4 color = texture2D(niri_tex, tex_coords.st);
-
-                      float tail = smoothstep(1.0, 0.8, p);
-                      return color * remain * tail;
-                  }
-                "
-              }
+                    return color * reveal;
+                }
+              "
             }
 
-            gestures {
-              hot-corners {
-                off
-              }
-            }
+            window-close {
+              duration-ms 750
+              curve "ease-out-cubic"
+              custom-shader r"
+                ${glslNoise}
+                vec4 close_color(vec3 coords_geo, vec3 size_geo) {
+                    float p = niri_clamped_progress;
+                    vec2 uv = coords_geo.xy;
+                    float seed = niri_random_seed * 100.0;
 
-            output "DP-2" {
-              // This panel's EDID declares 2560x1080@59.938 as its PREFERRED mode (DTD 1);
-              // 144 Hz is DTD 5, off in the CTA-861 extension block. Without this line niri
-              // correctly honours the preferred flag and the monitor runs at 60 Hz.
-              mode "2560x1080@144.001"
-              position x=0 y=1080
-            }
+                    float t = p * 12.0 + seed;
 
-            output "HDMI-A-1" {
-              position x=320 y=0
-            }
+                    float fluid = warpedFbm(uv * 2.0 + seed, t);
 
-            window-rule {
-              clip-to-geometry true
-              geometry-corner-radius 12
-              draw-border-with-background false
-            }
-            // ⚠️ Both spellings, and that is not paranoia. GTK takes the app-id
-            // from prgname, so it depends on which binary started the process:
-            // windows served by the autostarted `Thunar --daemon` come up as
-            // "Thunar", while one launched straight off `.../bin/thunar` (Mod+E
-            // above) comes up as "thunar". niri matches app-id case-sensitively,
-            // so the plain `^thunar$` this rule used to carry never matched a
-            // daemon-served window at all. Confirmed 2026-09-25 against
-            // `niri msg windows`.
-            //
-            // ⚠️ Verifying this rule needs care, and getting it wrong once
-            // already cost an afternoon. Thunar's background is very dark
-            // (#1d1d20 ≈ 29,29,32), so at 0.90 the wallpaper contributes only
-            // 10%: over a DARK wallpaper the composite is numerically identical
-            // to an opaque window, which on 2026-09-25 produced a confident and
-            // wrong "the rule does nothing" reading. Sample where the wallpaper
-            // is bright and compare against the client's own buffer colour —
-            // verified that day at 34–42 per channel against a 29 buffer, i.e.
-            // exactly 0.9*29 + 0.1*wallpaper.
-            //
-            // The uniform fade is also why this reads as "dim" rather than
-            // "glassy": niri fades text along with the background. Only a
-            // client-side alpha (gtk.css) can fade the background alone, and
-            // that route was built on 2026-09-25 and rejected on taste — see
-            // Claude/misc.md before rebuilding it.
-            window-rule {
-              match app-id="^[Tt]hunar$"
-              opacity 0.90
-            }
-            window-rule {
-              match app-id="^codium$"
-              opacity 0.80
-            }
-            window-rule {
-              match app-id="^discord$"
-              opacity 0.80
-            }
-            window-rule {
-              match app-id="^vesktop$"
-              opacity 0.85
-            }
-            window-rule {
-              match app-id="^helium$"
-              opacity 0.85
-            }
-            // This line is the ONLY thing making Spotify see-through — same story as
-            // the steam rule below. Spotify is CEF and its surface has no alpha
-            // channel, so no amount of CSS in Modules/Apps/spicetify.nix can do it:
-            // verified 2026-09-16 over CDP by forcing `html, body { background:
-            // transparent }` (window stayed solid black) and again with CEF's
-            // --enable-transparent-visuals flag (no change). Deleting this line in
-            // favour of a translucent CSS backdrop is exactly what turned Spotify's
-            // background fully black.
-            // niri's opacity is uniform — it fades text along with the background — so
-            // this can never match noctalia's bar, which fades background only. 0.75 is
-            // a deliberate choice for more visible wallpaper, accepting softer text;
-            // raise toward 0.85 (what steam/helium/vesktop use) if it reads too washed.
-            window-rule {
-              match app-id="^spotify$"
-              open-on-output "HDMI-A-1"
-              opacity 0.75
-            }
-            // This rule is what actually makes Steam glass — Steam's CEF surface
-            // has no alpha channel, so the Millennium theme in Modules/Gaming/steam.nix
-            // cannot make it see-through on its own. Deleting this line does not
-            // just un-dim Steam, it removes the effect the theme was built around.
-            // See Claude/steam.md. Matches the client window only: in-game windows
-            // get app-id "steam_app_<id>", which this regex excludes.
-            window-rule {
-              match app-id="^steam$"
-              opacity 0.85
-            }
-            // ---- Streamed games land on HDMI-A-1 (the output Sunshine captures) ----
-            //
-            // The streaming model is: Moonlight opens Sunshine's "Steam Big Picture"
-            // app, and games are chosen from inside Big Picture. So the game window
-            // is whatever Steam happens to launch — it is NOT a per-game Sunshine
-            // entry, and there is no in-game monitor selector to rely on.
-            //
-            // Hence a GENERIC rule: any `steam_app_<id>` goes to HDMI-A-1. Previously
-            // this was pinned per game (only `steam_app_1313140`), which meant every
-            // other title opened on the DP-2 ultrawide while Sunshine dutifully
-            // streamed the desktop — hit with Stray on 2026-09-27.
-            // `open-fullscreen` makes it fill the 1080p output so the capture is
-            // full-frame with no gaps.
-            //
-            // Unconditional on purpose: it does not care whether Moonlight is
-            // connected, because Sunshine captures a fixed output either way.
-            //
-            // ⚠️ Obsolete if the Wolf trial replaces Sunshine (Modules/Gaming/wolf.nix) —
-            // Wolf gives each session its own virtual display, so there is nothing
-            // to pin. Harmless to keep as the Sunshine fallback.
-            window-rule {
-              match app-id="^steam_app_"
-              open-on-output "HDMI-A-1"
-              open-fullscreen true
-            }
-            // Cult of the Lamb needs its own rule ON TOP of the generic one above:
-            // it is launched via gamescope (a Steam launch option, to stop Unity
-            // pausing when it loses focus), and under gamescope the toplevel is
-            // gamescope's own window with **app-id UNSET** — so `^steam_app_` cannot
-            // match it. The title is the only usable handle. Verified 2026-09-27:
-            // `niri msg windows` showed `Title: "Cult Of The Lamb"` / `App ID: (unset)`.
-            // Any other game given a gamescope launch option will need the same.
-            window-rule {
-              match title="^Cult Of The Lamb$"
-              open-on-output "HDMI-A-1"
-              open-fullscreen true
-            }
-            window-rule {
-              match app-id="^pavucontrol$"
-              open-floating true
-            }
-            window-rule {
-              match title="^Picture-in-Picture$"
-              open-floating true
-            }
+                    vec2 center = uv - 0.5;
+                    float dist = length(center * vec2(1.0, 0.7));
 
-            // The niri overview backdrop. skwd v2 serves this natively from a
-            // second layer-shell surface, gated by `niri.overviewBackdrop` in
-            // ~/.config/skwd-wall-v2/config.json (with backdropFollowWallpaper,
-            // backdropDim and the blur keys alongside it).
-            //
-            // Without this rule that surface is just another background-layer
-            // client: it is created after skwd-paper, so it paints ON TOP of the
-            // real wallpaper and the whole desktop goes blurry. Seen 2026-09-15 at
-            // --blur 20, against a wallpaper that was not even the current one
-            // because backdropFollowWallpaper defaults to false.
-            //
-            // The rule matches nothing while overviewBackdrop is false, so it is
-            // safe to keep regardless of the setting — and keeping it means the
-            // settings UI cannot break the desktop by flipping that toggle.
-            //
-            // This REPLACED a `^wallpaper$` rule plus a swaybg instance (started
-            // by a `wallpaper-restore` script at login and re-spawned by
-            // noctalia-sync-wallpaper on every swap). All three are gone.
-            //
-            // This is NOT the declined one-tool refactor: that one put
-            // place-within-backdrop on ^skwd-paper$ itself, which collapsed the
-            // desktop and the backdrop into one surface and cost the
-            // workspace-switch slide. The backdrop is a SECOND surface, so
-            // skwd-paper still owns the desktop and the slide survives.
-            // See memory/niri-wallpaper-two-tool-setup.md.
-            layer-rule {
-              match namespace="^skwd-paper-backdrop$"
-              place-within-backdrop true
-            }
-          '';
+                    float dissolve = (1.0 - dist) * 1.2 + fluid * 0.7;
+                    float remain = smoothstep(dissolve + 0.5, dissolve - 0.5, p * 1.8);
 
-          # Derived from mkKeybinds at the top of this file — the same list also
-          # generates ~/.config/niri/niri-keybinds.kdl for the cheatsheet plugin.
-          binds = mkNiriBinds {inherit pkgs lib;};
-        };
-      };
-    in
-      pkgs.symlinkJoin {
-        name = "niri-with-delay";
-        paths = [baseNiri];
-        postBuild = ''
-                  rm $out/bin/niri
-                  cat > $out/bin/niri << 'EOF'
-          #!/bin/sh
-          exec ${baseNiri}/bin/niri "$@"
-          EOF
-                  chmod +x $out/bin/niri
+                    float distort_strength = p * p * 0.4;
+                    vec2 wq = vec2(fbm(uv * 2.0 + vec2(0.0, t * 0.2)),
+                                   fbm(uv * 2.0 + vec2(5.2, t * 0.2)));
+                    vec2 wr = vec2(fbm(uv * 2.0 + 4.0 * wq + vec2(1.7, 9.2)),
+                                   fbm(uv * 2.0 + 4.0 * wq + vec2(8.3, 2.8)));
+                    vec2 warped_uv = uv + (wr - 0.5) * distort_strength;
+
+                    vec3 tex_coords = niri_geo_to_tex * vec3(warped_uv, 1.0);
+                    vec4 color = texture2D(niri_tex, tex_coords.st);
+
+                    float tail = smoothstep(1.0, 0.8, p);
+                    return color * remain * tail;
+                }
+              "
+            }
+          }
+
+          gestures {
+            hot-corners {
+              off
+            }
+          }
+
+          output "DP-2" {
+            // This panel's EDID declares 2560x1080@59.938 as its PREFERRED mode (DTD 1);
+            // 144 Hz is DTD 5, off in the CTA-861 extension block. Without this line niri
+            // correctly honours the preferred flag and the monitor runs at 60 Hz.
+            mode "2560x1080@144.001"
+            position x=0 y=1080
+          }
+
+          output "HDMI-A-1" {
+            position x=320 y=0
+          }
+
+          window-rule {
+            clip-to-geometry true
+            geometry-corner-radius 12
+            draw-border-with-background false
+          }
+          // ⚠️ Both spellings, and that is not paranoia. GTK takes the app-id
+          // from prgname, so it depends on which binary started the process:
+          // windows served by the autostarted `Thunar --daemon` come up as
+          // "Thunar", while one launched straight off `.../bin/thunar` (Mod+E
+          // above) comes up as "thunar". niri matches app-id case-sensitively,
+          // so the plain `^thunar$` this rule used to carry never matched a
+          // daemon-served window at all. Confirmed 2026-09-25 against
+          // `niri msg windows`.
+          //
+          // ⚠️ Verifying this rule needs care, and getting it wrong once
+          // already cost an afternoon. Thunar's background is very dark
+          // (#1d1d20 ≈ 29,29,32), so at 0.90 the wallpaper contributes only
+          // 10%: over a DARK wallpaper the composite is numerically identical
+          // to an opaque window, which on 2026-09-25 produced a confident and
+          // wrong "the rule does nothing" reading. Sample where the wallpaper
+          // is bright and compare against the client's own buffer colour —
+          // verified that day at 34–42 per channel against a 29 buffer, i.e.
+          // exactly 0.9*29 + 0.1*wallpaper.
+          //
+          // The uniform fade is also why this reads as "dim" rather than
+          // "glassy": niri fades text along with the background. Only a
+          // client-side alpha (gtk.css) can fade the background alone, and
+          // that route was built on 2026-09-25 and rejected on taste — see
+          // Claude/misc.md before rebuilding it.
+          window-rule {
+            match app-id="^[Tt]hunar$"
+            opacity 0.90
+          }
+          window-rule {
+            match app-id="^codium$"
+            opacity 0.80
+          }
+          window-rule {
+            match app-id="^discord$"
+            opacity 0.80
+          }
+          window-rule {
+            match app-id="^vesktop$"
+            opacity 0.85
+          }
+          window-rule {
+            match app-id="^helium$"
+            opacity 0.85
+          }
+          // This line is the ONLY thing making Spotify see-through — same story as
+          // the steam rule below. Spotify is CEF and its surface has no alpha
+          // channel, so no amount of CSS in Modules/Apps/spicetify.nix can do it:
+          // verified 2026-09-16 over CDP by forcing `html, body { background:
+          // transparent }` (window stayed solid black) and again with CEF's
+          // --enable-transparent-visuals flag (no change). Deleting this line in
+          // favour of a translucent CSS backdrop is exactly what turned Spotify's
+          // background fully black.
+          // niri's opacity is uniform — it fades text along with the background — so
+          // this can never match noctalia's bar, which fades background only. 0.75 is
+          // a deliberate choice for more visible wallpaper, accepting softer text;
+          // raise toward 0.85 (what steam/helium/vesktop use) if it reads too washed.
+          window-rule {
+            match app-id="^spotify$"
+            open-on-output "HDMI-A-1"
+            opacity 0.75
+          }
+          // This rule is what actually makes Steam glass — Steam's CEF surface
+          // has no alpha channel, so the Millennium theme in Modules/Gaming/steam.nix
+          // cannot make it see-through on its own. Deleting this line does not
+          // just un-dim Steam, it removes the effect the theme was built around.
+          // See Claude/steam.md. Matches the client window only: in-game windows
+          // get app-id "steam_app_<id>", which this regex excludes.
+          window-rule {
+            match app-id="^steam$"
+            opacity 0.85
+          }
+          // ---- Streamed games land on HDMI-A-1 (the output Sunshine captures) ----
+          //
+          // The streaming model is: Moonlight opens Sunshine's "Steam Big Picture"
+          // app, and games are chosen from inside Big Picture. So the game window
+          // is whatever Steam happens to launch — it is NOT a per-game Sunshine
+          // entry, and there is no in-game monitor selector to rely on.
+          //
+          // Hence a GENERIC rule: any `steam_app_<id>` goes to HDMI-A-1. Previously
+          // this was pinned per game (only `steam_app_1313140`), which meant every
+          // other title opened on the DP-2 ultrawide while Sunshine dutifully
+          // streamed the desktop — hit with Stray on 2026-09-27.
+          // `open-fullscreen` makes it fill the 1080p output so the capture is
+          // full-frame with no gaps.
+          //
+          // Unconditional on purpose: it does not care whether Moonlight is
+          // connected, because Sunshine captures a fixed output either way.
+          //
+          // ⚠️ Obsolete if the Wolf trial replaces Sunshine (Modules/Gaming/wolf.nix) —
+          // Wolf gives each session its own virtual display, so there is nothing
+          // to pin. Harmless to keep as the Sunshine fallback.
+          window-rule {
+            match app-id="^steam_app_"
+            open-on-output "HDMI-A-1"
+            open-fullscreen true
+          }
+          // Cult of the Lamb needs its own rule ON TOP of the generic one above:
+          // it is launched via gamescope (a Steam launch option, to stop Unity
+          // pausing when it loses focus), and under gamescope the toplevel is
+          // gamescope's own window with **app-id UNSET** — so `^steam_app_` cannot
+          // match it. The title is the only usable handle. Verified 2026-09-27:
+          // `niri msg windows` showed `Title: "Cult Of The Lamb"` / `App ID: (unset)`.
+          // Any other game given a gamescope launch option will need the same.
+          window-rule {
+            match title="^Cult Of The Lamb$"
+            open-on-output "HDMI-A-1"
+            open-fullscreen true
+          }
+          window-rule {
+            match app-id="^pavucontrol$"
+            open-floating true
+          }
+          window-rule {
+            match title="^Picture-in-Picture$"
+            open-floating true
+          }
+
+          // The niri overview backdrop. skwd v2 serves this natively from a
+          // second layer-shell surface, gated by `niri.overviewBackdrop` in
+          // ~/.config/skwd-wall-v2/config.json (with backdropFollowWallpaper,
+          // backdropDim and the blur keys alongside it).
+          //
+          // Without this rule that surface is just another background-layer
+          // client: it is created after skwd-paper, so it paints ON TOP of the
+          // real wallpaper and the whole desktop goes blurry. Seen 2026-09-15 at
+          // --blur 20, against a wallpaper that was not even the current one
+          // because backdropFollowWallpaper defaults to false.
+          //
+          // The rule matches nothing while overviewBackdrop is false, so it is
+          // safe to keep regardless of the setting — and keeping it means the
+          // settings UI cannot break the desktop by flipping that toggle.
+          //
+          // This REPLACED a `^wallpaper$` rule plus a swaybg instance (started
+          // by a `wallpaper-restore` script at login and re-spawned by
+          // noctalia-sync-wallpaper on every swap). All three are gone.
+          //
+          // This is NOT the declined one-tool refactor: that one put
+          // place-within-backdrop on ^skwd-paper$ itself, which collapsed the
+          // desktop and the backdrop into one surface and cost the
+          // workspace-switch slide. The backdrop is a SECOND surface, so
+          // skwd-paper still owns the desktop and the slide survives.
+          // See "swaybg retired" in Claude/skwd-wall.md.
+          layer-rule {
+            match namespace="^skwd-paper-backdrop$"
+            place-within-backdrop true
+          }
         '';
-        passthru =
-          baseNiri.passthru or {}
-          // {
-            providedSessions = ["niri"];
-          };
+
+        # Derived from mkKeybinds at the top of this file — the same list also
+        # generates ~/.config/niri/niri-keybinds.kdl for the cheatsheet plugin.
+        binds = mkNiriBinds {inherit pkgs lib;};
       };
+    };
   };
 }

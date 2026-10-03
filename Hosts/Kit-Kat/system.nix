@@ -22,11 +22,12 @@
       ./_disko.nix
 
       self.nixosModules.base
+      self.nixosModules.desktop
       self.nixosModules.polkit
       self.nixosModules.nvidia
       self.nixosModules.grub-celeste
       self.nixosModules.plymouth
-      self.nixosModules.sddm-umbrella
+      self.nixosModules.sddm
       self.nixosModules.hyprland
       self.nixosModules.noctalia
       self.nixosModules.skwd
@@ -53,7 +54,6 @@
 
       # Deliberately NOT imported, and why:
       #   grub      — Sisyphus's multi-profile loader; she uses grub-celeste
-      #   sddm-nier — rock's greeter; hers is sddm-umbrella (both would collide)
       #   sops      — that module is keyed to rock's hand-copied age key
       #   wolf      — Docker + a render node hardcoded to Sisyphus's RX 9060 XT
       #   sunshine  — pins output_name=HDMI-A-1 and grabs the desktop cursor
@@ -64,6 +64,10 @@
         # because the option is declared by Modules/Boot/plymouth.nix, and nvidia.nix
         # must stay importable on a host that has no plymouth.
         my.plymouth.initrdGpuModules = [ "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm" ];
+
+        # "Women · Umbrella" (Totoro) greeter — Modules/Boot/sddm.nix. rock's
+        # Sisyphus runs nier-automata from the same module.
+        my.sddm.theme = "women-umbrella";
 
         # The cat greets her on every new interactive shell. `--once` rather than
         # the looping mode so opening a terminal never blocks, and guarded on an
@@ -156,21 +160,19 @@
             }];
           };
 
+          # Only what differs from the shared lock in Modules/Desktop/noctalia.nix.
+          # Her audio_visualizer, network, taskbar (including show_all_outputs,
+          # the "show it on every monitor's bar" toggle she found herself in the
+          # GUI) and tray.drawer settings are identical to it, so they are
+          # inherited rather than restated.
           widget = {
-            audio_visualizer = { bands = 30; centered = false; scale = 1.1; width = 170; };
             clock = { capsule = false; capsule_opacity = 0.34; };
             keybinds.type = "kenn/keybind-cheatsheet:keybinds";
-            network = { font_family = "42dot Sans"; show_label = false; vpn_status = "both"; };
             spacer_2 = { capsule = false; length = 104; scale = 0.4; type = "spacer"; };
 
-            # show_all_outputs is the "show it on every monitor's bar" toggle —
-            # she found this one herself in the GUI.
             # display = "none" hides the workspace NUMBERS, leaving just the pills.
             # (The other options are "id" and "name".)
             workspaces = { display = "none"; };
-
-            taskbar = { scale = 1.35; show_all_outputs = true; };
-            tray.drawer = true;
           };
         };
 
@@ -191,20 +193,11 @@
             # the 1080-tall landscape panel against the 1920-tall portrait one.
             "DP-2,1920x1080@60,1080x420,1"
           ];
-          primaryMonitor = "DP-2";
-          secondaryMonitor = "DP-3";
-
-          # Side monitor owns workspace 2 and starts there; 1 and 3-6 are the
-          # Philips. Mod+2 therefore jumps focus to the pivoted Dell.
-          secondaryWorkspace = 2;
 
           # Transparency dialled right back at her request — the shared default
           # (0.60 / 0.75) was far too see-through for her.
           opacityLight = "0.97";
           opacityStrong = "0.95";
-
-          # skwd v2 has no `skwd` CLI — see the option's description.
-          wallpaperCommand = "skwd-wall-v2";
         };
 
         # Her account. Both keys must live in ONE block: two separate
