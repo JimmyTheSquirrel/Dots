@@ -1,6 +1,6 @@
 # Home Assistant (Asgard)
 
-**Module:** `Modules/Server/home-assistant.nix` (standalone — deliberately **not** in `server.nix`)
+**Module:** `Modules/Server/home-assistant.nix` (its own `nixosModules.home-assistant`, **not** part of `nixosModules.server`)
 **Host:** Asgard only. **Port:** 8123, tailnet-only (`http://asgard:8123`)
 **Version:** home-assistant 2026.5.4 (nixpkgs), deployed 2026-09-16
 **State dir:** `/var/lib/hass`
@@ -9,11 +9,13 @@ Home automation — smart plugs, sensors, automations. Not to be confused with N
 **home-manager**, which is also on Asgard (`home-manager-rock.service`) and is a completely
 different thing.
 
-## Why it isn't in `server.nix`
+## Why it is its own module
 
-Asgard's `Modules/Server/server.nix` carries hundreds of lines of uncommitted local work and is
-**materially divergent** from the Sisyphus copy — see `memory/asgard-clone-diverged.md`. A
-standalone module avoids ever having to patch that file.
+It started as a standalone file because Asgard's old monolithic `server.nix` carried uncommitted
+local work and had diverged from the Sisyphus copy, and a separate module avoided patching it.
+That file is gone (split into `Modules/Server/*.nix`, 2026-10-03), but the separation stays
+useful: the automation side can be dropped from, or added to, a host on its own. It does lean
+on `nixosModules.server` for `config.asgard` (the dashboard origins) and for `glance.service`.
 
 ## ⚠ The declarative limit — read this before "fixing" it
 
@@ -90,8 +92,8 @@ exist"). `git apply` creates new files untracked.
 **Push, not poll.** One websocket to HA (`/api/websocket`, `subscribe_entities`
 filtered to the watched entities, so HA only sends what we care about) feeds the
 snapshot; every dashboard holds one EventSource (`Resources/Glance/lights.js`).
-Before this, every open page polled `/states` every 3s and **each poll made the
-bridge download HA's entire `/api/states`**. If the websocket drops, the bridge
+Before this, every open page — MarsBar and the main Glance alike — polled `/states` every 3s
+and **each poll made the bridge download HA's entire `/api/states`**. If the websocket drops, the bridge
 reconnects with backoff (1s → 30s) and meanwhile polls `/api/states/<entity>` for
 the watched entities only, every 10s, telling the pages (`link: polling`, shown as
 "Delayed").
@@ -117,18 +119,19 @@ journalctl -u ha-bridge -n 50                  # link transitions + websocket er
 
 An **admin** long-lived token: anything holding it can call any HA service, including
 `switch.toggle` on `switch.server_power_switch`. It was mode `0444` (any local uid
-could read it and bypass the bridge's allowlist entirely). Now:
+could read it and bypass the bridge's allowlist entirely), then briefly `0440` with a
+group only Glance was in. Now it is **sops' default, root-only `0400`**, and neither
+consumer reads the file itself — each gets a private copy as a systemd credential
+(`LoadCredential`: systemd, as root, copies it into a per-unit directory only that unit's
+DynamicUser can read):
 
-- `ha-bridge` gets it as a systemd credential (`LoadCredential=ha-token:…`, read
-  from `$CREDENTIALS_DIRECTORY/ha-token`) — systemd copies the root-only file into a
-  directory only that unit's DynamicUser can read.
-- The main Glance still reads `/run/secrets/ha-token` itself (`${secret:ha-token}`
-  in its HA widgets), so the file is `0440 root:ha-token` and `glance.service` has
-  `SupplementaryGroups=ha-token`. **To finish:** give Glance its own credential
-  (`LoadCredential` + Glance's `${readFileFromEnv:VAR}`, or a `sops.templates` env
-  file), then drop the group and leave the secret at the default root-only `0400`.
-- `restartUnits = ["ha-bridge.service"]`: a credential is copied at unit start, so a
-  rotated token needs a restart to reach the bridge.
+- `ha-bridge` reads `$CREDENTIALS_DIRECTORY/ha-token`.
+- `glance.service` (`Modules/Server/glance.nix`) has `HA_TOKEN_FILE` pointing at its copy,
+  and the Monitoring widgets send `Authorization: Bearer ${readFileFromEnv:HA_TOKEN_FILE}`
+  — Glance's own config variable, expanded as text over the whole config file at startup,
+  so it works inside a `headers:` map (verified against Glance 0.8.5).
+- `restartUnits = ["ha-bridge.service" "glance.service"]`: a credential is copied at unit
+  start (and Glance reads its config only then), so a rotated token needs both restarted.
 
 ## Troubleshooting
 
@@ -151,13 +154,13 @@ edit.
 
 ## Glance
 
-Added to `Modules/Server/server.nix` **on Asgard directly** (backup: `server.nix.bak-ha-20260916-1949`),
-in **both** the `All` and `Management` monitor groups. That config has **no bookmarks column by
-design** — a comment near line 322 says new services go in the *monitors*, because monitor rows
-are already clickable and a sidebar made the page scroll.
+HA is a monitor in the main Glance's **All** and **Management** tabs — one entry in the
+`services` list in `Modules/Server/glance.nix`. The Monitoring page reads HA's
+`/api/template` with one generated Jinja query (`plugQuery`); the light tiles on the home
+page and the Monitoring page get their state from ha-bridge's stream (`Resources/Glance/lights.js`).
 
 ⚠️ HA returns **302** on `/` until onboarding is finished. If Glance shows it down, either
-complete onboarding (after which `/` is 200) or add `alt-status-codes: [302]` to the site entry.
+complete onboarding (after which `/` is 200) or add `alt-status-codes = [ 302 ];` to its entry.
 
 ## ⚠ Power cost maths — never divide an ESPHome counter by a wall clock
 
@@ -188,9 +191,12 @@ the Jinja template Glance runs.
 **Rule of thumb:** if a projection must use a cumulative counter, sanity-check it
 against `W * 0.024` and distrust it when they diverge.
 
-Tunables live in the `let` block of `Modules/Server/server.nix`: `powerRate` (0.3041 $/kWh,
+Tunables live in the `let` block of `Modules/Server/glance.nix`: `powerRate` (0.3041 $/kWh,
 the GloBird *balance* rate), `powerRefW` (150 W draw-bar ceiling),
-`powerSupplyDaily`.
+`powerSupplyDaily`. The same `W * 0.024` arithmetic runs twice — in the Jinja (first paint)
+and in `Resources/Glance/asgard.js` (live, from the bridge's power sensors) — keep them in step.
+Until 2026-10-03 the cards were labelled **"Avg Daily"** with a caveat that the figure "firms
+up as it runs"; it never could, and both are gone.
 
 ## Not done yet
 
