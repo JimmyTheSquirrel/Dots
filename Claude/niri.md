@@ -102,7 +102,11 @@ rather than your session — a config typo can't lock you out.
 
 **Cursor:** configured via `cursor.xcursor-theme` and `cursor.xcursor-size` in wrapper-modules settings
 
-**Niri binary:** wrapped via `pkgs.symlinkJoin` to add `providedSessions` passthru — no startup delay. The old `sleep 2` was removed because it applied to `niri msg` too, causing every IPC call and all app launches from Noctalia to take 2 seconds.
+**Niri binary:** `packages.wrappedNiri` is the wrapper-modules package used as-is. It already carries `passthru.providedSessions = [ "niri" ]` (copied from `pkgs.niri`), which is what the SDDM session entry needs. There used to be a `niri-with-delay` `symlinkJoin` around it whose `bin/niri` just `exec`'d the wrapped binary — a leftover from an old `sleep 2`, which was removed because it applied to `niri msg` too, causing every IPC call and all app launches from Noctalia to take 2 seconds. The wrapper was deleted 2026-10-03.
+
+**What is NOT in niri.nix (since 2026-10-03):** the X server + keymap (SDDM's greeter needs X), `XCURSOR_*` / `NIXOS_OZONE_WL`, Bluetooth and `hardware.graphics` live in `Modules/Desktop/desktop.nix`, shared with Kit-Kat's Hyprland; SDDM itself is `Modules/Boot/sddm.nix`; `videoDrivers = [ "amdgpu" ]` is in `Hosts/Sisyphus/_hardware.nix`; the codium MIME defaults belong to `Modules/Apps/vscodium.nix`. Apollo imports niri.nix but none of those, which is the point — the ISO no longer inherits a desktop's worth of settings through the compositor module.
+
+**Portals:** nothing is configured here. `programs.niri` writes `/etc/xdg/xdg-desktop-portal/niri-portals.conf` (gnome, then gtk; gnome-keyring for Secret) and pulls in both portals. A `xdg.portal.config.common` block used to sit in niri.nix and was dead — under `XDG_CURRENT_DESKTOP=niri` the portal reads `niri-portals.conf` and never falls back to `portals.conf`. `programs.niri.useNautilus = false`: Thunar is the file manager, so the file chooser is the gtk portal's and Nautilus is no longer in the closure just to back one dialog.
 
 **Opacity changes require logout/login** — Niri's config is baked into the wrapper-modules binary, not hot-reloaded.
 
@@ -122,18 +126,17 @@ rather than your session — a config typo can't lock you out.
 | `Mod+Shift+F` | Fullscreen |
 | `Mod+Shift+Delete` | Noctalia power menu |
 | `Mod+M` | Noctalia desktop widget edit mode |
-| `Mod+Shift+R` | Toggle rain effect |
 | `Mod+J` / `Mod+R` | Cycle column width / reset window height |
 | `Mod+Left/Right` | Focus column |
 | `Mod+Up/Down` | Focus workspace |
 | `Mod+1`–`Mod+5` | Focus workspace 1–5 |
 | `Mod+Shift+Left/Right` | Move column left/right |
-| `Mod+Shift+Up/Down`, `Mod+Shift+1`–`5` | Move column to workspace |
+| `Mod+Shift+Up/Down`, `Mod+Shift+1`–`5` | Move column to workspace (native `move-column-to-workspace*` actions — they used to `spawn-sh` a `niri msg action …` round-trip) |
 | `Mod+WheelScrollUp/Down` | Scroll columns left/right |
 | `Mod+Shift+S` | Screenshot region to clipboard |
 | `Mod+Shift+Slash` | Niri's native hotkey overlay |
 
-Removed deliberately: `Mod+F11` (duplicate of `Mod+Shift+F`) and `Mod+S` (full-screen capture — region only).
+Removed deliberately: `Mod+F11` (duplicate of `Mod+Shift+F`), `Mod+S` (full-screen capture — region only) and `Mod+Shift+R` (the rain overlay, retired with `rain-effect.nix`).
 
 ### Media keys must name the player — `skwd-music` swallows them otherwise
 
@@ -151,7 +154,7 @@ playerctl --player=spotify,%any --ignore-player=skwd-music
 > until someone checks with a video wallpaper playing. Do not remove them on the
 > strength of a static-wallpaper test.
 
-**Bare `playerctl` is a no-op on this system.** skwd-daemon (v1) registers an inert
+**Bare `playerctl` is a no-op on this system.** skwd's daemon (found under v1) registers an inert
 `org.mpris.MediaPlayer2.skwd-music` player that sorts before `spotify`, and it advertises
 `CanControl` / `CanPlay` / `CanPause` / `CanGoNext` = `true` while doing nothing. playerctl
 picks it, fires the method at it, and exits 0 — so every media key silently did nothing.
@@ -330,10 +333,10 @@ rm -f "$HOME/.local/state/noctalia/plugins/data/kenn/keybind-cheatsheet/bindings
 Notes:
 - Real files, not `home.file` symlinks — the plugin snapshots paths, and a store-symlink swap can race its reader.
 - `noctalia.kdl` is seeded empty if absent so a fresh install has no dangling `include`; noctalia overwrites it from its niri theme template on first run.
-- `keybinds-for-cheatsheet.kdl` is **gone**. It only ever existed to feed the dead `niri_config` TOML override below; the activation removes stale copies.
+- `keybinds-for-cheatsheet.kdl` is **gone**. It only ever existed to feed the dead `niri_config` TOML override below. A one-off `rm` in the activation cleaned up stale copies; it was dropped 2026-10-03 once every machine was past it.
 - `after = ["writeBoundary"]` is the raw form of `lib.hm.dag.entryAfter` — `lib.hm` is only in scope inside `home-manager.users.<name>` submodules, and this is a NixOS module.
 
-**Gotcha: `[plugins."kenn/keybind-cheatsheet"] niri_config = …` in nix-config.toml does NOT work.** Noctalia's `settings.toml` has its own top-level `[plugins]` table that wins the merge, so the per-plugin subtable never reaches the plugin's `getConfig()`. Confirmed by inspecting `bindings-cache.json` — its `request.root` stayed at the default `~/.config/niri/config.kdl`. Don't waste time on that path again.
+**Gotcha: `[plugins."kenn/keybind-cheatsheet"] niri_config = …` in a noctalia TOML does NOT work** (it was tried in the old `~/.config/noctalia/nix-config.toml`). Noctalia's `settings.toml` has its own top-level `[plugins]` table that wins the merge, so the per-plugin subtable never reaches the plugin's `getConfig()`. Confirmed by inspecting `bindings-cache.json` — its `request.root` stayed at the default `~/.config/niri/config.kdl`. Don't waste time on that path again.
 
 **Gotcha: `Mod+B` needs the fully-qualified panel ID.** `noctalia msg panel-toggle cheatsheet` fails with `unknown panel`. The correct command is:
 ```
@@ -344,7 +347,7 @@ noctalia msg panel-toggle kenn/keybind-cheatsheet:cheatsheet
 
 | Category | Contents |
 |----------|----------|
-| `Applications` | Launchers plus the panel/toggle actions — Power Menu, Rain Effect, Hotkey Overlay |
+| `Applications` | Launchers plus the panel/toggle actions — Power Menu, Hotkey Overlay |
 | `Window Management` | Acts on the focused window: Close, Overview, Toggle Float, Fullscreen |
 | `Workspace - Navigation` | Moving *focus* — Mod+arrows, Mod+1–5, WheelScroll |
 | `Workspace - Movement` | Moving the *focused column* — Mod+Shift+arrows, Mod+Shift+1–5 |
@@ -378,7 +381,7 @@ IPC actions used by keybinds:
 - App launcher: `noctalia msg panel-toggle launcher`
 - Power menu: `noctalia msg panel-toggle session`
 - Widget edit mode: `noctalia msg desktop-widgets-edit`
-- Wallpaper: `skwd-wall-v2` (v2 has no `skwd` CLI and no resident picker — the binary starts in ~150 ms and exits on close. `skwd wall toggle` is v1, i.e. Elektra/Odysseus only.)
+- Wallpaper: `skwd-wall-v2` (v2 has no `skwd` CLI and no resident picker — the binary starts in ~150 ms and exits on close. `skwd wall toggle` was v1's command; v1 is retired.)
 
 ## Startup Sequence
 
@@ -428,14 +431,15 @@ Two details worth keeping, since they bit us before:
   that file *after* running hooks, so a hook reading it acts on the previous
   wallpaper. See `Claude/skwd-wall.md`.
 
-v1 hosts (Elektra, Odysseus) still use swaybg; the script moved to
-`Modules/skwd-wall.nix`.
-
 **Noctalia startup delay on Sisyphus:** Noctalia is launched via niri `spawn-at-startup` (NOT systemd), so it's not queued behind server services. However, the server stack (Jellyfin, Immich, arr services) causes CPU/IO contention at login time which slows QML startup. Fixed in `Hosts/Sisyphus/system.nix` — heavy server services are delayed with `after = [ "graphical.target" ]` so they don't start until SDDM is up. Do NOT put this in `server.nix` — Asgard is headless and `graphical.target` is never reached there.
 
 ## Spotify Launcher
 
-Two scripts in `environment.systemPackages`:
+Two scripts in `environment.systemPackages` — only where Spicetify is imported
+(`spotifyEnabled` in `niri.nix`, i.e. the Home Manager `programs.spicetify.enable`).
+Apollo imports niri without Spicetify, and these launchers plus the `.desktop`
+override used to drag a vanilla `pkgs.spotify` onto the ISO (via the icon's store
+path). The icon is now the name `spotify-client` from the hicolor theme.
 
 - **`spotify-startup`** — used by niri `spawn-at-startup`. Sleeps 3s, launches with GPU flags + `--uri` for playlist. Also runs `spotify-apply-colors` on boot: background subshell polls CDP port until ready, then injects saved matugen colors.
 - **`spotify-open`** — used by the app launcher `.desktop` entry. No sleep, handles fresh launch (`--uri`) and already-running (D-Bus MPRIS `OpenUri`).
@@ -448,14 +452,14 @@ The `spotify` binary is never replaced (avoids infinite recursion with spicetify
 
 ## Steam Launcher
 
-Steam has niri spawn issue (niri issue #2463 — apps launched via `niri msg action spawn` fail silently without delay). Fixed with `steam-open` script:
+Steam has niri spawn issue (niri issue #2463 — apps launched via `niri msg action spawn` fail silently without delay). Fixed with `steam-open` script (installed only when `programs.steam.enable` — the `steam` wrapper interpolates `config.programs.steam.package`, which defaults to `pkgs.steam` even with Steam off, so ungated it put Steam on the Apollo ISO):
 - Checks if steam is already running (`pgrep -x steam`); if so, opens library (`steam steam://open/games`); if not, `sleep 1 && steam "$@"` in background
 - `xdg.desktopEntries.steam` overrides the `.desktop` to call `steam-open %U`
 - Plain `steam` wrapper (with `-no-cef-sandbox`) remains for direct terminal use
 
 ## Bluetooth (for RPCS3 / controller)
 
-Configured in `niri.nix`:
+Configured in `Modules/Desktop/desktop.nix` (shared with Kit-Kat's Hyprland; it used to sit in `niri.nix`):
 - `hardware.bluetooth.powerOnBoot = true`
 - `hardware.bluetooth.settings.Policy.AutoEnable = "true"`
 - `services.blueman.enable = true`
