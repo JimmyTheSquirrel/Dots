@@ -1,0 +1,842 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   Asgard — the main Glance dashboard's styling (asgard:8888).
+
+   Served by Glance from its assets dir as theme.custom-css-file (Modules/Server/
+   glance.nix). Glance's own theme colours (mint, set there) still drive
+   everything Glance draws itself; this file adds the glass cards, the light
+   tiles and switches, the power cards, the network panel and the tailnet list.
+
+   Same structure and tokens as MarsBar (Resources/MarsBar/marsbar.css) —
+   --ag-* here, --mb-* there, same radii, spacing, easing and state language —
+   so the two dashboards read as one family. Mint-green here, purple there,
+   deliberately: there should never be any doubt which one is on screen.
+
+   ⚠ rem is NOT 16px here. Glance sets `:root { font-size: 10px }` (9.4px under
+   550px wide), so 1.1rem is an 11px label. Everything below is sized against
+   that: nothing a person has to READ is under 1.1rem. The old power labels at
+   0.66–0.78rem were 6–8px, i.e. decoration.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --ag-text: hsl(160, 24%, 93%);
+  --ag-text-dim: hsla(160, 14%, 86%, 0.68);
+  --ag-text-faint: hsla(160, 12%, 84%, 0.48);
+  --ag-accent: hsl(158, 62%, 66%);
+  --ag-accent-strong: hsl(158, 56%, 46%);
+  --ag-glow: hsla(158, 80%, 50%, 0.30);
+  --ag-up: hsl(152, 62%, 56%);
+  --ag-cyan: hsl(196, 70%, 66%);
+  --ag-violet: hsl(265, 62%, 74%);
+  --ag-bad: hsl(0, 78%, 66%);
+  --ag-warn: hsl(38, 88%, 64%);
+
+  --ag-tile: hsla(160, 24%, 18%, 0.36);
+  --ag-tile-off: hsla(175, 12%, 12%, 0.55);
+  --ag-line: hsla(160, 42%, 62%, 0.18);
+  --ag-line-soft: hsla(160, 30%, 60%, 0.10);
+
+  --ag-r-card: 20px;
+  --ag-r-tile: 16px;
+  --ag-r-small: 12px;
+  --ag-gap: 12px;
+  --ag-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ag-shadow: 0 14px 34px -18px hsla(180, 60%, 3%, 0.9), 0 2px 6px -2px hsla(180, 50%, 3%, 0.45);
+}
+
+/* ── Ambient colour field ─────────────────────────────────────────────────────
+   Four large, heavily-blurred colour orbs fixed behind the whole page — mint,
+   cyan, violet and a warm gold. The cards are semi-transparent with a backdrop
+   blur, so these tint whatever sits above them and the dashboard stops reading
+   as one flat green. The colour lives in the BACKGROUND, not in fifty
+   repainted borders, which is why it adds variety without fighting the data.
+
+   Very low alpha on purpose (0.05–0.09). Higher and it turns into a lava lamp
+   and the text loses contrast. Fixed, behind, and non-interactive. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 34% at 18% 14%, hsla(160, 70%, 45%, 0.09), transparent 70%),
+    radial-gradient(34% 30% at 84% 22%, hsla(190, 75%, 50%, 0.075), transparent 70%),
+    radial-gradient(40% 36% at 74% 82%, hsla(265, 65%, 55%, 0.065), transparent 70%),
+    radial-gradient(30% 28% at 26% 88%, hsla(42, 70%, 52%, 0.05), transparent 70%);
+  filter: blur(30px);
+}
+
+/* ── Glass cards ──────────────────────────────────────────────────────────────
+   Two techniques from the glassmorphism playbook do the work:
+     1. ALPHA-CHANNEL GRADIENTS, not a solid colour at low opacity. A flat rgba
+        fill greys everything behind it evenly; a gradient between two alphas
+        lets the orbs through unevenly, which is what reads as glass.
+     2. INSET HIGHLIGHT — a 1px inner top edge, light catching the lip of a pane.
+   Plus a hairline edge at 0.10 alpha (MarsBar has the same, stronger): on a
+   phone, where cards stack edge to edge, they otherwise blur into one sheet.
+   It is the ONLY container — see the frame fix below. */
+.widget {
+  position: relative;
+  border: 1px solid var(--ag-line-soft);
+  border-radius: var(--ag-r-card);
+  padding: 18px 18px 20px;
+  background: linear-gradient(168deg,
+    hsla(158, 26%, 14%, 0.55),
+    hsla(180, 18%, 10%, 0.36) 55%,
+    hsla(200, 20%, 9%, 0.28));
+  backdrop-filter: blur(11px) saturate(125%);
+  -webkit-backdrop-filter: blur(11px) saturate(125%);
+  box-shadow: inset 0 1px 0 hsla(160, 60%, 80%, 0.07), var(--ag-shadow);
+  transition: border-color 0.3s ease;
+}
+@media (hover: hover) {
+  .widget:hover { border-color: var(--ag-line); }
+}
+/* Top edge highlight, run through three hues so the accent shifts across the
+   width of the card — most of the "not so one-sided" comes from this. */
+.widget::after {
+  content: "";
+  position: absolute;
+  left: 20px; right: 20px; top: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(to right,
+    transparent,
+    hsla(160, 75%, 62%, 0.36) 25%,
+    hsla(190, 70%, 62%, 0.26) 55%,
+    hsla(265, 60%, 68%, 0.16) 80%,
+    transparent);
+}
+
+/* A group's tabs are widgets too (.widget inside .widget). They must NOT be
+   cards themselves, or every group renders as a box inside a box. */
+.widget .widget {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.widget .widget::after { content: none; }
+
+/* ⚠ THE "border within a border" FIX.
+   Glance wraps every widget's content in its own framed box:
+     .widget-content:not(.widget-content-frameless), .widget-content-frame {
+       background: var(--color-widget-background);
+       border: 1px solid var(--color-widget-content-border);
+       box-shadow: 0px 3px 0px 0px ...;
+     }
+   With .widget above ALSO drawing a container, every panel rendered as a box
+   inside a box. The outer card is the one we style, so the inner frame is
+   flattened here. Keep these in sync: re-adding a frame to .widget-content or
+   dropping this rule brings the nesting straight back. `frameless` is Glance's
+   own opt-out but only a couple of widget types apply it. The page header
+   shares the .widget-content-frame class, hence the :not(). */
+.widget-content:not(.widget-content-frameless),
+.widget-content-frame:not(.header) {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.widget-header {
+  padding: 0 2px 11px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--ag-line-soft);
+  font-size: 1.25rem;
+}
+.widget-header h2,
+.widget-group-title {
+  letter-spacing: 0.16em;
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: hsla(160, 40%, 78%, 0.82);
+}
+.widget .widget .widget-header { display: none; }
+
+/* ── Desktop page navigation ────────────────────────────────────────────── */
+.nav-item { transition: color 0.2s ease, border-color 0.2s ease; }
+.nav-item.nav-item-current {
+  color: var(--ag-text);
+  text-shadow: 0 0 12px hsla(160, 60%, 50%, 0.45);
+}
+
+/* ── Tabs inside a group (Network / Speed test, the service categories) ──── */
+.widget-group-header .widget-header { gap: 22px; }
+.widget-group-title {
+  color: var(--ag-text-faint);
+  padding: 2px 0 4px;
+  border-bottom: 2px solid transparent;
+}
+.widget-group-title:hover:not(.widget-group-title-current) { color: var(--ag-text-dim); }
+.widget-group-title-current {
+  color: var(--ag-accent);
+  border-bottom-color: var(--ag-accent);
+}
+
+/* ── Section headings inside a widget ──────────────────────────────────────
+   A small diamond and a rule fading off to the right, so groups separate
+   without another hard border. Same shape as MarsBar's (a leaf there). */
+.ag-sec {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  grid-column: 1 / -1;
+  font-size: 1.15rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: hsl(160, 46%, 72%);
+  padding: 0 2px;
+}
+.ag-sec::before { content: "◆"; font-size: 0.7em; color: hsla(160, 60%, 58%, 0.6); }
+.ag-sec::after {
+  content: "";
+  order: 1;
+  flex: 1;
+  min-width: 12px;
+  height: 1px;
+  background: linear-gradient(to right, hsla(160, 45%, 60%, 0.32), hsla(190, 45%, 60%, 0.12), transparent);
+}
+* + .ag-sec { margin-top: 8px; }
+
+/* Live / reconnecting badge for the light stream (lights.js sets
+   <html data-ha-link>). At the end of a heading's rule. */
+.ag-live {
+  order: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--ag-text-faint);
+  white-space: nowrap;
+}
+.ag-live i {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--ag-text-faint);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+html[data-ha-link="live"] .ag-live { color: hsla(150, 40%, 80%, 0.75); }
+html[data-ha-link="live"] .ag-live i { background: var(--ag-up); box-shadow: 0 0 10px hsla(150, 70%, 55%, 0.8); }
+html[data-ha-link="delayed"] .ag-live i { background: var(--ag-warn); }
+html[data-ha-link="reconnecting"] .ag-live,
+html[data-ha-link="offline"] .ag-live { color: var(--ag-warn); }
+html[data-ha-link="reconnecting"] .ag-live i,
+html[data-ha-link="offline"] .ag-live i {
+  background: var(--ag-warn);
+  animation: ag-blink 1.2s ease-in-out infinite;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Lights
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* The home page's Lights widget: the master switch, then one tile per lamp.
+   One row on a desktop (auto-fit stretches the four across the column),
+   stacked on a phone. */
+.ag-lights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--ag-gap);
+}
+.ag-lights .ag-hero { grid-column: auto; }
+/* A quarter of the column is too narrow for "Living Room Lights" on one line;
+   let the master switch's name wrap rather than ellipsise it. */
+.ag-lights .ag-hero .ag-name { white-space: normal; line-height: 1.2; }
+
+/* The stream badge sits in the widget's own header row, top right, so the
+   lights keep the same title style as every other card. */
+.ag-live-corner {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+}
+
+/* A light tile: the WHOLE tile is the button (lights.js toggles on click),
+   so the tap target on a phone is the full row, not a 48px switch. */
+.ag-light {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 68px;
+  padding: 12px 14px 12px 16px;
+  border-radius: var(--ag-r-tile);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--ag-line-soft);
+  background: var(--ag-tile);
+  box-shadow: inset 0 1px 0 hsla(160, 60%, 90%, 0.04);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition:
+    background 0.28s var(--ag-ease),
+    border-color 0.28s var(--ag-ease),
+    box-shadow 0.28s var(--ag-ease),
+    transform 0.12s var(--ag-ease),
+    filter 0.3s ease,
+    opacity 0.3s ease;
+}
+.ag-light:active { transform: scale(0.985); }
+.ag-light:focus-visible,
+.ag-sw:focus-visible {
+  outline: 2px solid var(--ag-accent);
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .ag-light:hover { border-color: hsla(160, 55%, 62%, 0.38); }
+}
+
+/* ON — lit and glowing. OFF — flat and clearly dimmed. Fill, border, icon,
+   state word and switch all change together: one subtle tint is not readable
+   at a glance on a phone in a bright room. */
+.ag-light[data-ha-state="on"] {
+  background: linear-gradient(135deg, hsla(158, 52%, 30%, 0.48), hsla(172, 48%, 22%, 0.34));
+  border-color: hsla(158, 70%, 62%, 0.72);
+  box-shadow: 0 0 0 1px hsla(158, 80%, 60%, 0.12), 0 10px 30px -12px var(--ag-glow), inset 0 1px 0 hsla(160, 90%, 90%, 0.10);
+}
+.ag-light[data-ha-state="off"] { background: var(--ag-tile-off); }
+
+/* No answer yet, or the plug itself is unreachable: say so rather than look
+   like "off". */
+[data-ha-entity].ag-light:not([data-ha-state="on"]):not([data-ha-state="off"]),
+[data-ha-entity].ag-card:not([data-ha-state="on"]):not([data-ha-state="off"]) {
+  opacity: 0.62;
+  border-style: dashed;
+}
+
+/* The light stream is down: what is on screen may be stale. Drain the colour
+   so it does not look like confident, live state. */
+html[data-ha-link="reconnecting"] :is(.ag-light, .ag-card),
+html[data-ha-link="offline"] :is(.ag-light, .ag-card) {
+  filter: saturate(0.3);
+}
+html[data-ha-link="reconnecting"] .ag-light,
+html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
+
+/* The master switch reads as the primary control: full width, deeper, with an
+   accent stripe down its leading edge. */
+.ag-hero {
+  grid-column: 1 / -1;
+  position: relative;
+  overflow: hidden;
+  min-height: 78px;
+  padding-left: 20px;
+  background: linear-gradient(135deg, hsla(165, 34%, 20%, 0.55), hsla(190, 30%, 15%, 0.45));
+  border-color: hsla(165, 45%, 60%, 0.26);
+}
+.ag-hero::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: linear-gradient(to bottom, hsl(158, 72%, 62%), hsl(196, 70%, 64%));
+}
+.ag-hero .ag-name { font-size: 1.7rem; }
+.ag-hero[data-ha-state="on"] {
+  background: linear-gradient(135deg, hsla(158, 55%, 32%, 0.55), hsla(185, 50%, 24%, 0.42));
+  border-color: hsl(158, 66%, 64%);
+}
+.ag-hero[data-ha-state="off"] {
+  background: linear-gradient(135deg, hsla(170, 18%, 15%, 0.6), hsla(195, 16%, 12%, 0.55));
+}
+
+.ag-ico {
+  flex: none;
+  width: 2.4rem;
+  font-size: 2rem;
+  line-height: 1;
+  text-align: center;
+  color: hsla(160, 20%, 70%, 0.45);
+  transition: color 0.28s ease, text-shadow 0.28s ease, transform 0.28s var(--ag-ease);
+}
+.ag-light[data-ha-state="on"] .ag-ico {
+  color: hsl(152, 90%, 82%);
+  text-shadow: 0 0 16px hsla(152, 92%, 62%, 0.9);
+  transform: scale(1.06);
+}
+
+.ag-txt { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.ag-name {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ag-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ag-sub {
+  font-size: 1.2rem;
+  color: var(--ag-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fixed width, so "On" → "Offline" can never nudge the text column. */
+.ag-right { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; width: 58px; }
+
+/* The state word is CSS, not text: lights.js flips data-ha-state and the
+   server-rendered state paints the right word before any script runs. It
+   follows the nearest painted element (the tile, or a card). */
+.ag-state {
+  font-size: 1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  color: var(--ag-text-faint);
+  transition: color 0.28s ease;
+}
+.ag-state::after { content: "—"; }
+[data-ha-state="on"] > * > .ag-state::after,
+[data-ha-state="on"] > .ag-state::after { content: "On"; }
+[data-ha-state="off"] > * > .ag-state::after,
+[data-ha-state="off"] > .ag-state::after { content: "Off"; }
+[data-ha-state="unavailable"] > * > .ag-state::after,
+[data-ha-state="unavailable"] > .ag-state::after { content: "Offline"; }
+[data-ha-error] > * > .ag-state::after,
+[data-ha-error] > .ag-state::after { content: "Failed"; }
+[data-ha-state="on"] > * > .ag-state,
+[data-ha-state="on"] > .ag-state { color: hsl(152, 85%, 78%); }
+[data-ha-error] > * > .ag-state,
+[data-ha-error] > .ag-state { color: var(--ag-bad); }
+
+/* ── The switch ───────────────────────────────────────────────────────────────
+   A real sliding switch: the knob physically moves, which reads as on/off
+   without parsing any text. Two uses —
+     • decorative, inside a tile: state comes from the tile (an ancestor);
+     • a <button> of its own (power cards): state is on the switch itself.
+   Either way only data-ha-state drives it, never a class a script sets. */
+.ag-sw {
+  position: relative;
+  flex: none;
+  width: 48px; height: 28px;
+  padding: 0;
+  font-size: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  color: inherit;
+  background: hsla(170, 10%, 46%, 0.24);
+  border: 1px solid hsla(170, 18%, 62%, 0.20);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.28s ease, border-color 0.28s ease;
+}
+.ag-sw::after {
+  content: "";
+  position: absolute; top: 3px; left: 3px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: hsl(170, 10%, 70%);
+  box-shadow: 0 2px 5px hsla(180, 60%, 4%, 0.45);
+  transition: transform 0.3s var(--ag-ease), background 0.28s ease;
+}
+[data-ha-state="on"] .ag-sw,
+.ag-sw[data-ha-state="on"] {
+  background: linear-gradient(90deg, hsl(162, 62%, 40%), hsl(152, 66%, 50%));
+  border-color: hsla(152, 80%, 70%, 0.7);
+}
+[data-ha-state="on"] .ag-sw::after,
+.ag-sw[data-ha-state="on"]::after {
+  transform: translateX(20px);
+  background: hsl(150, 40%, 97%);
+}
+/* Optimistic flip in flight (it already moved — this just says "confirming"). */
+[data-ha-pending] .ag-sw::after,
+.ag-sw[data-ha-pending]::after { animation: ag-ring 0.9s ease-out infinite; }
+[data-ha-error] { border-color: var(--ag-bad) !important; }
+.ag-light[data-ha-error],
+.ag-sw[data-ha-error] { animation: ag-shake 0.4s ease; }
+
+/* A machine's relay: shown, never switchable. The bridge's allowlist is what
+   actually refuses it; this just must not LOOK like something to tap. */
+.ag-sw[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.ag-sw[aria-disabled="true"]::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 50%; left: 50%;
+  width: 10px; height: 10px;
+  margin: -5px 0 0 -5px;
+  transition: transform 0.3s var(--ag-ease);
+  background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='hsl(170,25%25,18%25)'%3E%3Cpath d='M5 7V5a3 3 0 0 1 6 0v2h1v7H4V7zm1.5 0h3V5a1.5 1.5 0 0 0-3 0z'/%3E%3C/svg%3E");
+  transform: translateX(-10px);
+}
+[data-ha-state="on"] .ag-sw[aria-disabled="true"]::before { transform: translateX(10px); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Power (Monitoring page)
+   ════════════════════════════════════════════════════════════════════════════ */
+.pw { display: flex; flex-direction: column; gap: 16px; }
+
+/* Hero — the one number worth reading from across the room */
+.pw-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; }
+.pw-big {
+  font-size: 4.4rem;
+  line-height: 0.95;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ag-text);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 18px hsla(160, 55%, 50%, 0.25);
+}
+.pw-big-unit { font-size: 1.8rem; color: var(--ag-text-faint); margin-left: 6px; }
+.pw-trail { text-align: right; font-size: 1.2rem; color: var(--ag-text-dim); line-height: 1.6; }
+
+/* Draw bar. Scaled to a realistic ceiling (powerRefW), NOT the plug's 3680 W
+   rating — against 3.6 kW an idling server is an invisible sliver. */
+.pw-bar { position: relative; height: 8px; border-radius: 4px; background: hsla(160, 30%, 50%, 0.12); overflow: hidden; }
+.pw-bar-fill {
+  position: absolute; top: 0; bottom: 0; left: 0;
+  border-radius: 4px;
+  background: linear-gradient(90deg, hsl(162, 52%, 42%), hsl(152, 72%, 58%));
+  box-shadow: 0 0 12px hsla(152, 70%, 50%, 0.4);
+  transition: width 0.6s var(--ag-ease);
+}
+.pw-scale { display: flex; justify-content: space-between; margin-top: -8px; font-size: 1.1rem; color: var(--ag-text-faint); }
+
+/* Card grid — auto-fill keeps a card card-sized on an ultrawide and takes more
+   devices without a layout change; align-items:start so an expanded card does
+   not stretch its row-mates. */
+.ag-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--ag-gap); align-items: start; }
+
+/* A device card. <details>/<summary> does the expand/collapse natively (no
+   script); the toggle inside the summary stops its own click (lights.js). */
+.ag-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--ag-line-soft);
+  border-radius: var(--ag-r-tile);
+  background: linear-gradient(150deg, hsla(160, 26%, 20%, 0.30), hsla(170, 18%, 12%, 0.14));
+  transition: background 0.28s ease, border-color 0.28s ease, box-shadow 0.28s ease;
+}
+/* Accent stripe down the leading edge; lit when the relay is on, so a glance
+   across the grid shows what is powered without reading a label. */
+.ag-card::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: linear-gradient(to bottom, hsla(160, 30%, 60%, 0.25), transparent);
+  transition: background 0.28s ease;
+}
+.ag-card[data-ha-state="on"] { border-color: hsla(158, 60%, 60%, 0.30); }
+.ag-card[data-ha-state="on"]::before { background: linear-gradient(to bottom, hsl(152, 70%, 58%), hsla(190, 70%, 60%, 0.25)); }
+@media (hover: hover) {
+  .ag-card:hover { border-color: hsla(160, 50%, 62%, 0.34); }
+}
+.ag-card[open] { background: linear-gradient(150deg, hsla(160, 30%, 22%, 0.38), hsla(170, 18%, 13%, 0.18)); }
+
+.ag-card-head { display: flex; flex-direction: column; gap: 12px; padding: 14px 14px 14px 18px; cursor: pointer; list-style: none; }
+/* Both spellings needed — WebKit still uses the pseudo-element. */
+.ag-card-head::-webkit-details-marker { display: none; }
+.ag-card-head::marker { content: ""; }
+.ag-card-top { display: flex; align-items: center; gap: 12px; }
+.ag-card-id { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.ag-card-name {
+  font-size: 1.55rem; font-weight: 600; color: var(--ag-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ag-card-sub { font-size: 1.2rem; color: var(--ag-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ag-card-ctl { display: flex; align-items: center; gap: 10px; flex: none; }
+
+.ag-chev {
+  flex: none;
+  width: 8px; height: 8px;
+  margin: 0 2px 0 0;
+  border-right: 2px solid hsla(160, 50%, 66%, 0.7);
+  border-bottom: 2px solid hsla(160, 50%, 66%, 0.7);
+  transform: rotate(-45deg);
+  transition: transform 0.25s var(--ag-ease);
+}
+.ag-card[open] .ag-chev { transform: rotate(45deg); }
+
+/* Label left, value right — a spec sheet at tile width. */
+.ag-card-stats { display: flex; flex-direction: column; gap: 8px; padding-top: 11px; border-top: 1px solid var(--ag-line-soft); }
+.ag-mini { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.ag-k {
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ag-text-faint);
+}
+.ag-v { font-size: 1.45rem; color: var(--ag-text); font-variant-numeric: tabular-nums; text-align: right; }
+.ag-u { font-size: 1.15rem; color: var(--ag-text-faint); }
+
+.ag-card-body { display: flex; flex-direction: column; gap: 16px; padding: 4px 14px 16px 18px; }
+.ag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 14px 18px; }
+.ag-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ag-cell .ag-v { text-align: left; font-size: 1.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Real-vs-apparent split. Scaled to apparent: the useful range is nowhere near
+   the plug's rating. */
+.pw-pf-bar { position: relative; height: 6px; border-radius: 3px; background: hsla(160, 45%, 55%, 0.16); overflow: hidden; }
+.pw-pf-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 3px; background: linear-gradient(90deg, hsl(162, 52%, 42%), hsl(152, 72%, 58%)); }
+.pw-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 1.15rem; color: var(--ag-text-dim); }
+.pw-legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+.pw-legend .pw-lg-real::before { background: hsl(152, 68%, 55%); }
+.pw-legend .pw-lg-reactive::before { background: hsla(160, 55%, 58%, 0.45); }
+
+.ag-note {
+  font-size: 1.2rem;
+  line-height: 1.55;
+  color: var(--ag-text-dim);
+  border-left: 2px solid hsla(160, 70%, 55%, 0.35);
+  padding-left: 11px;
+}
+.ag-note b { color: var(--ag-text); font-weight: 600; }
+
+/* Label-left / value-right rows for the side widgets (Cost Outlook). */
+.ag-rows { display: flex; flex-direction: column; }
+.ag-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 2px; }
+.ag-row + .ag-row { border-top: 1px solid var(--ag-line-soft); }
+.ag-rows .ag-sec { margin: 10px 0 4px; }
+.ag-rows .ag-sec:first-child { margin-top: 0; }
+.ag-row-hi .ag-v { font-size: 2.4rem; font-weight: 600; color: var(--ag-text); }
+
+/* Plug Health — one row per plug: online dot, name, signal bar, numbers. */
+.ag-health { display: flex; flex-direction: column; gap: 12px; }
+.ag-hrow { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 10px; }
+.ag-hrow .ag-name { font-size: 1.35rem; font-weight: 500; }
+.ag-hrow .ag-v { font-size: 1.25rem; color: var(--ag-text-dim); }
+.ag-meter { grid-column: 2 / -1; height: 4px; border-radius: 2px; background: hsla(160, 30%, 50%, 0.12); overflow: hidden; }
+.ag-meter > i { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg, hsl(162, 52%, 42%), hsl(152, 72%, 58%)); }
+
+/* ── Status dots (plugs, tailnet devices) ────────────────────────────────── */
+.ag-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: hsla(170, 10%, 55%, 0.5);
+}
+.is-up > .ag-dot,
+.ag-dot.is-up { background: var(--ag-up); box-shadow: 0 0 9px hsla(150, 70%, 55%, 0.65); }
+.is-down > .ag-dot,
+.ag-dot.is-down { background: transparent; border: 1.5px solid var(--ag-bad); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Network panel (live throughput + speed test). Painted by asgard.js by id.
+   ════════════════════════════════════════════════════════════════════════════ */
+.np { display: flex; flex-direction: column; gap: 14px; }
+.np-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.np-cell {
+  min-width: 0;
+  padding: 13px 14px 11px;
+  border-radius: 14px;
+  border: 1px solid var(--ag-line-soft);
+  background: linear-gradient(170deg, hsla(165, 26%, 18%, 0.40), hsla(180, 20%, 11%, 0.18));
+}
+.np-head { display: flex; align-items: baseline; gap: 7px; }
+.np-arrow { font-size: 1.8rem; line-height: 1; }
+.np-num { font-size: 2.6rem; font-weight: 600; color: var(--ag-text); font-variant-numeric: tabular-nums; }
+.np-unit { font-size: 1.2rem; color: var(--ag-text-faint); }
+.np-label {
+  margin-left: auto;
+  font-size: 1.05rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--ag-text-faint);
+}
+.np-foot { font-size: 1.15rem; color: var(--ag-text-faint); font-variant-numeric: tabular-nums; }
+.np-down { color: var(--ag-up); }
+.np-up { color: var(--ag-cyan); }
+
+/* The viewBox is stretched to the cell, so the stroke opts out of scaling or
+   it goes lumpy on a wide column. Fixed height: nothing moves when the first
+   trace is drawn. */
+.np-spark { display: block; width: 100%; height: 44px; margin: 8px 0 6px; overflow: visible; }
+.np-spark .np-line { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.np-spark .np-fill { fill: currentColor; opacity: 0.14; stroke: none; }
+
+.np-meta {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap;
+  padding: 2px 2px 0;
+  font-size: 1.15rem;
+  color: var(--ag-text-faint);
+}
+.np-btn {
+  font: inherit;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ag-accent);
+  background: hsla(158, 45%, 40%, 0.12);
+  border: 1px solid hsla(158, 50%, 55%, 0.35);
+  border-radius: 999px;
+  padding: 7px 16px;
+  min-width: 10.5em;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+@media (hover: hover) {
+  .np-btn:hover:not(:disabled) { background: hsla(158, 50%, 45%, 0.22); border-color: hsla(158, 55%, 60%, 0.6); }
+}
+.np-btn:disabled { opacity: 0.55; cursor: progress; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Yggdrasil — the tree banner over the tailnet device list
+   ════════════════════════════════════════════════════════════════════════════ */
+/* .widget.ygg-widget, so the phone padding further down cannot undo it and
+   drop the banner on top of the list. */
+.widget.ygg-widget { padding-top: 222px; }
+.ygg-widget::before,
+.ygg-widget > .widget-header::before {
+  content: "";
+  display: block;
+  position: absolute;
+  left: 50%;
+  width: 200px;
+  height: 200px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  pointer-events: none;
+}
+/* Ring — the rune-circle SVG behind the tree */
+.ygg-widget::before {
+  top: 8px;
+  transform: translateX(-50%);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Cdefs%3E%3CradialGradient id='bg' cx='50%25' cy='50%25' r='45%25'%3E%3Cstop offset='0%25' stop-color='hsla(160,30%25,25%25,0.12)'/%3E%3Cstop offset='100%25' stop-color='hsla(160,30%25,15%25,0)'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='200' cy='200' r='180' fill='url(%23bg)'/%3E%3Cg fill='none' stroke='hsla(160,35%25,55%25,0.35)' stroke-width='1.5'%3E%3Ccircle cx='200' cy='200' r='178'/%3E%3Ccircle cx='200' cy='200' r='170'/%3E%3C/g%3E%3Cg fill='hsla(160,40%25,60%25,0.45)' font-family='serif' font-size='14' font-weight='bold'%3E%3Ctext x='200' y='28' text-anchor='middle'%3E%E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%E1%9A%B3 %E1%9A%BE %E1%9A%A9%3C/text%3E%3Ctext transform='translate(375,100) rotate(72)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%3C/text%3E%3Ctext transform='translate(390,240) rotate(90)' text-anchor='middle'%3E%E1%9A%A2%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%3C/text%3E%3Ctext transform='translate(350,350) rotate(115)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B7%E1%9A%A8%E1%9A%B2%3C/text%3E%3Ctext x='200' y='390' text-anchor='middle'%3E%E1%9A%BE %E1%9A%A9 %E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%3C/text%3E%3Ctext transform='translate(50,350) rotate(-115)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3Ctext transform='translate(10,240) rotate(-90)' text-anchor='middle'%3E%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%E1%9A%A2%3C/text%3E%3Ctext transform='translate(25,100) rotate(-72)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3C/g%3E%3Cg fill='none' stroke='hsla(160,35%25,55%25,0.2)' stroke-width='0.6'%3E%3Cpath d='M160,340 Q175,330 190,340 Q195,350 190,360 Q180,365 170,358 Q162,350 160,340Z'/%3E%3Cpath d='M240,340 Q225,330 210,340 Q205,350 210,360 Q220,365 230,358 Q238,350 240,340Z'/%3E%3C/g%3E%3C/svg%3E");
+  opacity: 0.8;
+  filter: drop-shadow(0 0 12px hsla(160, 50%, 45%, 0.25));
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+/* The tree — on top of the ring. Hung off the header, because .widget::after
+   is already the card's top-edge highlight. Relative to this stylesheet, so it
+   resolves to /assets/yggdrasil.png. */
+.ygg-widget > .widget-header::before {
+  top: 8px;
+  transform: translateX(-50%);
+  background-image: url("yggdrasil.png");
+  opacity: 0.88;
+  filter: drop-shadow(0 0 8px hsla(160, 50%, 40%, 0.3));
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+@media (hover: hover) {
+  .ygg-widget:hover::before,
+  .ygg-widget:hover > .widget-header::before {
+    opacity: 1;
+    filter: drop-shadow(0 0 18px hsla(160, 55%, 50%, 0.4));
+  }
+}
+
+/* The device list, two lines a device:
+     ● name                    100.x.y.z
+       os · how it is reached / when it was last seen
+   Online first, then offline by last seen — sorted by tailscale-status.py —
+   so the rows that matter are on top and the long-gone ones collapse under
+   "Show more". The second line runs the full width, under the address too,
+   so "seen 12d ago" never gets cut off in the narrow column. */
+.ag-ts-sum { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; font-size: 1.2rem; color: var(--ag-text-faint); }
+.ag-ts-sum b { font-size: 1.6rem; font-weight: 600; color: var(--ag-text); margin-right: 4px; }
+.ag-ts-sum .is-up b { color: var(--ag-up); }
+.ag-ts-list > * + * { margin-top: 2px; }
+.ag-ts-node {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "dot name ip" ". sub sub";
+  align-items: center;
+  gap: 3px 11px;
+  padding: 9px 6px;
+  border-radius: 10px;
+  transition: background-color 0.2s ease;
+}
+@media (hover: hover) {
+  .ag-ts-node:hover { background: hsla(160, 40%, 50%, 0.06); }
+}
+.ag-ts-node + .ag-ts-node { border-top: 1px solid var(--ag-line-soft); border-top-left-radius: 0; border-top-right-radius: 0; }
+.ag-ts-node > .ag-dot { grid-area: dot; }
+.ag-ts-name { grid-area: name; font-size: 1.45rem; font-weight: 600; color: var(--ag-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-ts-ip { grid-area: ip; font-size: 1.15rem; color: var(--ag-text-dim); font-variant-numeric: tabular-nums; }
+.ag-ts-sub { grid-area: sub; font-size: 1.1rem; color: var(--ag-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-ts-node.is-down .ag-ts-name { color: var(--ag-text-dim); font-weight: 500; }
+.ag-ts-node.is-down .ag-ts-ip { color: var(--ag-text-faint); }
+.ag-ts-node.is-self .ag-ts-name { color: var(--ag-accent); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Glance's own widgets
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Service health. Bigger names, rounded hover rows. */
+.widget-type-monitor .monitor-site {
+  padding: 6px 8px;
+  border-radius: var(--ag-r-small);
+  transition: background-color 0.2s ease;
+}
+@media (hover: hover) {
+  .widget-type-monitor .monitor-site:hover { background: hsla(160, 40%, 50%, 0.07); }
+}
+.widget-type-monitor .monitor-site a.size-h3 { font-size: 1.5rem; font-weight: 600; color: var(--ag-text); }
+.widget-type-monitor .list-horizontal-text { font-size: 1.15rem; color: var(--ag-text-faint); }
+.widget-type-monitor .monitor-site-icon { width: 3rem; }
+
+/* Server stats: the labels are Glance's h5 (12px); lift the numbers. */
+.widget-type-server-stats .server-name { font-size: 1.6rem; font-weight: 600; color: var(--ag-text); }
+.widget-type-server-stats .progress-bar { border-radius: 8px; }
+
+.widget-type-clock .clock-time { text-shadow: 0 0 12px hsla(160, 50%, 50%, 0.25); }
+
+/* Iframes (SABnzbd, terminal, Eclipse panel): round them into the card. */
+.widget-type-iframe iframe { display: block; border-radius: var(--ag-r-small); background: hsla(180, 20%, 6%, 0.5); }
+
+/* SABnzbd queue tiles */
+.ag-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ag-stat {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 12px 13px;
+  border-radius: var(--ag-r-small);
+  border: 1px solid var(--ag-line-soft);
+  background: hsla(165, 25%, 16%, 0.38);
+  min-width: 0;
+}
+.ag-stat .ag-v { text-align: left; font-size: 2.2rem; font-weight: 600; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-stat-wide { grid-column: 1 / -1; }
+.ag-stat-wide .ag-v { font-size: 1.5rem; font-weight: 500; }
+
+/* Value just changed (asgard.js) — a brief brighten, nothing that moves. */
+.ag-tick { animation: ag-tick 0.9s ease-out; }
+
+/* ── Narrow phones ────────────────────────────────────────────────────────── */
+@media (max-width: 550px) {
+  .widget { padding: 15px 13px 17px; border-radius: 18px; }
+  .widget-group-header .widget-header { gap: 16px; }
+  .widget-group-title { letter-spacing: 0.1em; }
+  .ag-light { gap: 12px; padding: 12px 12px 12px 14px; }
+  .ag-hero { padding-left: 18px; }
+  .ag-card-head { padding: 13px 12px 13px 16px; }
+  .ag-card-body { padding: 4px 12px 15px 16px; }
+  .pw-big { font-size: 3.8rem; }
+  .np-num { font-size: 2.3rem; }
+}
+
+/* ── Motion ───────────────────────────────────────────────────────────────── */
+@keyframes ag-ring {
+  0%   { box-shadow: 0 0 0 0 hsla(152, 90%, 80%, 0.6); }
+  100% { box-shadow: 0 0 0 9px hsla(152, 90%, 80%, 0); }
+}
+@keyframes ag-blink { 50% { opacity: 0.35; } }
+@keyframes ag-shake {
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+@keyframes ag-tick { from { color: hsl(152, 90%, 80%); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

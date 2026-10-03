@@ -8,9 +8,10 @@
 #   Modules/Server/home-assistant.nix → ha-bridge's ALLOWED + watch list, and the
 #                                members of the Living Room Lights group
 #   Modules/Server/marsbar.nix        → her light tiles
-#   glance.nix (main Glance)   → the Monitoring page's power cards and Plug
-#                                Health rows (they still carry their own copy
-#                                in the Jinja blocks until that is switched over)
+#   Modules/Server/glance.nix         → the main Glance: the home page's light
+#                                tiles, the Monitoring page's power cards and
+#                                switches, Plug Health, and the one Jinja query
+#                                behind them all
 #
 # Before this file the same five plugs were spelled out in about eight places —
 # Jinja tuples on the Monitoring page, the bridge allowlist, the HA group, the
@@ -25,7 +26,8 @@ let
   # Every plug is an Athom Plug V3 on ESPHome, so every entity hangs off one
   # device slug: switch.<slug>_switch, sensor.<slug>_power, sensor.<slug>_voltage,
   # sensor.<slug>_total_daily_energy, binary_sensor.<slug>_status, … — the
-  # Monitoring page's Jinja builds all of those from `slug` alone.
+  # Monitoring page's Jinja (plugQuery in glance.nix) builds all of those from
+  # `slug` alone.
   #
   # Fields:
   #   slug    ESPHome device prefix (see above)
@@ -33,8 +35,8 @@ let
   #   name    label on the admin dashboard
   #   short   label where space is tight (Plug Health rows); defaults to name
   #   sub     admin dashboard sub-line
-  #   room    where it physically is — MarsBar's sub-line (lights only)
-  #   icon    MarsBar tile glyph (lights only)
+  #   room    where it physically is — the light tiles' sub-line (lights only)
+  #   icon    light tile glyph, on both dashboards (lights only)
   #   light   true  → a lamp: toggleable from both dashboards, a member of the
   #                   Living Room Lights group, drawn on MarsBar
   #           false → a running MACHINE. Monitored, never toggleable: these

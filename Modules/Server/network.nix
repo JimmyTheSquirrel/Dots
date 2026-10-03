@@ -46,57 +46,17 @@
       authKeyFile = config.sops.secrets.tailscale-auth-key.path;
     };
 
-    # Tailscale status API proxy — exposes node status for Glance dashboard
-    # Queries tailscaled Unix socket and serves JSON on localhost:9553
+    # Tailscale status for the Glance "Yggdrasil Network" widget: reads
+    # tailscaled's LocalAPI over its unix socket and serves a sorted, trimmed
+    # JSON list (MagicDNS names, online/offline, last seen, direct/relay) on
+    # 127.0.0.1:9553 — loopback only, Glance fetches it server-side. See
+    # Resources/Glance/tailscale-status.py. Root, as before, for the socket.
     systemd.services.tailscale-status-proxy = {
       description = "Tailscale status HTTP proxy for Glance";
       after = [ "tailscaled.service" ];
       wantedBy = [ "multi-user.target" ];
-      path = [ pkgs.curl pkgs.jq pkgs.python3 ];
-      script = ''
-        python3 -c '
-import http.server, subprocess, json
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        try:
-            raw = subprocess.check_output([
-                "curl", "-sf", "--unix-socket",
-                "/var/run/tailscale/tailscaled.sock",
-                "http://local-tailscaled.sock/localapi/v0/status"
-            ])
-            data = json.loads(raw)
-            result = {
-                "self": {
-                    "name": data["Self"]["HostName"],
-                    "ip": data["Self"]["TailscaleIPs"][0],
-                    "online": data["Self"]["Online"]
-                },
-                "peers": [
-                    {
-                        "name": p["HostName"],
-                        "ip": p["TailscaleIPs"][0] if p.get("TailscaleIPs") else "",
-                        "online": p.get("Online", False)
-                    }
-                    for p in data.get("Peer", {}).values()
-                ]
-            }
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
-        except Exception as e:
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(str(e).encode())
-    def log_message(self, *args):
-        pass
-
-http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
-        '
-      '';
       serviceConfig = {
+        ExecStart = "${pkgs.python3}/bin/python3 ${../../Resources/Glance/tailscale-status.py}";
         Restart = "always";
         RestartSec = 5;
       };
