@@ -237,6 +237,10 @@ http.server.HTTPServer(("127.0.0.1", 9553), Handler).serve_forever()
       environment = {
         NETPANEL_IFACE = lanInterface;
         NETPANEL_PORT = "9555";
+        # The dashboards allowed to call it cross-origin (comma-separated) —
+        # the main Glance polls /api and POSTs /run from the browser. Same list
+        # as ha-bridge and eclipse-control: Modules/Server/_origins.nix.
+        DASH_ORIGINS = lib.concatStringsSep "," (import ./_origins.nix config.asgard);
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${../../Resources/Network-Panel/network-panel.py}";

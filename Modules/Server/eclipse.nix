@@ -48,11 +48,23 @@
         # and lives on another port, so the iframe can't borrow it cross-origin.
         # Serve our own copy to keep the panel typographically native.
         ECLIPSE_FONT_DIR = "${pkgs.jetbrains-mono}/share/fonts/WOFF2";
+        # The dashboards allowed to call /act/* cross-origin (comma-separated).
+        # Generated from the same list ha-bridge uses, so the backends cannot
+        # drift apart — see Modules/Server/_origins.nix.
+        DASH_ORIGINS = lib.concatStringsSep "," (import ./_origins.nix config.asgard);
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${../../Resources/Eclipse-Control/eclipse-control.py}";
         Restart = "always";
         RestartSec = 5;
+        # Home for the SSH ControlMaster socket (the script reads
+        # $RUNTIME_DIRECTORY): systemd creates /run/eclipse-control at start and
+        # removes it at stop, so a socket can never outlive the unit or be
+        # pre-created by anyone else. Without it the script falls back to a
+        # mkdtemp() under /tmp. 0700 because whoever can reach that socket can
+        # run commands on the Pi without the key.
+        RuntimeDirectory = "eclipse-control";
+        RuntimeDirectoryMode = "0700";
       };
     };
 

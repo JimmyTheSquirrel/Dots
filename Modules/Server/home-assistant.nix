@@ -30,7 +30,9 @@
       watched = inventory.watched;
       # The pages allowed to call it cross-origin (and so to pass the
       # preflight its X-Dash header forces) — see Modules/Server/_origins.nix.
-      origins = import ./_origins.nix;
+      # config.asgard is declared by nixosModules.server (default.nix), which
+      # every host running this module imports alongside it.
+      origins = import ./_origins.nix config.asgard;
     });
 
     # aiohttp: the stdlib has no websocket client, and it brings an async HTTP
