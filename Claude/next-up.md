@@ -117,7 +117,7 @@ Both halves are now automatic and reproducible. See the *Books* and *Manga* sect
 What it was: Shelfarr had run since June 2026 with `0 acquisition_providers`,
 `0 download_clients`, and **Audiobookshelf had never been initialised at all**
 (`isInit: false` — no root user, no libraries). The "Post-boot (one-time)" comment in
-`Modules/Server/server.nix` was never carried out, so every component showed green on Glance
+the old `server.nix` was never carried out, so every component showed green on Glance
 while nothing was wired *between* them.
 
 Now done by **`books-setup.service`** — idempotent, runs every rebuild, converges a fresh
@@ -141,10 +141,11 @@ Still open, small:
   re-debug FlareSolverr. MangaDex and MangaFire both work and cover the need.
 - **Komga**, only if native Mihon on the tablet is wanted instead of Suwayomi's web UI.
 
-Noticed while checking, unactioned: **group `media` is gid 169, and gid 1001 does not
+✅ FIXED 2026-10-03 (config side): **group `media` is gid 169, and gid 1001 does not
 exist** — yet the book containers run `PGID=1001`, which is why `/data/media/books` and
-`audiobooks` are `0777` where every other media dir is `0775`. `Claude/server-info.md`
-still documents "GID 1001".
+`audiobooks` are `0777` where every other media dir is `0775`. Shelfarr's PGID and tmpfiles now read
+`config.users.groups.media.gid`. Still to do on the box: `chgrp -R media` both dirs, then
+tighten them to `0775`.
 
 ---
 

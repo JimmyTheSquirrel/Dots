@@ -111,7 +111,7 @@ because the flake is public, so the target needs no credentials.
 ## Asgard is not deployable from here
 
 `system-rebuild` refuses `Asgard` without an explicit `--target`. This repo's
-`Modules/Server/server.nix` drifts from the one on Asgard (`Claude/server-info.md`), so a
+`Modules/Server/` can drift from the copy on Asgard (`Claude/server-info.md`), so a
 push would overwrite the live config with a stale copy. Edit it on Asgard.
 
 ## Checking a disk layout before you wipe anything
