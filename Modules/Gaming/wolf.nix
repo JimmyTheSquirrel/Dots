@@ -24,7 +24,7 @@
   # swapping which daemon is running is simpler than re-teaching every client.
   #
   # ⚠️ DOCKER, NOT PODMAN — deliberate divergence from Asgard.
-  # `virtualisation.oci-containers.backend` is "podman" in Modules/Server/server.nix,
+  # `virtualisation.oci-containers.backend` is "podman" in Modules/Server/default.nix,
   # but Wolf is Docker-first and *spawns child containers through the mounted
   # socket* (one per running game). Podman's Docker-compatible socket is not a
   # guaranteed match for that nested-spawn path, and this began as a trial —
@@ -149,7 +149,7 @@
     # a `podman-wolf.service` that runs Wolf under podman while it mounts and
     # drives the *Docker* socket to spawn its per-game children — the exact
     # mismatch the header warns about. Safe to set here: Sisyphus does not
-    # import Modules/Server/server.nix, so this cannot conflict with Asgard's podman.
+    # import nixosModules.server, so this cannot conflict with Asgard's podman.
     virtualisation.oci-containers.backend = "docker";
 
     virtualisation.docker = {

@@ -168,9 +168,7 @@ tighten them to `0775`.
   `~/.config/vesktop/themes/noctalia*.css`, `discord-system24.css`.
   The vesktop ones are the only ones with any risk — leaving the opaque
   `noctalia.theme.css` on disk is what someone would re-enable by accident.
-- **Odysseus** is on skwd v1 and the user expects to retire it. Until then it
-  shares `Modules/Desktop/noctalia.nix`, so check the host import matrix before editing
-  shared modules — see `Claude/skwd-wall.md`.
+- ✅ **Odysseus** was retired 2026-10-03, together with skwd v1.
 
 ---
 
@@ -515,7 +513,7 @@ verified; what follows is what is genuinely still open.
 9. **Her wallpaper library starts empty** — same root cause as item 1 at the top of this
    file (`~/Pictures/Wallpapers` is not in the repo). Worth landing that item before she
    first boots, or her first login has a blank wall.
-10. **`rain-effect` on NVIDIA is unverified.** GLES2 `wlr-layer-shell` overlay; expected
+10. ~~**`rain-effect` on NVIDIA is unverified.**~~ Moot: rain-effect was retired 2026-10-03. GLES2 `wlr-layer-shell` overlay; expected
     to work with modesetting on, but nothing has tested it. Nothing depends on it.
 11. **Stale Elektra profile on this disk.** `/nix/var/nix/profiles/system-profiles/elektra`
     still exists and still holds GC roots, but nothing builds it any more. Clean up with

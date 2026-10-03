@@ -209,7 +209,7 @@ stack), 5000 (Kavita), 25600 (Komga) or 2049/111 (NFS) any more.
   **This used to say "the Sisyphus copy is materially WRONG, edit on Asgard only". That is no
   longer true and following it would now be the mistake.** Asgard's 878 lines of uncommitted work
   were committed (`30c3ac6`, `b985c36`, `f83c52f`), pushed to `origin/main`, and merged into
-  Sisyphus's `steam-ricing`. `Modules/Server/server.nix` is now **byte-identical on both clones**
+  Sisyphus's `steam-ricing`. `server.nix` (as it was then) was **byte-identical on both clones**
   (3786 lines). Editing either copy and patching across works again.
 
   **How the divergence happened, so it can be avoided:** server work is done directly on Asgard,
