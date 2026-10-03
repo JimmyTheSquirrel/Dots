@@ -37,7 +37,7 @@
         # enp3s0 gets SLAAC addresses from the router before the 'all' sysctl fires,
         # so the interface-specific sysctl stays 0 and the dead IPv6 address persists.
         # Set it explicitly here too. (asgard.lanInterface is declared by the
-        # server module — Modules/Server/.)
+        # server module — Modules/Server/default.nix.)
         boot.kernel.sysctl."net.ipv6.conf.${config.asgard.lanInterface}.disable_ipv6" = true;
         # Belt-and-suspenders: tell glibc to prefer IPv4 over IPv6.
         # Default table has ::ffff:0:0/96 (IPv4-mapped) at precedence 10, below ::/0 at 40.
@@ -70,7 +70,7 @@
         # No initialPassword here any more: rock's password comes from the sops
         # `user-password-hash` secret (Modules/Core/sops.nix) on every host that
         # imports sops. /downloads' tmpfiles rules live with the rest of the data
-        # directories in the server module — they were declared twice.
+        # directories in Modules/Server/storage.nix — they were declared twice.
       })
     ];
   };

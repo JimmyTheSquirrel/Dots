@@ -3,7 +3,7 @@
 #   hdd  (8TB  ST8000VN002):  /mnt/disk1  — mergerfs branch 1, plus photos + arr state
 #   hdd2 (12TB WD122KFBX):    /mnt/disk2  — mergerfs branch 2
 #
-# The two HDDs are pooled into a single /data/media by mergerfs — see Modules/Server/.
+# The two HDDs are pooled into a single /data/media by mergerfs — see Modules/Server/storage.nix.
 # mergerfs merges the directory tree, not blocks: every file lives whole on one disk, so a
 # dead drive costs only its own files. Media paths are unchanged for every service.
 #
@@ -19,7 +19,7 @@
 # Both mounts are `nofail` DELIBERATELY. Without it, a disconnected HDD times the boot out after
 # ~90s and drops to emergency mode *before networking* — the box goes completely unreachable and
 # needs physical recovery (this happened on 2026-08-10). `nofail` is only safe because it is
-# PAIRED with RequiresMountsFor= on every consuming service in Modules/Server/: a missing disk
+# PAIRED with RequiresMountsFor= on every consuming service (Modules/Server/storage.nix): a missing disk
 # then means "services refuse to start and the box stays reachable" instead of "arrs re-initialise
 # on empty dirs the tmpfiles rules created on the NVMe". Never remove one without the other.
 { inputs, ... }: {
