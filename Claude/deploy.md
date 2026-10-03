@@ -31,7 +31,8 @@ so nothing re-boots mid-install and the SSH session — along with the tailnet l
 carrying it — survives from start to finish. Without that, kexec would drop the
 connection the moment the install began.
 
-`nixos-anywhere` is already in `Modules/Core/base.nix`, so it needs no flake input.
+`nixos-anywhere` is already in `Modules/Desktop/desktop.nix` (Sisyphus, Kit-Kat) and on the
+Apollo ISO, so it needs no flake input.
 
 ## The auth key lives on the stick, not in the ISO
 

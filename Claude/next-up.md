@@ -84,9 +84,8 @@ activation script that forces declared keys and passes undeclared runtime state
 Full mechanism, the re-snapshot workflow, and the `config-reload` verification are in
 `Claude/noctalia.md` → "⚠️ Nix owns `settings.toml`".
 
-**Still open:** `[idle]` remains in `nix-config.toml` rather than the lock, because
-the GUI has never written it. Touching the Idle settings page would move it into
-`settings.toml` permanently; migrate it into `lockedSettings` if that happens.
+✅ **Closed 2026-10-03:** `nix-config.toml` is gone — `[idle]`, `[shell.mpris]` and the
+clock format moved into `lockedSettings`, so they are forced like everything else.
 
 ---
 
@@ -499,7 +498,7 @@ verified; what follows is what is genuinely still open.
 - ✅ Her **ssh host key + `&kitkat` age recipient** generated and wired; `apollo-deploy`
   now plants it automatically from `~/.local/share/apollo/<Host>/`.
 - ✅ Her **password** set by her, stored in `Secrets/kit-kat.yaml`.
-- ✅ **Greeter + bootloader**: `sddm-umbrella` (qylock women-umbrella) and
+- ✅ **Greeter + bootloader**: `sddm` with `my.sddm.theme = "women-umbrella"` (qylock) and
   `grub-celeste` (CelesteGRUB 1080p). Both build; greeter verified present in her
   system path with its font.
 - ✅ ISO console fixed (text status page) and SSH fixed (`--ssh` removed).
