@@ -16,8 +16,8 @@ let
   #
   # Same two-instantiation trick as Modules/Shell/btop.nix, so the two can't drift:
   #   1. `staticQuickCss`  — literal hex, seeded so Steam has an accent before
-  #                          any wallpaper change (and on hosts without skwd-wall).
-  #   2. `matugenTemplate` — same file with matugen tokens. Modules/skwd-wall.nix
+  #                          any wallpaper change (and on hosts without skwd).
+  #   2. `matugenTemplate` — same file with matugen tokens. Modules/Desktop/skwd.nix
   #                          installs it and matugen re-renders it over the seed
   #                          on every wallpaper change.
   mkQuickCss = a: ''
@@ -26,10 +26,10 @@ let
      * Injected into every Steam document on top of the active theme. This is the
      * supported place for local tweaks: Zehn's own custom.css says to use Quick
      * CSS instead, because the theme folder is overwritten on update — and here
-     * Nix overwrites the theme folder on every rebuild too.
+     * Nix replaces a theme folder whenever that theme's pin changes too.
      *
-     * On skwd-wall hosts matugen rewrites this exact path on every wallpaper
-     * change (the "steam" integration in Modules/skwd-wall.nix).
+     * On skwd hosts matugen rewrites this exact path on every wallpaper
+     * change (the "steam" integration in Modules/Desktop/skwd.nix).
      *
      * NOTE: Millennium's settings UI has a Quick CSS editor that writes here.
      * Anything typed into it is lost on the next wallpaper change or rebuild. */
@@ -154,21 +154,21 @@ let
   # and matugen's engine is NOT Tera so `replace(from=…, to=…)` is a parse error
   # (its filters take colon args, `| lighten: 20.0`, and do not chain into
   # `.red`). Verified against matugen 4.0.0.
-  ch = role: lib0:
+  ch = role:
     "{{colors.${role}.default.red}}, {{colors.${role}.default.green}}, {{colors.${role}.default.blue}}";
 
   # Zehn wants a light->dark ramp. matugen filters can't chain into the channel
   # accessors, so the ramp comes from distinct Material You roles instead, which
   # are already tonal steps of the same hue.
   matugenAccent = {
-    lightest = ch "primary_fixed" null;
-    lighter  = ch "primary_fixed_dim" null;
-    base     = ch "primary" null;
+    lightest = ch "primary_fixed";
+    lighter  = ch "primary_fixed_dim";
+    base     = ch "primary";
     # Generated to contrast with `primary`, so accent-filled buttons stay
     # readable whatever hue the wallpaper produces.
-    onAccent = ch "on_primary" null;
-    darker   = ch "inverse_primary" null;
-    darkest  = ch "primary_container" null;
+    onAccent = ch "on_primary";
+    darker   = ch "inverse_primary";
+    darkest  = ch "primary_container";
   };
 
   # ============================================================
@@ -258,7 +258,7 @@ let
     install -m 0644 ${index}    "$out/.millennium/Dist/index.js"
   '';
 
-  # Fallback for hosts with no skwd-wall, and for first boot. Same ramp shape,
+  # Fallback for hosts with no skwd, and for first boot. Same ramp shape,
   # rendered from the Material You palette of #80d5d3.
   fallbackAccent = {
     lightest = "166, 240, 237";
@@ -276,6 +276,18 @@ let
   steamOptions = { lib, ... }: {
     options.my.steam.millennium = lib.mkEnableOption "Millennium Steam theming" // {
       default = true;
+    };
+
+    options.my.steam.extraEnv = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      description = ''
+        Extra environment for Steam's FHS wrapper: Steam itself and every
+        game it launches see it, nothing outside Steam does. For other
+        modules' Steam-specific concerns, so each explanation can live next
+        to its cause — Modules/Gaming/wolf.nix sets its controller ignore
+        list here.
+      '';
     };
   };
 
@@ -303,61 +315,44 @@ in {
     # the `opacity 0.85` window rule on app-id "steam" in Modules/Desktop/niri.nix.
     # The theme's job is only to make Steam look right at 85%.
     #
+    # The Steam EVERY host gets, Millennium or not. These used to exist only
+    # inside the Millennium build, so a host with my.steam.millennium = false
+    # (Kit-Kat) silently lost the audio fix along with the theming.
+    baseSteam = pkgs.steam.override {
+      extraLibraries = p: [
+        # Override Steam's bundled old audio libraries with host versions:
+        # - libpulseaudio: Steam's scout runtime ships PA 1.1 which crashes talking to pipewire-pulse
+        # - pipewire: Steam/CS2 bundles old libpipewire-0.3 (protocol v4) which desynchs from
+        #   the system PipeWire server and causes audio to cut out mid-session
+        p.libpulseaudio
+        p.pipewire
+      ];
+
+      # Contributed by other modules — see the option's description.
+      extraEnv = config.my.steam.extraEnv;
+    };
+
     # Upstream ships a `millennium-steam` package, but it
     # is built against upstream's own pinned nixpkgs, which would pull a second
-    # Steam into the closure and drop the audio-library override below. So the
+    # Steam into the closure and drop the audio-library override above. So the
     # injection is reproduced here against our nixpkgs instead; it is only three
     # knobs, all documented in upstream's packages/nix/steam.nix.
     #
     # It works by making Steam load Millennium in place of libXtst: the bootstrap
     # .so re-exports the real libXtst symbols and spawns Millennium alongside.
-    steamPackage = pkgs.steam.override {
-      extraLibraries = _pkgs: [
-        # Override Steam's bundled old audio libraries with host versions:
-        # - libpulseaudio: Steam's scout runtime ships PA 1.1 which crashes talking to pipewire-pulse
-        # - pipewire: Steam/CS2 bundles old libpipewire-0.3 (protocol v4) which desynchs from
-        #   the system PipeWire server and causes audio to cut out mid-session
-        _pkgs.libpulseaudio
-        _pkgs.pipewire
+    #
+    # Layered on baseSteam with the function form of override, so `prev` holds
+    # baseSteam's arguments and these EXTEND them rather than replace them.
+    millenniumSteam = baseSteam.override (prev: {
+      extraLibraries = p: prev.extraLibraries p ++ [
         # Millennium's own runtime deps — it links against both ABIs of openssl.
         millennium
-        _pkgs.openssl
+        p.openssl
         pkgs.pkgsi686Linux.openssl
       ];
 
-      extraEnv = {
+      extraEnv = prev.extraEnv // {
         MILLENNIUM_RUNTIME_PATH = "${millennium}/lib/libmillennium_x86.so";
-
-        # 🎮 Don't adopt Wolf's virtual DualSense. Belt-and-braces for the
-        # stuck-pad bleed diagnosed 2026-10-03 — full writeup in the
-        # "ORPHANED-SESSION REAPER" comment in Modules/Gaming/wolf.nix.
-        #
-        # Wolf creates its virtual pads in its container, but they appear as
-        # REAL devices in the host kernel. Wolf's udev rules park them on a
-        # phantom seat9, which hides them from niri — but NOT from Steam, which
-        # scans /dev/input and /dev/hidraw* directly instead of asking logind.
-        # So desktop Steam picks up a streaming session's pad as its own
-        # Controller 0 (its log: "Controller using HIDAPI driver, vid=0x054c,
-        # pid=0x0ce6" with nothing physically attached), and if that pad was
-        # left mid-chord by Moonlight's L1+R1+Select+Start quit shortcut, the
-        # held buttons propagate into whatever is running on the desktop.
-        #
-        # 0x054c/0x0ce6 is Sony's DualSense. ⚠️ This is a VID/PID match, so it
-        # ignores a GENUINE DualSense plugged into Sisyphus too — accepted
-        # because the real pad lives on Eclipse (couch/TV box) and reaches
-        # games through the stream, never through desktop Steam. If you ever
-        # want to use a DualSense directly at the desk, remove this line and
-        # rely on the reaper alone.
-        #
-        # ⚠️ UNVERIFIED as of 2026-10-03: this is the documented SDL ignore
-        # list and games inherit it, but whether Steam's bundled SDL honours it
-        # for Steam's OWN controller enumeration (the HIDAPI path above) has
-        # not been confirmed live. To check: start a Wolf session, then start
-        # desktop Steam, and confirm no new `vid=0x054c` line appears in
-        # ~/.local/share/Steam/logs/controller.txt. The reaper in
-        # Modules/Gaming/wolf.nix is the fix that addresses the actual bug; this only
-        # narrows the window.
-        SDL_GAMECONTROLLER_IGNORE_DEVICES = "0x054c/0x0ce6";
       };
 
       # Re-linked on every launch rather than by an activation script, because
@@ -376,7 +371,7 @@ in {
         ln -sf ${millennium}/lib/libmillennium_bootstrap_x86.so "$HOME/.local/share/Steam/ubuntu12_32/libXtst.so.6"
         ln -sf ${millennium}/lib/libmillennium_bootstrap_hhx64.so "$HOME/.local/share/Steam/ubuntu12_64/libXtst.so.6"
       '';
-    };
+    });
   in {
     imports = [ steamOptions ];
 
@@ -392,32 +387,39 @@ in {
         mangohud
       ];
 
-      # Plain upstream Steam when Millennium is off — steamPackage is the
-      # millennium-wrapped build (extra openssl ABIs, MILLENNIUM_RUNTIME_PATH, the
-      # libXtst relink on every launch).
-      package = if millenniumEnabled then steamPackage else pkgs.steam;
+      # baseSteam (audio fix only) when Millennium is off — millenniumSteam adds
+      # the extra openssl ABIs, MILLENNIUM_RUNTIME_PATH and the libXtst relink
+      # on every launch.
+      package = if millenniumEnabled then millenniumSteam else baseSteam;
+
+      # Inbound ports, for the two Steam features that listen for anything:
+      # Remote Play (UDP 27031-27036 + 10400-10401, TCP 27036-27037) and LAN
+      # game transfers (TCP 27040).
+      #
+      # These replace a hand-copied list of 14 TCP / 17 UDP ports, uncommented
+      # and apparently lifted from Steam's "required ports" page — whose ranges
+      # are mostly REMOTE ports the client connects out to. NixOS's firewall is
+      # stateful, so outbound connections and their replies never needed an
+      # opening. The list also missed UDP 27031-27035, which Remote Play
+      # actually listens on, and never opened UDP 27015 — the gameplay port a
+      # hosted dedicated/listen server needs — so nothing relied on it for
+      # hosting either. If you ever host one: dedicatedServer.openFirewall.
+      remotePlay.openFirewall = true;
+      localNetworkGameTransfers.openFirewall = true;
     };
 
+    # Nothing here for hardware.graphics.enable / enable32Bit, nor for
+    # steam-run: programs.steam sets the first two itself, and installs
+    # `steam-run` as cfg.package.run — built from the package above, so it has
+    # the audio libraries too. The pkgs.steam-run that used to be listed was a
+    # second, plain build of the same command, and the two collided in the
+    # system profile.
     programs.gamemode.enable = true;
-    hardware.graphics.enable = true;
-    hardware.graphics.enable32Bit = true;
 
     environment.systemPackages = with pkgs; [
-      steam-run
       vulkan-loader
       vulkan-tools
       vulkan-validation-layers
-    ];
-
-    networking.firewall.allowedTCPPorts = [
-      27014 27015 27036 27037 27038 27039 27040 27041
-      27042 27043 27044 27045 27046 27047
-    ];
-
-    networking.firewall.allowedUDPPorts = [
-      27000 27001 27002 27003 27004 27005
-      27020 27021 27022 27023 27024 27025
-      27026 27027 27028 27029 27030
     ];
 
     # ============================================================
@@ -527,12 +529,32 @@ in {
       # HTTP hook, and a dangling store symlink survives a GC worse than a plain
       # copy does. Removed first so files deleted upstream don't linger, and
       # chmod'd because store sources are read-only.
-      installTheme = name: src: ''
-        rm -rf "${themesRoot}/${name}"
-        mkdir -p "${themesRoot}/${name}"
-        cp -rT ${src} "${themesRoot}/${name}"
-        chmod -R u+w "${themesRoot}/${name}"
-      '';
+      #
+      # ...but only when the copy is stale. `.dots-source` inside each copy
+      # records the store path it came from; while that still matches, the
+      # folder is left alone instead of being deleted and re-copied on every
+      # switch (it used to be, for all three themes and the plugin, which also
+      # yanked files out from under a running Steam). Deleting a folder deletes
+      # its marker, so it is simply re-copied next time. One consequence: a
+      # hand edit inside a theme folder now survives until that theme's pin
+      # changes — Quick CSS is still the place for tweaks.
+      #
+      # `run` is Home Manager's dry-run-aware wrapper: under DRY_RUN these
+      # commands are printed, not executed.
+      installDir = dest: src:
+        let
+          marker = "${dest}/.dots-source";
+          markerSeed = pkgs.writeText "dots-source" "${src}";
+        in ''
+          if [ "$(cat "${marker}" 2>/dev/null)" != "${src}" ]; then
+            run rm -rf "${dest}"
+            run mkdir -p "${dest}"
+            run cp -rT ${src} "${dest}"
+            run chmod -R u+w "${dest}"
+            run install -m 0644 ${markerSeed} "${marker}"
+          fi
+        '';
+      installTheme = name: src: installDir "${themesRoot}/${name}" src;
     in {
       # Skipped entirely when Millennium is off — it installs themes into
       # ~/.steam/.../millennium/themes and patches Millennium's own settings JSON,
@@ -544,39 +566,43 @@ in {
         # when the file is missing or is still byte-identical to the seed installed
         # last time (i.e. matugen has not taken ownership yet). Once matugen owns
         # it, editing the generator above stops clobbering the live colours.
-        mkdir -p "$(dirname "${quickCssFile}")"
+        run mkdir -p "$(dirname "${quickCssFile}")"
         if [ ! -e "${quickCssFile}" ] \
            || { [ -e "${quickCssSeedMarker}" ] && ${pkgs.diffutils}/bin/cmp -s "${quickCssFile}" "${quickCssSeedMarker}"; }; then
-          install -m 0644 ${quickCssSeed} "${quickCssFile}"
+          run install -m 0644 ${quickCssSeed} "${quickCssFile}"
         fi
-        install -m 0644 ${quickCssSeed} "${quickCssSeedMarker}"
+        run install -m 0644 ${quickCssSeed} "${quickCssSeedMarker}"
 
         # Quick CSS watcher plugin — see the long comment in this module.
-        rm -rf "${pluginDir}"
-        mkdir -p "${pluginDir}"
-        cp -rT ${watcherPlugin} "${pluginDir}"
-        chmod -R u+w "${pluginDir}"
-
+        ${installDir pluginDir watcherPlugin}
         ${lib.concatStrings (lib.mapAttrsToList installTheme themes)}
         # Millennium fills in every other key from its own defaults on first
         # start, so a partial config here is safe.
-        mkdir -p "$(dirname "${configFile}")"
-        [ -f "${configFile}" ] || echo '{}' > "${configFile}"
+        run mkdir -p "$(dirname "${configFile}")"
 
         # activeTheme is forced (Nix owns which theme runs). $forced is merged on
         # the RIGHT so declared keys win over what Millennium wrote, while every
         # undeclared condition is preserved exactly as the Steam UI left it.
         # A plugin only loads if its name is in plugins.enabledPlugins, so add it
         # without disturbing any other entries.
-        ${pkgs.jq}/bin/jq --argjson forced ${lib.escapeShellArg (builtins.toJSON conditionsForced)} '
-          .themes = (.themes // {}) |
-          .themes.activeTheme = "${activeTheme}" |
-          .themes.conditions = (.themes.conditions // {}) |
-          reduce ($forced | keys[]) as $t (.;
-            .themes.conditions[$t] = ((.themes.conditions[$t] // {}) + $forced[$t])) |
-          .plugins = (.plugins // {}) |
-          .plugins.enabledPlugins = (((.plugins.enabledPlugins // []) + ["${pluginName}"]) | unique)
-        ' "${configFile}" > "${configFile}.tmp" && mv "${configFile}.tmp" "${configFile}"
+        #
+        # `run` cannot wrap a redirect (in a dry run it would echo the command
+        # INTO the file), so this write is guarded by hand — the same DRY_RUN
+        # idiom Home Manager's own modules use.
+        if [[ -v DRY_RUN ]]; then
+          echo "would patch ${configFile}: activeTheme, forced conditions, ${pluginName}"
+        else
+          [ -f "${configFile}" ] || echo '{}' > "${configFile}"
+          ${pkgs.jq}/bin/jq --argjson forced ${lib.escapeShellArg (builtins.toJSON conditionsForced)} '
+            .themes = (.themes // {}) |
+            .themes.activeTheme = "${activeTheme}" |
+            .themes.conditions = (.themes.conditions // {}) |
+            reduce ($forced | keys[]) as $t (.;
+              .themes.conditions[$t] = ((.themes.conditions[$t] // {}) + $forced[$t])) |
+            .plugins = (.plugins // {}) |
+            .plugins.enabledPlugins = (((.plugins.enabledPlugins // []) + ["${pluginName}"]) | unique)
+          ' "${configFile}" > "${configFile}.tmp" && mv "${configFile}.tmp" "${configFile}"
+        fi
       '');
     };
   };

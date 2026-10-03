@@ -1,7 +1,8 @@
 # Wolf — multi-session Moonlight server (games-on-whales)
 
 **Status: working end-to-end as of 2026-09-28.** Sisyphus hosts, Eclipse streams.
-Module: `Modules/Gaming/wolf.nix`. Trial standing *alongside* Sunshine, not a migration.
+Module: `Modules/Gaming/wolf.nix`. Started as a trial alongside Sunshine and is now the **live**
+streaming host. Sunshine stays installed as the fallback, with `autoStart = false`.
 
 > ⚠️ **Wolf and Sunshine cannot run together** — identical Moonlight ports.
 > Wolf is now `autoStart = true` (changed 2026-09-28; this doc said `false` until
@@ -163,11 +164,16 @@ failures at all** (median 3/min, p90 13) — and a *healthy* stream also hits 3-
 a minute. The spam is bursty, not sustained; no count-per-window threshold
 separates them. This was built that way first and had to be rewritten.
 
-Second, narrower guard in `Modules/Gaming/steam.nix`:
-`SDL_GAMECONTROLLER_IGNORE_DEVICES = "0x054c/0x0ce6"` on the host Steam package,
-so desktop Steam won't adopt a virtual DualSense even while one is live. Verified
-present and auto-exported (`set -a`) in the built FHS profile, beside the
-known-working `MILLENNIUM_RUNTIME_PATH`.
+Second, narrower guard, set in `Modules/Gaming/wolf.nix` because it only exists
+for Wolf: `my.steam.extraEnv.SDL_GAMECONTROLLER_IGNORE_DEVICES = "0x054c/0x0ce6"`.
+`Modules/Gaming/steam.nix` passes `my.steam.extraEnv` into the host Steam
+package's FHS environment, so desktop Steam won't adopt a virtual DualSense even
+while one is live. RPCS3 and other apps launched outside Steam never see it.
+(It used to sit inside steam.nix's Millennium-only build. The value is unchanged.
+It was verified present and auto-exported (`set -a`) in the built FHS profile,
+next to the known-working `MILLENNIUM_RUNTIME_PATH`.) Because wolf.nix sets an
+option that steam.nix declares, **wolf.nix requires steam.nix**. Every Wolf host
+here is a Steam host, and a missing import fails eval loudly.
 ⚠️ **Not yet verified at runtime** that Steam's bundled SDL honours it for its own
 HIDAPI enumeration as opposed to for games. To check: start a Wolf session, start
 desktop Steam, confirm no new `vid=0x054c` line appears in
@@ -437,7 +443,8 @@ Gaming tile became `game_id=1`. See the skinshortcuts section below for the rebu
 | editing `config.toml` | Wolf **rewrites it on exit** — stop Wolf before editing, or changes are clobbered |
 
 ⚠️ `/etc/wolf` is imperative state created by Docker — against the repo's
-declarative principle. Acceptable for a trial; convert if this graduates.
+declarative principle. It was acceptable for the trial. Wolf is now the live host, so
+converting it is outstanding work.
 ⚠️ `ghcr.io/games-on-whales/wolf:stable` is pulled at runtime, not pinned.
 
 ## Startup race that looks fatal but isn't
