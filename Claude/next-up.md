@@ -549,12 +549,11 @@ taking off", and `Claude/misc.md` → Audio. These are the gaps they uncovered.
    2026-10-04, so it cannot be used to inspect the tailnet. It is also referenced by
    nothing and is an admin key that can rewrite ACLs and mint auth keys. Tailscale API keys
    expire after 90 days, so a stored one always rots — mint on demand, or delete it.
-3. **`system-rebuild`'s remote activation is still broken** — `nixos-rebuild-ng` re-exec vs
-   `--store-path`, full detail in `Claude/deploy.md` → Things that will bite. The
-   2026-10-04 menu rework did not change the activation call (`system-rebuild.sh` still
-   passes `--store-path … --target-host`), so it will recur on the next remote switch.
-   Working fallback: `nix-env -p /nix/var/nix/profiles/system --set` +
-   `switch-to-configuration switch` over `ssh -t`.
+3. ~~`system-rebuild`'s remote activation is broken~~ ✅ **FIXED 2026-10-04.**
+   `nixos-rebuild-ng` re-execs itself before switch/boot and, with `--store-path` and no
+   `--flake`, looks for `nixos-config` on NIX_PATH. `system-rebuild` now passes
+   `--no-reexec` (local and `--target-host`). Detail and the manual fallback:
+   `Claude/deploy.md` → Things that will bite.
 4. **Neither desktop has `lm_sensors`** — only `Hosts/Asgard/_hardware.nix` installs it. A
    "her GPU is taking off" report could not be answered with a temperature reading;
    everything had to come from `nvidia-smi` plus raw `/sys/class/hwmon` reads. Worth adding
