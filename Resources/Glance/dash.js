@@ -243,7 +243,7 @@
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("style", "position:absolute;width:0;height:0;overflow:hidden");
     svg.innerHTML = '<linearGradient id="ag-weave" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="300" y2="0">' +
-      '<stop offset="0" style="stop-color:var(--s3)"></stop><stop offset="1" style="stop-color:var(--s2)"></stop></linearGradient>';
+      '<stop offset="0" style="stop-color:var(--s1)"></stop><stop offset="1" style="stop-color:var(--s3)"></stop></linearGradient>';
     document.body.appendChild(svg);
   })();
 

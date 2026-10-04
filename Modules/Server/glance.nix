@@ -40,8 +40,6 @@
     # live cards share (stream lifecycle, DOM morphing, sparklines).
     assetFiles = {
       "yggdrasil.png" = ../../Resources/Glance/yggdrasil-banner.png;
-      # the world tree behind the page, and the runes heading each card
-      "ygg-bg.svg" = ../../Resources/Glance/ygg-bg.svg;
       "asgard.css" = ../../Resources/Glance/asgard.css;
       "cards.css" = ../../Resources/Glance/cards.css;
       "dash.js" = ../../Resources/Glance/dash.js;
@@ -51,25 +49,23 @@
       "net.js" = ../../Resources/Glance/net.js;
       "eclipse.js" = ../../Resources/Glance/eclipse.js;
     };
-    runeFiles = lib.mapAttrs' (f: _: lib.nameValuePair "runes/${f}" (../../Resources/Glance/runes + "/${f}"))
-      (builtins.readDir ../../Resources/Glance/runes);
-    # The overgrowth — every vine, bough, bramble, fern and toadstool on the
-    # cards, the growth along the navigation and the forest along the foot
-    # of each page — is GENERATED, at build time, by growth.py (seeded, so
-    # every build grows the same forest; see its header). Nothing generated
-    # is committed. Its growth.css says which card and page wears which
-    # piece, with this version on every URL so a new forest is never hidden
+    # The HUD's artwork — the panel frame round every card, the grid that
+    # tiles down the page, the misty pines pinned to the foot of the screen,
+    # Yggdrasil in line art, the logo, the icon set — is GENERATED at build
+    # time by hud.py (seeded, so every build draws the same; see its header).
+    # Nothing generated is committed. Its hud.css hands the pieces to
+    # asgard.css with this version on every URL, so a new HUD is never hidden
     # behind Glance's 2 h asset cache.
-    growthVersion = builtins.substring 0 10 (builtins.hashFile "sha256" ../../Resources/Glance/growth.py);
-    growth = pkgs.runCommand "asgard-growth" { } ''
-      ${pkgs.python3}/bin/python3 ${../../Resources/Glance/growth.py} $out ${growthVersion}
+    hudVersion = builtins.substring 0 10 (builtins.hashFile "sha256" ../../Resources/Glance/hud.py);
+    hud = pkgs.runCommand "asgard-hud" { } ''
+      ${pkgs.python3}/bin/python3 ${../../Resources/Glance/hud.py} $out ${hudVersion}
     '';
-    # Cinzel (card titles, the navigation), from nixpkgs — asgard.css's @font-face.
+    # Orbitron (titles, tags, the navigation), from nixpkgs — asgard.css's @font-face.
     fontFiles = {
-      "fonts/cinzel-bold.ttf" = "${pkgs.cinzel}/share/fonts/truetype/Cinzel-Bold.ttf";
-      "fonts/cinzel-regular.ttf" = "${pkgs.cinzel}/share/fonts/truetype/Cinzel-Regular.ttf";
+      "fonts/orbitron-bold.ttf" = "${pkgs.orbitron}/share/fonts/truetype/Orbitron Bold.ttf";
+      "fonts/orbitron-medium.ttf" = "${pkgs.orbitron}/share/fonts/truetype/Orbitron Medium.ttf";
     };
-    glanceAssets = pkgs.linkFarm "glance-assets" (assetFiles // runeFiles // fontFiles // { inherit growth; });
+    glanceAssets = pkgs.linkFarm "glance-assets" (assetFiles // fontFiles // { inherit hud; });
 
     # Glance serves /assets/ with a 2h Cache-Control, so a script URL that never
     # changes would keep running the OLD code for up to two hours after a
@@ -657,10 +653,10 @@
         app-name = "Asgard";
         # The world tree as the logo, the tab icon and the phone's home-screen
         # icon — the dashboard's identity, like the card it came from.
-        logo-url = asset "yggdrasil.png";
-        favicon-url = asset "yggdrasil.png";
+        logo-url = "/assets/hud/logo.svg?v=${hudVersion}";
+        favicon-url = "/assets/hud/logo.svg?v=${hudVersion}";
         app-icon-url = asset "yggdrasil.png";
-        app-background-color = "hsl(220, 5%, 11%)";
+        app-background-color = "hsl(161, 63%, 3%)";
         hide-footer = true;
       };
 
@@ -672,7 +668,7 @@
       # by IP or FQDN (each is in _origins.nix).
       document.head = ''
         <link rel="stylesheet" href="${asset "cards.css"}">
-        <link rel="stylesheet" href="/assets/growth/growth.css?v=${growthVersion}">
+        <link rel="stylesheet" href="/assets/hud/hud.css?v=${hudVersion}">
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "asgard.js"}" data-api-port="${toString bridgePort}" defer></script>
@@ -681,18 +677,17 @@
         <script src="${asset "eclipse.js"}" data-api-port="${toString eclipsePort}" defer></script>
       '';
 
-      # Overgrown: the hall gone back to the forest. Two colours — leaf green
-      # and berry red — and the browns of bark and earth, on fog-grey with a
-      # spruce cast. Glance only draws a little itself (links, the monitor
-      # icons); asgard.css carries the real system — the colour families and
-      # the data palette, the world tree, a rune and an accent per card —
-      # and growth.py grows the forest over it (above). MarsBar stays purple
-      # with her vine, so the two are never confused.
+      # The HUD: a green tech/cyberpunk heads-up display over a dark pine
+      # forest — chamfered neon panels, Orbitron titles with boxed icons,
+      # angled tabs, a grid that tiles down the page. Glance only draws a
+      # little itself (links, the monitor icons); asgard.css carries the real
+      # system and hud.py draws its artwork (above). MarsBar stays purple with
+      # her vine, so the two are never confused.
       theme = {
-        background-color = "hsl(150, 7%, 10%)";
-        primary-color = "hsl(120, 43%, 67%)";
-        positive-color = "hsl(144, 66%, 64%)";
-        negative-color = "hsl(14, 100%, 62%)";
+        background-color = "hsl(161, 63%, 3%)";
+        primary-color = "hsl(158, 79%, 57%)";
+        positive-color = "hsl(150, 100%, 65%)";
+        negative-color = "hsl(355, 100%, 65%)";
         custom-css-file = "/assets/asgard.css";
       };
 
@@ -709,15 +704,15 @@
               widgets = [
                 # Was Glance's server-stats (three small bars, refreshed on load).
                 # Now a live stream from asgard-stats — see Modules/Server/stats.nix.
-                (liveCard { id = "ags-host"; title = "Asgard"; acc = "green"; rune = "ansuz"; badge = "ags-live"; })
-                (liveCard { id = "ags-storage"; title = "Storage"; acc = "red"; rune = "othala"; })
-                (liveCard { id = "nw"; title = "Network"; acc = "green"; rune = "raidho"; badge = "nw-live"; })
+                (liveCard { id = "ags-host"; title = "Asgard"; acc = "mint"; rune = "ansuz"; badge = "ags-live"; })
+                (liveCard { id = "ags-storage"; title = "Storage"; acc = "teal"; rune = "othala"; })
+                (liveCard { id = "nw"; title = "Network"; acc = "mint"; rune = "raidho"; badge = "nw-live"; })
                 # One group rather than five stacked monitors. "All" is the
                 # default tab because "is everything up" is the question this
                 # page exists to answer; the category tabs isolate a red one.
                 {
                   type = "group";
-                  css-class = "acc-red rune-algiz";
+                  css-class = "acc-teal rune-algiz";
                   widgets = [ (monitor "All" services) ]
                     ++ map (t: monitor t (builtins.filter (s: s.tab == t) services)) tabs;
                 }
@@ -726,13 +721,13 @@
             {
               size = "small";
               widgets = [
-                { type = "clock"; hour-format = "12h"; css-class = "acc-red rune-jera"; }
-                (liveCard { id = "ags-playing"; title = "Now Playing"; acc = "green"; rune = "laguz"; })
+                { type = "clock"; hour-format = "12h"; css-class = "acc-teal rune-jera"; }
+                (liveCard { id = "ags-playing"; title = "Now Playing"; acc = "mint"; rune = "laguz"; })
                 (liveCard {
-                  id = "ags-dl"; title = "Downloads"; acc = "red"; rune = "fehu";
+                  id = "ags-dl"; title = "Downloads"; acc = "teal"; rune = "fehu";
                   link = { href = at sabPort; text = "SABnzbd"; };
                 })
-                (tailnet // { css-class = "ygg-widget acc-green rune-eihwaz"; })
+                (tailnet // { css-class = "ygg-widget acc-mint rune-eihwaz"; })
               ];
             }
           ];
@@ -754,15 +749,15 @@
             {
               size = "full";
               widgets = [
-                (liveCard { id = "ec-main"; title = "Eclipse"; acc = "green"; rune = "dagaz"; badge = "ec-live"; })
-                (liveCard { id = "ec-wolf"; title = "Streams · Wolf on Sisyphus"; acc = "red"; rune = "ehwaz"; })
+                (liveCard { id = "ec-main"; title = "Eclipse"; acc = "mint"; rune = "dagaz"; badge = "ec-live"; })
+                (liveCard { id = "ec-wolf"; title = "Streams · Wolf on Sisyphus"; acc = "teal"; rune = "ehwaz"; })
               ];
             }
             {
               size = "small";
               widgets = [
-                (liveCard { id = "ec-tv"; title = "On the TV"; acc = "red"; rune = "perthro"; })
-                (liveCard { id = "ec-log"; title = "Activity"; acc = "green"; rune = "mannaz"; })
+                (liveCard { id = "ec-tv"; title = "On the TV"; acc = "teal"; rune = "perthro"; })
+                (liveCard { id = "ec-log"; title = "Activity"; acc = "mint"; rune = "mannaz"; })
               ];
             }
           ];
@@ -789,7 +784,7 @@
                 {
                   type = "custom-api";
                   title = "Lights";
-                  css-class = "acc-green rune-kenaz";
+                  css-class = "acc-mint rune-kenaz";
                   # The bridge, not HA: it answers from memory, so a 1s cache
                   # costs nothing and keeps each tile's first paint honest — and
                   # the widget fails visibly when ha-bridge is down.
@@ -797,11 +792,11 @@
                   url = "http://localhost:${toString bridgePort}/states";
                   template = lightsCard;
                 }
-                (powerOverview // { css-class = "acc-red rune-sowilo"; })
-                (powerDevices // { css-class = "acc-green rune-tiwaz"; })
+                (powerOverview // { css-class = "acc-teal rune-sowilo"; })
+                (powerDevices // { css-class = "acc-mint rune-tiwaz"; })
               ];
             }
-            { size = "small"; widgets = [ (costOutlook // { css-class = "acc-red rune-gebo"; }) (plugHealth // { css-class = "acc-green rune-uruz"; }) ]; }
+            { size = "small"; widgets = [ (costOutlook // { css-class = "acc-teal rune-gebo"; }) (plugHealth // { css-class = "acc-mint rune-uruz"; }) ]; }
           ];
         }
 
@@ -811,7 +806,7 @@
         # Sized to the window by asgard.css (.term-widget), not the 700 px box.
         {
           name = "Terminal";
-          columns = [ { size = "full"; widgets = [ ((iframe "Asgard Terminal" 7681 700) // { css-class = "term-widget acc-green rune-isa"; }) ]; } ];
+          columns = [ { size = "full"; widgets = [ ((iframe "Asgard Terminal" 7681 700) // { css-class = "term-widget acc-mint rune-isa"; }) ]; } ];
         }
       ];
     };
