@@ -530,3 +530,38 @@ verified; what follows is what is genuinely still open.
     new machine (`/home/<user>/.config/sops/age/keys.txt`). The `sops-kitkat` module shows
     the better pattern — `sops.age.sshKeyPaths` against the host's own ssh key. rock's
     hosts have not been migrated.
+
+## Opened 2026-10-04 — Kit-Kat: Bluetooth + GPU noise, and what they exposed
+
+Both faults are **closed** — see `Claude/kit-kat.md` → Bluetooth and "Her graphics card is
+taking off", and `Claude/misc.md` → Audio. These are the gaps they uncovered.
+
+1. ⚠️ **Her tailnet join is imperative, and it caused the whole episode.**
+   `Modules/Core/tailscale.nix` sets no `authKeyFile`, so every host joins by a hand-run
+   `tailscale up`. Hers had never been done (she joined 2026-10-04), so she had never
+   received a single push and her only config path was a local clone rebuilt on her own
+   machine — which is how she ended up running a build from before the `10-disable-bluez`
+   removal. `services.tailscale.authKeyFile` exists and her `sops-kitkat` module is ready;
+   it needs `tailscale-auth-key` added to `Secrets/kit-kat.yaml`. A node-join key is not
+   the admin key that file is deliberately kept away from. **Until this lands she drifts
+   again.**
+2. **`tailscale-api-key` is confirmed DEAD** — `401 {"message":"API token invalid"}` as of
+   2026-10-04, so it cannot be used to inspect the tailnet. It is also referenced by
+   nothing and is an admin key that can rewrite ACLs and mint auth keys. Tailscale API keys
+   expire after 90 days, so a stored one always rots — mint on demand, or delete it.
+3. **`system-rebuild`'s remote activation is still broken** — `nixos-rebuild-ng` re-exec vs
+   `--store-path`, full detail in `Claude/deploy.md` → Things that will bite. The
+   2026-10-04 menu rework did not change the activation call (`system-rebuild.sh` still
+   passes `--store-path … --target-host`), so it will recur on the next remote switch.
+   Working fallback: `nix-env -p /nix/var/nix/profiles/system --set` +
+   `switch-to-configuration switch` over `ssh -t`.
+4. **Neither desktop has `lm_sensors`** — only `Hosts/Asgard/_hardware.nix` installs it. A
+   "her GPU is taking off" report could not be answered with a temperature reading;
+   everything had to come from `nvidia-smi` plus raw `/sys/class/hwmon` reads. Worth adding
+   to the desktop module. Note her board exposes **no fan-RPM inputs at all**, so CPU fan
+   speed is unmeasurable on Kit-Kat even with it installed.
+5. **Only DXVK titles are frame-capped globally; native Vulkan relies on MangoHud.** Her
+   host now sets both (`programs.mangohud` with `fps_limit = 60`, plus
+   `DXVK_FRAME_RATE=60` for D3D titles). Sisyphus has neither — it is AMD, where
+   `MESA_VK_WSI_PRESENT_MODE=fifo` can force vsync externally, so it has an escape hatch
+   NVIDIA does not. Consider whether rock's host wants an equivalent cap.

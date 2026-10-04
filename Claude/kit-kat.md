@@ -28,6 +28,33 @@ repo* clones one if you want to edit on her machine.
 
 See `Claude/deploy.md` for the Apollo USB side.
 
+### She joined the tailnet by hand on 2026-10-04 — she was never on it before
+
+`Modules/Core/tailscale.nix` only runs `tailscaled`; it sets **no `authKeyFile`**, so
+joining is a one-time manual `tailscale up` on every host in this repo. Hers had never
+been done, so a push had nothing to reach for her machine's whole existence and the only
+config she ever received came from a **local clone rebuilt on her own machine**. That is
+the root of every "her machine has drifted" symptom, including the Bluetooth fault below.
+Her node is `kit-kat` / `100.122.12.125`.
+
+- An absent node and an offline node look different: `tailscale status` lists an offline
+  peer as `offline, last seen …`. **Missing from the list entirely means it is not in the
+  tailnet at all** — never joined, or deleted.
+- ⚠️ **Never `tailscale up --ssh` here.** She runs real `openssh`, and tailscaled would
+  seize port 22 — see `Claude/deploy.md`.
+- Her LAN address is `192.168.0.147`, but **port 22 was closed from the LAN** while
+  tailscale worked fine. Don't conclude "the machine is off" from a refused SSH alone.
+- She has **`wheelNeedsPassword = true`** and no passwordless sudo, so a push cannot be
+  activated unattended from Sisyphus. Build and `nix copy` need no sudo (she is in
+  `nix.settings.trusted-users`); only the final activation prompts.
+- ⚠️ **Until `services.tailscale.authKeyFile` is wired she will drift again.** The option
+  exists and her `sops-kitkat` module is ready; it needs `tailscale-auth-key` adding to
+  `Secrets/kit-kat.yaml`. A node-join key is not the admin key that file is deliberately
+  kept away from (see "Her password").
+- `tailscale-api-key` in `Secrets/secrets.yaml` is **expired** — `401 API token invalid` —
+  so the admin API is not available as a cross-check. Tailscale API keys expire after 90
+  days, so a stored one always rots.
+
 ## Before the first install
 
 1. **Confirm `installDisk`** in `Hosts/Kit-Kat/_disko.nix`. It is `/dev/nvme0n1`
@@ -119,6 +146,98 @@ If Hyprland black-screens from a TTY, in order of likelihood:
 2. the GBM/GLX env vars listed in the comment at the bottom of `Modules/Core/nvidia.nix`.
 
 The Apollo stick is the recovery path for all of these. Keep it to hand.
+
+## Bluetooth headphones — ✅ fixed 2026-10-04
+
+Her **Razer Barracuda X (BT)** (`44:5E:CD:64:04:07`) could not connect at all. Nothing was
+wrong with the headset or bluez: it was paired, bonded, **trusted**, advertised
+`Audio Sink`/`Headset`/`Handsfree`, and `bluetoothd` was active, unblocked in `rfkill`,
+controller `Powered: yes`.
+
+**Cause: her stale local build still carried `10-disable-bluez.conf`**, removed from
+`Modules/Core/audio.nix` on 2026-10-03. She had never been on the tailnet (above), so she
+had never received the removal. Full mechanism and the `bluetoothctl show` fingerprint are
+in **`Claude/misc.md` → Audio** — read that before diagnosing any Bluetooth-audio
+complaint on any host.
+
+**Fix: a plain rebuild from `main`.** No repo change was needed. The switch diff showed
+`[R.] 10-disable-bluez.conf` removed, and her controller then gained all four audio UUIDs,
+matching Sisyphus. Confirmed still correct across a second switch.
+
+- **The repo's own comment described the wrong symptom** and has been corrected. A
+  documented trap is a hypothesis — confirm the mechanism, don't pattern-match the prose.
+- Her nixpkgs rev was **identical** (`2f5a153`), so this was config-only: cached build,
+  8.5 s `nix copy`. Check the rev before assuming a long-drifted machine is an expensive
+  rebuild.
+- Expect a switch from a stale clone to also snap her noctalia bar back to
+  `my.noctalia.lockedSettingsExtra`. That is the force-write working, not new breakage.
+
+## "Her graphics card is taking off" — ✅ fixed 2026-10-04
+
+Reported as the GPU screaming under **PEAK**. The card was always **healthy**; the game has
+no working frame limiter.
+
+| | Before | After |
+|---|---|---|
+| Power | 232–260 W / 270 W | **56–67 W** |
+| Temp | 79–81 °C | **45–48 °C** |
+| Fan | 89–100 % | **57 %** |
+| GPU util | 60–100 % | **18–41 %** |
+| `sw_power_cap` | **Active** | **NotActive** |
+
+**~75 % less power, 34 °C cooler, audibly quiet.** The 18–41 % utilisation is the point:
+PEAK is trivial for a 3070. It only looked demanding because nothing capped it, so it
+rendered ~500 fps into two 60 Hz panels and burned ~183 W on invisible frames.
+**Counterintuitive rule: the lighter the game, the harder an uncapped GPU works.** High
+utilisation means "nothing is holding it back", never "this card is outmatched".
+
+- ⭐ **Search the game's own community FIRST.** PEAK has multiple dedicated Steam threads on
+  this. Its in-game vsync and FPS-cap options are documented as having **no effect** (hence
+  zero vsync keys in its Proton prefix — they never get written), its default max framerate
+  is reported ~500, Windows users report identical fans, and the devs acknowledged it.
+  Doing this first would have skipped a wrong diagnosis entirely. Secondary in-game lever
+  players rate highest: **Render Scale**.
+- **Her 270 W cap is the card's FACTORY DEFAULT**, not a raised setting: `nvidia-smi -q -d
+  POWER` gives `Default` = `Max` = 270.00 W (`Min` 100.00 W). `pci.sub_device_id 0x404D1458`
+  → subsystem vendor **`1458` = Gigabyte**, whose higher-tier 3070s ship at 270 W against
+  the Founders Edition's 220 W. **Reference TGP is the wrong baseline for an AIB card.**
+- **Only `sw_power_cap` was ever active** — every thermal reason read `Not Active`, at 80 °C
+  against a **95 °C slowdown / 93 °C max / 98 °C shutdown**. Power stayed pinned near 240 W
+  even when utilisation fell to 60 %, so falling utilisation did not mean the load easing.
+- ⚠️ **It is a NATIVE Vulkan app, and the environment lies about that.** Steam sets
+  `DXVK_STATE_CACHE_PATH` and `DXVK_ASYNC` for **every** Proton game regardless of renderer,
+  so their presence proves nothing — `DXVK_FRAME_RATE=60` was tried on that basis and did
+  nothing. Check the shader caches instead: **227 M in `fozpipelinesv6/`** (Vulkan pipeline
+  caches) with an **empty `DXVK_state_cache/`**. Steam's own command line settles it:
+  `PEAK.exe -force-vulkan`.
+- **No driver setting can fix this on NVIDIA.** In Vulkan the application owns the present
+  mode, so MAILBOX/IMMEDIATE is throttled by nothing outside the process.
+  `__GL_SYNC_TO_VBLANK`/`vblank_mode` are OpenGL-only, and `allow_tearing = false` in
+  `hyprland.nix` does not help — the compositor shows 60 while the GPU renders hundreds.
+  ⭐ **Mesa honours `MESA_VK_WSI_PRESENT_MODE=fifo` to override an app's present mode; the
+  NVIDIA proprietary driver has NO equivalent.** That asymmetry, plus rock's **182 W** AMD
+  power ceiling against her **270 W**, is the whole reason the same game behaves on his
+  machine and screams on hers. Nothing is misconfigured on hers.
+- **Fix: MangoHud's `fps_limit`, because it is a Vulkan *layer*** — it caps native Vulkan,
+  DXVK and vkd3d alike. Wired in `Hosts/Kit-Kat/system.nix` as `programs.mangohud` with
+  `enableSessionWide = true` (sets `MANGOHUD=1` so the implicit layer loads) and
+  `no_display = true`. It reaches the game because `mangohud` is in
+  `programs.steam.extraPackages` (`Modules/Gaming/steam.nix`), putting the layer **inside
+  Steam's pressure-vessel container** — which is also why `mangohud` is not on her PATH.
+  ⚠️ Needs a **re-login** and a game relaunch; a switch cannot change a running session.
+- ⚠️ **Verify MangoHud on the RENDER process, not the wrappers.** `grep -c mangohud
+  /proc/<pid>/maps` is the test — a Proton game is a tree of `srt-bwrap` / `pv-adverb` /
+  `proton` / `steam.exe` processes that legitimately have zero mappings, and reading one of
+  those wrongly looks like the layer failed to load. The renderer showed **6** mappings.
+- ⚠️ **Sample while the complaint is actually happening.** The first reading was taken
+  between Steam's shader pre-caching finishing and the game loading: fan 0 %, 44 °C, 0 %
+  util, 29 W, beside a dozen `fossilize_replay` processes and a climbing load average. It
+  read as a CPU/shader-cache problem and was wrong.
+- `sensors` is **not installed** on either desktop (only `Hosts/Asgard/_hardware.nix` has
+  `lm_sensors`), and her board exposes **no fan-RPM inputs at all** (`gigabyte_wmi` gives
+  `temp1..6`; no `nct6775`). GPU fan % comes from `nvidia-smi`, CPU temp from the hwmon
+  named `k10temp` (`Tctl`/`Tccd1`). **CPU fan RPM is not measurable on Kit-Kat** — don't
+  promise a reading you cannot take.
 
 ## Deliberately left out
 

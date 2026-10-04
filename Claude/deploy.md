@@ -97,6 +97,31 @@ throwaway node that self-removes when it goes offline.
   the image actually came out as `nixos-minimal-<label>-x86_64-linux.iso`. The
   working knob is `image.baseName`, and it is set unconditionally upstream, so it
   needs `lib.mkForce`.
+- **`nixos-rebuild --store-path --target-host` dies on `<nixpkgs/nixos>` (hit 2026-10-04).**
+  A remote switch to Kit-Kat failed during *activation*, after a clean build, with
+  `error: file 'nixos-config' was not found in the Nix search path`, from
+  `nix-build '<nixpkgs/nixos>' --attr config.system.build.nixos-rebuild`. Nothing was
+  wrong with the config. `nixos-rebuild-ng` **re-execs itself** at startup to pick up a
+  newer copy (`reexec()` in `nixos_rebuild/services.py`): given `--flake` it resolves that
+  through the flake, but with only `--store-path` it falls back to the legacy
+  `<nixpkgs/nixos>` path and needs a `nixos-config` entry in `NIX_PATH`, which rock's user
+  environment does not have. ⚠️ **`system-rebuild.sh` still builds the command this way**
+  (`--store-path … --target-host … --ask-sudo-password`), so this will recur.
+  There is an `_NIXOS_REBUILD_REEXEC=1` guard at the top of `reexec()` that returns before
+  the probe, but it was **never tested on the failing path** — don't present it as proven.
+  The route verified to work is to skip `nixos-rebuild` and activate the already-copied
+  closure directly:
+
+  ```bash
+  ssh -t <user>@<host> 'sudo nix-env -p /nix/var/nix/profiles/system --set <storepath> \
+      && sudo <storepath>/bin/switch-to-configuration switch'
+  ```
+
+  That is what `nixos-rebuild` does internally — it registers the generation and updates
+  the bootloader. `ssh -t` is required so sudo has a TTY to prompt on; the second `sudo`
+  reuses the cached timestamp, so it is one password entry.
+  ⚠️ **`nixos-rebuild list-generations` cannot test this** — it succeeds with *and* without
+  the env var, because it never reaches the failing probe.
 - **No password on the ISO, by design.** `users.users.*.password` is written
   verbatim into `/nix/store/*-users-groups.json` (mode 0444), so on an ISO it is
   greppable out of the squashfs without booting it. Combined with sshd, passwordless

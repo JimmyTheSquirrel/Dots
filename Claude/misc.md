@@ -146,7 +146,28 @@ These were once duplicated as zsh functions in `Resources/Zsh-Scripts/zsh-helper
 
 ## Audio
 
-**Module:** `Modules/Core/audio.nix`: a minimal PipeWire setup. It has ALSA, PulseAudio compat via pipewire-pulse (the PulseAudio daemon stays off, the default), and rtkit for realtime scheduling. **WirePlumber's Bluetooth (bluez) monitor is on.** Until 2026-10-03 a `10-disable-bluez` profile turned it off on every desktop. Paired Bluetooth headphones then connected but never appeared as a sink. That was never intended.
+**Module:** `Modules/Core/audio.nix`: a minimal PipeWire setup. It has ALSA, PulseAudio compat via pipewire-pulse (the PulseAudio daemon stays off, the default), and rtkit for realtime scheduling. **WirePlumber's Bluetooth (bluez) monitor is on.** Until 2026-10-03 a `10-disable-bluez` profile turned it off on every desktop. That was never intended.
+
+**What that fragment actually does — symptom corrected 2026-10-04.** It is *not* "connects but no sink": the headset **cannot connect at all**. The fragment is one line:
+
+```
+wireplumber.profiles = {"main":{"monitor.bluez":"disabled","monitor.bluez.midi":"disabled"}}
+```
+
+With the monitor off, PipeWire registers no A2DP endpoint with bluetoothd, so bluez has no profile to offer and every attempt dies in the **system** journal (not WirePlumber's) with:
+
+```
+src/service.c:btd_service_connect() a2dp-sink profile connect failed for <MAC>: Protocol not available
+```
+
+**One-command fingerprint — `bluetoothctl show`.** A healthy controller lists `Audio Sink (110b)`, `Audio Source (110a)`, `Handsfree (111e)` and `Handsfree AG (111f)`; a broken one has `A/V Remote Control` but none of those four, because AVRCP comes from bluez itself while the audio endpoints come from PipeWire. Compare against a known-good host first — doing exactly that isolated a 2026-10-04 fault to Kit-Kat in one step, since she and Sisyphus share this module.
+
+Two things make it hide, and both cost real time:
+
+- **It is not in `/etc`.** It arrives via `services.pipewire.wireplumber.configPackages` as a store path on the unit's `XDG_DATA_DIRS`, so `ls /etc/wireplumber` (absent) and `grep -r disable-bluez /etc` (no hits) both say "clean". Read the running unit instead: `systemctl --user show wireplumber -p Environment`. A clean host's generated `wireplumber-configs` package is **empty**.
+- **Running `wireplumber` by hand works.** A manual run does not inherit that `XDG_DATA_DIRS`, so it uses upstream defaults, registers every endpoint and exits 0 — which looks like proof the config is fine. Only the systemd instance is broken. Get the truth with `systemctl --user set-environment WIREPLUMBER_DEBUG=I`, restart, then grep the journal for `opening fragment file:`, which names the culprit outright.
+
+A dead end worth skipping: `hardware.bluetooth` is `required` in WirePlumber's `main` profile, so it looks like a failed monitor would kill WirePlumber outright — it runs clean, which seems to exonerate it. It does not. The fragment *disables* the feature rather than failing it, so nothing errors; `wpctl status` showing no Bluetooth section and a 3-line WirePlumber log are both consistent with "switched off", not "broken". See `Claude/kit-kat.md`.
 
 **Hardware:** Corsair Virtuoso XT Wireless (USB dongle, default sink/source). USB autosuspend is NOT an issue — the receiver is hardlocked to `power/control = on` by the kernel.
 
