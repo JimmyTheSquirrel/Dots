@@ -77,44 +77,44 @@ Eclipse was enrolled interactively (`tailscale up` prints a login URL to visit).
 sops already holds a **`tailscale-auth-key`** — `tailscale up --authkey=...` skips the browser
 round-trip entirely.
 
-## Glance control panel
+## Control panel (both dashboards)
 
-Asgard serves a button panel at **`http://asgard:9554`**, embedded as an iframe on Glance's
-**Eclipse** page. Buttons: restart Kodi, sync Jellyfin Movies, sync TV Shows, reboot (double-tap to
-confirm). A status row polls every 10s — Eclipse reachable, Kodi state, HDMI link, active output
-mode, uptime. `/status` also returns `edid` and `needs_kodi_restart`.
+`eclipse-control` on Asgard (`:9554`) is an API with a live event stream; **both dashboards
+draw the same panel from it** with the same script, `Resources/Glance/eclipse.js` — the admin
+Glance's **Eclipse** page directly, MarsBar's Eclipse page through her `/eclipse-api` serve
+mount. She has every control he has (`Claude/marsbar.md`).
 
 - Service: `systemd.services.eclipse-control` in `Modules/Server/eclipse.nix`
 - Implementation: `Resources/Eclipse-Control/eclipse-control.py`
 - Auth: dedicated keypair, private half in sops as `eclipse-ssh-key`, public half appended to
   Eclipse's `/storage/.ssh/authorized_keys` (backup at `authorized_keys.bak`)
 
+| Endpoint | What |
+|---|---|
+| `GET /events` | SSE: `status`, `tv`, `wolf`, `activity`, `busy` — pushed on change. The Pi is only polled (SSH every 5 s, one channel on the shared ControlMaster) while a page has this open; Wolf every 3 s; Jellyfin every 5 s |
+| `GET /status` | the Pi's state as JSON (cached 5 s, in-flight de-duplicated) |
+| `POST /act/<name>` | `restart-kodi`, `sync-library` (Movies then TV Shows), `sync-movies`, `sync-shows`, `speedtest` (the Pi→Asgard link test), `jellyfin-toggle`, `reboot`. One run per action at a time (409 otherwise); every result lands in the shared activity log |
+| `POST /wolf/stop/<id>` | end a Moonlight stream on Sisyphus, via wolf-bridge (`Claude/wolf.md`) |
+
+Every POST needs `X-Dash: 1`; CORS answers only `_origins.nix`.
+
+**Status** now also carries the SoC temperature, `vcgencmd get_throttled` decoded into
+what is wrong *now* and what has happened *since boot* (under-voltage is the Pi 5's classic
+silent problem — the panel raises a banner for it), load and memory. **On the TV** is
+Jellyfin's session list filtered to the Kodi addon (client `Kodi`), with the poster — not Kodi's
+JSON-RPC, which is loopback-only and is exactly what a wedged Kodi cannot answer.
+
 **Driven over SSH, not Kodi JSON-RPC** — deliberately. The headline action is restarting a *wedged*
 Kodi, and a wedged Kodi cannot answer its own API. Kodi's HTTP server is disabled here anyway
 (`services.webserver=false`; JSON-RPC binds `127.0.0.1:9090`).
 
-The status row encodes the "no signal on a healthy box" trap: HDMI `connected` + Kodi `active` +
-**no output mode** lights an amber hint to restart Kodi. Re-flashing the SD card means re-appending
-the public key, or the panel goes dark with `reachable: false`.
+The status encodes the "no signal on a healthy box" trap: HDMI `connected` + Kodi `active` +
+**no output mode** raises a banner and highlights Restart Kodi. Re-flashing the SD card means
+re-appending the public key, or the panel shows `reachable: false`.
 
-### Making an iframe widget look native in Glance
-
-Glance renders in **JetBrains Mono**, but the font is embedded in its Go binary — there is no file
-to point at in `${pkgs.glance}` — and the panel is a *different origin* (9554 vs 8888), so the font
-cannot be borrowed cross-origin. The service therefore serves its own copy from
-`pkgs.jetbrains-mono` (`ECLIPSE_FONT_DIR` → `share/fonts/WOFF2`, routes `/font/{regular,medium,bold}.woff2`).
-Without this the panel silently falls back to the device's mono font and reads subtly foreign,
-especially on a phone.
-
-Design tokens are lifted from the custom CSS of the main Glance (`Modules/Server/glance.nix`), not eyeballed — border
-`hsla(160,40%,40%,.15)`, radius `12px`, hover glow `hsla(160,50%,40%,.10)`, title letter-spacing
-`0.08em`. Theme accents are `positive-color hsl(142,72%,39%)` / `negative-color hsl(0,84%,60%)`.
-
-**Glance iframes are a fixed height** (`height: 300`) and cannot self-size — cross-origin means no
-resize handshake. Pick a height that fits the *phone* layout, where the button grid drops to two
-columns and the status cells wrap; desktop then carries some slack. Buttons use a centred
-`auto-fit, minmax(150px, 1fr)` grid inside a `max-width: 1020px` wrapper, otherwise they stretch
-into full-width bars on a 2560px display.
+The panel used to be an HTML page this service served, iframed into Glance at a fixed height,
+with its own copy of JetBrains Mono so it matched — on the belief that Glance's `html` widget
+sanitises markup. It does not (0.8.5 emits it raw), so the page, the fonts and the iframe are gone.
 
 ## Rebuild from scratch
 

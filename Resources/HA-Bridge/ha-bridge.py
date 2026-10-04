@@ -11,6 +11,8 @@ server-side and exposes a handful of verbs:
   GET  /events           Server-Sent Events: a full snapshot on connect, then one
                          event per state change, plus a ping every 15s
   GET  /states           the same snapshot as one JSON object {entity: state}
+  GET  /history          the last 24 h of every plug's power draw, as
+                         10-minute time-weighted averages (the Power page chart)
   POST /toggle/<entity>  toggle one ALLOWED entity (needs `X-Dash: 1`)
 
 PUSH, NOT POLL. Every open dashboard used to poll /states every 3s — hidden tabs
@@ -42,8 +44,11 @@ world-readable path.
 import asyncio
 import json
 import logging
+import math
 import os
 import time
+from datetime import datetime, timezone
+from urllib.parse import quote
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 
@@ -59,12 +64,18 @@ ALLOWED = frozenset(_CONFIG["allowed"])
 WATCHED = sorted(set(_CONFIG["watched"]) | ALLOWED)
 WATCHED_SET = frozenset(WATCHED)
 ORIGINS = frozenset(_CONFIG.get("origins", []))
+# The power sensors the Power page charts. Read with HA's history API on
+# demand — never streamed, never polled while nobody is looking.
+HISTORY = list(_CONFIG.get("history", []))
 
 KEEPALIVE_S = 15    # SSE ping — under any proxy idle timeout, and the client's watchdog
 POLL_S = 10         # fallback poll interval while the websocket is down
 TOGGLE_WAIT_S = 2.0 # how long POST /toggle waits for HA to report the new state
 CLIENT_QUEUE = 256  # frames buffered per SSE client before it is cut loose
 RETRY_MS = 2000     # EventSource reconnect delay the browser is told to use
+HIST_HOURS = 24     # /history window
+HIST_STEP = 600     # /history bucket, seconds (144 points a day)
+HIST_TTL = 120      # /history answers are reused for this long
 
 log = logging.getLogger("ha-bridge")
 
@@ -240,6 +251,83 @@ async def ha_poller(app):
             pass
 
 
+# ── History (the Power page chart) ──────────────────────────────────────────
+
+def _ts(iso):
+    return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+
+
+def bucketize(changes, start, step, n):
+    """Time-weighted mean per bucket from a list of (time, watts|None) changes.
+
+    Each reading holds until the next one, so a lamp that sat at 7.9 W for an
+    hour and blipped to 0 for a minute averages ~7.8, not the 3.9 a plain mean
+    of the two samples would give. Buckets with no known reading are None
+    (a gap in the line, not a fake zero).
+    """
+    end = start + n * step
+    acc, cov = [0.0] * n, [0.0] * n
+    for i, (t, v) in enumerate(changes):
+        if v is None:
+            continue
+        a = max(t, start)
+        b = min(changes[i + 1][0] if i + 1 < len(changes) else end, end)
+        while a < b:
+            k = int((a - start) // step)
+            seg = min(b, start + (k + 1) * step)
+            acc[k] += v * (seg - a)
+            cov[k] += seg - a
+            a = seg
+    return [round(acc[k] / cov[k], 1) if cov[k] > 0 else None for k in range(n)]
+
+
+async def fetch_history(app):
+    now = time.time()
+    start = (int(now - HIST_HOURS * 3600) // HIST_STEP) * HIST_STEP
+    n = math.ceil((now - start) / HIST_STEP)
+    iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat()
+    params = {"filter_entity_id": ",".join(HISTORY), "end_time": iso(now),
+              "minimal_response": "", "no_attributes": ""}
+    async with app["session"].get(HA + "/api/history/period/" + quote(iso(start)),
+                                  params=params, headers=app["auth"],
+                                  timeout=ClientTimeout(total=20)) as r:
+        r.raise_for_status()
+        data = await r.json()
+    series = {}
+    for rows in data or []:
+        if not rows:
+            continue
+        entity = rows[0].get("entity_id")
+        changes = []
+        for row in rows:
+            try:
+                v = float(row.get("state"))
+            except (TypeError, ValueError):
+                v = None  # unavailable / unknown: a gap
+            changes.append((_ts(row.get("last_changed") or row.get("last_updated")), v))
+        changes.sort(key=lambda c: c[0])
+        if entity:
+            series[entity] = bucketize(changes, start, HIST_STEP, n)
+    return {"start": start, "step": HIST_STEP, "at": int(now),
+            "series": {e: series.get(e, [None] * n) for e in HISTORY}}
+
+
+async def get_history(request):
+    app = request.app
+    cache = app["history"]
+    if cache["body"] is None or time.time() - cache["at"] > HIST_TTL:
+        async with app["history_lock"]:  # one HA query however many tabs ask
+            if cache["body"] is None or time.time() - cache["at"] > HIST_TTL:
+                try:
+                    cache["body"] = await fetch_history(app)
+                    cache["at"] = time.time()
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("history: %s: %s", type(exc).__name__, exc)
+                    if cache["body"] is None:
+                        return reply(request, 502, {"error": "home assistant history unavailable"})
+    return reply(request, 200, cache["body"])
+
+
 # ── HTTP side ────────────────────────────────────────────────────────────────
 
 def cors_headers(request):
@@ -383,6 +471,8 @@ async def on_startup(app):
     app["auth"] = {"Authorization": "Bearer " + app["token"]}
     app["session"] = ClientSession()
     app["poll_now"] = asyncio.Event()
+    app["history"] = {"at": 0.0, "body": None}
+    app["history_lock"] = asyncio.Lock()
     app["tasks"] = [asyncio.create_task(ha_websocket(app)),
                     asyncio.create_task(ha_poller(app))]
 
@@ -411,6 +501,7 @@ def make_app():
     app["hub"] = Hub()
     app.router.add_get("/events", get_events)
     app.router.add_get("/states", get_states)
+    app.router.add_get("/history", get_history)
     app.router.add_post("/toggle/{entity}", post_toggle)
     app.router.add_route("OPTIONS", "/{tail:.*}", preflight)
     app.on_startup.append(on_startup)

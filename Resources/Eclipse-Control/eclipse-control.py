@@ -1,20 +1,33 @@
 #!/usr/bin/env python3
 """
-Eclipse control endpoint for Glance.
+Eclipse control endpoint for the dashboards.
 
-Serves a touch-friendly button panel (embedded in Glance as an iframe widget) plus
-a JSON status endpoint. Actions are executed on the Eclipse LibreELEC box over SSH.
+A JSON API, not a page: both dashboards draw the same Eclipse panel from
+GET /events with the same script (Resources/Glance/eclipse.js) — the admin Glance
+directly, MarsBar through her /eclipse-api serve mount. Actions are executed on
+the Eclipse LibreELEC box over SSH.
+
+  GET  /status           the Pi's state (JSON), one-shot
+  GET  /events           Server-Sent Events: status, what the TV is playing,
+                         Wolf sessions, the shared activity log and which
+                         actions are running, pushed as they change. Nothing is
+                         polled while no page has one open.
+  GET  /wolf/sessions    Moonlight streams Wolf is serving on Sisyphus
+  POST /act/<name>       run an action (needs `X-Dash: 1`)
+  POST /wolf/stop/<id>   end a stream (needs `X-Dash: 1`)
 
 SSH rather than Kodi's JSON-RPC on purpose: the headline action is "restart Kodi
 when it has wedged", and a wedged Kodi cannot answer its own API. Kodi's HTTP
 server is disabled on Eclipse anyway (services.webserver = false, JSON-RPC bound
 to 127.0.0.1:9090).
 
-Status is polled by both dashboards (the admin iframe every 10s, MarsBar every
-15s, plus Glance's own server-side fetches), and every poll used to open a
-brand-new SSH session — key exchange and all, ~0.7s each. Two things keep that
+Status used to be polled by both dashboards (the admin iframe every 10s, MarsBar
+every 15s, plus Glance's own server-side fetches), and every poll used to open a
+brand-new SSH session — key exchange and all, ~0.7s each. Three things keep that
 cheap now:
 
+  * one poller (see Hub) feeds every /events client, and runs only while at
+    least one is connected — a closed dashboard costs the Pi nothing;
   * SSH connection reuse (ControlMaster): one authenticated connection to the Pi
     is kept open and every command rides it as a new channel, so a status
     check costs one round trip instead of a handshake.
@@ -111,20 +124,21 @@ SPEEDTEST_LAN_PORT = int(os.environ.get("ECLIPSE_SPEEDTEST_LAN_PORT", "9557"))
 
 # Cache of the last speed test result, so the panel keeps showing a number
 # across page reloads instead of resetting to "never tested" every time.
-LAST_SPEEDTEST = {"mbps": None, "up_mbps": None, "when": 0.0}
+LAST_SPEEDTEST = {"mbps": None, "up_mbps": None, "when": 0.0, "path": ""}
 
 CONNECTOR = "/sys/class/drm/card1-HDMI-A-1"
 KODI_SEND = "/usr/bin/kodi-send"
 
-# JetBrains Mono, served from our own origin so the panel matches Glance's
-# typography. Glance embeds the font in its Go binary and sits on a different
-# port, so it cannot be borrowed cross-origin.
-FONT_DIR = os.environ.get("ECLIPSE_FONT_DIR", "")
-FONTS = {
-    "font/regular.woff2": "JetBrainsMono-Regular.woff2",
-    "font/medium.woff2": "JetBrainsMono-Medium.woff2",
-    "font/bold.woff2": "JetBrainsMono-Bold.woff2",
-}
+# How often the /events poller asks, while anyone is watching. Status is SSH
+# (one channel on the shared master — see SSH_BASE); Wolf is one local HTTP call.
+EVENTS_STATUS_S = 5.0
+EVENTS_WOLF_S = 3.0
+EVENTS_TV_S = 5.0
+
+# What the TV is playing, from Jellyfin's own session list (its API key comes in
+# as a systemd credential). Asking Kodi itself would need its JSON-RPC, which is
+# bound to the Pi's loopback — and a wedged Kodi is exactly when this matters.
+JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "http://127.0.0.1:8096").rstrip("/")
 
 # Jellyfin syncs must run one at a time - concurrent calls raise
 # "Exception: Sync is already running" (Claude/eclipse.md).
@@ -222,11 +236,30 @@ STATUS_CMD = (
     'echo "hdmi=$(cat ' + CONNECTOR + '/status 2>/dev/null)"; '
     'echo "edid=$(wc -c < ' + CONNECTOR + '/edid 2>/dev/null)"; '
     'echo "uptime=$(cut -d. -f1 /proc/uptime)"; '
+    # SoC temperature (m°C), the firmware's throttle flags (under-voltage is
+    # the classic Pi 5 problem, and it is invisible from Kodi), load, memory.
+    'echo "temp=$(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null)"; '
+    'echo "throttled=$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)"; '
+    'echo "load=$(cut -d" " -f1-3 /proc/loadavg)"; '
+    "echo \"mem=$(awk '/^MemTotal|^MemAvailable/ {printf \"%s \", $2}' /proc/meminfo)\"; "
     "echo \"mode=$(grep -oE 'Display [0-9]+x[0-9]+ @ [0-9.]+' "
     '/storage/.kodi/temp/kodi.log 2>/dev/null | tail -1)"; '
     'echo "jellyfin=$(grep -oE \'"address": *"[^"]+"\' '
     + JELLYFIN_ADDON_DIR + '/data.json 2>/dev/null | cut -d\'"\' -f4)"'
 )
+
+
+def _throttle(bits):
+    """`vcgencmd get_throttled` → what is wrong now, and what has been since boot.
+
+    Low bits are the present state, bits 16-19 latch "has happened": an
+    under-voltage that came and went during a 4K remux still shows up here.
+    """
+    names = ("under-voltage", "frequency capped", "throttled", "soft temp limit")
+    return {
+        "now": [n for i, n in enumerate(names) if bits & (1 << i)],
+        "since_boot": [n for i, n in enumerate(names) if bits & (1 << (16 + i))],
+    }
 
 
 def _jellyfin_mode(address):
@@ -287,13 +320,16 @@ def _with_speedtest(st):
     st["speed_mbps"] = LAST_SPEEDTEST["mbps"]
     st["speed_up_mbps"] = LAST_SPEEDTEST["up_mbps"]
     st["speed_when"] = LAST_SPEEDTEST["when"]
+    st["speed_path"] = LAST_SPEEDTEST["path"]
     return st
 
 
 def _fetch_status():
     ok, out = ssh(STATUS_CMD, timeout=15)
     st = {"reachable": ok, "kodi": "?", "hdmi": "?", "edid": 0,
-          "uptime": 0, "mode": "", "jellyfin": "", "error": ""}
+          "uptime": 0, "mode": "", "jellyfin": "", "error": "",
+          "temp": None, "throttled": None, "load": None, "mem_used": None,
+          "at": int(time.time())}
     if not ok:
         st["error"] = out
         return st
@@ -301,18 +337,23 @@ def _fetch_status():
         if "=" not in line:
             continue
         k, _, v = line.partition("=")
-        if k == "edid":
-            try:
-                st["edid"] = int(v.strip() or 0)
-            except ValueError:
-                st["edid"] = 0
-        elif k == "uptime":
-            try:
-                st["uptime"] = int(v.strip() or 0)
-            except ValueError:
-                st["uptime"] = 0
-        elif k in st:
-            st[k] = v.strip()
+        v = v.strip()
+        try:
+            if k in ("edid", "uptime"):
+                st[k] = int(v or 0)
+            elif k == "temp":
+                st["temp"] = round(int(v) / 1000, 1) if v else None
+            elif k == "throttled":
+                st["throttled"] = _throttle(int(v, 16)) if v else None
+            elif k == "load":
+                st["load"] = [float(x) for x in v.split()[:3]] or None
+            elif k == "mem":
+                total, avail = (int(x) for x in v.split()[:2])
+                st["mem_used"] = round(1 - avail / total, 3) if total else None
+            elif k in st:
+                st[k] = v
+        except ValueError:
+            pass
     # A connected link with no picture is the classic failure mode: Kodi started
     # before the TV came up and never re-probes. Flag it explicitly.
     st["needs_kodi_restart"] = (
@@ -380,6 +421,7 @@ def act_speedtest():
                 up_mbps = None
     LAST_SPEEDTEST["up_mbps"] = up_mbps
     LAST_SPEEDTEST["when"] = time.time()
+    LAST_SPEEDTEST["path"] = path
 
     if up_mbps is not None:
         return True, "{:.1f} down / {:.1f} up Mbps over {}".format(mbps, up_mbps, path)
@@ -484,6 +526,52 @@ def _sync(lib_id, label):
         sync_lock.release()
 
 
+def tv_playing():
+    """Jellyfin sessions playing on the TV box: the Kodi addon reports itself as
+    client "Kodi" (device name as set on the Pi). None = Jellyfin not answering."""
+    cred = os.environ.get("CREDENTIALS_DIRECTORY")
+    try:
+        with open(os.path.join(cred, "jellyfin-api-key")) as fh:
+            key = fh.read().strip()
+    except (OSError, TypeError):
+        return None
+    req = urllib.request.Request(JELLYFIN_URL + "/Sessions?activeWithinSeconds=90",
+                                 headers={"X-Emby-Token": key})
+    try:
+        with urllib.request.urlopen(req, timeout=3) as r:
+            sessions = json.load(r)
+    except (OSError, ValueError):
+        return None
+    out = []
+    for s in sessions:
+        item = s.get("NowPlayingItem")
+        client, device = s.get("Client", ""), s.get("DeviceName", "")
+        if not item or not ("kodi" in client.lower() or any(w in device.lower() for w in ("eclipse", "libreelec", "kodi"))):
+            continue
+        ps = s.get("PlayState", {})
+        run, pos = item.get("RunTimeTicks") or 0, ps.get("PositionTicks") or 0
+        sub_ = item.get("SeriesName") or (str(item["ProductionYear"]) if item.get("ProductionYear") else "")
+        if item.get("SeriesName") and item.get("IndexNumber") is not None:
+            sub_ = "%s · S%02dE%02d" % (item["SeriesName"], item.get("ParentIndexNumber", 0), item["IndexNumber"])
+        out.append({
+            "title": item.get("Name", ""), "sub": sub_, "user": s.get("UserName", ""),
+            "poster": item.get("SeriesId") or item.get("AlbumId") or item.get("Id"),
+            "method": ps.get("PlayMethod", ""), "paused": bool(ps.get("IsPaused")),
+            "progress": round(pos / run, 4) if run else None,
+            "remaining_s": int((run - pos) / 1e7) if run else None,
+        })
+    return out
+
+
+def act_sync_library():
+    """Both libraries, one after the other (syncs must not overlap anyway).
+    The dashboard's one Sync button: new films and new episodes are almost
+    always wanted together, and an up-to-date library syncs in seconds."""
+    ok1, m1 = _sync(MOVIES_ID, "Movies")
+    ok2, m2 = _sync(SHOWS_ID, "TV Shows")
+    return ok1 and ok2, m1 + " · " + m2
+
+
 # ── Wolf sessions (Moonlight streams served by Sisyphus) ─────────────────────
 # Wolf never reaps a session whose client vanished (Claude/wolf.md), and a stuck
 # one keeps its virtual pads alive. wolf-bridge on Sisyphus (Modules/Gaming/
@@ -550,527 +638,105 @@ def wolf_stop(session_id):
 ACTIONS = {
     "restart-kodi": ("Restart Kodi", act_restart_kodi),
     "reboot": ("Reboot Pi", act_reboot),
-    "sync-movies": ("Movies", lambda: _sync(MOVIES_ID, "Movies")),
-    "sync-shows": ("TV Shows", lambda: _sync(SHOWS_ID, "TV Shows")),
-    "jellyfin-toggle": ("Jellyfin server", act_jellyfin_toggle),
-    "speedtest": ("Speed test", act_speedtest),
+    "sync-library": ("Sync library", act_sync_library),
+    # MarsBar's buttons — one library each (Modules/Server/marsbar.nix).
+    "sync-movies": ("Sync movies", lambda: _sync(MOVIES_ID, "Movies")),
+    "sync-shows": ("Sync TV shows", lambda: _sync(SHOWS_ID, "TV Shows")),
+    "jellyfin-toggle": ("Switch Jellyfin path", act_jellyfin_toggle),
+    "speedtest": ("Link test", act_speedtest),
 }
 
 
-PAGE = r"""<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Eclipse Control</title>
-<style>
-  @font-face { font-family:'JB'; src:url('font/regular.woff2') format('woff2');
-               font-weight:400; font-display:swap; }
-  @font-face { font-family:'JB'; src:url('font/medium.woff2') format('woff2');
-               font-weight:500; font-display:swap; }
-  @font-face { font-family:'JB'; src:url('font/bold.woff2') format('woff2');
-               font-weight:700; font-display:swap; }
+# ── Live hub: one poller, any number of /events clients ─────────────────────
+# Everything the admin page shows, kept here and pushed on change:
+#   status    get_status() (SSH, cached)      every EVENTS_STATUS_S
+#   tv        tv_playing() (Jellyfin)          every EVENTS_TV_S
+#   wolf      wolf_sessions()                 every EVENTS_WOLF_S
+#   activity  the last 12 actions, from ANY dashboard — so a Restart Kodi
+#             tapped on MarsBar shows up on the admin page too, and the log
+#             survives a reload
+#   busy      actions running right now — every open page greys that button
+# The poller sleeps while nobody is connected.
 
-  :root {
-    color-scheme: dark;
-    --line:    hsla(160, 40%, 40%, .15);
-    --line-hi: hsla(160, 50%, 50%, .34);
-    --glow:    hsla(160, 50%, 40%, .10);
-    --fg:      #d2d5d3;
-    --dim:     hsl(160, 7%, 50%);
-    --ok:      hsl(142, 62%, 56%);
-    --bad:     hsl(0, 78%, 66%);
-    --warn:    hsl(38, 88%, 62%);
-    --card:    hsla(160, 30%, 50%, .035);
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 0;
-    font-family: 'JB', ui-monospace, 'JetBrains Mono', Menlo, monospace;
-    font-size: 13px; line-height: 1.4;
-    background: transparent; color: var(--fg);
-    -webkit-font-smoothing: antialiased;
-  }
-  .wrap { max-width: 1020px; margin: 0 auto; }
+class Hub:
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.version = 0
+        self.state = {"status": None, "tv": None, "wolf": None, "activity": [], "busy": {}}
+        self.watchers = 0
+        self.wake = threading.Event()
 
-  /* ── header ── */
-  .head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 2px 2px 16px;
-  }
-  .head-left { display: flex; align-items: center; gap: 13px; }
-  .dot-lg {
-    width: 12px; height: 12px; border-radius: 50%; flex: none;
-    background: var(--dim); transition: background .2s, box-shadow .2s;
-  }
-  .dot-lg.ok  { background: var(--ok);  box-shadow: 0 0 13px hsla(142,62%,56%,.65); }
-  .dot-lg.bad { background: var(--bad); box-shadow: 0 0 13px hsla(0,78%,66%,.65); }
-  .head-title { font-size: 17px; font-weight: 700; letter-spacing: .01em; }
-  .head-sub   { font-size: 11.5px; color: var(--dim); margin-top: 3px; }
-  .head-right { font-size: 10.5px; color: var(--dim); text-align: right; white-space: nowrap; }
+    def publish(self, key, value):
+        with self.cond:
+            if self.state.get(key) == value:
+                return
+            self.state[key] = value
+            self.version += 1
+            self.cond.notify_all()
 
-  /* ── alert ── */
-  .alert {
-    display: none; align-items: center; gap: 9px;
-    padding: 9px 13px; margin-bottom: 14px; font-size: 12px;
-    border: 1px solid hsla(38, 88%, 62%, .3); border-left-width: 3px;
-    border-radius: 8px; background: hsla(38, 88%, 62%, .07); color: var(--warn);
-  }
-  .alert.show { display: flex; }
+    def log(self, action, ok, message):
+        entry = {"t": int(time.time()), "action": action, "ok": ok, "message": message}
+        with self.cond:
+            self.state["activity"] = ([entry] + self.state["activity"])[:12]
+            self.version += 1
+            self.cond.notify_all()
 
-  /* ── stat cards ── */
-  .stats {
-    display: grid; gap: 10px; margin-bottom: 22px;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  }
-  .stat {
-    display: flex; flex-direction: column; gap: 7px;
-    min-height: 88px; padding: 12px 14px;
-    border: 1px solid var(--line); border-radius: 10px;
-    background: var(--card);
-  }
-  .stat-k {
-    display: flex; align-items: center; gap: 6px;
-    color: var(--dim); font-size: 10px; font-weight: 500;
-    letter-spacing: .09em; text-transform: uppercase;
-  }
-  .stat-k svg { width: 12px; height: 12px; stroke-width: 2; opacity: .8; }
-  .stat-v { font-size: 19px; font-weight: 700; letter-spacing: .005em; }
-  .stat-v.ok   { color: var(--ok); }
-  .stat-v.bad  { color: var(--bad); }
-  .stat-v.warn { color: var(--warn); }
-  .stat-sub { font-size: 11px; color: var(--dim); margin-top: auto; }
-  .gauge {
-    height: 5px; border-radius: 3px; margin-top: 3px; position: relative;
-    background: linear-gradient(90deg,
-      var(--bad) 0%, var(--bad) 16.6%,
-      var(--warn) 16.6%, var(--warn) 66.6%,
-      var(--ok) 66.6%, var(--ok) 100%);
-    opacity: .32;
-  }
-  .gauge i {
-    position: absolute; top: -3px; width: 2px; height: 11px;
-    background: var(--fg); border-radius: 1px; transform: translateX(-1px);
-    box-shadow: 0 0 6px rgba(0,0,0,.5);
-  }
+    def set_busy(self, name, on):
+        with self.cond:
+            busy = dict(self.state["busy"])
+            if on:
+                if name in busy:
+                    return False  # already running — one at a time per action
+                busy[name] = int(time.time())
+            else:
+                busy.pop(name, None)
+            self.state["busy"] = busy
+            self.version += 1
+            self.cond.notify_all()
+        return True
 
-  /* ── button sections ── */
-  .section-label {
-    font-size: 10px; font-weight: 600; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--dim); margin: 0 2px 8px;
-  }
-  .grid {
-    display: grid; gap: 10px; margin-bottom: 20px;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  }
-  button {
-    display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 9px;
-    height: 78px; padding: 10px 8px;
-    font-family: inherit; font-size: 12.5px; font-weight: 500;
-    letter-spacing: .04em;
-    color: var(--fg); cursor: pointer;
-    border: 1px solid var(--line); border-radius: 10px;
-    background: var(--card);
-    transition: background .18s, border-color .18s, box-shadow .18s, transform .06s;
-  }
-  button svg { width: 19px; height: 19px; stroke-width: 1.6; opacity: .82; }
-  button:hover:not(:disabled) {
-    border-color: var(--line-hi);
-    background: hsla(160, 40%, 45%, .085);
-    box-shadow: 0 0 14px var(--glow);
-  }
-  button:hover:not(:disabled) svg { opacity: 1; }
-  button:active:not(:disabled) { transform: translateY(1px); }
-  button:disabled { opacity: .35; cursor: default; }
-  button.primary { border-color: hsla(142, 55%, 45%, .28); }
-  button.primary svg { color: var(--ok); opacity: .9; }
-  button.danger:hover:not(:disabled) {
-    border-color: hsla(0, 70%, 60%, .45);
-    background: hsla(0, 70%, 55%, .09);
-    box-shadow: 0 0 14px hsla(0, 70%, 50%, .1);
-  }
-  button.danger:hover:not(:disabled) svg { color: var(--bad); }
-  button.armed {
-    border-color: hsla(0, 75%, 62%, .6);
-    background: hsla(0, 70%, 55%, .13); color: var(--bad);
-  }
-  button.armed svg { color: var(--bad); opacity: 1; }
-  button.busy { opacity: 1; border-color: var(--line-hi); }
-  button.busy svg { animation: spin 1s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+    def poller(self):
+        status_at = wolf_at = tv_at = 0.0
+        while True:
+            if self.watchers > 0:
+                now = time.monotonic()
+                if now - wolf_at >= EVENTS_WOLF_S:
+                    wolf_at = now
+                    self.publish("wolf", wolf_sessions())
+                if now - tv_at >= EVENTS_TV_S:
+                    tv_at = now
+                    tv = tv_playing()
+                    self.publish("tv", {"ok": tv is not None, "playing": tv or []})
+                if now - status_at >= EVENTS_STATUS_S:
+                    status_at = now
+                    self.publish("status", get_status())
+            else:
+                status_at = wolf_at = tv_at = 0.0
+            if self.wake.wait(1.0):
+                self.wake.clear()
+                status_at = 0.0  # an action finished or a client joined: look now
 
-  /* ── wolf sessions ── */
-  .wolf { display: grid; gap: 8px; margin-bottom: 20px; }
-  .wolf-empty {
-    display: flex; align-items: center; gap: 10px;
-    color: var(--dim); font-size: 12px; padding: 13px 14px;
-    border: 1px dashed var(--line); border-radius: 10px;
-  }
-  .wolf-empty i {
-    width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none;
-  }
-  .wolf-empty.down i { background: var(--bad); }
-  .wolf-row {
-    display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
-    padding: 11px 12px 11px 14px; border: 1px solid var(--line); border-radius: 10px;
-    background: var(--card);
-    transition: opacity .3s, transform .3s, border-color .2s;
-  }
-  .wolf-row.stale { border-color: hsla(38, 88%, 62%, .42); }
-  .wolf-row.gone { opacity: 0; transform: translateX(14px); }
-  .wolf-ico {
-    position: relative; width: 36px; height: 36px; border-radius: 10px;
-    display: grid; place-items: center;
-    background: hsla(142, 62%, 56%, .1); color: var(--ok);
-  }
-  .wolf-ico svg { width: 18px; height: 18px; stroke-width: 1.7; }
-  .wolf-ico::after {   /* live pulse */
-    content: ""; position: absolute; inset: -1px; border-radius: 11px;
-    border: 1px solid hsla(142, 62%, 56%, .55); animation: wolfpulse 2.4s ease-out infinite;
-  }
-  .wolf-row.stale .wolf-ico { background: hsla(38, 88%, 62%, .12); color: var(--warn); }
-  .wolf-row.stale .wolf-ico::after { border-color: hsla(38, 88%, 62%, .55); }
-  @keyframes wolfpulse { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(1.35); } }
-  .wolf-app { font-weight: 700; font-size: 13.5px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .wolf-badge {
-    font-size: 9.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
-    color: var(--warn); border: 1px solid hsla(38, 88%, 62%, .4); border-radius: 999px; padding: 1px 7px;
-  }
-  .wolf-meta { color: var(--dim); font-size: 11.5px; margin-top: 3px; }
-  .wolf-meta b { color: var(--fg); font-weight: 500; }
-  button.wolf-kill {
-    flex-direction: row; height: 36px; min-width: 96px; padding: 0 14px; gap: 7px;
-    font-size: 11.5px;
-  }
-  button.wolf-kill svg { width: 15px; height: 15px; }
-  button.wolf-kill:hover:not(:disabled) {
-    border-color: hsla(0, 70%, 60%, .45); background: hsla(0, 70%, 55%, .09); color: var(--bad);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .wolf-ico::after { animation: none; }
-    .wolf-row { transition: none; }
-  }
 
-  /* ── activity log ── */
-  .log-wrap {
-    margin-top: 4px; border: 1px solid var(--line); border-radius: 10px;
-    background: hsla(160, 30%, 50%, .02); overflow: hidden;
-  }
-  .log-head {
-    padding: 8px 13px; font-size: 10px; font-weight: 500;
-    letter-spacing: .09em; text-transform: uppercase; color: var(--dim);
-    border-bottom: 1px solid var(--line);
-  }
-  .log-list { max-height: 148px; overflow-y: auto; }
-  .log-item {
-    display: flex; align-items: baseline; gap: 10px;
-    padding: 7px 13px; font-size: 11.5px; color: var(--dim);
-    border-bottom: 1px solid hsla(160, 30%, 50%, .06);
-  }
-  .log-item:last-child { border-bottom: none; }
-  .log-item .t { flex: none; min-width: 58px; margin-right: 10px; opacity: .7; font-variant-numeric: tabular-nums; }
-  .log-item .m { color: var(--fg); }
-  .log-item.good .m { color: var(--ok); }
-  .log-item.err  .m { color: var(--bad); }
-  .log-empty { padding: 14px 13px; font-size: 11.5px; color: var(--dim); }
+HUB = Hub()
 
-  @media (max-width: 560px) {
-    button { height: 64px; gap: 7px; font-size: 11.5px; }
-    .stat { min-height: 76px; padding: 10px 12px; }
-    .stat-v { font-size: 17px; }
-    .head-title { font-size: 15.5px; }
-  }
-</style></head><body>
-<div class="wrap">
-  <div class="head">
-    <div class="head-left">
-      <span class="dot-lg" id="head-dot"></span>
-      <div>
-        <div class="head-title" id="head-title">Connecting&hellip;</div>
-        <div class="head-sub" id="head-sub">&nbsp;</div>
-      </div>
-    </div>
-    <div class="head-right" id="head-time"></div>
-  </div>
 
-  <div class="alert" id="hint">
-    <span>&#9888;</span><span>Link is up but Kodi is not driving it &mdash; restart Kodi</span>
-  </div>
-
-  <div class="stats" id="stats"></div>
-
-  <div class="section-label">Streams &middot; Wolf on Sisyphus</div>
-  <div class="wolf" id="wolf"><div class="wolf-empty"><i></i>checking&hellip;</div></div>
-
-  <div class="section-label">Playback</div>
-  <div class="grid">
-    <button class="primary" data-act="restart-kodi">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/>
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-      <span class="lbl">Restart Kodi</span>
-    </button>
-    <button data-act="sync-movies">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/>
-        <line x1="7" y1="3" x2="7" y2="21"/><line x1="17" y1="3" x2="17" y2="21"/>
-        <line x1="2" y1="12" x2="22" y2="12"/></svg>
-      <span class="lbl">Sync Movies</span>
-    </button>
-    <button data-act="sync-shows">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/>
-        <polyline points="17 2 12 7 7 2"/></svg>
-      <span class="lbl">Sync TV Shows</span>
-    </button>
-  </div>
-
-  <div class="section-label">Network &amp; System</div>
-  <div class="grid">
-    <button data-act="jellyfin-toggle" id="jellyfin-btn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><circle cx="12" cy="12" r="10"/>
-        <line x1="2" y1="12" x2="22" y2="12"/>
-        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-      <span class="lbl" id="jellyfin-lbl">Jellyfin: &hellip;</span>
-    </button>
-    <button data-act="speedtest" id="speedtest-btn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><path d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"/>
-        <path d="M12 12 16 8"/><path d="M12 2v2"/><path d="M12 20v2"/>
-        <path d="M4.9 4.9l1.4 1.4"/><path d="M17.7 17.7l1.4 1.4"/></svg>
-      <span class="lbl">Speed Test</span>
-    </button>
-    <button class="danger" data-act="reboot" data-confirm="1">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
-        <line x1="12" y1="2" x2="12" y2="12"/></svg>
-      <span class="lbl">Reboot Pi</span>
-    </button>
-  </div>
-
-  <div class="log-wrap">
-    <div class="log-head">Activity</div>
-    <div class="log-list" id="log"><div class="log-empty">ready</div></div>
-  </div>
-</div>
-<script>
-var buttons = Array.prototype.slice.call(document.querySelectorAll('button[data-act]'));
-var logHistory = [];
-
-function fmtUptime(s) {
-  if (!s) return '-';
-  var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  if (d) return d + 'd ' + h + 'h';
-  if (h) return h + 'h ' + m + 'm';
-  return m + 'm';
-}
-function fmtMode(s) {
-  if (!s) return null;
-  var m = s.match(/(\d+)x(\d+) @ ([\d.]+)/);
-  return m ? m[1] + '×' + m[2] + ' @ ' + Math.round(parseFloat(m[3])) + 'Hz' : s;
-}
-function fmtClock(d) {
-  var p = function (n) { return (n < 10 ? '0' : '') + n; };
-  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
-}
-function fmtAgo(ts) {
-  if (!ts) return '';
-  var s = Math.max(0, Math.round(Date.now() / 1000 - ts));
-  if (s < 90) return s + 's ago';
-  var m = Math.round(s / 60);
-  if (m < 90) return m + 'm ago';
-  return Math.round(m / 60) + 'h ago';
-}
-function stat(k, v, sub, cls, extra) {
-  return '<div class="stat"><span class="stat-k">' + k + '</span>' +
-         '<span class="stat-v ' + (cls || '') + '">' + v + '</span>' +
-         (extra || '') +
-         '<span class="stat-sub">' + (sub || '&nbsp;') + '</span></div>';
-}
-function gauge(mbps) {
-  var max = 30, pct = Math.max(0, Math.min(100, (mbps || 0) / max * 100));
-  return '<div class="gauge"><i style="left:' + pct + '%"></i></div>';
-}
-var JELLYFIN_NAMES = { lan: 'LAN', remote: 'Tailscale', unknown: '?' };
-function refresh() {
-  fetch('status').then(function (r) { return r.json(); }).then(function (s) {
-    var dot = document.getElementById('head-dot');
-    var title = document.getElementById('head-title');
-    var sub = document.getElementById('head-sub');
-    var stats = document.getElementById('stats');
-    if (!s.reachable) {
-      dot.className = 'dot-lg bad';
-      title.textContent = 'Eclipse unreachable';
-      sub.textContent = s.error || 'no response over SSH';
-      stats.innerHTML = '';
-    } else {
-      dot.className = 'dot-lg ok';
-      title.textContent = 'Eclipse online';
-      sub.textContent = 'up ' + fmtUptime(s.uptime);
-
-      var mode = fmtMode(s.mode);
-      var jf = s.jellyfin_mode || 'unknown';
-      var jfQuality = jf === 'remote' ? 'capped ~8 Mbps' : (jf === 'lan' ? 'uncapped direct play' : 'address unrecognised');
-      var speedCls = '', speedTxt = 'never tested', speedSub = 'tap Speed Test to measure', gaugeHtml = '';
-      if (s.speed_mbps != null) {
-        speedCls = s.speed_mbps >= 20 ? 'ok' : (s.speed_mbps >= 5 ? 'warn' : 'bad');
-        speedTxt = s.speed_mbps.toFixed(1) + ' Mbps';
-        speedSub = 'tested ' + fmtAgo(s.speed_when);
-        gaugeHtml = gauge(s.speed_mbps);
-      }
-
-      stats.innerHTML =
-        stat('Kodi', s.kodi, 'process state', s.kodi === 'active' ? 'ok' : 'bad') +
-        stat('Display', mode || 'not driving', s.hdmi === 'connected' ? 'HDMI connected' : 'HDMI disconnected', mode ? 'ok' : 'warn') +
-        stat('Jellyfin', JELLYFIN_NAMES[jf], jfQuality, jf === 'unknown' ? 'warn' : 'ok') +
-        stat('Speed', speedTxt, speedSub, speedCls, gaugeHtml) +
-        stat('Uptime', fmtUptime(s.uptime), 'since last restart', '');
-
-      var lbl = document.getElementById('jellyfin-lbl');
-      if (lbl && !lbl.closest('button').classList.contains('busy')) {
-        var next = jf === 'remote' ? 'lan' : 'remote';
-        lbl.textContent = 'Jellyfin: switch to ' + JELLYFIN_NAMES[next];
-      }
-    }
-    document.getElementById('hint').className = s.needs_kodi_restart ? 'alert show' : 'alert';
-    document.getElementById('head-time').textContent = 'updated ' + fmtClock(new Date());
-  }).catch(function () {
-    document.getElementById('head-dot').className = 'dot-lg bad';
-    document.getElementById('head-title').textContent = 'Panel offline';
-    document.getElementById('head-sub').textContent = 'cannot reach eclipse-control';
-    document.getElementById('stats').innerHTML = '';
-  });
-}
-function logAdd(text, cls) {
-  logHistory.unshift({ t: fmtClock(new Date()), text: text, cls: cls || '' });
-  logHistory = logHistory.slice(0, 6);
-  document.getElementById('log').innerHTML = logHistory.map(function (e) {
-    return '<div class="log-item ' + e.cls + '"><span class="t">' + e.t + '</span>' +
-           '<span class="m">' + e.text + '</span></div>';
-  }).join('');
-}
-function run(btn) {
-  var name = btn.dataset.act;
-  buttons.forEach(function (b) { if (b !== btn) b.disabled = true; });
-  btn.classList.add('busy');
-  logAdd('running ' + name + '…', '');
-  // X-Dash is required by do_POST (see there); same-origin, so no preflight.
-  fetch('act/' + name, { method: 'POST', headers: { 'X-Dash': '1' } })
-    .then(function (r) { return r.json(); })
-    .then(function (j) { logAdd(j.message, j.ok ? 'good' : 'err'); })
-    .catch(function (e) { logAdd(String(e), 'err'); })
-    .then(function () {
-      btn.classList.remove('busy');
-      buttons.forEach(function (b) { b.disabled = false; });
-      setTimeout(refresh, 2000);
-    });
-}
-buttons.forEach(function (btn) {
-  btn.addEventListener('click', function () {
-    if (!btn.dataset.confirm) { run(btn); return; }
-    var lbl = btn.querySelector('.lbl');
-    if (btn.classList.contains('armed')) {
-      btn.classList.remove('armed'); lbl.textContent = btn.dataset.label; run(btn); return;
-    }
-    btn.dataset.label = lbl.textContent;
-    btn.classList.add('armed'); lbl.textContent = 'Tap to confirm';
-    setTimeout(function () {
-      if (btn.classList.contains('armed')) {
-        btn.classList.remove('armed'); lbl.textContent = btn.dataset.label;
-      }
-    }, 4000);
-  });
-});
-// ── Wolf sessions ─────────────────────────────────────────────────────────────
-// A Moonlight stream that outlives its client keeps Wolf's virtual pads alive
-// (Claude/wolf.md). This lists what Wolf is serving and stops one on a double
-// tap. Rows are keyed by session id so a refresh never resets an armed button.
-var STALE_SECS = 3 * 3600;
-var wolfState = { armed: null, killing: {} };
-var ICON_STREAM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m10 8.5 4 2-4 2z"/></svg>';
-var ICON_STOP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
-function fmtFor(secs) {
-  var h = Math.floor(secs / 3600), m = Math.floor(secs % 3600 / 60);
-  return h ? h + 'h ' + m + 'm' : (m ? m + 'm' : '<1m');
-}
-function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
-function wolfRender(data) {
-  var box = document.getElementById('wolf');
-  if (data.wolf !== 'up') {
-    box.innerHTML = '<div class="wolf-empty down"><i></i>' +
-      (data.wolf === 'down' ? 'Wolf isn\'t running on Sisyphus' : 'Sisyphus unreachable') + '</div>';
-    return;
-  }
-  var list = (data.sessions || []).filter(function (x) { return !wolfState.killing[x.id]; });
-  if (!list.length) { box.innerHTML = '<div class="wolf-empty"><i></i>No active streams</div>'; return; }
-  var now = Date.now() / 1000;
-  box.innerHTML = list.map(function (x) {
-    var age = x.started ? now - x.started : 0;
-    var stale = age > STALE_SECS;
-    var armed = wolfState.armed === x.id;
-    return '<div class="wolf-row' + (stale ? ' stale' : '') + '" data-id="' + esc(x.id) + '">' +
-      '<div class="wolf-ico">' + ICON_STREAM + '</div>' +
-      '<div><div class="wolf-app">' + esc(x.app) +
-        (stale ? '<span class="wolf-badge">stuck?</span>' : '') + '</div>' +
-      '<div class="wolf-meta"><b>' + esc(x.client_label || x.client) + '</b>' +
-        (x.video ? ' &middot; ' + esc(x.video.replace('x', '×').replace('@', ' @ ') + 'Hz') : '') +
-        (x.started ? ' &middot; <span title="since the bridge first saw it">streaming ' + fmtFor(age) + '</span>' : '') +
-      '</div></div>' +
-      '<button class="wolf-kill' + (armed ? ' armed' : '') + '" data-kill="' + esc(x.id) + '">' + ICON_STOP +
-        '<span>' + (armed ? 'Tap to kill' : 'End') + '</span></button>' +
-    '</div>';
-  }).join('');
-}
-var wolfLast = null;
-function wolfRefresh() {
-  fetch('wolf/sessions').then(function (r) { return r.json(); })
-    .then(function (d) { wolfLast = d; wolfRender(d); })
-    .catch(function () { wolfRender({ wolf: 'unreachable' }); });
-}
-document.getElementById('wolf').addEventListener('click', function (ev) {
-  var btn = ev.target.closest('button[data-kill]');
-  if (!btn) return;
-  var id = btn.dataset.kill;
-  if (wolfState.armed !== id) {           // first tap arms it for 3 s
-    wolfState.armed = id;
-    if (wolfLast) wolfRender(wolfLast);
-    setTimeout(function () {
-      if (wolfState.armed === id) { wolfState.armed = null; if (wolfLast) wolfRender(wolfLast); }
-    }, 3000);
-    return;
-  }
-  wolfState.armed = null;
-  var row = btn.closest('.wolf-row');
-  row.classList.add('gone');                // optimistic: slide it away now
-  wolfState.killing[id] = true;
-  logAdd('ending stream ' + id + '…', '');
-  fetch('wolf/stop/' + encodeURIComponent(id), { method: 'POST', headers: { 'X-Dash': '1' } })
-    .then(function (r) { return r.json().then(function (j) { return { code: r.status, j: j }; }); })
-    .then(function (res) {
-      // 404 = Wolf no longer has it: already gone is what we wanted.
-      if (res.j.ok || res.code === 404) {
-        logAdd(res.j.lingering ? 'stream told to stop — Wolf is still tearing it down' : 'stream ended', 'good');
-      } else {
-        delete wolfState.killing[id];
-        logAdd('could not end stream: ' + (res.j.error || res.code), 'err');
-      }
-    })
-    .catch(function (e) { delete wolfState.killing[id]; logAdd('could not end stream: ' + e, 'err'); })
-    .then(function () { setTimeout(function () { wolfState.killing = {}; wolfRefresh(); }, 900); });
-});
-
-refresh();
-wolfRefresh();
-setInterval(function () { if (!document.hidden) wolfRefresh(); }, 5000);
-// Only while someone can see it. An iframe reports its parent tab's visibility,
-// so a backgrounded dashboard stops costing the Pi an SSH call every 10s; it
-// catches up the moment the tab is shown again.
-setInterval(function () { if (!document.hidden) refresh(); }, 10000);
-document.addEventListener('visibilitychange', function () {
-  if (!document.hidden) { refresh(); wolfRefresh(); }
-});
-</script></body></html>
-"""
+def run_action(name):
+    entry = ACTIONS.get(name)
+    if not entry:
+        return 400, {"ok": False, "message": "unknown action"}
+    label, fn = entry
+    if not HUB.set_busy(name, True):
+        return 409, {"ok": False, "action": label, "message": label + " is already running"}
+    try:
+        ok, msg = fn()
+    except Exception as exc:  # noqa: BLE001 — report, never kill the handler
+        ok, msg = False, "%s: %s" % (type(exc).__name__, exc)
+    finally:
+        HUB.set_busy(name, False)
+    invalidate_status()
+    HUB.log(label, ok, msg or label)
+    HUB.wake.set()
+    return 200, {"ok": ok, "action": label, "message": msg or label}
 
 
 _ZEROS = b"\0" * (256 * 1024)
@@ -1119,29 +785,50 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def _send_bytes(self, code, raw, ctype, cache=False):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(raw)))
-        if cache:
-            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+    def events(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self._cors()
         self.end_headers()
-        self.wfile.write(raw)
+        sent = {}
+        with HUB.cond:
+            HUB.watchers += 1
+        HUB.wake.set()
+        try:
+            self.wfile.write(b"retry: 3000\n\n")
+            seen, last_write = -1, time.monotonic()
+            while True:
+                with HUB.cond:
+                    if HUB.version == seen:
+                        HUB.cond.wait(timeout=15)
+                    seen = HUB.version
+                    state = dict(HUB.state)
+                for key, value in state.items():
+                    if value is None or sent.get(key) == value:
+                        continue
+                    sent[key] = value
+                    self.wfile.write(("event: %s\ndata: %s\n\n" % (key, json.dumps(value))).encode())
+                    last_write = time.monotonic()
+                if time.monotonic() - last_write >= 15:
+                    # A real event, so the page can notice a half-open link.
+                    self.wfile.write(b"event: ping\ndata: {}\n\n")
+                    last_write = time.monotonic()
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            with HUB.cond:
+                HUB.watchers -= 1
 
     def do_GET(self):
         path = self.path.split("?")[0].strip("/")
-        if path in ("", "index.html"):
-            self._send(200, PAGE, "text/html; charset=utf-8")
-        elif path == "status":
+        if path == "status":
             self._send(200, json.dumps(get_status()), "application/json")
+        elif path == "events":
+            self.events()
         elif path == "wolf/sessions":
             self._send(200, json.dumps(wolf_sessions()), "application/json")
-        elif path in FONTS and FONT_DIR:
-            try:
-                with open(os.path.join(FONT_DIR, FONTS[path]), "rb") as fh:
-                    self._send_bytes(200, fh.read(), "font/woff2", cache=True)
-            except OSError:
-                self._send(404, "font missing", "text/plain")
         elif path == "speedtest-data":
             # Raw throughput over this exact Tailscale path (the remote case
             # in act_speedtest).
@@ -1170,7 +857,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(403, json.dumps({"ok": False, "error": "missing X-Dash header"}),
                            "application/json")
                 return
-            code, body = wolf_stop(path[len("wolf/stop/"):])
+            sid = path[len("wolf/stop/"):]
+            code, body = wolf_stop(sid)
+            if code == 200 or code == 404:
+                HUB.log("End stream", True, "Wolf stream " + sid + (" ended" if code == 200 else " was already gone"))
+            else:
+                HUB.log("End stream", False, "could not end stream " + sid + ": " + str(body.get("error", code)))
+            HUB.wake.set()
             self._send(code, json.dumps(body), "application/json")
             return
         if not path.startswith("act/"):
@@ -1187,17 +880,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(403, json.dumps({"ok": False, "message": "missing X-Dash header"}),
                        "application/json")
             return
-        name = path[4:]
-        entry = ACTIONS.get(name)
-        if not entry:
-            self._send(400, json.dumps({"ok": False, "message": "unknown action"}),
-                       "application/json")
-            return
-        label, fn = entry
-        ok, msg = fn()
-        invalidate_status()
-        self._send(200, json.dumps({"ok": ok, "action": label, "message": msg or label}),
-                   "application/json")
+        code, body = run_action(path[4:])
+        self._send(code, json.dumps(body), "application/json")
 
     def log_message(self, *args):
         pass
@@ -1275,4 +959,5 @@ if __name__ == "__main__":
         target=Server(("0.0.0.0", SPEEDTEST_LAN_PORT), SpeedtestHandler).serve_forever,
         daemon=True,
     ).start()
+    threading.Thread(target=HUB.poller, daemon=True).start()
     Server(("0.0.0.0", PORT), Handler).serve_forever()

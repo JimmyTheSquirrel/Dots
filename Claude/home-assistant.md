@@ -127,7 +127,7 @@ DynamicUser can read):
 
 - `ha-bridge` reads `$CREDENTIALS_DIRECTORY/ha-token`.
 - `glance.service` (`Modules/Server/glance.nix`) has `HA_TOKEN_FILE` pointing at its copy,
-  and the Monitoring widgets send `Authorization: Bearer ${readFileFromEnv:HA_TOKEN_FILE}`
+  and the Power page's widgets send `Authorization: Bearer ${readFileFromEnv:HA_TOKEN_FILE}`
   — Glance's own config variable, expanded as text over the whole config file at startup,
   so it works inside a `headers:` map (verified against Glance 0.8.5).
 - `restartUnits = ["ha-bridge.service" "glance.service"]`: a credential is copied at unit
@@ -155,16 +155,28 @@ edit.
 ## Glance
 
 HA is a monitor in the main Glance's **All** and **Management** tabs — one entry in the
-`services` list in `Modules/Server/glance.nix`. The Monitoring page reads HA's
-`/api/template` with one generated Jinja query (`plugQuery`); the light tiles on the home
-page and the Monitoring page get their state from ha-bridge's stream (`Resources/Glance/lights.js`).
+`services` list in `Modules/Server/glance.nix`. The **Power** page (was Monitoring) renders its
+first frame from HA's `/api/template` with one generated Jinja query (`plugQuery`); after that
+everything on it is live from ha-bridge's stream — `lights.js` for the switches, `asgard.js`
+for the figures (it listens to lights.js's `ha:state` events).
+
+**What ha-bridge watches** (`watched` in `_plugs.nix`): every relay, and per plug its power,
+voltage, current, today's energy, wifi signal (% and dBm) and `binary_sensor.<slug>_status`
+— so V, A, kWh/cost today, signal and "plug online" move live, not just the watts. Watched is
+read-only; `toggleable` (ALLOWED) is still only the lamps and their group.
+
+**`GET /history`** (ha-bridge) — the Power page's 24 h chart: HA's
+`/api/history/period/…` for every plug's power sensor (`history` in the bridge config),
+bucketed to 10-minute **time-weighted** averages (a reading holds until the next, so a
+1-minute blip in an hour barely moves the bucket; unknown/unavailable is a gap, never a
+zero). Fetched only when a page asks, cached 2 minutes, one HA query however many tabs ask.
 
 ⚠️ HA returns **302** on `/` until onboarding is finished. If Glance shows it down, either
 complete onboarding (after which `/` is 200) or add `alt-status-codes = [ 302 ];` to its entry.
 
 ## ⚠ Power cost maths — never divide an ESPHome counter by a wall clock
 
-Fixed 2026-09-19 after a reboot made every cost on the Monitoring page absurd:
+Fixed 2026-09-19 after a reboot made every cost on the (then) Monitoring page absurd:
 Asgard was projected at **$1047/yr** while drawing 35.5 W (true ~$95/yr). Wrong by
 ~11×, and plausible-looking enough that it did not read as a bug.
 

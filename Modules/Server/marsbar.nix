@@ -44,12 +44,21 @@
     # Nix-string inside a `document.head: |` block scalar, where one mis-indented
     # line silently ended the scalar and broke the whole config.
     #
-    # lights.js is SHARED with the main Glance — one client, so both dashboards
-    # behave the same and a fix lands on both.
+    # Everything but marsbar.css is SHARED with the main Glance — the same
+    # light client, the same Eclipse panel, the same network card — so she has
+    # every control he has, both dashboards behave the same, and a fix lands on
+    # both. Only the look differs: cards.css is written against colour tokens,
+    # and marsbar.css defines them in her purple.
     assetFiles = {
-      "lights.js" = ../../Resources/Glance/lights.js;
-      "marsbar.js" = ../../Resources/MarsBar/marsbar.js;
       "marsbar.css" = ../../Resources/MarsBar/marsbar.css;
+      # the vine rail down each card and the blossom that crowns it (marsbar.css)
+      "vine.svg" = ../../Resources/MarsBar/vine.svg;
+      "bloom.svg" = ../../Resources/MarsBar/bloom.svg;
+      "cards.css" = ../../Resources/Glance/cards.css;
+      "dash.js" = ../../Resources/Glance/dash.js;
+      "lights.js" = ../../Resources/Glance/lights.js;
+      "eclipse.js" = ../../Resources/Glance/eclipse.js;
+      "net.js" = ../../Resources/Glance/net.js;
     };
     marsbarAssets = pkgs.linkFarm "glance-marsbar-assets" assetFiles;
 
@@ -115,78 +124,23 @@
       </div>
     '';
 
-    # ── Eclipse (TV box) controls ───────────────────────────────────────────
-    # Rebuilt NATIVELY rather than iframing asgard:9554 like the admin dashboard
-    # does. The iframe exists there because Glance's `html` widget sanitises
-    # markup, but a custom-api widget plus a handler in document.head has no such
-    # limit — same trick as the light toggles. That buys the purple theme for
-    # free, a layout that works on a phone, and no iframe height guessing.
+    # ── Eclipse + network: the shared live cards ────────────────────────────
+    # The SAME panel as the admin dashboard's Eclipse page (Resources/Glance/
+    # eclipse.js, from eclipse-control's /events stream through her
+    # /eclipse-api serve path): status, what the TV is playing, every action —
+    # Restart Kodi, Sync library, Test link, the Jellyfin path, Reboot — the
+    # Wolf streams Sisyphus is serving with an End button for a stuck one, and
+    # the activity log both dashboards share. She is the one in front of the
+    # TV when it locks up, so nothing is held back; the two that interrupt
+    # playback (Reboot, switching the Jellyfin path) and ending a stream take a
+    # second tap.
     #
-    # Deliberately NOT exposed here: `reboot` (bounces the TV box) and
-    # `jellyfin-toggle` (changes how streams route). `speedtest` is omitted as
-    # noise. Add an entry below to surface one — the panel already accepts them.
-    tvActions = [
-      { act = "restart-kodi"; name = "Restart Kodi";  sub = "Fixes a frozen or missing UI"; icon = "↻"; }
-      { act = "sync-movies";  name = "Sync Movies";   sub = "Pull in new films";            icon = "▦"; }
-      { act = "sync-shows";   name = "Sync TV Shows"; sub = "Pull in new episodes";         icon = "▶"; }
-    ];
-
-    tvCard = a: ''
-      <button type="button" class="mb-light mb-act" data-act="${a.act}">
-        <span class="mb-ico" aria-hidden="true">${a.icon}</span>
-        <span class="mb-txt"><span class="mb-name">${a.name}</span><span class="mb-sub">${a.sub}</span></span>
-        <span class="mb-go" aria-hidden="true">›</span>
-      </button>
-    '';
-
-    tvStat = id: label: ''
-      <div class="mb-stat"><span class="mb-stat-k">${label}</span><span class="mb-stat-v" id="${id}">—</span></div>
-    '';
-
-    # Every value is painted by marsbar.js from /eclipse-api/status. Each slot
-    # holds a placeholder of the right height from the start, so nothing jumps
-    # when the first answer lands.
-    tvMarkup = ''
-      <div class="mb-tv" id="tv-box" data-tv="checking">
-        <div class="mb-tv-head">
-          <span class="mb-tv-dot"></span>
-          <span class="mb-tv-h"><span class="mb-tv-state" id="tv-state">Checking…</span><span class="mb-tv-sub" id="tv-sub">contacting the TV box</span></span>
-        </div>
-        <div class="mb-stats">
-          ${tvStat "tv-kodi" "Kodi"}
-          ${tvStat "tv-mode" "Display"}
-          ${tvStat "tv-uptime" "Uptime"}
-        </div>
-        <div class="mb-sec">Controls</div>
-        <div class="mb-acts">
-          ${lib.concatMapStrings tvCard tvActions}
-        </div>
-        <div class="mb-log" id="tv-log" role="status">Ready</div>
-      </div>
-    '';
-
-    # Live network throughput graphs, mirroring the admin dashboard's network
-    # panel. One <svg> per direction; the polyline points are filled in by
-    # marsbar.js from /net-api, because Glance renders a widget server-side only
-    # once and these need to move.
-    netGraph = id: label: arrow: ''
-      <div class="mb-net mb-net-${label}">
-        <div class="mb-net-top">
-          <span class="mb-net-now"><span class="mb-net-arrow">${arrow}</span><span id="${id}-now">—</span> <span class="mb-net-unit">Mb/s</span></span>
-          <span class="mb-net-label">${label}</span>
-        </div>
-        <svg class="mb-net-svg" id="${id}-svg" viewBox="0 0 300 60" preserveAspectRatio="none"><polyline id="${id}-fill" class="mb-net-fill" points=""/><polyline id="${id}-line" class="mb-net-line" points=""/></svg>
-        <div class="mb-net-foot">peak <span id="${id}-peak">—</span> over 60s</div>
-      </div>
-    '';
-
-    netMarkup = ''
-      <div class="mb-nets">
-        ${netGraph "net-down" "download" "↓"}
-        ${netGraph "net-up" "upload" "↑"}
-      </div>
-      <div class="mb-net-iface" id="net-iface">sampled every 2s</div>
-    '';
+    # It used to be a hand-built copy here: three actions, a 15 s poll, and
+    # its own script (marsbar.js) — which is how the two drifted apart.
+    #
+    # The network card is net.js through /net-api, read-only: no "Run now",
+    # since a speed test pauses SABnzbd and that is an admin call.
+    liveCard = import ./_livecard.nix lib;
 
     # ── The Glance config ───────────────────────────────────────────────────
     # Built as a Nix attrset and serialised by pkgs.formats.yaml, NOT written as
@@ -219,21 +173,32 @@
         custom-css-file = "/assets/marsbar.css";
       };
 
-      # `defer`: run after the document is parsed, in order. Both wait for
-      # Glance's widget markup themselves (it arrives later, via innerHTML).
+      # `defer`: run after the document is parsed, in order — dash.js first,
+      # the helpers the others use. Each waits for Glance's widget markup
+      # itself (it arrives later, via innerHTML). Every API is on THIS origin,
+      # through the serve proxy below: data-api is a path, not a port.
+      # Posters load from Jellyfin directly — asgard:8096 is in her ACL grant
+      # (it is the Jellyfin she watches).
       document.head = ''
+        <link rel="stylesheet" href="${asset "cards.css"}">
+        <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api="/ha" defer></script>
-        <script src="${asset "marsbar.js"}" defer></script>
+        <script src="${asset "eclipse.js"}" data-api="/eclipse-api" data-jellyfin="http://asgard:8096" defer></script>
+        <script src="${asset "net.js"}" data-api="/net-api" data-readonly defer></script>
       '';
 
+      # ONE page, three COLUMNS — Home · Eclipse · Network. On a phone Glance
+      # shows one column at a time and puts a dot per column in its bottom bar,
+      # so she swaps sections with a single tap on a dot. (Separate PAGES —
+      # how this was before — live behind the ☰ menu instead: open it, find
+      # the page, tap it. She only uses this on her phone.) Opens on the first
+      # full column, Home. No `width = "slim"`: slim allows only two columns;
+      # on a desktop the three simply sit side by side.
       pages = [
         {
-          name = "Home";
-          # Phone-first: the desktop tab bar is hidden on both pages; on a
-          # phone Glance lists the pages in its bottom navigation instead.
+          name = "MarsBar";
+          slug = "home";
           hide-desktop-navigation = true;
-          # Caps the column on a desktop screen. No effect on a phone.
-          width = "slim";
           columns = [
             {
               size = "full";
@@ -262,54 +227,19 @@
                 }
               ];
             }
-          ];
-        }
-
-        # Second PAGE, not a second column. On mobile Glance renders pages in
-        # its bottom navigation (mobile-navigation-page-links), which is the
-        # "tap and move across" she asked for; columns would just stack and
-        # make her scroll. The desktop tab bar stays hidden on both pages.
-        {
-          name = "Eclipse - ( Pi 5 )";
-          # Explicit slug: the auto-generated one from a name with brackets and
-          # spaces is ugly and would change again on any future rename.
-          slug = "eclipse";
-          hide-desktop-navigation = true;
-          width = "slim";
-          columns = [
             {
               size = "full";
               widgets = [
-                # url points at eclipse-control so the widget fails visibly if
-                # the panel is down; the markup is static and painted by
-                # marsbar.js.
-                #
-                # Long cache DELIBERATELY. This server-side fetch SSHes to the
-                # Pi and cost ~0.7s on every single page load, which is most of
-                # what made switching pages on a phone feel sluggish. Nothing
-                # here is rendered from it — marsbar.js paints every value and
-                # polls every 15s while the page is visible — so re-fetching
-                # per navigation bought pure latency.
-                {
-                  type = "custom-api";
-                  title = "Eclipse - ( Pi 5 )";
-                  cache = "1h";
-                  url = "http://127.0.0.1:${toString eclipsePort}/status";
-                  template = tvMarkup;
-                }
-
-                # Live throughput. Replaced the Eclipse speed-test tiles, which
-                # were a one-off measurement she had to trigger; this is the
-                # always-on view from the admin dashboard that she actually
-                # asked for. Painted entirely by marsbar.js (every 2s, visible
-                # tab only), hence the long cache.
-                {
-                  type = "custom-api";
-                  title = "Network";
-                  cache = "1h";
-                  url = "http://127.0.0.1:${toString netPort}/api";
-                  template = netMarkup;
-                }
+                (liveCard { id = "ec-main"; title = "Eclipse - ( Pi 5 )"; badge = "ec-live"; })
+                (liveCard { id = "ec-tv"; title = "On the TV"; })
+                (liveCard { id = "ec-wolf"; title = "Game streams"; })
+                (liveCard { id = "ec-log"; title = "Activity"; })
+              ];
+            }
+            {
+              size = "small";
+              widgets = [
+                (liveCard { id = "nw"; title = "Network"; badge = "nw-live"; })
               ];
             }
           ];

@@ -3,7 +3,13 @@
 
    Served by Glance from its assets dir as theme.custom-css-file. Glance's own
    theme colours (purple, set in Modules/Server/marsbar.nix) still drive everything
-   Glance draws itself; this file only adds the cards, the tiles and the vine.
+   Glance draws itself; this file adds the cards, the tiles and the vine.
+
+   The Eclipse panel, the network card and "On the TV" are NOT styled here:
+   they are the admin dashboard's own cards (Resources/Glance/cards.css, loaded
+   after this), shared so she has exactly the same controls. cards.css is
+   written against colour tokens; the block after :root maps them onto her
+   purple. Restyle those cards there, theme them here.
 
    Phone-first: she uses it on a ~390px-wide screen, so every control is a big
    full-width tap target there. On a desktop the same tiles flow into a grid.
@@ -37,7 +43,40 @@
   --mb-gap: 12px;
   --mb-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --mb-shadow: 0 14px 34px -18px hsla(270, 70%, 3%, 0.9), 0 2px 6px -2px hsla(270, 60%, 3%, 0.5);
+
+  /* ── The shared cards' tokens (cards.css), in her colours ──
+     The data palette (--s1…--s6) is the admin dashboard's, unchanged: it is
+     validated on this card surface too (dataviz validator, dark, #1f1727 —
+     colour-blind ΔE 12.3, normal-vision ΔE 21.7, all ≥ 3:1). */
+  --ag-text: var(--mb-text);
+  --ag-text-dim: var(--mb-text-dim);
+  --ag-text-faint: var(--mb-text-faint);
+  --ag-line: var(--mb-line);
+  --ag-line-soft: var(--mb-line-soft);
+  --ag-tile: var(--mb-tile);
+  --ag-tile-hi: hsla(270, 28%, 22%, 0.46);
+  --ag-tile-lo: hsla(270, 24%, 13%, 0.22);
+  --ag-well: hsla(270, 30%, 8%, 0.5);
+  --ag-pop: hsla(270, 30%, 8%, 0.95);
+  --ag-on-acc: hsl(270, 40%, 12%);
+  --ag-surface: #1f1727;
+  --ag-shadow: var(--mb-shadow);
+  --ag-r-tile: var(--mb-r-tile);
+  --ag-r-small: var(--mb-r-small);
+  --ag-ease: var(--mb-ease);
+  --s1: #3c95e8; --s2: #dc6e41; --s3: #00aa98; --s4: #947de4; --s5: #bb8a1b; --s6: #da5e9f;
+  --c-green: #74b9ff;
+  --c-orange: #ff9e72;
+  --c-moss: #45dcc6;
+  --c-purple: var(--mb-accent);
+  --c-rose: #ff8ac4;
+  --ag-good: var(--mb-leaf);
+  --ag-warn: var(--mb-warn);
+  --ag-bad: var(--mb-bad);
 }
+/* Every card's accent is her purple (the admin dashboard gives each card its
+   own hue; hers is one colour on purpose). */
+.widget { --acc: var(--mb-accent); }
 
 /* A soft aurora behind everything — purple from the top, a breath of the
    vine's green from the bottom. Fixed, so it does not scroll with the cards. */
@@ -56,7 +95,7 @@ body {
   position: relative;
   border: 1px solid var(--mb-line);
   border-radius: var(--mb-r-card);
-  padding: 16px 16px 18px 40px;
+  padding: 16px 16px 18px 46px;
   margin-bottom: 6px;
   background: var(--mb-card);
   box-shadow: var(--mb-shadow);
@@ -71,21 +110,46 @@ body {
 }
 
 /* ── Decorative vine rail ─────────────────────────────────────────────────────
-   A climbing stem with alternating green and orchid leaves, running down the
-   inside of each widget's left edge. Inline SVG data URI, so it stays
-   self-contained — this box's offline-first setup rules out fetching an image
-   from anywhere. pointer-events:none so it can never eat a tap meant for a
-   switch. */
+   A climbing vine down the inside of each card's left edge: a gradient main
+   stem with a thinner one twining round it, veined leaves in two greens with
+   young orchid-tinted ones, curling tendrils, five-petal orchid blossoms with
+   gold centres, buds and a little dew — and a larger blossom crowning the top
+   of the card where the vine starts, breathing gently.
+
+   Real SVG files (Resources/MarsBar/vine.svg, bloom.svg — served from Glance's
+   assets dir next to this stylesheet, so the relative url() resolves), not a
+   URL-encoded string in here. vine.svg is ONE seamless 240px tile: the stem
+   leaves the bottom at exactly the x and slope it entered the top, so it
+   repeats with no visible join. Each card starts the pattern at a different
+   point (nth-child below), so the cards never look stamped from one mould.
+   pointer-events:none so it can never eat a tap meant for a switch. */
 .widget::before {
   content: "";
   position: absolute;
-  left: 7px; top: 14px; bottom: 14px;
-  width: 26px;
+  left: 4px; top: 36px; bottom: 14px;
+  width: 36px;
   pointer-events: none;
-  opacity: 0.8;
-  background-repeat: repeat-y;
-  background-position: top center;
-  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='26' height='140' viewBox='0 0 26 140'><path d='M13 0 C4 24 22 46 13 70 C4 94 22 116 13 140' fill='none' stroke='%236fc79a' stroke-width='1.5' opacity='.5'/><ellipse cx='6' cy='26' rx='6' ry='3.2' fill='%236fc79a' opacity='.5' transform='rotate(-32 6 26)'/><ellipse cx='20' cy='58' rx='6' ry='3.2' fill='%23c77fe0' opacity='.45' transform='rotate(32 20 58)'/><ellipse cx='6' cy='96' rx='6' ry='3.2' fill='%236fc79a' opacity='.5' transform='rotate(-32 6 96)'/><ellipse cx='20' cy='128' rx='6' ry='3.2' fill='%23c77fe0' opacity='.45' transform='rotate(32 20 128)'/></svg>");
+  opacity: 0.9;
+  background: url("vine.svg") repeat-y 0 0;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
+}
+.widget:nth-child(3n + 2)::before { background-position: 0 -80px; }
+.widget:nth-child(3n)::before { background-position: 0 -160px; }
+/* The crown — hung off the header, since .widget::after is the top hairline. */
+.widget > .widget-header::before {
+  content: "";
+  position: absolute;
+  left: 2px; top: 4px;
+  width: 40px; height: 40px;
+  pointer-events: none;
+  background: url("bloom.svg") no-repeat center / contain;
+  filter: drop-shadow(0 0 6px hsla(285, 80%, 70%, 0.45));
+  animation: mb-bloom 6s ease-in-out infinite alternate;
+}
+@keyframes mb-bloom {
+  from { filter: drop-shadow(0 0 4px hsla(285, 80%, 70%, 0.30)); }
+  to   { filter: drop-shadow(0 0 10px hsla(300, 85%, 75%, 0.60)); }
 }
 
 /* Gradient hairline across the top — purple into green, tying the vine colour
@@ -177,8 +241,7 @@ html[data-ha-link="offline"] .mb-live i {
    One column on a phone (a two-up grid there only bought cramped labels and
    smaller tap targets); on a wider screen the lamps flow into a grid under the
    full-width master switch. */
-.mb-lights,
-.mb-acts {
+.mb-lights {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: var(--mb-gap);
@@ -369,96 +432,6 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
   animation: mb-shake 0.4s ease;
 }
 
-/* ── TV box (Eclipse) ─────────────────────────────────────────────────────── */
-.mb-tv { display: flex; flex-direction: column; gap: var(--mb-gap); }
-.mb-tv .mb-sec { margin-top: 6px; }
-.mb-tv-head { display: flex; align-items: center; gap: 13px; padding: 2px 2px 0; min-height: 44px; }
-.mb-tv-dot {
-  width: 13px; height: 13px; border-radius: 50%; flex: none;
-  background: hsla(270, 10%, 55%, 0.5);
-  transition: background 0.3s ease, box-shadow 0.3s ease;
-}
-[data-tv="checking"] .mb-tv-dot { animation: mb-blink 1.2s ease-in-out infinite; }
-[data-tv="ok"] .mb-tv-dot { background: hsl(150, 62%, 56%); box-shadow: 0 0 14px hsla(150, 62%, 56%, 0.7); }
-[data-tv="bad"] .mb-tv-dot { background: var(--mb-bad); box-shadow: 0 0 14px hsla(348, 76%, 64%, 0.7); }
-.mb-tv-h { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.mb-tv-state { font-size: 1.7rem; font-weight: 600; color: var(--mb-text); }
-.mb-tv-sub { font-size: 1.25rem; color: var(--mb-text-dim); }
-
-.mb-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
-.mb-stat {
-  display: flex; flex-direction: column; gap: 5px;
-  padding: 11px 12px;
-  border-radius: var(--mb-r-small);
-  border: 1px solid var(--mb-line-soft);
-  background: hsla(270, 25%, 18%, 0.38);
-  min-width: 0;
-}
-.mb-stat-k {
-  font-size: 1rem; text-transform: uppercase; letter-spacing: 0.12em;
-  color: var(--mb-text-faint);
-}
-.mb-stat-v {
-  font-size: 1.4rem; font-weight: 600; color: hsl(272, 70%, 87%);
-  line-height: 1.25;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-
-/* Action cards reuse .mb-light's shape but never light up — they fire and
-   return, so a toggle switch would be a lie. */
-.mb-act { min-height: 72px; background: hsla(270, 25%, 19%, 0.45); }
-.mb-act:disabled { cursor: progress; opacity: 0.6; }
-.mb-go {
-  font-size: 2.4rem; line-height: 1; flex: none;
-  color: hsla(272, 55%, 80%, 0.5);
-  transition: transform 0.25s var(--mb-ease), color 0.25s ease;
-}
-@media (hover: hover) {
-  .mb-act:hover .mb-go { transform: translateX(3px); color: var(--mb-accent); }
-}
-.mb-act.busy { border-color: hsla(272, 70%, 72%, 0.6); }
-.mb-act.busy .mb-ico { animation: mb-spin 1.1s linear infinite; color: var(--mb-accent); }
-
-.mb-log {
-  font-size: 1.25rem;
-  line-height: 1.35;
-  color: var(--mb-text-dim);
-  padding: 11px 14px;
-  border-radius: 11px;
-  border: 1px solid var(--mb-line-soft);
-  background: hsla(270, 22%, 10%, 0.5);
-  min-height: calc(1.35em + 22px);
-  transition: color 0.25s ease, border-color 0.25s ease;
-}
-.mb-log.busy { color: var(--mb-accent); }
-.mb-log.ok   { color: hsl(150, 55%, 74%); border-color: hsla(150, 50%, 60%, 0.25); }
-.mb-log.bad  { color: hsl(348, 76%, 76%); border-color: hsla(348, 76%, 64%, 0.3); }
-
-/* ── Live network graphs ──────────────────────────────────────────────────── */
-.mb-nets { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
-.mb-net {
-  padding: 13px 14px 11px;
-  border-radius: 14px;
-  border: 1px solid var(--mb-line-soft);
-  background: linear-gradient(170deg, hsla(270, 26%, 20%, 0.42), hsla(268, 22%, 13%, 0.2));
-}
-.mb-net-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.mb-net-now { font-size: 2rem; font-weight: 700; color: hsl(272, 75%, 87%); font-variant-numeric: tabular-nums; }
-.mb-net-arrow { margin-right: 6px; color: hsl(272, 70%, 74%); }
-.mb-net-upload .mb-net-arrow { color: hsl(198, 70%, 70%); }
-.mb-net-unit { font-size: 1.15rem; font-weight: 500; color: var(--mb-text-faint); }
-.mb-net-label {
-  font-size: 1rem; text-transform: uppercase; letter-spacing: 0.14em;
-  color: var(--mb-text-faint);
-}
-.mb-net-svg { width: 100%; height: 58px; display: block; margin: 6px 0 4px; }
-.mb-net-line { fill: none; stroke: hsl(272, 72%, 74%); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
-.mb-net-fill { fill: hsla(272, 70%, 62%, 0.16); stroke: none; }
-.mb-net-upload .mb-net-line { stroke: hsl(198, 70%, 68%); }
-.mb-net-upload .mb-net-fill { fill: hsla(198, 70%, 60%, 0.14); }
-.mb-net-foot { font-size: 1.1rem; color: var(--mb-text-faint); font-variant-numeric: tabular-nums; }
-.mb-net-iface { font-size: 1.05rem; color: hsla(270, 20%, 90%, 0.36); padding: 10px 2px 0; }
-
 /* ── Media links — bigger, readable tap targets ──────────────────────────── */
 .widget-type-monitor .monitor-site {
   border-radius: var(--mb-r-small);
@@ -475,8 +448,9 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
 
 /* ── Narrow phones ────────────────────────────────────────────────────────── */
 @media (max-width: 420px) {
-  .widget { padding: 14px 12px 16px 34px; }
-  .widget::before { left: 4px; }
+  .widget { padding: 14px 12px 16px 38px; }
+  .widget::before { left: 1px; }
+  .widget > .widget-header::before { left: -1px; }
   .mb-light { gap: 12px; padding: 13px 13px 13px 15px; }
   .mb-hero { padding: 16px 14px 16px 19px; }
 }
@@ -487,7 +461,6 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
   100% { box-shadow: 0 0 0 9px hsla(272, 90%, 85%, 0); }
 }
 @keyframes mb-blink { 50% { opacity: 0.35; } }
-@keyframes mb-spin { to { transform: rotate(360deg); } }
 @keyframes mb-shake {
   25% { transform: translateX(-4px); }
   75% { transform: translateX(4px); }

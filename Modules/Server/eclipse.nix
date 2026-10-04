@@ -1,7 +1,7 @@
 { ... }: {
-  # Asgard — the Eclipse control endpoint: the button panel + status JSON behind
-  # Glance's Eclipse page, driving the LibreELEC TV box over SSH. See
-  # Claude/eclipse.md.
+  # Asgard — the Eclipse control endpoint: the JSON API + live event stream
+  # behind Glance's Eclipse page and MarsBar's TV card, driving the LibreELEC TV
+  # box over SSH. See Claude/eclipse.md.
   #
   # Part of `flake.nixosModules.server`: every Modules/Server/*.nix file except
   # home-assistant.nix, marsbar.nix and _lib.nix defines that same module, and the
@@ -13,8 +13,10 @@
   in
   {
 
-    # Eclipse control endpoint — button panel + status JSON, embedded in Glance
-    # as an iframe. Drives the LibreELEC TV box (100.80.62.3) over SSH.
+    # Eclipse control endpoint — status JSON, /events (SSE) and the /act/ verbs.
+    # The admin Glance draws its Eclipse page natively from /events
+    # (Resources/Glance/eclipse.js); it used to iframe a page this served.
+    # Drives the LibreELEC TV box (100.80.62.3) over SSH.
     #
     # SSH not Kodi JSON-RPC on purpose: the headline action is "restart Kodi when
     # it has wedged", and a wedged Kodi cannot answer its own API. Kodi's HTTP
@@ -44,18 +46,16 @@
         ECLIPSE_HOST = "100.80.62.3";
         ECLIPSE_KEY = config.sops.secrets."eclipse-ssh-key".path;
         ECLIPSE_PORT = "9554";
-        # Glance renders in JetBrains Mono but embeds the font in its Go binary
-        # and lives on another port, so the iframe can't borrow it cross-origin.
-        # Serve our own copy to keep the panel typographically native.
-        ECLIPSE_FONT_DIR = "${pkgs.jetbrains-mono}/share/fonts/WOFF2";
         # The dashboards allowed to call /act/* cross-origin (comma-separated).
         # Generated from the same list ha-bridge uses, so the backends cannot
         # drift apart — see Modules/Server/_origins.nix.
         DASH_ORIGINS = lib.concatStringsSep "," (import ./_origins.nix config.asgard);
-        # wolf-bridge on Sisyphus (Modules/Gaming/wolf.nix): the Eclipse panel's
+        # wolf-bridge on Sisyphus (Modules/Gaming/wolf.nix): the Eclipse page's
         # "Streams" card lists Wolf's sessions and can end a stuck one. The
-        # bridge answers only Asgard's tailnet IP, so the panel proxies it.
+        # bridge answers only Asgard's tailnet IP, so this proxies it.
         WOLF_BRIDGE_URL = "http://sisyphus:9560";
+        # "On the TV": Jellyfin's session list, filtered to the Kodi addon.
+        JELLYFIN_URL = "http://127.0.0.1:8096";
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${../../Resources/Eclipse-Control/eclipse-control.py}";
@@ -69,6 +69,8 @@
         # run commands on the Pi without the key.
         RuntimeDirectory = "eclipse-control";
         RuntimeDirectoryMode = "0700";
+        # For "On the TV" — read from $CREDENTIALS_DIRECTORY, never a shared path.
+        LoadCredential = [ "jellyfin-api-key:${config.sops.secrets."jellyfin-api-key".path}" ];
       };
     };
 

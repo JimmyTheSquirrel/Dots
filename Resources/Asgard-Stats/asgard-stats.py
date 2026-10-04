@@ -17,7 +17,15 @@ service runs as a DynamicUser (Modules/Server/stats.nix):
   every 60 s  filesystem usage of every disk's mount and the mergerfs pool —
               os.path.ismount first: a missing `nofail` disk must read as
               "not mounted", not as the NVMe's numbers through an empty dir
-  every 10 s  Jellyfin "now playing" (API key via systemd credential)
+
+and, ONLY while at least one dashboard is connected (they are HTTP calls into
+other services, so nobody watching means nobody asked):
+
+  every 10 s  Jellyfin "now playing"            (API key: systemd credential)
+  every 3 s   SABnzbd queue, every 60 s its history (API key: systemd credential)
+
+The /proc samples keep running regardless — they cost microseconds, and the
+CPU/memory history a newly opened page draws has to have no holes.
 
 Drive temperature / SMART health / spin state need root, so a separate timer
 (asgard-smart, every 5 min) runs `smartctl -n standby` — which never wakes a
@@ -39,10 +47,12 @@ POOL = os.environ.get("POOL_MOUNT", "/data/media")
 SMART_FILE = os.environ.get("SMART_FILE", "/var/lib/asgard-smart/smart.json")
 DISKS = json.loads(os.environ.get("ASGARD_DISKS", "[]"))  # [{id,label,dev,mount}]
 JF_URL = os.environ.get("JELLYFIN_URL", "http://127.0.0.1:8096").rstrip("/")
+SAB_URL = os.environ.get("SABNZBD_URL", "http://127.0.0.1:8080").rstrip("/")
 ORIGINS = frozenset(
     o.strip() for o in os.environ.get("DASH_ORIGINS", "").split(",") if o.strip()
 )
 FAST, SLOW, JF_EVERY = 2.0, 60.0, 10.0
+SAB_EVERY, SAB_HIST_EVERY = 3.0, 60.0
 HIST = 90  # samples of history handed to a new client: 90 × 2 s = the chart's 3 min
 
 
@@ -54,9 +64,9 @@ def read(path, default=""):
         return default
 
 
-def jf_key():
+def credential(name):
     cred = os.environ.get("CREDENTIALS_DIRECTORY")
-    return read(os.path.join(cred, "jellyfin-api-key")) if cred else ""
+    return read(os.path.join(cred, name)) if cred else ""
 
 
 # ── Fast samples ──────────────────────────────────────────────────────────────
@@ -168,7 +178,7 @@ def disks_sample():
 
 
 def jellyfin_sample():
-    key = jf_key()
+    key = credential("jellyfin-api-key")
     if not key:
         return None
     req = urllib.request.Request(JF_URL + "/Sessions?activeWithinSeconds=90",
@@ -193,6 +203,7 @@ def jellyfin_sample():
         pos = ps.get("PositionTicks") or 0
         out.append({
             "user": s.get("UserName", ""), "device": s.get("DeviceName", ""),
+            "client": s.get("Client", ""),
             # Whose Primary image to show: the series' poster for an episode, the
             # album's cover for a track, else the item's own. The page loads it
             # from Jellyfin directly — image endpoints need no token.
@@ -208,6 +219,82 @@ def jellyfin_sample():
     return out
 
 
+def _sab(mode, **params):
+    key = credential("sabnzbd-api-key")
+    if not key:
+        return None
+    q = "&".join(f"{k}={v}" for k, v in params.items())
+    url = f"{SAB_URL}/api?mode={mode}&output=json&apikey={key}" + (f"&{q}" if q else "")
+    try:
+        with urllib.request.urlopen(url, timeout=3) as r:
+            return json.load(r)
+    except (OSError, ValueError):
+        return None
+
+
+def _hms(t):
+    """SAB's "1:02:03" / "0:06:35" time-left string → seconds."""
+    try:
+        parts = [int(x) for x in str(t).split(":")]
+    except ValueError:
+        return None
+    sec = 0
+    for x in parts:
+        sec = sec * 60 + x
+    return sec
+
+
+def _f(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def sab_queue():
+    """The live queue: what is downloading, how fast, how long. None = SAB down."""
+    j = _sab("queue", limit=4)
+    if not j or "queue" not in j:
+        return None
+    q = j["queue"]
+    return {
+        "status": q.get("status", ""),          # Downloading / Paused / Idle
+        "paused": bool(q.get("paused")),
+        "mbps": round(_f(q.get("kbpersec")) * 8 / 1000, 1),
+        "left_mb": round(_f(q.get("mbleft")), 1),
+        "eta_s": _hms(q.get("timeleft")),
+        "count": int(_f(q.get("noofslots_total"))),
+        "slots": [{
+            "name": sl.get("filename", ""),
+            "cat": sl.get("cat", ""),
+            "pct": _f(sl.get("percentage")),
+            "mb": round(_f(sl.get("mb")), 1),
+            "left_mb": round(_f(sl.get("mbleft")), 1),
+            "eta_s": _hms(sl.get("timeleft")),
+            "status": sl.get("status", ""),
+        } for sl in q.get("slots", [])[:4]],
+    }
+
+
+def sab_history():
+    """The last few finished jobs, plus SAB's own day/week/month totals."""
+    j = _sab("history", limit=5)
+    if not j or "history" not in j:
+        return None
+    h = j["history"]
+    return {
+        "day": h.get("day_size", ""), "week": h.get("week_size", ""), "month": h.get("month_size", ""),
+        "items": [{
+            "name": it.get("name", ""),
+            "cat": it.get("category", ""),
+            "status": it.get("status", ""),     # Completed / Failed / (post-processing stages)
+            "bytes": int(_f(it.get("bytes"))),
+            "done": int(_f(it.get("completed"))) or None,
+            "error": it.get("fail_message", "") or "",
+        } for it in h.get("slots", [])[:5]],
+    }
+
+
 # ── State + fan-out ───────────────────────────────────────────────────────────
 
 _cond = threading.Condition()
@@ -215,6 +302,8 @@ _snap = {"version": 0, "body": b""}
 # Kept here, not just in the browser, so a freshly opened page draws a full
 # chart at once instead of growing one from the right for three minutes.
 _hist = {"cpu": deque(maxlen=HIST), "mem": deque(maxlen=HIST), "ts": None}
+_watchers = {"n": 0}  # open /stream connections; 0 → skip the HTTP-backed samples
+_wake = threading.Event()  # a viewer just connected: sample now, don't wait out FAST
 
 
 def publish(data):
@@ -229,16 +318,30 @@ def publish(data):
 
 
 def sampler():
-    slow_at = jf_at = 0.0
-    disks, pool, smart_at, streams = [], {}, None, None
+    slow_at = jf_at = sab_at = sabh_at = 0.0
+    disks, pool, smart_at, streams, sab, sabh = [], {}, None, None, None, None
     while True:
         now = time.time()
+        watched = _watchers["n"] > 0
         if now - slow_at >= SLOW:
             disks, pool, smart_at = disks_sample()
             slow_at = now
-        if now - jf_at >= JF_EVERY:
-            streams = jellyfin_sample()
-            jf_at = now
+        if not watched:
+            # Nobody to show it to: forget both the timers and the values, so a
+            # new viewer is never shown what was playing an hour ago. `media`
+            # tells the page whether these fields are real yet.
+            jf_at = sab_at = sabh_at = 0.0
+            streams = sab = sabh = None
+        else:
+            if now - jf_at >= JF_EVERY:
+                streams = jellyfin_sample()
+                jf_at = now
+            if now - sab_at >= SAB_EVERY:
+                sab = sab_queue()
+                sab_at = now
+            if now - sabh_at >= SAB_HIST_EVERY:
+                sabh = sab_history()
+                sabh_at = now
         temps, fans = hwmon_sample()
         load = read("/proc/loadavg").split()[:3]
         publish({
@@ -248,8 +351,11 @@ def sampler():
             "cpu": cpu_sample(), "mem": mem_sample(), "temps": temps, "fans": fans,
             "net": net_sample(now), "disks": disks, "pool": pool, "smart_at": smart_at,
             "streams": streams,
+            "downloads": dict(sab, history=sabh) if sab else None,
+            "media": watched,
         })
-        time.sleep(max(0.2, FAST - (time.time() - now)))
+        _wake.wait(max(0.2, FAST - (time.time() - now)))
+        _wake.clear()
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -288,6 +394,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._cors()
         self.end_headers()
         seen, last_ping = -1, time.time()
+        with _cond:
+            _watchers["n"] += 1
+        _wake.set()
         try:
             with _cond:
                 hist = {k: list(v) if isinstance(v, deque) else v for k, v in _hist.items()}
@@ -306,6 +415,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
             return
+        finally:
+            with _cond:
+                _watchers["n"] -= 1
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):

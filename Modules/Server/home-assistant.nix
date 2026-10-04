@@ -28,6 +28,8 @@
     haBridgeConfig = pkgs.writeText "ha-bridge.json" (builtins.toJSON {
       allowed = inventory.toggleable;
       watched = inventory.watched;
+      # Charted on the Power page from HA's history API (GET /history).
+      history = map (p: p.power) inventory.plugs;
       # The pages allowed to call it cross-origin (and so to pass the
       # preflight its X-Dash header forces) — see Modules/Server/_origins.nix.
       # config.asgard is declared by nixosModules.server (default.nix), which

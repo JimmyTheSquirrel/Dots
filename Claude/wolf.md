@@ -685,9 +685,11 @@ points nowhere near the real cause. Add its class to the gate.
 
 ## Session control — `wolf-bridge` (added 2026-10-03)
 
-The Eclipse panel on Asgard's Glance lists Wolf's sessions and can stop one —
-the fix for the "Wolf never reaps the session" problem above when it happens
-outside the stuck-pad case the reaper catches.
+The Eclipse panel lists Wolf's sessions and can end one (two taps) — on the admin
+Glance AND on MarsBar, which share the panel (`Resources/Glance/eclipse.js`) — the
+fix for the "Wolf never reaps the session" problem above when it happens outside
+the stuck-pad case the reaper catches. Every end is logged in the panel's shared
+activity list, whichever dashboard did it.
 
 - **Service:** `wolf-bridge` on Sisyphus (`Modules/Gaming/wolf.nix`, script
   `Resources/Wolf-Bridge/wolf-bridge.py`), port **9560**.

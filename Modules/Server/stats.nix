@@ -5,7 +5,8 @@
   # Glance's built-in server-stats widget showed three tiny bars (CPU, RAM, one
   # disk) refreshed on page load. This replaces it with a stream: CPU per core,
   # temperatures, fans, memory, LAN throughput, every disk + the mergerfs pool,
-  # drive health, and what Jellyfin is playing — pushed to the page every 2 s
+  # drive health, what Jellyfin is playing and what SABnzbd is downloading —
+  # pushed to the page every 2 s
   # over Server-Sent Events (Resources/Asgard-Stats/asgard-stats.py, rendered by
   # Resources/Glance/stats.js).
   #
@@ -84,13 +85,20 @@
         SMART_FILE = smartFile;
         ASGARD_DISKS = builtins.toJSON disks;
         JELLYFIN_URL = "http://127.0.0.1:8096";
+        # The socat proxy into the Mullvad namespace (downloads.nix) — the same
+        # path Glance and speedtest.service use.
+        SABNZBD_URL = "http://127.0.0.1:8080";
         DASH_ORIGINS = lib.concatStringsSep "," (import ./_origins.nix config.asgard);
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${../../Resources/Asgard-Stats/asgard-stats.py}";
         DynamicUser = true;
-        # For the "now playing" card; read once per poll from the credentials dir.
-        LoadCredential = [ "jellyfin-api-key:${config.sops.secrets."jellyfin-api-key".path}" ];
+        # Now Playing and Downloads; read per poll from the credentials dir, and
+        # only polled while a dashboard is connected.
+        LoadCredential = [
+          "jellyfin-api-key:${config.sops.secrets."jellyfin-api-key".path}"
+          "sabnzbd-api-key:${config.sops.secrets."sabnzbd-api-key".path}"
+        ];
         Restart = "always";
         RestartSec = 5;
         ProtectSystem = "strict";

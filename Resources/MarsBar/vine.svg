@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="240" viewBox="0 0 36 240"><!-- MarsBar vine rail: one seamless 240px tile (x(0) == x(240), same slope), repeated down each card's left edge. Generated — see marsbar.css. --><style>.t{fill:none;stroke:#4fae82;stroke-width:.7;stroke-linecap:round;opacity:.85}.d{fill:#d8fff0;opacity:.55}</style><defs>
+  <linearGradient id="st" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#5ec495"/><stop offset=".5" stop-color="#3f9a74"/><stop offset="1" stop-color="#5ec495"/>
+  </linearGradient>
+  <linearGradient id="lf" x1="0" y1="-6" x2="16" y2="4" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#8fe0b4"/><stop offset=".55" stop-color="#55b98a"/><stop offset="1" stop-color="#2f7f5d"/>
+  </linearGradient>
+  <linearGradient id="ly" x1="0" y1="-6" x2="16" y2="4" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#d9b3f5"/><stop offset=".6" stop-color="#a77ad8"/><stop offset="1" stop-color="#6e4aa6"/>
+  </linearGradient>
+  <radialGradient id="pt" cx="0" cy="0" r="6" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#ffe3f4"/><stop offset=".45" stop-color="#e59ae6"/><stop offset="1" stop-color="#9b5fd0"/>
+  </radialGradient>
+  <g id="leaf">
+    <path d="M0 0 C3 -5.6 10 -7.6 17 -1.6 C10.6 4.6 3.6 4.1 0 0Z" fill="url(#lf)"/>
+    <path d="M0.8 0 Q8 -1.4 16.2 -1.6" fill="none" stroke="#c9f5dc" stroke-opacity=".55" stroke-width=".55"/>
+    <path d="M4.6 -0.5 L7.4 -4.1 M8.6 -1 L11.6 -4.4 M12.2 -1.3 L14.2 -3.4 M4.6 -0.5 L7.6 2.3 M8.6 -1 L11.4 1.6" fill="none" stroke="#c9f5dc" stroke-opacity=".35" stroke-width=".4"/>
+  </g>
+  <g id="leafy">
+    <path d="M0 0 C3 -5.6 10 -7.6 17 -1.6 C10.6 4.6 3.6 4.1 0 0Z" fill="url(#ly)"/>
+    <path d="M0.8 0 Q8 -1.4 16.2 -1.6" fill="none" stroke="#f1dcff" stroke-opacity=".5" stroke-width=".55"/>
+  </g>
+  <g id="bloom">
+    <g fill="url(#pt)">
+      <ellipse cx="0" cy="-3.6" rx="2.5" ry="3.9"/>
+      <ellipse cx="0" cy="-3.6" rx="2.5" ry="3.9" transform="rotate(72)"/>
+      <ellipse cx="0" cy="-3.6" rx="2.5" ry="3.9" transform="rotate(144)"/>
+      <ellipse cx="0" cy="-3.6" rx="2.5" ry="3.9" transform="rotate(216)"/>
+      <ellipse cx="0" cy="-3.6" rx="2.5" ry="3.9" transform="rotate(288)"/>
+    </g>
+    <circle r="1.7" fill="#f3c55f"/>
+    <g fill="#fff4d0"><circle cx=".9" cy="-.6" r=".35"/><circle cx="-.8" cy="-.4" r=".3"/><circle cx="0" cy=".9" r=".3"/></g>
+  </g>
+  <g id="bud">
+    <path d="M0 0 C-2.2 -2 -1.8 -5.4 0 -7 C1.8 -5.4 2.2 -2 0 0Z" fill="url(#pt)"/>
+    <path d="M-1.6 -.4 Q0 -2.4 1.6 -.4" fill="#4fae82"/>
+  </g>
+</defs><path d="M20.59 0 L20.14 4 L19.60 8 L18.99 12 L18.33 16 L17.66 20 L17.01 24 L16.40 28 L15.86 32 L15.41 36 L15.08 40 L14.87 44 L14.80 48 L14.87 52 L15.08 56 L15.41 60 L15.86 64 L16.40 68 L17.01 72 L17.67 76 L18.34 80 L18.99 84 L19.60 88 L20.14 92 L20.59 96 L20.92 100 L21.13 104 L21.20 108 L21.13 112 L20.92 116 L20.59 120 L20.14 124 L19.60 128 L18.99 132 L18.33 136 L17.66 140 L17.01 144 L16.40 148 L15.86 152 L15.41 156 L15.08 160 L14.87 164 L14.80 168 L14.87 172 L15.08 176 L15.41 180 L15.86 184 L16.40 188 L17.01 192 L17.67 196 L18.34 200 L18.99 204 L19.60 208 L20.14 212 L20.59 216 L20.92 220 L21.13 224 L21.20 228 L21.13 232 L20.92 236 L20.59 240" fill="none" stroke="#3c8f6b" stroke-width=".9" opacity=".55"/><path d="M18.00 0 L16.96 4 L15.97 8 L15.06 12 L14.28 16 L13.67 20 L13.24 24 L13.03 28 L13.03 32 L13.24 36 L13.67 40 L14.28 44 L15.06 48 L15.97 52 L16.96 56 L18.00 60 L19.04 64 L20.03 68 L20.94 72 L21.72 76 L22.33 80 L22.76 84 L22.97 88 L22.97 92 L22.76 96 L22.33 100 L21.72 104 L20.94 108 L20.03 112 L19.04 116 L18.00 120 L16.96 124 L15.97 128 L15.06 132 L14.28 136 L13.67 140 L13.24 144 L13.03 148 L13.03 152 L13.24 156 L13.67 160 L14.28 164 L15.06 168 L15.97 172 L16.96 176 L18.00 180 L19.04 184 L20.03 188 L20.94 192 L21.72 196 L22.33 200 L22.76 204 L22.97 208 L22.97 212 L22.76 216 L22.33 220 L21.72 224 L20.94 228 L20.03 232 L19.04 236 L18.00 240" fill="none" stroke="url(#st)" stroke-width="1.9" stroke-linecap="round"/><path d="M18.52 62 c3 -2 6 -1 6.5 2 c0.4 2.6 -2.2 3.6 -3.4 1.8 c-0.9 -1.3 0.2 -2.6 1.4 -1.9" class="t"/><path d="M15.97 128 c-3 -2 -6 -1 -6.5 2 c-0.4 2.6 2.2 3.6 3.4 1.8 c0.9 -1.3 -0.2 -2.6 -1.4 -1.9" class="t"/><path d="M20.50 190 c-3 -2 -6 -1 -6.5 2 c-0.4 2.6 2.2 3.6 3.4 1.8 c0.9 -1.3 -0.2 -2.6 -1.4 -1.9" class="t"/><use href="#leaf" transform="translate(13.03 28) rotate(202) scale(0.78)"/><use href="#leafy" transform="translate(14.28 44) rotate(8) scale(0.52)"/><use href="#leaf" transform="translate(22.97 88) rotate(-22) scale(0.74)"/><use href="#leafy" transform="translate(21.72 104) rotate(177) scale(0.5)"/><use href="#leaf" transform="translate(13.00 150) rotate(202) scale(0.7)"/><use href="#leaf" transform="translate(22.89 206) rotate(-22) scale(0.8)"/><use href="#leafy" transform="translate(22.05 222) rotate(172) scale(0.46)"/><use href="#leaf" transform="translate(16.96 176) rotate(13) scale(0.42)"/><path d="M13.67 140 Q17.67 139 20.67 137" class="t"/><use href="#bloom" transform="translate(20.67 137) scale(0.95)"/><path d="M20.94 72 Q17.94 73 14.94 70" class="t"/><use href="#bud" transform="translate(14.94 70) rotate(-35)"/><path d="M20.03 232 Q23.03 233 26.03 230" class="t"/><use href="#bud" transform="translate(26.03 230) rotate(35)"/><path d="M14.28 16 Q18.28 15 21.28 13" class="t"/><use href="#bloom" transform="translate(21.28 13) scale(0.62)"/><circle cx="10.47" cy="52" r="0.9" class="d"/><circle cx="23.52" cy="118" r="0.7" class="d"/><circle cx="17.22" cy="196" r="0.8" class="d"/></svg>

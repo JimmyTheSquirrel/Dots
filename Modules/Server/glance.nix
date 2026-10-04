@@ -26,6 +26,7 @@
     tsPort = 9553;     # tailscale-status-proxy (network.nix) — the tailnet list
     haPort = 8123;     # Home Assistant — the power figures (/api/template)
     sabPort = 8080;    # SABnzbd, via the socat proxy into the Mullvad namespace
+    eclipsePort = 9554; # eclipse-control (eclipse.nix) — the Eclipse page
     jellyfinPort = 8096; # also where Now Playing's posters load from
 
     # ── Assets (served at /assets/) ─────────────────────────────────────────
@@ -35,15 +36,24 @@
     # config (see Claude/marsbar.md). Same pattern as MarsBar.
     #
     # lights.js is SHARED with MarsBar — one push client, so both dashboards
-    # behave the same and a fix lands on both.
+    # behave the same and a fix lands on both. dash.js is the helpers the
+    # live cards share (stream lifecycle, DOM morphing, sparklines).
     assetFiles = {
       "yggdrasil.png" = ../../Resources/Glance/yggdrasil-banner.png;
+      # the world tree behind the page, and the runes heading each card
+      "ygg-bg.svg" = ../../Resources/Glance/ygg-bg.svg;
       "asgard.css" = ../../Resources/Glance/asgard.css;
-      "asgard.js" = ../../Resources/Glance/asgard.js;
+      "cards.css" = ../../Resources/Glance/cards.css;
+      "dash.js" = ../../Resources/Glance/dash.js;
       "lights.js" = ../../Resources/Glance/lights.js;
+      "asgard.js" = ../../Resources/Glance/asgard.js;
       "stats.js" = ../../Resources/Glance/stats.js;
+      "net.js" = ../../Resources/Glance/net.js;
+      "eclipse.js" = ../../Resources/Glance/eclipse.js;
     };
-    glanceAssets = pkgs.linkFarm "glance-assets" assetFiles;
+    runeFiles = lib.mapAttrs' (f: _: lib.nameValuePair "runes/${f}" (../../Resources/Glance/runes + "/${f}"))
+      (builtins.readDir ../../Resources/Glance/runes);
+    glanceAssets = pkgs.linkFarm "glance-assets" (assetFiles // runeFiles);
 
     # Glance serves /assets/ with a 2h Cache-Control, so a script URL that never
     # changes would keep running the OLD code for up to two hours after a
@@ -52,12 +62,7 @@
     asset = name:
       "/assets/${name}?v=${builtins.substring 0 10 (builtins.hashFile "sha256" assetFiles.${name})}";
 
-    # ── Power dashboard tunables (Monitoring page) ──
-    #
-    # Reference ceiling for the draw bar, in watts. Deliberately NOT the plug's
-    # 3680 W rating: against that scale an idling server sits at ~1% and the bar
-    # never visibly moves. Set it near this box's realistic peak instead.
-    powerRefW = 150;
+    # ── Power page tunables ──
     #
     # Electricity tariff in $/kWh — REAL, from the GloBird GLOSAVE offer
     # (NSW / Ausgrid), replacing the earlier guess of 0.32.
@@ -90,10 +95,9 @@
     # SERVICES — the one list behind every monitor on the dashboard
     # ════════════════════════════════════════════════════════════════════════
     # Service health used to spell each service out twice — once in "All", once
-    # in its category tab — plus a third copy on the Downloads page, so adding a
-    # service meant three edits that could drift. Now:
+    # in its category tab — plus a third copy on the (since removed) Downloads
+    # page, so adding a service meant three edits that could drift. Now:
     #   tab     its category tab (it is always in "All" too)
-    #   alsoOn  other pages that show it ("downloads" → the Downloads page Status)
     # Every one of these is a live unit in Modules/Server/ or home-assistant.nix;
     # the metrics stack, Kavita and Komga were removed along with their monitors.
     #
@@ -108,8 +112,8 @@
       { title = "Jellyseerr";     port = 5055;  icon = "sh:jellyseerr";     tab = "Media"; }
       { title = "Immich";         port = 2283;  icon = "sh:immich";         tab = "Media"; }
       { title = "Audiobookshelf"; port = 13378; icon = "sh:audiobookshelf"; tab = "Media"; }
-      { title = "SABnzbd";        port = sabPort; icon = "sh:sabnzbd";      tab = "Downloads"; alsoOn = [ "downloads" ]; }
-      { title = "Prowlarr";       port = 9696;  icon = "sh:prowlarr";       tab = "Downloads"; alsoOn = [ "downloads" ]; }
+      { title = "SABnzbd";        port = sabPort; icon = "sh:sabnzbd";      tab = "Downloads"; }
+      { title = "Prowlarr";       port = 9696;  icon = "sh:prowlarr";       tab = "Downloads"; }
       { title = "Sonarr";         port = 8989;  icon = "sh:sonarr";         tab = "Arr"; }
       { title = "Radarr";         port = 7878;  icon = "sh:radarr";         tab = "Arr"; }
       { title = "Lidarr";         port = 8686;  icon = "sh:lidarr";         tab = "Arr"; }
@@ -131,7 +135,6 @@
       cache = "1m";
       sites = map (s: { inherit (s) title icon; url = at s.port; }) list;
     };
-    onPage = page: builtins.filter (s: builtins.elem page (s.alsoOn or [ ])) services;
 
     # ════════════════════════════════════════════════════════════════════════
     # LIGHTS + POWER — markup for lights.js / asgard.js
@@ -150,6 +153,12 @@
     # derived from the same inventory, is what actually refuses them.
     lamps = inventory.lights;
     machines = inventory.machines;
+    # Each plug's data-palette slot (--s1…--s5 in asgard.css), by inventory
+    # order: the colour of its band on the 24 h chart, its legend chip and the
+    # stripe down its card — the same plug, visibly, in all three places.
+    slotOf = p: toString (1 + lib.lists.findFirstIndex (q: q.slug == p.slug) 0 inventory.plugs);
+    dev = p: ''style="--dev: var(--s${slotOf p})"'';
+    sensor = p: name: "sensor.${p.slug}_${name}";
     group = inventory.group;
     spaced = lib.concatStringsSep " ";
     powerOf = ps: spaced (map (p: p.power) ps);
@@ -189,11 +198,14 @@
     bridgeOnCount = ''{{ $on := 0 }}${lib.concatMapStrings (p: ''{{ if eq (.JSON.String "${key p.entity}") "on" }}{{ $on = add $on 1 }}{{ end }}'') lamps}{{ $on }} of ${lampCount} on'';
     bridgeLampWatts = ''{{ printf "%.1f" ${lib.foldl (acc: p: "(add ${acc} ${bridgeWatts p.power})") "0.0" lamps} }}'';
 
-    # Home page: the lights, first thing on the page — the controls that get used
-    # most, reachable without leaving the landing page, on a phone too.
-    homeLights = ''
+    # The lights, first thing on the Power page — every lamp, its switch and
+    # its draw in one place with the rest of the power controls.
+    # Two sections, so the master switch can never be mistaken for a lamp:
+    # GROUPS (the Living Room Lights group — every lamp at once) and LAMPS.
+    lightsCard = ''
       ${liveBadge}
-      <div class="ag-lights">
+      <div class="ag-sec">Groups</div>
+      <div class="ag-lights ag-groups">
         ${lightTile {
           inherit (group) entity name;
           icon = "✦";
@@ -202,6 +214,9 @@
           state = bridgeState group.entity;
           sub = ''<span data-ag-on="${lampRelays}">${bridgeOnCount}</span> · <span data-ag-sum="${powerOf lamps}">${bridgeLampWatts}</span> W'';
         }}
+      </div>
+      <div class="ag-sec">Lamps</div>
+      <div class="ag-lights">
         ${lib.concatMapStrings (p: lightTile {
           inherit (p) entity name icon;
           state = bridgeState p.entity;
@@ -210,8 +225,8 @@
       </div>
     '';
 
-    # ── The shared power query (Monitoring page) ───────────────────────────
-    # ONE Jinja template, generated from the inventory, that every Monitoring
+    # ── The shared power query (Power page) ────────────────────────────────
+    # ONE Jinja template, generated from the inventory, that every Power-page
     # widget POSTs to HA's /api/template. HA renders it server-side and answers
     # JSON: per-plug figures keyed by slug, plus the totals and projections.
     # The four widgets used to carry four hand-written copies with their own
@@ -367,8 +382,14 @@
     # ── Machines: Asgard and Eclipse ──
     # Monitored in full, relay locked. Both are running computers — cutting
     # mains means an unclean stop (Asgard: its own feed, mid-write).
+    # Live: every figure carrying a data-ag-* attribute is repainted by
+    # asgard.js from ha-bridge's stream (it watches V, A, today's kWh and the
+    # wifi signal too — _plugs.nix); the rest are slow-moving page-load values.
+    live = p: name: dp: value: ''<span data-ag-val="${sensor p name}" data-ag-dp="${toString dp}">${value}</span>'';
+    todayCost = p: ''<span data-ag-energy="${sensor p "total_daily_energy"}" data-ag-rate="${powerRate}" data-ag-dp="2">${pf (plug p "today_cost") "$%.2f"}</span>'';
+
     machineCard = p: ''
-      <details class="ag-card" data-ha-entity="${p.entity}" data-ha-state="${ps (plug p "state")}">
+      <details class="ag-card" ${dev p} data-ha-entity="${p.entity}" data-ha-state="${ps (plug p "state")}">
         <summary class="ag-card-head">
           <span class="ag-card-top">
             <span class="ag-chev" aria-hidden="true"></span>
@@ -384,8 +405,8 @@
           <div>
             <div class="ag-sec">Electrical</div>
             <div class="ag-grid">
-              ${stat "Voltage" "${pf (plug p "voltage") "%.1f"} ${unit "V"}"}
-              ${stat "Current" "${pf (plug p "current") "%.3f"} ${unit "A"}"}
+              ${stat "Voltage" "${live p "voltage" 1 (pf (plug p "voltage") "%.1f")} ${unit "V"}"}
+              ${stat "Current" "${live p "current" 3 (pf (plug p "current") "%.3f")} ${unit "A"}"}
               ${stat "Apparent" "${pf (plug p "apparent") "%.1f"} ${unit "VA"}"}
               ${stat "Power factor" (pf (plug p "pf") "%.2f")}
             </div>
@@ -394,7 +415,7 @@
           <div>
             <div class="ag-sec">Real vs apparent</div>
             <div class="pw-pf-bar"><div class="pw-pf-fill" style="width: {{ printf "%.0f" (.JSON.Float "${plug p "pf_pct"}") }}%"></div></div>
-            <div class="pw-legend">
+            <div class="pw-pf-legend">
               <span class="pw-lg-real">${pf (plug p "power") "%.1f"} W real</span>
               <span class="pw-lg-reactive">${pf (plug p "apparent") "%.1f"} VA drawn</span>
             </div>
@@ -403,8 +424,8 @@
           <div>
             <div class="ag-sec">Energy</div>
             <div class="ag-grid">
-              ${stat "Used today" "${pf (plug p "today_kwh") "%.3f"} ${unit "kWh"}"}
-              ${stat "Cost today" (pf (plug p "today_cost") "$%.2f")}
+              ${stat "Used today" "${live p "total_daily_energy" 3 (pf (plug p "today_kwh") "%.3f")} ${unit "kWh"}"}
+              ${stat "Cost today" (todayCost p)}
               ${stat "Since plug boot" "${pf (plug p "total_kwh") "%.3f"} ${unit "kWh"}"}
               ${stat "Plug booted" (sinceBoot p)}
               ${stat "On power loss" (ps (plug p "onstate"))}
@@ -421,7 +442,7 @@
 
     # ── Lamps ──
     lampCard = p: ''
-      <details class="ag-card" data-ha-entity="${p.entity}" data-ha-state="${ps (plug p "state")}">
+      <details class="ag-card" ${dev p} data-ha-entity="${p.entity}" data-ha-state="${ps (plug p "state")}">
         <summary class="ag-card-head">
           <span class="ag-card-top">
             <span class="ag-chev" aria-hidden="true"></span>
@@ -435,9 +456,10 @@
         </summary>
         <div class="ag-card-body">
           <div class="ag-grid">
-            ${stat "Voltage" "${pf (plug p "voltage") "%.1f"} ${unit "V"}"}
-            ${stat "Used today" "${pf (plug p "today_kwh") "%.3f"} ${unit "kWh"}"}
-            ${stat "Signal" "${pf (plug p "signal") "%.0f"} ${unit "%"}"}
+            ${stat "Voltage" "${live p "voltage" 1 (pf (plug p "voltage") "%.1f")} ${unit "V"}"}
+            ${stat "Used today" "${live p "total_daily_energy" 3 (pf (plug p "today_kwh") "%.3f")} ${unit "kWh"}"}
+            ${stat "Cost today" (todayCost p)}
+            ${stat "Signal" "${live p "wifi_signal_percent" 0 (pf (plug p "signal") "%.0f")} ${unit "%"}"}
             ${stat "Address" (ps (plug p "ip"))}
             ${stat "On power loss" (ps (plug p "onstate"))}
             ${stat "Plug booted" (sinceBoot p)}
@@ -446,47 +468,53 @@
       </details>
     '';
 
-    powerMonitoring = powerWidget {
-      title = "Power Monitoring";
-      # The headline watts and relay states are live; this renders the first
-      # frame and the slow figures (V, A, kWh today), so 30s is plenty.
+    allEnergy = spaced (map (p: sensor p "total_daily_energy") inventory.plugs);
+
+    # ── Power: the whole house now, who is drawing it, and the last 24 h ──
+    # The hero, the share bar and the chips are live (ha-bridge's stream). The
+    # chart is ONE line — the house's total — drawn by asgard.js from
+    # ha-bridge's GET /history; hovering it breaks any moment down by plug.
+    # (It was a stacked band per plug, which read as clutter.) The legend chips
+    # double as the series list (data-e / data-n / data-c, inventory order).
+    shareSeg = p: ''<i data-ag-seg="${p.power}" title="${p.name}" style="--dev: var(--s${slotOf p}); flex-grow: {{ printf "%.1f" (.JSON.Float "${plug p "power"}") }}"></i>'';
+    powerOverview = powerWidget {
+      title = "Power";
       cache = "30s";
       template = ''
         <div class="pw">
           <div class="pw-hero">
-            <div><span class="pw-big" data-ag-sum="${powerOf machines}">{{ printf "%.1f" (.JSON.Float "machines") }}</span><span class="pw-big-unit">W</span></div>
-            <div class="pw-trail">combined draw · ${toString (builtins.length machines)} machines<br>{{ printf "$%.4f" (.JSON.Float "rate") }}/kWh balance rate</div>
+            <div><span class="pw-big" data-ag-sum="${allPower}">{{ printf "%.1f" (.JSON.Float "now") }}</span><span class="pw-big-unit">W</span></div>
+            <div class="pw-trail">
+              machines <b><span data-ag-sum="${powerOf machines}">{{ printf "%.1f" (.JSON.Float "machines") }}</span> W</b> ·
+              lights <b><span data-ag-sum="${powerOf lamps}">{{ printf "%.1f" (.JSON.Float "lights") }}</span> W</b><br>
+              today so far <b data-ag-energy="${allEnergy}" data-ag-rate="${powerRate}" data-ag-dp="2">${pf "today_cost" "$%.2f"}</b> ·
+              at this rate <b data-ag-cost="${allPower}" data-ag-days="365" data-ag-dp="0" data-ag-rate="${powerRate}">${pf "year" "$%.0f"}</b>/yr
+            </div>
           </div>
-          {{ $pct := mul (div (.JSON.Float "machines") ${toString powerRefW}.0) 100.0 }}
-          <div class="pw-bar"><div class="pw-bar-fill" data-ag-bar="${powerOf machines}" data-ag-ref="${toString powerRefW}" style="width: {{ if gt $pct 100.0 }}100{{ else }}{{ printf "%.1f" $pct }}{{ end }}%"></div></div>
-          <div class="pw-scale"><span>0 W</span><span>${toString powerRefW} W ref</span></div>
-          <div class="ag-cards">
-            ${lib.concatMapStrings machineCard machines}
+          <div class="pw-share" aria-label="Share of the draw, by plug">${lib.concatMapStrings shareSeg inventory.plugs}</div>
+          <div class="pw-legend">
+            ${lib.concatMapStrings (p: ''<span class="pw-chip" ${dev p} data-e="${p.power}" data-n="${p.name}" data-c="var(--s${slotOf p})"><i></i>${p.short} <b><span data-ag-w="${p.power}">${pf (plug p "power") "%.1f"}</span> W</b></span>'') inventory.plugs}
           </div>
+          <div class="ag-sec">Last 24 hours<span class="ag-sec-end" id="pw-stats"></span></div>
+          <div class="pw-chart" id="pw-chart"><div class="ags-skel" style="height:120px"></div></div>
+          <div class="pw-axis"><span>24 h ago</span><span>18 h</span><span>12 h</span><span>6 h</span><span>now</span></div>
         </div>
       '';
     };
 
-    powerSwitches = powerWidget {
-      title = "Power Switches";
-      # 1s, not 30s: this renders each switch's position, and a stale one would
-      # visibly flip a moment after load when the stream corrects it. HA renders
-      # the template from memory in milliseconds.
+    # ── Devices: one card per plug, machines first ──
+    # The lamps' own toggles live on their cards; the all-lights master switch
+    # is on the home page only (it used to be repeated here as "Power
+    # Switches"). 1s cache: a stale relay position would visibly flip a moment
+    # after load when the stream corrects it.
+    powerDevices = powerWidget {
+      title = "Devices";
       cache = "1s";
       template = ''
         ${liveBadge}
-        <div class="pw">
-          ${lightTile {
-            inherit (group) entity name;
-            icon = "✦";
-            hero = true;
-            extra = members;
-            state = ''{{ .JSON.String "group" }}'';
-            sub = ''<span data-ag-on="${lampRelays}">{{ .JSON.Int "lit" }} of ${lampCount} on</span> · <span data-ag-sum="${powerOf lamps}">{{ printf "%.1f" (.JSON.Float "lights") }}</span> W together'';
-          }}
-          <div class="ag-cards">
-            ${lib.concatMapStrings lampCard lamps}
-          </div>
+        <div class="ag-cards">
+          ${lib.concatMapStrings machineCard machines}
+          ${lib.concatMapStrings lampCard lamps}
         </div>
       '';
     };
@@ -508,7 +536,7 @@
           <div class="ag-row"><span class="ag-k">Energy / month</span><span class="ag-v"><span data-ag-kwh="${allPower}" data-ag-days="30.44" data-ag-dp="1">${pf "month_kwh" "%.1f"}</span> ${unit "kWh"}</span></div>
           <div class="ag-sec">Measured</div>
           <div class="ag-row"><span class="ag-k">All plugs now</span><span class="ag-v"><span data-ag-sum="${allPower}">${pf "now" "%.1f"}</span> ${unit "W"}</span></div>
-          <div class="ag-row"><span class="ag-k">Today so far</span><span class="ag-v">${pf "today_cost" "$%.2f"}</span></div>
+          <div class="ag-row"><span class="ag-k">Today so far</span><span class="ag-v" data-ag-energy="${allEnergy}" data-ag-rate="${powerRate}" data-ag-dp="2">${pf "today_cost" "$%.2f"}</span></div>
           <div class="ag-sec">Tariff</div>
           <div class="ag-row"><span class="ag-k">Rate</span><span class="ag-v">${pf "rate" "$%.4f"} ${unit "/kWh"}</span></div>
           <div class="ag-row"><span class="ag-k">Supply charge</span><span class="ag-v">${pf "supply_year" "$%.0f"} ${unit "/yr fixed"}</span></div>
@@ -519,11 +547,11 @@
     # Radio health — and whether the plug itself answers at all.
     healthRow = p: ''
       {{ $up := eq (.JSON.String "${plug p "online"}") "on" }}
-      <div class="ag-hrow">
-        <span class="ag-dot {{ if $up }}is-up{{ else }}is-down{{ end }}" title="{{ if $up }}Plug online{{ else }}Plug offline{{ end }}"></span>
+      <div class="ag-hrow" ${dev p}>
+        <span class="ag-dot {{ if $up }}is-up{{ else }}is-down{{ end }}" data-ag-online="binary_sensor.${p.slug}_status" title="{{ if $up }}Plug online{{ else }}Plug offline{{ end }}"></span>
         <span class="ag-name">${p.short}</span>
-        <span class="ag-v">${pf (plug p "signal") "%.0f"}% · ${pf (plug p "rssi") "%.0f"} dBm</span>
-        <span class="ag-meter"><i style="width: ${pf (plug p "signal") "%.0f"}%"></i></span>
+        <span class="ag-v">${live p "wifi_signal_percent" 0 (pf (plug p "signal") "%.0f")}% · ${live p "wifi_signal_db" 0 (pf (plug p "rssi") "%.0f")} dBm</span>
+        <span class="ag-meter"><i data-ag-meter="${sensor p "wifi_signal_percent"}" style="width: ${pf (plug p "signal") "%.0f"}%"></i></span>
       </div>
     '';
     plugHealth = powerWidget {
@@ -537,112 +565,14 @@
     };
 
     # ════════════════════════════════════════════════════════════════════════
-    # NETWORK — live throughput + speed test (network-panel.py, :9555)
+    # LIVE CARDS — drawn in the browser from a stream, not by Glance
     # ════════════════════════════════════════════════════════════════════════
-    # A group so the live readout and the speed test share one widget slot.
-    # Both tabs render from the same /api call, over localhost, server-side.
-    #
-    # That render is only the FIRST frame: asgard.js polls the same /api every
-    # 2s (only on this page, only while the tab is visible) and repaints by id —
-    # don't rename an id without editing it. It draws the sparklines too; their
-    # boxes have a fixed height, so nothing moves when the traces appear.
-    # This replaced a `flow` TUI in a read-only ttyd, which spent most of its
-    # life showing xterm.js's reconnect banner.
-    netCell = dir: arrow: label: ''
-      <div class="np-cell">
-        <div class="np-head">
-          <span class="np-arrow np-${dir}">${arrow}</span>
-          <span class="np-num" id="np-${dir}">{{ printf "%.1f" (.JSON.Float "live.${dir}") }}</span>
-          <span class="np-unit">Mb/s</span>
-          <span class="np-label">${label}</span>
-        </div>
-        <svg class="np-spark np-${dir}" id="np-spark-${dir}" viewBox="0 0 240 44" preserveAspectRatio="none" aria-hidden="true">
-          <path class="np-fill" d=""></path>
-          <path class="np-line" d=""></path>
-        </svg>
-        <div class="np-foot">peak <span id="np-peak-${dir}">{{ printf "%.1f" (.JSON.Float "live.peak_${dir}") }}</span> Mb/s over {{ .JSON.Int "live.window" }}s</div>
-      </div>
-    '';
-
-    stCell = { id, arrow ? "", unitText, foot }: ''
-      <div class="np-cell">
-        <div class="np-head">
-          ${lib.optionalString (arrow != "") ''<span class="np-arrow np-${arrow}">${if arrow == "down" then "↓" else "↑"}</span>''}
-          <span class="np-num" id="np-st-${id}">{{ if $ok }}{{ printf "%.1f" (.JSON.Float "speedtest.${id}") }}{{ else }}--{{ end }}</span>
-          <span class="np-unit">${unitText}</span>
-        </div>
-        <div class="np-foot">${foot}</div>
-      </div>
-    '';
-
-    network = {
-      type = "group";
-      widgets = [
-        {
-          type = "custom-api";
-          title = "Network";
-          # Was 5s. Nothing on screen depends on this fetch being fresh — the
-          # poller repaints every figure within a second of load — it only has
-          # to have the right shape. A minute spares a fetch on most loads.
-          cache = "1m";
-          url = "http://localhost:${toString netPort}/api";
-          template = ''
-            <div class="np">
-              <div class="np-row">
-                ${netCell "down" "↓" "download"}
-                ${netCell "up" "↑" "upload"}
-              </div>
-              <div class="np-meta"><span>{{ .JSON.String "live.iface" }} · sampled every second · each trace scaled to its own peak</span></div>
-            </div>
-          '';
-        }
-        # Upload reads ~30 Mb/s on a 50 Mb/s uplink and that is correct:
-        # wan-egress-shaping puts every WAN-bound packet in a 30 Mbit htb class.
-        # The footnote says so, because this otherwise looks exactly like a
-        # broken uplink.
-        {
-          type = "custom-api";
-          title = "Speed test";
-          # Was 30s. The result changes every 6 hours (or on "Run now", which
-          # the poller picks up live), so 5 minutes is still far fresher than
-          # the data.
-          cache = "5m";
-          url = "http://localhost:${toString netPort}/api";
-          template = ''
-            {{ $ok := .JSON.Bool "speedtest.ok" }}
-            <div class="np">
-              <div class="np-row">
-                ${stCell { id = "down"; arrow = "down"; unitText = "Mb/s"; foot = "download"; }}
-                ${stCell { id = "up"; arrow = "up"; unitText = "Mb/s"; foot = "upload · shaped to 30"; }}
-                ${stCell { id = "ping"; unitText = "ms"; foot = ''ping · <span id="np-st-jitter">{{ if $ok }}{{ printf "%.1f" (.JSON.Float "speedtest.jitter") }}{{ else }}--{{ end }}</span> ms jitter''; }}
-              </div>
-              <div class="np-meta">
-                <span>Ookla, every 6h · {{ if $ok }}<span id="np-st-when" {{ .JSON.String "speedtest.timestamp" | parseRelativeTime "rfc3339" }}></span> ago · <span id="np-st-server">{{ .JSON.String "speedtest.server" }}</span>{{ else }}<span id="np-st-when">never run</span><span id="np-st-server"></span>{{ end }}</span>
-                <button class="np-btn" id="np-run" type="button">Run now</button>
-              </div>
-            </div>
-          '';
-        }
-      ];
-    };
-
-    # ════════════════════════════════════════════════════════════════════════
-    # LIVE CARDS — Asgard, Storage, Now Playing (asgard-stats → stats.js)
-    # ════════════════════════════════════════════════════════════════════════
-    # Glance's `html` widget emits its source raw — no card, no title — so each
-    # one carries Glance's own widget markup and inherits the glass card. The
-    # skeleton holds the card's height until the first snapshot (≈instant: the
-    # stream sends one on connect), so nothing below jumps.
-    liveCard = { id, title, live ? false }: {
-      type = "html";
-      source = ''
-        <div class="widget widget-type-asgard-stats">
-          <div class="widget-header"><h2 class="uppercase">${title}</h2>${
-            lib.optionalString live ''<span class="ags-live" id="ags-live">connecting</span>''}</div>
-          <div class="widget-content"><div id="${id}"><div class="ags-skel"></div></div></div>
-        </div>
-      '';
-    };
+    #   ags-host ags-storage ags-playing ags-dl   stats.js   ← asgard-stats :9552
+    #   nw                                        net.js     ← network-panel :9555
+    #   ec-main ec-tv ec-wolf ec-log              eclipse.js ← eclipse-control :9554
+    # net.js and eclipse.js (and cards.css) are SHARED with MarsBar, which
+    # draws the same cards through her serve proxy. See _livecard.nix.
+    liveCard = import ./_livecard.nix lib;
 
     # ════════════════════════════════════════════════════════════════════════
     # YGGDRASIL — the tree banner over every device on the tailnet
@@ -659,7 +589,6 @@
     tailnet = {
       type = "custom-api";
       title = "Yggdrasil Network";
-      css-class = "ygg-widget";
       cache = "1m";
       url = "http://localhost:${toString tsPort}/status";
       template = ''
@@ -677,39 +606,13 @@
       '';
     };
 
-    # ════════════════════════════════════════════════════════════════════════
-    # DOWNLOADS — SABnzbd's own queue API
-    # ════════════════════════════════════════════════════════════════════════
-    # One widget, one fetch: "Queue" and "Remaining" used to be two widgets
-    # making the identical call. They once queried Prometheus for an exporter's
-    # sabnzbd_queue_*; that metrics stack is gone and SAB serves the numbers
-    # itself. localhost:8080 is the socat proxy into the Mullvad namespace —
-    # the same path speedtest.service uses.
-    #
-    # The apikey is Glance's readFileFromEnv variable (a systemd credential),
-    # never written here. It sits in the URL rather than in `parameters:` on
-    # purpose: Glance substitutes it into the YAML text before parsing, and the
-    # serialiser leaves `''${…}` unquoted, so as a value of its own an all-digit
-    # key would parse as a NUMBER (and a 32-digit one comes back as 1.2e+31).
-    # Inside a longer string it can only ever be a string.
-    #
-    # `mbleft` and `kbpersec` are JSON *strings*; .Float parses them. 30s, not
-    # 15s: SAB's own live UI is right beside it.
-    sabQueue = {
-      type = "custom-api";
-      title = "Queue";
-      cache = "30s";
-      url = "http://localhost:${toString sabPort}/api?mode=queue&output=json&apikey=\${readFileFromEnv:SABNZBD_API_KEY_FILE}";
-      template = ''
-        <div class="ag-stats">
-          <div class="ag-stat"><span class="ag-k">In queue</span><span class="ag-v">{{ .JSON.Int "queue.noofslots_total" }} ${unit "items"}</span></div>
-          <div class="ag-stat"><span class="ag-k">Remaining</span><span class="ag-v">{{ printf "%.2f" (div (.JSON.Float "queue.mbleft") 1024.0) }} ${unit "GB"}</span></div>
-          <div class="ag-stat ag-stat-wide"><span class="ag-k">{{ .JSON.String "queue.status" }}</span><span class="ag-v">{{ printf "%.1f" (div (.JSON.Float "queue.kbpersec") 1024.0) }} MB/s · {{ .JSON.String "queue.timeleft" }} left</span></div>
-        </div>
-      '';
-    };
-
     iframe = title: port: height: { type = "iframe"; inherit title height; source = at port; };
+
+    # Downloads used to be a page of its own: a server-rendered queue widget,
+    # the same monitors as the home page, and SABnzbd's UI in an iframe (SAB's
+    # own page, one tap away from its monitor row anyway). Now a live card on
+    # the home page from asgard-stats — what is downloading, how fast, what
+    # finished or failed — and the iframe went with the page.
 
     # ════════════════════════════════════════════════════════════════════════
     # The Glance config
@@ -720,13 +623,13 @@
     # is built the same way.)
     #
     # No secret is ever written into this file — it lands in the world-readable
-    # Nix store. The two Glance needs (the HA token, the SABnzbd key) are its
-    # readFileFromEnv variables, substituted when it loads the config — see
+    # Nix store. The one Glance needs (the HA token) is its readFileFromEnv
+    # variable, substituted when it loads the config — see
     # systemd.services.glance below.
     #
     # ⚠ Glance expands every dollar-brace variable as plain text over the WHOLE
     # file before parsing it — markup included. Nothing generated here may
-    # contain one other than those two.
+    # contain one other than that.
     glanceConfig = (pkgs.formats.yaml { }).generate "glance.yml" {
       server = {
         port = 8888;
@@ -736,35 +639,49 @@
       branding = {
         # The name a phone gives the home-screen shortcut, and the tab title.
         app-name = "Asgard";
+        # The world tree as the logo, the tab icon and the phone's home-screen
+        # icon — the dashboard's identity, like the card it came from.
+        logo-url = asset "yggdrasil.png";
+        favicon-url = asset "yggdrasil.png";
+        app-icon-url = asset "yggdrasil.png";
+        app-background-color = "hsl(220, 5%, 11%)";
         hide-footer = true;
       };
 
-      # `defer`: run after the document is parsed, in order. Both wait for
-      # Glance's widget markup themselves (it arrives later, via innerHTML).
-      # data-api-port: lights.js builds http://<this hostname>:9556, so the
-      # page keeps working when opened by IP or FQDN (each is in _origins.nix).
+      # `defer`: run after the document is parsed, in order — dash.js first,
+      # the helpers the others use. Each waits for Glance's widget markup
+      # itself (it arrives later, via innerHTML) and does nothing on a page
+      # without its cards. data-api-port: each builds
+      # http://<this hostname>:<port>, so the page keeps working when opened
+      # by IP or FQDN (each is in _origins.nix).
       document.head = ''
+        <link rel="stylesheet" href="${asset "cards.css"}">
+        <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api-port="${toString bridgePort}" defer></script>
-        <script src="${asset "asgard.js"}" defer></script>
+        <script src="${asset "asgard.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "stats.js"}" data-api-port="${toString statsPort}" data-jellyfin-port="${toString jellyfinPort}" defer></script>
+        <script src="${asset "net.js"}" data-api-port="${toString netPort}" defer></script>
+        <script src="${asset "eclipse.js"}" data-api-port="${toString eclipsePort}" defer></script>
       '';
 
-      # Mint-green — the "mission control" homelab look this dashboard has
-      # always had (an orange experiment was tried and rejected), and the
-      # opposite of MarsBar's purple so the two are never confused. Colour
-      # variety comes from the ambient orbs and secondary accents in
-      # asgard.css, not from repainting everything.
+      # Neutral grey with a forest-green primary — the Yggdrasil theme. Glance
+      # only draws a little itself (links, the monitor icons); asgard.css
+      # carries the real system — the world tree behind the page, a rune and an
+      # accent per card, a validated data palette (forest · purple · orange …),
+      # warm lamp light — see the top of that file. MarsBar stays purple with
+      # her vine, so the two are never confused.
       theme = {
-        background-color = "hsl(170, 14%, 8%)";
-        primary-color = "hsl(158, 58%, 64%)";
-        positive-color = "hsl(152, 62%, 52%)";
-        negative-color = "hsl(0, 84%, 60%)";
+        background-color = "hsl(220, 5%, 11%)";
+        primary-color = "hsl(142, 52%, 59%)";
+        positive-color = "hsl(148, 59%, 53%)";
+        negative-color = "hsl(3, 85%, 66%)";
         custom-css-file = "/assets/asgard.css";
       };
 
       pages = [
         # ══════════════════════════════════════════════════════════════════
-        # Asgard — lights, host stats, network, service health | clock, tailnet
+        # Asgard — host, storage, network, services
+        #          | clock, now playing, downloads, tailnet
         # ══════════════════════════════════════════════════════════════════
         {
           name = "Asgard";
@@ -772,26 +689,17 @@
             {
               size = "full";
               widgets = [
-                {
-                  type = "custom-api";
-                  title = "Lights";
-                  # The bridge, not HA: it answers from memory, so a 1s cache
-                  # costs nothing and keeps each tile's first paint honest — and
-                  # the widget fails visibly when ha-bridge is down.
-                  cache = "1s";
-                  url = "http://localhost:${toString bridgePort}/states";
-                  template = homeLights;
-                }
                 # Was Glance's server-stats (three small bars, refreshed on load).
                 # Now a live stream from asgard-stats — see Modules/Server/stats.nix.
-                (liveCard { id = "ags-host"; title = "Asgard"; live = true; })
-                (liveCard { id = "ags-storage"; title = "Storage"; })
-                network
+                (liveCard { id = "ags-host"; title = "Asgard"; acc = "green"; rune = "ansuz"; badge = "ags-live"; })
+                (liveCard { id = "ags-storage"; title = "Storage"; acc = "moss"; rune = "othala"; })
+                (liveCard { id = "nw"; title = "Network"; acc = "purple"; rune = "raidho"; badge = "nw-live"; })
                 # One group rather than five stacked monitors. "All" is the
                 # default tab because "is everything up" is the question this
                 # page exists to answer; the category tabs isolate a red one.
                 {
                   type = "group";
+                  css-class = "acc-green rune-algiz";
                   widgets = [ (monitor "All" services) ]
                     ++ map (t: monitor t (builtins.filter (s: s.tab == t) services)) tabs;
                 }
@@ -800,69 +708,92 @@
             {
               size = "small";
               widgets = [
-                { type = "clock"; hour-format = "12h"; }
-                (liveCard { id = "ags-playing"; title = "Now Playing"; })
-                tailnet
+                { type = "clock"; hour-format = "12h"; css-class = "acc-green rune-jera"; }
+                (liveCard { id = "ags-playing"; title = "Now Playing"; acc = "purple"; rune = "laguz"; })
+                (liveCard {
+                  id = "ags-dl"; title = "Downloads"; acc = "orange"; rune = "fehu";
+                  link = { href = at sabPort; text = "SABnzbd"; };
+                })
+                (tailnet // { css-class = "ygg-widget acc-green rune-eihwaz"; })
               ];
             }
           ];
         }
 
         # ══════════════════════════════════════════════════════════════════
-        # Downloads — SABnzbd queue + its own UI
+        # Eclipse — the TV box, live: status, actions, Wolf streams, activity
         # ══════════════════════════════════════════════════════════════════
+        # Drawn natively by eclipse.js from eclipse-control's /events stream
+        # (:9554, which drives the LibreELEC box over SSH and carries EVERY
+        # verb — reboot, jellyfin-toggle, the link test; MarsBar's TV card has
+        # only the safe three). It used to be an iframe of a page that service
+        # served, polling on two timers. `slim` keeps it from floating in an
+        # ultrawide.
         {
-          name = "Downloads";
+          name = "Eclipse";
+          width = "slim";
           columns = [
             {
-              size = "small";
-              widgets = [ sabQueue (monitor "Status" (onPage "downloads")) ];
+              size = "full";
+              widgets = [
+                (liveCard { id = "ec-main"; title = "Eclipse"; acc = "purple"; rune = "dagaz"; badge = "ec-live"; })
+                (liveCard { id = "ec-wolf"; title = "Streams · Wolf on Sisyphus"; acc = "orange"; rune = "ehwaz"; })
+              ];
             }
-            # x_frame_options = 0 in SAB's config is what lets it be framed.
-            { size = "full"; widgets = [ (iframe "SABnzbd" sabPort 700) ]; }
+            {
+              size = "small";
+              widgets = [
+                (liveCard { id = "ec-tv"; title = "On the TV"; acc = "purple"; rune = "perthro"; })
+                (liveCard { id = "ec-log"; title = "Activity"; acc = "green"; rune = "mannaz"; })
+              ];
+            }
+          ];
+        }
+
+        # ══════════════════════════════════════════════════════════════════
+        # Power — the lights, and every plug: draw now and over 24 h, cost, health
+        # ══════════════════════════════════════════════════════════════════
+        # (Was "Monitoring", from when there was a metrics stack.) Reads Home
+        # Assistant's REST API over localhost for the first frame — one Jinja
+        # query, plugQuery above — and ha-bridge's stream for everything after.
+        # HA tokens can't be minted declaratively (they need a logged-in
+        # session), so this one was made by hand in the HA UI and stored in sops
+        # as `ha-token`.
+        {
+          name = "Power";
+          # Without this the page stretches the full 2560px of an ultrawide and
+          # a single device card becomes a metre-wide band.
+          width = "slim";
+          columns = [
+            {
+              size = "full";
+              widgets = [
+                {
+                  type = "custom-api";
+                  title = "Lights";
+                  css-class = "acc-green rune-kenaz";
+                  # The bridge, not HA: it answers from memory, so a 1s cache
+                  # costs nothing and keeps each tile's first paint honest — and
+                  # the widget fails visibly when ha-bridge is down.
+                  cache = "1s";
+                  url = "http://localhost:${toString bridgePort}/states";
+                  template = lightsCard;
+                }
+                (powerOverview // { css-class = "acc-green rune-sowilo"; })
+                (powerDevices // { css-class = "acc-moss rune-tiwaz"; })
+              ];
+            }
+            { size = "small"; widgets = [ (costOutlook // { css-class = "acc-green rune-gebo"; }) (plugHealth // { css-class = "acc-moss rune-uruz"; }) ]; }
           ];
         }
 
         # ══════════════════════════════════════════════════════════════════
         # Terminal — ttyd web console (log in as rock; sudo works)
         # ══════════════════════════════════════════════════════════════════
+        # Sized to the window by asgard.css (.term-widget), not the 700 px box.
         {
           name = "Terminal";
-          columns = [ { size = "full"; widgets = [ (iframe "Asgard Terminal" 7681 700) ]; } ];
-        }
-
-        # ══════════════════════════════════════════════════════════════════
-        # Eclipse — TV box: fix-it buttons + live status
-        # ══════════════════════════════════════════════════════════════════
-        # The panel is served by eclipse-control (:9554), which drives the
-        # LibreELEC box over SSH, and carries EVERY verb (reboot,
-        # jellyfin-toggle, speed test) — MarsBar's native rebuild exposes only
-        # the safe three. An iframe because Glance's html widget sanitises
-        # markup — see Claude/eclipse.md. `slim` keeps a ~1000px panel from
-        # floating in an ultrawide.
-        {
-          name = "Eclipse";
-          width = "slim";
-          columns = [ { size = "full"; widgets = [ (iframe "Eclipse Control" 9554 700) ]; } ];
-        }
-
-        # ══════════════════════════════════════════════════════════════════
-        # Monitoring — every plug's power, the light switches, cost
-        # ══════════════════════════════════════════════════════════════════
-        # Reads Home Assistant's REST API over localhost (both run natively on
-        # Asgard): one Jinja query, plugQuery above. HA tokens can't be minted
-        # declaratively (they need a logged-in session), so this one was made by
-        # hand in the HA UI and stored in sops as `ha-token`.
-        {
-          name = "Monitoring";
-          # Without this the page stretches the full 2560px of an ultrawide and
-          # a single device card becomes a metre-wide band. `slim` caps the
-          # content column (and allows at most two columns).
-          width = "slim";
-          columns = [
-            { size = "full"; widgets = [ powerMonitoring powerSwitches ]; }
-            { size = "small"; widgets = [ costOutlook plugHealth ]; }
-          ];
+          columns = [ { size = "full"; widgets = [ ((iframe "Asgard Terminal" 7681 700) // { css-class = "term-widget acc-green rune-isa"; }) ]; } ];
         }
       ];
     };
@@ -873,19 +804,18 @@
 # DASHBOARD — Glance (port 8888)
 # ══════════════════════════════════════════════════════════════════════════════
 
-    # ── Glance — native systemd service for host-level server-stats ──
+    # ── Glance — native systemd service ──
     #
-    # Native, not a container, so the server-stats widget can read the host's
-    # /proc and /sys directly.
+    # Native, not a container. (It once was for the server-stats widget's
+    # /proc and /sys; the host stats come from asgard-stats now.)
     #
-    # Both secrets reach the widgets through Glance's `readFileFromEnv` config
-    # variable: LoadCredential copies each root-only (0400) sops secret into
+    # The secret reaches the widgets through Glance's `readFileFromEnv` config
+    # variable: LoadCredential copies the root-only (0400) sops secret into
     # this unit's private credentials dir (readable by the DynamicUser, nobody
     # else), an env var points at the copy, and Glance substitutes the file's
-    # contents when it loads the config. That keeps them out of the Nix store
+    # contents when it loads the config. That keeps it out of the Nix store
     # AND off every other local uid:
-    #   • SABNZBD_API_KEY_FILE — full control of SABnzbd (Downloads widgets)
-    #   • HA_TOKEN_FILE        — an ADMIN Home Assistant token (Monitoring page).
+    #   • HA_TOKEN_FILE — an ADMIN Home Assistant token (Power page).
     #     It used to be read with Glance's ''${secret:ha-token}, which reads
     #     /run/secrets directly and so forced the secret to 0444 (later a 0440
     #     group stopgap). Anything holding it can switch.toggle Asgard's own
@@ -905,15 +835,15 @@
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
       environment = {
-        SABNZBD_API_KEY_FILE = "/run/credentials/glance.service/sabnzbd-api-key";
         HA_TOKEN_FILE = "/run/credentials/glance.service/ha-token";
       };
       serviceConfig = {
         ExecStart = "${pkgs.glance}/bin/glance --config ${glanceConfig}";
         Restart = "on-failure";
         DynamicUser = true;
+        # (It also held SABnzbd's full-control API key for the old Downloads
+        # widgets; the Downloads card reads SAB through asgard-stats now.)
         LoadCredential = [
-          "sabnzbd-api-key:${config.sops.secrets."sabnzbd-api-key".path}"
           "ha-token:${config.sops.secrets."ha-token".path}"
         ];
       };

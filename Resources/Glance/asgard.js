@@ -1,227 +1,69 @@
 // ════════════════════════════════════════════════════════════════════════════
-// Asgard (the main Glance, asgard:8888) — the live bits that are not the light
-// switches themselves. Those are Resources/Glance/lights.js, shared with
-// MarsBar; this file listens to the same stream.
+// Asgard (the main Glance, asgard:8888) — the Power page's live figures and its
+// 24-hour chart. The light switches themselves are Resources/Glance/lights.js
+// (shared with MarsBar); this listens to the same ha-bridge stream through the
+// `ha:state` events lights.js fires for every entity it hears about — ha-bridge
+// watches every plug's power, voltage, current, today's energy, wifi signal and
+// online state (Modules/Server/_plugs.nix), so nothing on the page is a
+// page-load snapshot any more.
 //
-//   1. Network panel — throughput, sparklines and the last speed test from
-//      network-panel.py (:9555), plus its "Run now" button.
-//   2. Live power — watts, sums, the draw bar, "at current draw" projections and
-//      "N of M on", repainted from lights.js's `ha:state` events. No polling:
-//      ha-bridge already streams every plug's power sensor.
+// The network card that used to live here is Resources/Glance/net.js now.
 //
-// Lives in document.head, served from Glance's assets dir: Glance injects
-// widget markup with innerHTML, which never runs <script>, and inline JS in the
-// YAML has broken the config before. Event delegation and a MutationObserver
-// mean it does not care when that markup arrives.
+// Markup contract (written by Modules/Server/glance.nix; lists are
+// space-separated entity ids):
+//   data-ag-w="sensor.x_power"            watts, 1 dp
+//   data-ag-sum="sensor.a sensor.b"       summed watts, 1 dp
+//   data-ag-kwh="…" data-ag-days="1" data-ag-dp="2"
+//                                         sum × 0.024 × days  (kWh)
+//   data-ag-cost="…" data-ag-days="365" data-ag-dp="0" data-ag-rate="0.3041"
+//                                         "$" + sum × 0.024 × days × rate
+//   data-ag-on="switch.a switch.b"        "N of M on"
+//   data-ag-val="sensor.x" data-ag-dp="1" the sensor's value, N dp
+//   data-ag-energy="sensor.a_total_daily_energy …" data-ag-rate="…" data-ag-dp="2"
+//                                         "$" + Σ kWh today × rate (no rate: kWh)
+//   data-ag-meter="sensor.x_wifi_signal_percent"   style.width = value %
+//   data-ag-online="binary_sensor.x_status"        .is-up / .is-down
+//   data-ag-seg="sensor.x_power"          a share-bar segment: flex-grow = watts
 //
-// Glance 0.8.5 renders each widget server-side ONCE per page load (page.js
-// calls fetchPageContent() a single time) — there is no client-side widget
-// refresh to hook. Everything that moves on screen is driven from here.
+// ⚠ The projections are INSTANTANEOUS draw × 24 h — the same arithmetic as
+// the Jinja in glance.nix (`p * 0.024`), which renders the first frame; keep
+// the two in step. Never relabel them as an average (see glance.nix).
 // ════════════════════════════════════════════════════════════════════════════
 (function () {
   "use strict";
+  var D = window.Dash;
+  var me = document.currentScript;
+  var BRIDGE = location.protocol + "//" + location.hostname + ":" + ((me && me.dataset.apiPort) || "9556");
 
-  function $(id) { return document.getElementById(id); }
-
-  function text(id, value) {
-    var el = $(id);
-    if (el && el.textContent !== value) el.textContent = value;
-  }
-
-  // Run fn every `ms` while the page is visible. The next run is scheduled
-  // only after the previous one settles, so a slow backend can never stack
-  // requests; hiding the tab stops it, showing it runs it immediately. (Same
-  // helper as Resources/MarsBar/marsbar.js.)
-  function poll(fn, ms) {
-    var timer = null, busy = false;
-    function tick() {
-      clearTimeout(timer);
-      timer = null;
-      if (document.hidden || busy) return;
-      busy = true;
-      Promise.resolve().then(fn).catch(function () {}).then(function () {
-        busy = false;
-        if (!document.hidden && !timer) timer = setTimeout(tick, ms);
-      });
-    }
-    document.addEventListener("visibilitychange", function () {
-      if (document.hidden) { clearTimeout(timer); timer = null; }
-      else tick();
-    });
-    window.addEventListener("pageshow", function (e) { if (e.persisted) tick(); });
-    tick();
-    return tick; // call to refresh right now (e.g. after an action)
-  }
-
-  // Start fn once an element matching `selector` exists. Glance inserts the
-  // page's widgets after DOMContentLoaded and then marks #page `content-ready`;
-  // a page that finishes without the element never starts it at all — so the
-  // network poller only ever runs on the page that has the network panel.
-  function whenPresent(selector, fn) {
-    function boot() {
-      if (document.querySelector(selector)) { fn(); return; }
-      var page = $("page");
-      var obs = new MutationObserver(function () {
-        if (document.querySelector(selector)) { obs.disconnect(); fn(); }
-        else if (page && page.classList.contains("content-ready")) obs.disconnect();
-      });
-      obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
-    }
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
-    else boot();
-  }
-
-  // ── 1. Network panel ──────────────────────────────────────────────────────
-  // Built from location.hostname so it keeps working when the dashboard is
-  // opened by IP or FQDN instead of `asgard` (each is in _origins.nix).
-  var NET_API = location.protocol + "//" + location.hostname + ":9555";
-  var NET_POLL_MS = 2000;
-
-  function fmt(v) {
-    if (typeof v !== "number" || !isFinite(v)) return "--";
-    return v >= 100 ? v.toFixed(0) : v.toFixed(1);
-  }
-
-  function spark(id, values) {
-    var svg = $(id);
-    if (!svg || !values || values.length < 2) return;
-    var w = 240, h = 44, pad = 2, n = values.length, max = 0;
-    for (var i = 0; i < n; i++) if (values[i] > max) max = values[i];
-    // Each direction auto-scales to its own peak. A shared scale is more
-    // honest but pins the upload trace flat to the floor on an asymmetric
-    // line, which reads as "nothing is happening".
-    if (max <= 0) max = 1;
-    var pts = [];
-    for (var j = 0; j < n; j++) {
-      var x = (j / (n - 1)) * w;
-      var y = h - pad - (values[j] / max) * (h - pad * 2);
-      pts.push(x.toFixed(1) + "," + y.toFixed(1));
-    }
-    var line = "M" + pts.join(" L");
-    svg.querySelector(".np-line").setAttribute("d", line);
-    svg.querySelector(".np-fill").setAttribute("d", line + " L" + w + "," + h + " L0," + h + " Z");
-  }
-
-  function renderNet(data) {
-    var live = data.live || {};
-    text("np-down", fmt(live.down));
-    text("np-up", fmt(live.up));
-    text("np-peak-down", fmt(live.peak_down));
-    text("np-peak-up", fmt(live.peak_up));
-    spark("np-spark-down", live.hist_down);
-    spark("np-spark-up", live.hist_up);
-
-    var st = data.speedtest || {};
-    if (st.ok) {
-      text("np-st-down", fmt(st.down));
-      text("np-st-up", fmt(st.up));
-      text("np-st-ping", fmt(st.ping));
-      text("np-st-jitter", fmt(st.jitter));
-      text("np-st-server", st.server || "");
-      // Glance's page.js keeps [data-dynamic-relative-time] ticking ("5h");
-      // a new result only has to move the timestamp it counts from.
-      var when = $("np-st-when"), t = Date.parse(st.timestamp);
-      if (when && !isNaN(t)) {
-        var unix = String(Math.floor(t / 1000));
-        if (when.getAttribute("data-dynamic-relative-time") !== unix) {
-          when.setAttribute("data-dynamic-relative-time", unix);
-          when.textContent = relative(t);
-        }
-      }
-    }
-
-    var btn = $("np-run");
-    if (btn && !btn.classList.contains("np-sent")) {
-      btn.disabled = !!data.running;
-      btn.textContent = data.running ? "Running…" : "Run now";
-    }
-  }
-
-  // Glance's own format (page.js timestampToRelativeTime), so a freshly
-  // painted stamp matches the ones it ticks.
-  function relative(ms) {
-    var s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-    if (s < 3600) return Math.max(1, Math.floor(s / 60)) + "m";
-    if (s < 86400) return Math.floor(s / 3600) + "h";
-    if (s < 2592000) return Math.floor(s / 86400) + "d";
-    return Math.floor(s / 2592000) + "mo";
-  }
-
-  function tickNet() {
-    return fetch(NET_API + "/api", { cache: "no-store" })
-      .then(function (r) { return r.json(); })
-      .then(renderNet);
-  }
-
-  whenPresent("#np-down", function () {
-    var now = poll(tickNet, NET_POLL_MS);
-    document.addEventListener("click", function (e) {
-      var btn = e.target && e.target.closest ? e.target.closest("#np-run") : null;
-      if (!btn || btn.disabled) return;
-      btn.disabled = true;
-      btn.classList.add("np-sent");
-      btn.textContent = "Starting…";
-      fetch(NET_API + "/run", {
-        method: "POST",
-        // Required by network-panel: a POST without it is refused, which is
-        // what stops any other web page in a tailnet browser starting tests.
-        headers: { "X-Dash": "1" }
-      })
-        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); })
-        .then(function () { btn.classList.remove("np-sent"); now(); })
-        .catch(function () {
-          btn.textContent = "Failed";
-          setTimeout(function () { btn.classList.remove("np-sent"); now(); }, 2500);
-        });
-    });
-  });
-
-  // ── 2. Live power ─────────────────────────────────────────────────────────
-  // Markup contract (written by Modules/Server/glance.nix; lists are
-  // space-separated entity ids):
-  //   data-ag-w="sensor.x_power"            watts, 1 dp
-  //   data-ag-sum="sensor.a sensor.b"       summed watts, 1 dp
-  //   data-ag-bar="…" data-ag-ref="150"     style.width = sum / ref, capped 100%
-  //   data-ag-kwh="…" data-ag-days="1" data-ag-dp="2"
-  //                                         sum × 0.024 × days  (kWh)
-  //   data-ag-cost="…" data-ag-days="365" data-ag-dp="0" data-ag-rate="0.3041"
-  //                                         "$" + sum × 0.024 × days × rate
-  //   data-ag-on="switch.a switch.b"        "N of M on"
-  //
-  // ⚠ The projections are INSTANTANEOUS draw × 24 h — the same arithmetic as
-  // the Jinja in glance.nix (`p * 0.024`), which renders the first frame; keep
-  // the two in step. Never relabel them as an average (see glance.nix).
-  //
+  // ── 1. Live figures ───────────────────────────────────────────────────────
   // A sum is only repainted once every sensor it names has reported, so the
   // server-rendered figure stays until the stream can replace all of it.
   // Relay states are read back from the DOM instead: lights.js has already
-  // painted them (optimistic flips included) before it fires the event, and
-  // it only fires for entities that CHANGED — one whose server-rendered state
-  // was already right never produces an event at all.
-  var watts = {}, queued = false;
+  // painted them (optimistic flips included) before it fires the event.
+  var vals = {}, queued = false;
 
   document.addEventListener("ha:state", function (e) {
     var d = e.detail || {};
-    if (!d.entity) return;
-    if (/^sensor\..+_power$/.test(d.entity)) {
-      var w = parseFloat(d.state);
-      // HA's float(0): an unavailable sensor counts as 0 W, as in the Jinja.
-      watts[d.entity] = isFinite(w) ? w : 0;
+    if (!d.entity || d.entity.indexOf("switch.") === 0) {
+      if (!queued) { queued = true; requestAnimationFrame(paintPower); }
+      return;
     }
+    var v = parseFloat(d.state);
+    if (d.entity.indexOf("binary_sensor.") === 0) vals[d.entity] = d.state;
+    // HA's float(0): an unavailable sensor counts as 0, as in the Jinja.
+    else vals[d.entity] = isFinite(v) ? v : 0;
     if (!queued) { queued = true; requestAnimationFrame(paintPower); }
   });
 
   function ids(el, attr) { return (el.getAttribute(attr) || "").split(/\s+/).filter(Boolean); }
-
   function sum(list) {
     var total = 0;
     for (var i = 0; i < list.length; i++) {
-      if (!(list[i] in watts)) return null;
-      total += watts[list[i]];
+      if (!(list[i] in vals)) return null;
+      total += vals[list[i]];
     }
     return total;
   }
-
   function put(el, value) {
     if (el.textContent === value) return;
     el.textContent = value;
@@ -231,12 +73,10 @@
     void el.offsetWidth;
     el.classList.add("ag-tick");
   }
-
   function each(attr, fn) {
     var els = document.querySelectorAll("[" + attr + "]");
     for (var i = 0; i < els.length; i++) fn(els[i]);
   }
-
   function num(el, attr, dflt) {
     var v = parseFloat(el.getAttribute(attr));
     return isFinite(v) ? v : dflt;
@@ -244,14 +84,8 @@
 
   function paintPower() {
     queued = false;
-    each("data-ag-w", function (el) {
-      var s = sum(ids(el, "data-ag-w"));
-      if (s !== null) put(el, s.toFixed(1));
-    });
-    each("data-ag-sum", function (el) {
-      var s = sum(ids(el, "data-ag-sum"));
-      if (s !== null) put(el, s.toFixed(1));
-    });
+    each("data-ag-w", function (el) { var s = sum(ids(el, "data-ag-w")); if (s !== null) put(el, s.toFixed(1)); });
+    each("data-ag-sum", function (el) { var s = sum(ids(el, "data-ag-sum")); if (s !== null) put(el, s.toFixed(1)); });
     each("data-ag-bar", function (el) {
       var s = sum(ids(el, "data-ag-bar"));
       if (s !== null) el.style.width = Math.min(100, (s / num(el, "data-ag-ref", 150)) * 100).toFixed(1) + "%";
@@ -263,8 +97,35 @@
     each("data-ag-cost", function (el) {
       var s = sum(ids(el, "data-ag-cost"));
       if (s === null) return;
-      var v = s * 0.024 * num(el, "data-ag-days", 1) * num(el, "data-ag-rate", 0);
-      put(el, "$" + v.toFixed(num(el, "data-ag-dp", 2)));
+      put(el, "$" + (s * 0.024 * num(el, "data-ag-days", 1) * num(el, "data-ag-rate", 0)).toFixed(num(el, "data-ag-dp", 2)));
+    });
+    each("data-ag-val", function (el) {
+      var s = sum(ids(el, "data-ag-val"));
+      if (s !== null) put(el, s.toFixed(num(el, "data-ag-dp", 1)));
+    });
+    each("data-ag-energy", function (el) {
+      var s = sum(ids(el, "data-ag-energy"));
+      if (s === null) return;
+      var rate = num(el, "data-ag-rate", 0);
+      put(el, rate ? "$" + (s * rate).toFixed(num(el, "data-ag-dp", 2)) : s.toFixed(num(el, "data-ag-dp", 3)));
+    });
+    each("data-ag-meter", function (el) {
+      var s = sum(ids(el, "data-ag-meter"));
+      if (s !== null) el.style.width = Math.max(0, Math.min(100, s)).toFixed(0) + "%";
+    });
+    each("data-ag-seg", function (el) {
+      var w = vals[el.getAttribute("data-ag-seg")];
+      if (w === undefined) return;
+      el.style.flexGrow = Math.max(0, w).toFixed(1);
+      el.hidden = !(w > 0.05);          // an off lamp takes no space, not even a gap
+    });
+    each("data-ag-online", function (el) {
+      var st = vals[el.getAttribute("data-ag-online")];
+      if (st === undefined) return;
+      var up = st === "on";
+      el.classList.toggle("is-up", up);
+      el.classList.toggle("is-down", !up);
+      el.title = up ? "Plug online" : "Plug offline";
     });
     each("data-ag-on", function (el) {
       var list = ids(el, "data-ag-on"), on = 0;
@@ -276,4 +137,117 @@
       put(el, on + " of " + list.length + " on");
     });
   }
+
+  // ── 2. The 24-hour chart ──────────────────────────────────────────────────
+  // ha-bridge GET /history: 10-minute time-weighted averages per plug. Drawn as
+  // ONE smooth line — the house's total — in canopy greens;
+  // hovering any moment lists every plug's share of it (so nothing is lost by
+  // not stacking them). Refreshed every 5 minutes while the page is visible;
+  // the bridge caches it for 2.
+  if (!D) return;
+  var hist = null, totals = [];
+  var W = 600, H = 120;
+
+  // The series are the legend chips (glance.nix writes one per plug, in
+  // inventory order): data-e entity, data-n name, data-c colour.
+  function series(el) {
+    var box = el.closest(".pw") || document;
+    return Array.prototype.map.call(box.querySelectorAll(".pw-chip[data-e]"), function (c) {
+      return { e: c.getAttribute("data-e"), n: c.getAttribute("data-n"), c: c.getAttribute("data-c") };
+    });
+  }
+
+  // Catmull-Rom through the points, as cubic Béziers: a smooth line that still
+  // passes through every bucket. Gaps (null) break it.
+  function smooth(pts) {
+    if (pts.length < 2) return "";
+    var d = "M" + pts[0][0].toFixed(1) + "," + pts[0][1].toFixed(1);
+    for (var i = 0; i < pts.length - 1; i++) {
+      var p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      d += " C" + (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1) + "," + (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1) +
+           " " + (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1) + "," + (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1) +
+           " " + p2[0].toFixed(1) + "," + p2[1].toFixed(1);
+    }
+    return d;
+  }
+
+  function drawChart() {
+    var el = D.$("pw-chart"); if (!el || !hist) return;
+    var ser = series(el), n = 0, i;
+    ser.forEach(function (s) { n = Math.max(n, (hist.series[s.e] || []).length); });
+    if (n < 2) { D.paint(el, '<div class="pw-empty">No history yet</div>'); return; }
+    totals = [];
+    for (i = 0; i < n; i++) {
+      var t = 0, any = false;
+      ser.forEach(function (s) { var v = (hist.series[s.e] || [])[i]; if (v != null) { t += v; any = true; } });
+      totals.push(any ? t : null);
+    }
+    var known = totals.filter(function (v) { return v != null; });
+    var peak = Math.max.apply(null, known.concat([1])), avg = known.reduce(function (a, b) { return a + b; }, 0) / (known.length || 1);
+    var max = D.nice(peak * 1.12);
+    var x = function (k) { return k / (n - 1) * W; }, y = function (v) { return H - v / max * (H - 6) - 2; };
+    var runs = [], cur = [];
+    totals.forEach(function (v, k) { if (v == null) { if (cur.length) runs.push(cur); cur = []; } else cur.push([x(k), y(v)]); });
+    if (cur.length) runs.push(cur);
+    var line = runs.map(smooth).join(" ");
+    var area = runs.filter(function (r) { return r.length > 1; }).map(function (r) {
+      return smooth(r) + " L" + r[r.length - 1][0].toFixed(1) + "," + H + " L" + r[0][0].toFixed(1) + "," + H + " Z";
+    }).join(" ");
+    var stats = D.$("pw-stats");
+    if (stats) stats.textContent = "peak " + peak.toFixed(0) + " W · avg " + avg.toFixed(0) + " W · " + (avg * 24 / 1000).toFixed(2) + " kWh";
+    D.paint(el,
+      '<span class="pw-ymax">' + max + ' W</span>' +
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-label="Total power draw, last 24 hours">' +
+        '<defs>' +
+          '<linearGradient id="pw-stroke" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3f9a63"></stop><stop offset=".55" stop-color="#5fcf8a"></stop><stop offset="1" stop-color="#a6c965"></stop></linearGradient>' +
+          '<linearGradient id="pw-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5fcf8a" stop-opacity=".28"></stop><stop offset="1" stop-color="#5fcf8a" stop-opacity="0"></stop></linearGradient>' +
+        '</defs>' +
+        [0.5].map(function (f) { return '<line class="pw-grid" x1="0" x2="' + W + '" y1="' + y(max * f).toFixed(1) + '" y2="' + y(max * f).toFixed(1) + '"></line>'; }).join("") +
+        '<path class="pw-area" d="' + area + '"></path>' +
+        '<path class="pw-line" d="' + line + '"></path>' +
+        '<line class="pw-cross" id="pw-cross" x1="0" x2="0" y1="0" y2="' + H + '"></line>' +
+      '</svg>' +
+      '<span class="pw-dot" id="pw-dot"></span>');
+    el._n = n;
+    el._y = function (k) { return totals[k] == null ? null : y(totals[k]) / H; };
+  }
+
+  function wireHover(el) {
+    D.hover(el, function () { return el._n || 0; }, function (i) {
+      if (!hist || totals[i] == null) return "";
+      var t = new Date((hist.start + i * hist.step) * 1000);
+      var rows = series(el).map(function (s) {
+        var v = (hist.series[s.e] || [])[i];
+        return '<div class="ag-tip-r" style="--dev:' + s.c + '"><span><i></i>' + D.esc(s.n) + '</span><b>' + (v == null ? "–" : v.toFixed(1) + " W") + '</b></div>';
+      }).join("");
+      return '<div class="ag-tip-h">' + t.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) +
+        ' · ' + totals[i].toFixed(1) + ' W</div>' + rows;
+    }, function (i) {
+      var c = document.getElementById("pw-cross"), dot = document.getElementById("pw-dot");
+      var on = i != null && el._y && el._y(i) != null;
+      if (c) c.classList.toggle("on", on);
+      if (dot) dot.classList.toggle("on", on);
+      if (!on) return;
+      var fx = i / ((el._n || 2) - 1);
+      if (c) { c.setAttribute("x1", fx * W); c.setAttribute("x2", fx * W); }
+      if (dot) { dot.style.left = (fx * 100) + "%"; dot.style.top = (el._y(i) * 100) + "%"; }
+    });
+  }
+
+  function loadHistory() {
+    return fetch(BRIDGE + "/history", { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (h) { hist = h; drawChart(); })
+      .catch(function () {
+        var el = D.$("pw-chart");
+        if (el && !hist) D.paint(el, '<div class="pw-empty">History unavailable — Home Assistant didn’t answer</div>');
+      });
+  }
+
+  D.ready("#pw-chart", function () {
+    wireHover(D.$("pw-chart"));
+    loadHistory();
+    setInterval(function () { if (!document.hidden) loadHistory(); }, 300000);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) loadHistory(); });
+  });
 })();

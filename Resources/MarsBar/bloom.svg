@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="-20 -20 40 40"><!-- MarsBar: the blossom at the top of each card's vine rail. --><defs>
+  <linearGradient id="st" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#5ec495"/><stop offset=".5" stop-color="#3f9a74"/><stop offset="1" stop-color="#5ec495"/>
+  </linearGradient>
+  <linearGradient id="lf" x1="0" y1="-6" x2="16" y2="4" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#8fe0b4"/><stop offset=".55" stop-color="#55b98a"/><stop offset="1" stop-color="#2f7f5d"/>
+  </linearGradient>
+  <linearGradient id="ly" x1="0" y1="-6" x2="16" y2="4" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#d9b3f5"/><stop offset=".6" stop-color="#a77ad8"/><stop offset="1" stop-color="#6e4aa6"/>
+  </linearGradient>
+  <radialGradient id="pt" cx="0" cy="0" r="6" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#ffe3f4"/><stop offset=".45" stop-color="#e59ae6"/><stop offset="1" stop-color="#9b5fd0"/>
+  </radialGradient>
+  <g id="leaf">
+    <path d="M0 0 C3 -5.6 10 -7.6 17 -1.6 C10.6 4.6 3.6 4.1 0 0Z" fill="url(#lf)"/>
+    <path d="M0.8 0 Q8 -1.4 16.2 -1.6" fill="none" stroke="#c9f5dc" stroke-opacity=".55" stroke-width=".55"/>
+    <path d="M4.6 -0.5 L7.4 -4.1 M8.6 -1 L11.6 -4.4 M12.2 -1.3 L14.2 -3.4 M4.6 -0.5 L7.6 2.3 M8.6 -1 L11.4 1.6" fill="none" stroke="#c9f5dc" stroke-opacity=".35" stroke-width=".4"/>
+  </g>
+  <g id="leafy">
+    <path d="M0 0 C3 -5.6 10 -7.6 17 -1.6 C10.6 4.6 3.6 4.1 0 0Z" fill="url(#ly)"/>
+    <path d="M0.8 0 Q8 -1.4 16.2 -1.6" fill="none" stroke="#f1dcff" stroke-opacity=".5" stroke-width=".55"/>
+  </g>
+  <g id="bloom">
+    <g fill="url(#pt)">
+      <ellipse cx="0" cy="-3.6" rx="2.5" ry="3.9"/>
+      <ellipse cx="0" cy="-3.6" rx="2.5" ry="3.9" transform="rotate(72)"/>
+      <ellipse cx="0" cy="-3.6" rx="2.5" ry="3.9" transform="rotate(144)"/>
+      <ellipse cx="0" cy="-3.6" rx="2.5" ry="3.9" transform="rotate(216)"/>
+      <ellipse cx="0" cy="-3.6" rx="2.5" ry="3.9" transform="rotate(288)"/>
+    </g>
+    <circle r="1.7" fill="#f3c55f"/>
+    <g fill="#fff4d0"><circle cx=".9" cy="-.6" r=".35"/><circle cx="-.8" cy="-.4" r=".3"/><circle cx="0" cy=".9" r=".3"/></g>
+  </g>
+  <g id="bud">
+    <path d="M0 0 C-2.2 -2 -1.8 -5.4 0 -7 C1.8 -5.4 2.2 -2 0 0Z" fill="url(#pt)"/>
+    <path d="M-1.6 -.4 Q0 -2.4 1.6 -.4" fill="#4fae82"/>
+  </g>
+</defs><use href="#leaf" transform="translate(-2 6) rotate(160) scale(.85)"/><use href="#leafy" transform="translate(2 6) rotate(20) scale(.7)"/><path d="M0 20 L0 7" stroke="#4fae82" stroke-width="1.6" stroke-linecap="round"/><use href="#bloom" transform="translate(0 -1) scale(1.9)"/></svg>

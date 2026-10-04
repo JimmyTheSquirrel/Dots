@@ -84,7 +84,7 @@ temperatures could not be read at all.
 - Jellyfin, Jellyseerr, SABnzbd — all healthy
 - Prowlarr — 3 indexers pre-configured (Miatrix, NZBgeek, NzbPlanet) via sops secrets, app sync configured to push to all arrs
 - SABnzbd — FrugalUsenet (primary) + Newshosting (backup), dual Usenet backbone, running inside Mullvad VPN namespace with kill switch
-- Glance dashboard (port 8888) — live light tiles (pushed from ha-bridge), live Asgard / Storage / Now Playing cards (pushed from asgard-stats), live network panel + speed test, tabbed service monitors, Yggdrasil Network (every tailnet device), power Monitoring page — see *Dashboard — Glance*
+- Glance dashboard (port 8888) — every card live (pushed): Asgard / Storage / Now Playing / Downloads, network + speed test, Eclipse panel, Power (lights, 24 h chart, devices), tabbed service monitors, Yggdrasil Network — see *Dashboard — Glance*
 - FileBrowser, Immich, Audiobookshelf, Shelfarr — running
 - Decluttarr — running, config auto-generated from individual arr/sabnzbd API key secrets
 - Recyclarr — runs on boot + daily. **Only four quality profiles exist** (2026-08-23): "Asgard - Movies" (Radarr), "Asgard - TV" / "Asgard TV - 1080p" / "Asgard - Anime" (Sonarr). All TRaSH stock profiles were deleted so Jellyseerr shows a short list
@@ -115,15 +115,15 @@ temperatures could not be read at all.
 | **Suwayomi**       | 4567 | Tailscale only | Manga server (native NixOS service). **Package pinned to 2.3.x on purpose — nixpkgs' 2.1 finds ZERO sources.** See *Manga* below |
 | ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
-| asgard-stats       | 9552 | Tailscale only | `GET /stream` (SSE: 3 min of CPU/memory history on connect, then a snapshot every 2 s), `GET /snapshot`. Read-only: no verbs. CPU per thread, temps, fans, memory, every disk + the pool (`ismount`-checked), SMART from `asgard-smart`, Jellyfin now-playing. CORS only for `_origins.nix` |
+| asgard-stats       | 9552 | Tailscale only | `GET /stream` (SSE: 3 min of CPU/memory history on connect, then a snapshot every 2 s), `GET /snapshot`. Read-only: no verbs. CPU per thread, temps, fans, memory, every disk + the pool (`ismount`-checked), SMART from `asgard-smart`; Jellyfin now-playing and SABnzbd queue/history only while a dashboard is connected. CORS only for `_origins.nix` |
 | tailscale-status-proxy | 9553 | **loopback only** | `GET /status` — the tailnet device list behind Glance's Yggdrasil widget (read server-side by Glance; no CORS) |
-| **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Lights, live host/storage/now-playing cards, network panel, tabbed service monitors, Yggdrasil Network, power Monitoring page |
-| network-panel      | 9555 | Tailscale only | Live throughput from `/proc/net/dev` + last speed-test result; `POST /run` (needs `X-Dash: 1`) triggers a test. Backs the Glance Network group; CORS only for `_origins.nix` |
-| eclipse-control    | 9554 | Tailscale only | Eclipse TV-box panel — status JSON + `/act/<name>` verbs (incl. `reboot`; POSTs need `X-Dash: 1`). **Deliberately off the LAN**; that is why the LAN speed test needed 9557 |
+| **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Pages Asgard / Eclipse / Power / Terminal — see *Dashboard — Glance* |
+| network-panel      | 9555 | Tailscale only | `GET /events` (SSE: LAN + tailnet throughput every second, latency, speed tests), `GET /api` (snapshot), `POST /run` (needs `X-Dash: 1`). Backs the Network card on both dashboards; CORS only for `_origins.nix` |
+| eclipse-control    | 9554 | Tailscale only | Eclipse TV box API — `GET /events` (SSE: status, TV now-playing, Wolf streams, shared activity, busy), `GET /status`, `/act/<name>` verbs (incl. `reboot`) and `/wolf/stop/<id>` (POSTs need `X-Dash: 1`). Both dashboards draw the same panel from it. **Deliberately off the LAN**; that is why the LAN speed test needed 9557 |
 | eclipse speedtest sink | 9557 | **LAN + Tailscale** | Zero-filled payload only, no control surface. Opened via `networking.firewall.interfaces."enp3s0"` so the Pi can measure LAN throughput. Safe to expose *because* it has no verbs |
 | **glance-marsbar** | 8890 | **loopback only** | Partner dashboard. Reachable solely via the `marsbar` tailnet node's serve proxy — see `Claude/marsbar.md` |
-| ha-bridge          | 9556 | Tailscale only | Holds the HA token server-side. `GET /events` (SSE push of every plug relay + power sensor), `GET /states` (snapshot, from memory), `POST /toggle/<entity>` (needs `X-Dash: 1`) against a hard allowlist — see `Claude/home-assistant.md` |
-| **ttyd**           | 7681 | Tailscale only | Web terminal (Glance "Terminal" page iframe + Management bookmark). Login prompt (root `login` entrypoint) — log in as `rock`, passwordless sudo for reboot/shutdown |
+| ha-bridge          | 9556 | Tailscale only | Holds the HA token server-side. `GET /events` (SSE push of every plug relay + its power, V, A, kWh today, signal, online), `GET /states` (snapshot, from memory), `GET /history` (24 h of power per plug, 10-min buckets), `POST /toggle/<entity>` (needs `X-Dash: 1`) against a hard allowlist — see `Claude/home-assistant.md` |
+| **ttyd**           | 7681 | Tailscale only | Web terminal (Glance "Terminal" page). Login prompt (root `login` entrypoint) — log in as `rock`, passwordless sudo for reboot/shutdown |
 | FlareSolverr       | 8191 | Tailscale only | Podman container — Cloudflare challenge solver for Suwayomi + Shelfarr |
 | Home Assistant     | 8123 | Tailscale only | Smart plugs — see `Claude/home-assistant.md` |
 
@@ -594,39 +594,47 @@ API, power from Home Assistant, light state from ha-bridge. For logs, use `journ
 
 ### Glance Dashboard (port 8888)
 
-**Files:** `Modules/Server/glance.nix` (config + unit) · `Resources/Glance/asgard.css`,
-`asgard.js` (this dashboard) · `Resources/Glance/lights.js` (**shared with MarsBar**) ·
-`Resources/Glance/stats.js` + `Resources/Asgard-Stats/asgard-stats.py` / `Modules/Server/stats.nix`
-(the live cards) · `Resources/Glance/tailscale-status.py` (the tailnet list) · `yggdrasil-banner.png`.
-Plugs come from `Modules/Server/_plugs.nix`, services from the `services` list in `glance.nix`.
+**Pages:** Asgard · Eclipse · Power · Terminal (rebuilt 2026-10-04 — the Downloads page
+was folded into a live card, Monitoring became Power and took the lights).
 
-#### How it is built (rebuilt 2026-10-03)
+**Files:** `Modules/Server/glance.nix` (config + unit) · `Resources/Glance/`:
+`asgard.css` (this dashboard's theme + home/Power cards), `ygg-bg.svg` + `runes/` (the
+Yggdrasil look), `cards.css` (the cards
+**shared with MarsBar**: Eclipse panel, network card, now playing), `dash.js` (helpers every
+live card uses: stream lifecycle, DOM morphing, sparklines, hover read-outs), `lights.js`
+(**shared with MarsBar**), `asgard.js` (Power page), `stats.js` (home live cards), `net.js`
+and `eclipse.js` (**shared with MarsBar**), `tailscale-status.py`, `yggdrasil-banner.png`.
+`Modules/Server/_livecard.nix` builds the card frame both dashboards use. Plugs come from
+`Modules/Server/_plugs.nix`, services from the `services` list in `glance.nix`.
+
+#### How it is built
 
 - **The config is a Nix attrset serialised by `pkgs.formats.yaml`**, not hand-written YAML —
-  same as MarsBar. Markup is written as markup and generated: light tiles and power cards
-  from `_plugs.nix`, every monitor from one `services` list (`tab` = category tab, `alsoOn` =
-  other pages, e.g. the Downloads page's Status). Add a service or a plug in ONE place.
+  same as MarsBar. Markup is generated: light tiles and power cards from `_plugs.nix`, every
+  monitor from one `services` list (`tab` = category tab). Add a service or a plug in ONE place.
   ⚠ Never `readFile`/interpolate content into an indented YAML block scalar — see
   `Claude/marsbar.md` for how that silently ends the scalar.
-- **CSS and JS are real files** served from Glance's assets dir (`pkgs.linkFarm`, also holding
-  `yggdrasil.png`). Scripts are linked with `?v=<content hash>` because Glance sends `/assets/`
-  with a 2h `Cache-Control`; `custom-css-file` is stamped by Glance itself. They used to be ~900
-  lines of `document.head: |` block scalar.
+- **CSS and JS are real files** served from Glance's assets dir (`pkgs.linkFarm`). Linked with
+  `?v=<content hash>` because Glance sends `/assets/` with a 2h `Cache-Control`;
+  `custom-css-file` is stamped by Glance itself. `cards.css` is a `<link>` in `document.head`.
+- **Live cards are `html` widgets**, not `custom-api`: Glance 0.8.5 emits an html widget's source
+  raw (it does NOT sanitise it — the old belief that it did is why Eclipse was an iframe), so each
+  carries Glance's own `.widget` markup and a skeleton, and a script paints it from a stream.
 - **Glance expands `${…}` config variables as plain text over the whole file before parsing**
-  (`parseConfigVariables`, 0.8.5) — comments and markup included. Only the two secrets below may
+  (`parseConfigVariables`, 0.8.5) — comments and markup included. Only the secret below may
   appear that way.
 
-#### Secrets — both via `readFileFromEnv`
+#### Secret — via `readFileFromEnv`
 
-`LoadCredential` copies each root-only (0400) sops secret into `glance.service`'s private
-credentials dir; an env var points at the copy; Glance substitutes the contents at startup:
+`LoadCredential` copies the root-only (0400) sops secret into `glance.service`'s private
+credentials dir; an env var points at the copy; Glance substitutes it at startup:
 
-- `SABNZBD_API_KEY_FILE` — in the Queue widget's **URL** (`…&apikey=${readFileFromEnv:…}`), not
-  in `parameters:`. The serialiser leaves `${…}` unquoted, so as a value of its own a substituted
-  all-digit key would be re-typed by the YAML parser as a number.
-- `HA_TOKEN_FILE` — the Monitoring widgets' `Authorization: Bearer …` header. It used to be
-  `${secret:ha-token}` (a direct `/run/secrets` read), which forced the admin token to 0444,
-  then a 0440 group stopgap. Now the secret is plain root-only 0400.
+- `HA_TOKEN_FILE` — the Power widgets' `Authorization: Bearer …` header (first frame only;
+  everything after comes from ha-bridge). It used to be `${secret:ha-token}` (a direct
+  `/run/secrets` read), which forced the admin token to 0444. Now plain root-only 0400.
+
+Glance **no longer holds SABnzbd's full-control API key**: the old Queue widget was its only
+user, and the Downloads card reads SAB through asgard-stats instead.
 
 ⚠ Glance **refuses to start** if a variable can't be read — a missing credential takes the whole
 dashboard down. A rotated token restarts `glance.service` (`restartUnits`).
@@ -634,150 +642,147 @@ dashboard down. A rotated token restarts `glance.service` (`restartUnits`).
 #### Live, not polled
 
 Glance renders each widget server-side **once per page load** (0.8.5 has no client-side
-refresh; `cache:` only affects the next load). Everything that moves is JS in `document.head`:
+refresh). Everything that moves is a stream, opened only on a page that has its cards, parked
+after 60 s in a hidden tab, reconnected with backoff, and watchdogged (every backend sends
+something at least every 15 s, so 40 s of silence = a half-open link → reconnect):
 
-| What | How | When |
-|---|---|---|
-| Light switches, relay states | `lights.js`: ONE `EventSource` on ha-bridge `/events` | push; only on a page that has a light; parks after 60s hidden, re-syncs on return |
-| Watts, sums, draw bar, "N of M on", at-current-draw projections | `asgard.js`, from lights.js's `ha:state` events | push (ha-bridge streams every plug's `sensor.<slug>_power`) |
-| Network throughput + speed test | `asgard.js` polls network-panel `/api` | every 2s, **only on the Asgard page, only while visible**, immediately on becoming visible |
-| "seen 9h ago", "Plug booted 31h ago" | Glance's own `data-dynamic-relative-time` | client-side tick |
+| Cards | Script | Stream | Backend |
+|---|---|---|---|
+| Lights, relay states | `lights.js` | `/events` | ha-bridge :9556 |
+| Power: watts, V, A, kWh today, cost today, signal, plug online, projections | `asgard.js` | lights.js's `ha:state` events | ha-bridge (watches all of them — `_plugs.nix`) |
+| Power: 24 h chart | `asgard.js` | `GET /history` every 5 min | ha-bridge (2 min cache) |
+| Asgard, Storage, Now Playing, Downloads | `stats.js` | `/stream` | asgard-stats :9552 |
+| Network | `net.js` | `/events` | network-panel :9555 |
+| Eclipse, On the TV, Streams, Activity | `eclipse.js` | `/events` | eclipse-control :9554 |
 
-Before this, the main Glance polled ha-bridge `/states` every 3s from every open page — hidden
-tabs and pages without a light included — and each poll made the bridge download HA's whole
-`/api/states`. A light toggled anywhere now shows on every open dashboard (this one in several
-tabs, MarsBar, the phone) in a few hundred ms; measured ~200ms end to end against a mock HA
-whose relay takes 150ms. Every browser-side URL is built from `location.hostname`, so the page
-works opened as `asgard`, the FQDN or the IP (each is in `Modules/Server/_origins.nix`).
+Every card **morphs** its new HTML into the DOM (dash.js — attributes and text only) rather than
+swapping `innerHTML`: that is what lets rings and bars animate between ticks and keeps posters
+from being re-fetched. Every browser-side URL is built from `location.hostname`, so the page
+works opened as `asgard`, the FQDN or the IP (each is in `Modules/Server/_origins.nix`). Every
+POST carries `X-Dash: 1`; the backends refuse a POST without it and answer CORS only for
+`_origins.nix`.
 
-Every POST carries `X-Dash: 1` (ha-bridge `/toggle`, network-panel `/run`) — the backends refuse
-a POST without it and answer CORS only for `_origins.nix`.
+**Caches** (server-side, first frame only): Lights 1s and Devices 1s (they render switch
+positions) · Power 30s · Cost Outlook 5m · Plug Health 1m · Yggdrasil 1m · monitors 1m.
 
-**Caches** (server-side, per page load): Lights 1s and Power Switches 1s (they render switch
-positions; ha-bridge and HA answer from memory, and a stale position would visibly flip on
-load) · Power Monitoring 30s · Cost Outlook 5m · Plug Health 1m · Network 1m and Speed test 5m
-(the poller repaints both within a second) · Yggdrasil 1m (tailscale's own Online flag lags about
-a minute) · SAB Queue 30s · monitors 1m.
+#### The look — Yggdrasil (asgard.css)
 
-#### Styling — mint-green glass, MarsBar's structure
+Themed on the world tree its tailnet card already carried, the way MarsBar has her vine:
+a **plain neutral-grey** page with a faint line drawing of the tree behind everything
+(`Resources/Glance/ygg-bg.svg` — generated and seeded: canopy in green with purple blossom,
+roots in ember orange, a ring), the tree as the **logo, tab icon and phone home-screen icon**
+(`branding.logo-url` / `favicon-url` / `app-icon-url`), and each card headed by an **Elder
+Futhark rune** chosen for what it holds — ᚲ kenaz (torch) Lights, ᚨ ansuz (the gods) Asgard,
+ᛟ othala (estate) Storage, ᚱ raidho (journey) Network, ᛉ algiz (guardian) Services, ᛃ jera
+(the year) Clock, ᛚ laguz (flow) Now Playing, ᚠ fehu (wealth) Downloads, ᛇ eihwaz (the yew)
+Yggdrasil, ᛞ dagaz (day/night) Eclipse, ᛖ ehwaz (the horse) Streams, ᛈ perthro On the TV,
+ᛗ mannaz Activity, ᛊ sowilo (sun) Power, ᛏ tiwaz Devices, ᚷ gebo Cost, ᚢ uruz Plug health,
+ᛁ isa Terminal. The runes are SVG strokes (`Resources/Glance/runes/`) used as a CSS mask, so
+no device needs a Runic font; `rune-*` + `acc-*` classes (`css-class`, or `rune`/`acc` on a
+live card).
 
-`asgard.css` uses the same tokens, radii, spacing and state language as MarsBar's
-`marsbar.css` (`--ag-*` here, `--mb-*` there) — mint here, purple there, so the two are never
-confused. ⚠ **Glance's rem is 10px** (9.4px under 550px): nothing a person reads is under
-1.1rem. The old power labels at 0.66–0.78rem were 6–8px.
+Three colour layers, each with one job (details at the top of `asgard.css`):
 
-⚠️ **Glance frames widget content itself.** Styling `.widget` as a card produces a
-visible **box inside a box**, because of Glance's own rule:
+1. **Ink** — neutral grey surfaces and text; nothing carries a hue.
+2. **Accents** — one per card: its rune, top edge and a breath of tint. **Forest green
+   dominates** (lights, server, services, power, the tree), with moss (storage, devices, plug
+   health), purple (network, media, Eclipse) and orange only as a few accents (downloads,
+   streams). A first pass leaned orange on the Power page (amber lamp glow, orange accents) and
+   read as orange-dominant — keep orange to accents.
+3. **Data** — a fixed, ordered palette `--s1…--s6`: **forest · purple · orange** · sky · rose ·
+   gold. **Validated, not picked by eye** (dataviz validator, dark, card surface `#26272a`):
+   worst adjacent colour-blind ΔE 10.8 (target ≥ 8), normal-vision ΔE 17.5 (floor 15), all
+   ≥ 3:1. ⚠ **Green and orange must never be neighbours** — to red-green colour blindness
+   they are nearly one colour (ΔE 4.9), which is why purple sits between them. Change a slot
+   → re-run the validator. A series keeps its colour everywhere (a plug's chip = its
+   share-bar segment = the stripe down its card).
 
-```css
-.widget-content:not(.widget-content-frameless), .widget-content-frame {
-  background: var(--color-widget-background);
-  border: 1px solid var(--color-widget-content-border);
-  box-shadow: 0px 3px 0px 0px ...;
-}
-```
+Status (good / warn / bad) is reserved and always paired with a word. Lamps that are **on glow
+forest green** (sunlight through leaves). ⚠ **Glance's rem is 10px** (9.4px under 550px): nothing read is under 1.1rem.
 
-Pick **one** container. We keep the outer `.widget` card and flatten the inner frame. A group's
-tabs are `.widget`s too, so `.widget .widget` is reset to nothing — otherwise every group is a
-card inside a card. Find Glance's rules with `curl <glance>/static/<hash>/css/bundle.css`.
+⚠️ **Glance frames widget content itself** (`.widget-content:not(.widget-content-frameless),
+.widget-content-frame` get a background, border and shadow). Styling `.widget` as a card
+produces a **box inside a box** — keep the outer card and flatten the inner frame; a group's
+tabs are `.widget`s too, so `.widget .widget` is reset. Find Glance's rules with
+`curl <glance>/static/<hash>/css/bundle.css`.
 
-Still in use from the 2026-09-19 glass pass: the **ambient colour orbs** on `body::before`
-(alpha 0.05–0.09 — higher is a lava lamp), **alpha-channel gradients** rather than flat rgba,
-the **inset top highlight**, `backdrop-filter: blur(11px) saturate(125%)`. Plus a 0.10-alpha
-hairline edge so stacked cards separate on a phone.
-
-- **On/off is unmissable:** a lit tile (fill + border + glowing icon + "ON" + sliding switch)
-  vs a flat dimmed one. Unknown/unreachable is dashed and faded, never "off". When the stream
-  drops the badge says *Reconnecting…* and tiles desaturate — stale state never looks live.
-- **No layout shift:** every tile renders its real state server-side; sparkline boxes are fixed
-  height; the state word sits in a fixed-width slot; numbers are tabular.
-- `prefers-reduced-motion` disables every animation and transition.
-
-An **orange** variant was tried and rejected. Bulk hue shifts are easy with `sed`, but check
-for stragglers on neighbouring hues afterwards.
+⚠ A hidden hover read-out must be `display: none`, not `opacity: 0` — an invisible absolutely
+positioned box still widens the page on a phone, which zooms the whole page out and puts the
+bottom navigation off its tap targets.
 
 #### Page 1 — Asgard
 
-Full column:
-- **Lights** — master switch (`switch.living_room_lights`) + one tile per lamp, the whole tile
-  is the tap target. Rendered from ha-bridge `/states`, then live. Machines never appear here.
-- **Asgard** (live) — CPU / memory / CPU-temp rings, uptime, load, swap, NVMe temp, fans, a bar
-  per CPU thread and a 3-minute CPU + memory chart (autoscaled; the top label says to what).
-- **Storage** (live) — pool free/size, one segment per data disk (sized by capacity), and a row per
-  disk: usage, free, power-on age, temperature, spinning / asleep / solid state, SMART dot. A disk
-  that isn't mounted turns its row red instead of showing the NVMe's numbers through an empty dir.
+Full column: **Asgard** (CPU / memory / CPU-temp rings, facts, per-thread bars, 3-minute CPU +
+memory chart) · **Storage** (pool, a segment per data disk, a row per disk with age, temperature,
+spin state, SMART) · **Network** (below) · **Service health** group (All / Media / Downloads /
+Arr / Management, generated from `services`; no bookmarks column — rows are clickable).
 
-  Both are `html` widgets (`liveCard` in `glance.nix`) wrapping Glance's own `.widget` markup, filled
-  by `stats.js` from the asgard-stats SSE stream. `stats.js` **morphs** each render into the DOM
-  (attributes/text only) rather than swapping `innerHTML` — that is what lets rings and bars animate
-  between ticks and stops posters being re-fetched every 2 s. They replaced the native
-  `server-stats` widget (three small bars, refreshed only on page load).
-- **Network** `group` (Network / Speed test) — see below.
-- **Service health** `group` (All / Media / Downloads / Arr / Management), all generated from
-  `services`. "All" is the default tab; the 13 services are all live units.
+Small column: Clock · **Now Playing** (every Jellyfin stream, poster from Jellyfin's anonymous
+image endpoint on :8096) · **Downloads** (speed, queue, ETA, the current item with progress, up
+next, the last few finished or failed with sizes and SAB's day/week totals; release names are
+prettified — `Dune.Part.Two.2024.1080p…` → `Dune Part Two (2024)`; header links to SABnzbd) ·
+**Yggdrasil Network** (the tree banner over every tailnet device, sorted by the proxy).
 
-There is deliberately **no bookmarks column** — monitor rows are already clickable.
+**Network card** (net.js): LAN down/up (each on its own scale — they differ by an order of
+magnitude), the tailnet's share (tailscale0), latency to the internet and the router (TCP
+handshake every 5 s, only while watched), and the speed test — last result, the last 7 days of
+results as one sparkline per figure (hover any tile for each run), and Run now.
 
-Small column:
-- Clock (12h).
-- **Now Playing** (live) — every active Jellyfin stream: poster (loaded from Jellyfin's anonymous
-  image endpoint on `:8096`), title, progress, time left, and direct / stream / transcode (with
-  codec, bitrate and HW vs CPU).
-- **Yggdrasil Network** — the tree banner (rune-ring SVG on `.ygg-widget::before`, the PNG on the
-  header's `::before`) over every tailnet device: dot, MagicDNS name, IP, then OS · `direct` /
-  `relay syd` / `idle` for online nodes and "seen 9h ago" for offline ones. Sorted by the proxy:
-  this machine, online A→Z, offline newest first; Glance collapses after 10. Named by MagicDNS
-  name because Android reports its OS hostname as `localhost`.
+#### Page 2 — Eclipse
 
-#### Page 2 — Downloads
+Drawn natively by `eclipse.js` from eclipse-control's `/events` (it was an iframe). **The same
+file runs on MarsBar** — she has every control here. Eclipse card (status, SoC temperature,
+under-voltage/throttle alerts, Kodi / display / Jellyfin path / link-test tiles, Restart Kodi ·
+Sync library · Test link · Reboot, and a LAN / Tailscale path switch) · Streams (Wolf on
+Sisyphus, End a stuck one) | On the TV (Jellyfin, filtered to the Kodi addon) · Activity (the
+last actions from EITHER dashboard, from eclipse-control's memory). Reboot, the path switch and
+End need a second tap within 3 s. See `Claude/eclipse.md`.
 
-- **Queue** — one `custom-api` on SAB's `mode=queue` (items, GB left, status, speed, time left).
-  It used to be two widgets making the identical call, and before that Prometheus.
-- **Status** — SABnzbd + Prowlarr monitors (`alsoOn = [ "downloads" ]`).
-- SABnzbd iframe (`height: 700`). Needs `x_frame_options = 0`; dark mode is
-  `web_color = "Night"` (NOT "Dark"); compact/fullscreen/tabbed are set server-side but the
-  iframe needs "Use global interface settings" ticked in its own browser context.
+#### Page 3 — Power (was Monitoring)
 
-#### Pages 3–5
+Full column: **Lights** — two sections, **Groups** (the Living Room Lights master switch, full
+width) and **Lamps** (one warm tile each); moved here from the home page so every switch and
+every watt is in one place · **Power** — total draw, machines vs lights, today's cost so far
+and the yearly rate, a **share bar** (who is drawing it right now, one segment per plug,
+live), legend chips with live watts, and **the last 24 hours as ONE smooth line** — the house's
+total, canopy-green to ember-orange, with peak · average · kWh beside it; hover any moment for
+every plug's share of it. (It was a stacked band per plug, which read as clutter.) ·
+**Devices** — one card per plug, machines first, relay locked on machines; expand for V, A,
+apparent power, power factor, kWh and cost today. Small column: **Cost Outlook**, **Plug
+Health** (online dot + Wi-Fi, live).
 
-- **Terminal** — ttyd iframe (:7681).
-- **Eclipse** — the eclipse-control panel (:9554) iframed, `width: slim`. It carries every verb
-  (reboot, jellyfin-toggle, speed test); MarsBar's native rebuild exposes only the safe three.
-- **Monitoring** — Power Monitoring (Asgard + Eclipse: live watts, draw bar, locked relays,
-  expandable electrical/energy detail), Power Switches (master + lamp cards with real toggles),
-  Cost Outlook, Plug Health (online dot + Wi-Fi). All four POST the **same generated Jinja query**
-  to HA's `/api/template` — `plugQuery` in `glance.nix`, rows serialised with HA's `to_json`.
-  Projections are **instantaneous draw × 24 h, labelled "at current draw"** — never "average";
-  see `Claude/home-assistant.md` for why.
+All first frames POST the **same generated Jinja query** to HA's `/api/template` — `plugQuery`
+in `glance.nix`. Projections are **instantaneous draw × 24 h, labelled "at current draw"** —
+never "average"; see `Claude/home-assistant.md` for why.
 
-**Theme:** background `hsl(170, 14%, 8%)`, primary `hsl(158, 58%, 64%)` (mint — it was Glance's
-default gold until 2026-10-03, which is what tinted the tab underline and the tailnet names),
-positive `hsl(152, 62%, 52%)`, negative `hsl(0, 84%, 60%)`. `branding.app-name = "Asgard"`
-(the phone home-screen name), footer hidden.
+#### Page 4 — Terminal
+
+ttyd (:7681), sized to the window (`.term-widget`) instead of a fixed 700 px box.
+
+**Theme:** background `hsl(220, 5%, 11%)` (neutral grey), primary `hsl(142, 52%, 59%)` (forest), positive
+`hsl(148, 59%, 53%)`, negative `hsl(3, 85%, 66%)`. `branding.app-name = "Asgard"`, footer hidden.
 
 **Icons:** `sh:` (selfh.st, coloured); a CDN URL where selfh.st has none. Avoid `si:` — monochrome.
 
 ### Network panel + speed test (port 9555)
 
 `Resources/Network-Panel/network-panel.py`, run by `systemd.services.network-panel`.
-One process, two jobs:
+One process, three jobs:
 
-- **Live throughput** — a thread samples `/proc/net/dev` for `enp3s0` once a second
-  and keeps a 60s history, so the numbers *and* the sparklines are populated on the
-  first request rather than filling in over the next minute.
-- **Speed test** — serves the last result written by `speedtest.service`, and
+- **Live throughput** — a thread samples `/proc/net/dev` once a second for `enp3s0` AND
+  `tailscale0`, keeping 60 s of history so the sparklines are full on the first request.
+- **Latency** — while an `/events` client is connected, a TCP handshake to `1.1.1.1:443` and to
+  the default gateway (`:80`) every 5 s. A handshake, not ICMP, so no raw socket; a refused port
+  answers as fast as an open one.
+- **Speed test** — serves the last result written by `speedtest.service`, the history it appends
+  (`/var/lib/speedtest/history.jsonl`, last 400 runs; the card shows 28 = 7 days), and
   `POST /run` starts a fresh one.
 
-`GET /api` is consumed twice: by Glance over localhost to server-render the first
-frame, and by `Resources/Glance/asgard.js` over the tailnet (every 2s, only on the
-Asgard page and only while the tab is visible) to keep it moving. Hence CORS — for
-the `_origins.nix` dashboards only (`DASH_ORIGINS`, passed in by the unit), never
-`*` — and the `0.0.0.0` bind. Still tailnet-only — 9555 is not in `allowedTCPPorts`
-and `tailscale0` is trusted. `POST /run` needs `X-Dash: 1`. The poller derives its
-base URL from `location.hostname`, so it survives being opened by IP instead of by
-name. It matches elements by `id` (`np-down`, `np-spark-up`, `np-st-*`, `np-run`) —
-**renaming an id in the widget template without editing asgard.js silently breaks
-the live half.** MarsBar reads the same `/api` through its `/net-api` serve mount.
+`GET /events` streams it to the dashboards (`init` once, a `tick` a second, `latency`, and
+`speedtest` when a run starts or lands) — `net.js` on both dashboards; MarsBar's goes through
+her `/net-api` serve mount and is read-only (no Run now). `GET /api` is the same as one JSON
+snapshot (kept; add fields, never rename). CORS for the `_origins.nix` dashboards only, `0.0.0.0`
+bind, still tailnet-only (9555 not in `allowedTCPPorts`). `POST /run` needs `X-Dash: 1`.
 
 Runs as root only so `POST /run` can `systemctl start speedtest.service`.
 

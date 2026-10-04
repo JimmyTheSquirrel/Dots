@@ -156,6 +156,14 @@
         if [ -s "$tmp" ]; then
           ${pkgs.coreutils}/bin/mv "$tmp" "$out"
           ${pkgs.coreutils}/bin/rm -f "$raw"
+          # One line per run for the dashboard's "last 7 days" chart
+          # (network-panel reads the tail). Mb/s, like everything on the panel —
+          # Ookla reports bytes/s. Trimmed so it never grows without bound.
+          hist=/var/lib/speedtest/history.jsonl
+          ${pkgs.jq}/bin/jq -c '{t: .timestamp, down: (.download.bandwidth * 8 / 1e6),
+                                 up: (.upload.bandwidth * 8 / 1e6), ping: .ping.latency}' \
+            "$out" >> "$hist" || true
+          ${pkgs.coreutils}/bin/tail -n 400 "$hist" > "$hist.tmp" && ${pkgs.coreutils}/bin/mv "$hist.tmp" "$hist"
         else
           ${pkgs.coreutils}/bin/rm -f "$tmp" "$raw"
           exit 1
@@ -176,9 +184,12 @@
     };
 
     # ── Network panel endpoint (port 9555, Tailscale-only) ─────────────────────
-    # Backs the Network group on the Glance main page: live throughput sampled
-    # from /proc/net/dev plus the last speed-test result, and a POST /run that
-    # triggers a fresh test from the "Run now" button.
+    # Backs the Network card on the Glance main page: live LAN + tailnet
+    # throughput sampled from /proc/net/dev, internet/router latency (only while
+    # a dashboard watches), the last speed-test result and the history of them,
+    # and a POST /run that triggers a fresh test from the "Run now" button.
+    # GET /events streams it to the admin dashboard; GET /api is the one-shot
+    # snapshot MarsBar polls (its shape is a contract — add, never rename).
     #
     # Replaced `flow` inside a second read-only ttyd on :7682. ttyd kills its
     # child whenever the websocket drops — a backgrounded tab was enough — and

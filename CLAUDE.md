@@ -25,7 +25,7 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 | Shell/misc | `Claude/misc.md` | Starship, Fastfetch, btop, Navi, Discord, media viewers, Thunar, audio (PipeWire fixes) |
 | Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Seerr API, Glance, recyclarr. Code is `Modules/Server/` |
 | Home Assistant | `Claude/home-assistant.md` | Smart plugs on Asgard `:8123`. `extraComponents` gates which integrations exist at all; device pairings are **not** declarative |
-| MarsBar dashboard | `Claude/marsbar.md` | Partner-facing Glance on its **own tailnet node** (`marsbar:1111`). Lights + Jellyfin/Seerr + Eclipse controls. Isolation is a Tailscale **ACL**, not in this repo |
+| MarsBar dashboard | `Claude/marsbar.md` | Partner-facing Glance on its **own tailnet node** (`marsbar:1111`) — why a node, not a path. Lights + Jellyfin/Seerr + the **full** Eclipse panel (shared with the admin dashboard). Isolation is a Tailscale **ACL**, not in this repo |
 | Dolphin (rejected) | `Claude/dolphin.md` | Decision record: Dolphin was trialled and rejected — **Thunar stays**. Don't re-propose it |
 
 ## Core Principles
@@ -85,10 +85,12 @@ Modules/
                           #   storage, arr, recyclarr, jellyfin, downloads, books, manga,
                           #   photos, files, network, eclipse, glance, stats, ttyd — all one
                           #   nixosModules.server — plus home-assistant, marsbar, and the
-                          #   _lib.nix / _plugs.nix (the one smart-plug list) / _origins.nix helpers
+                          #   _lib.nix / _plugs.nix (the one smart-plug list) / _origins.nix /
+                          #   _livecard.nix helpers
 Resources/                # static files the modules reference:
-                          #   Glance/ (asgard.css/js, lights.js — shared with MarsBar —
-                          #   stats.js, tailscale-status.py, yggdrasil banner), MarsBar/,
+                          #   Glance/ (asgard.css/js, stats.js, tailscale-status.py,
+                          #   yggdrasil banner; SHARED with MarsBar: cards.css, dash.js,
+                          #   lights.js, eclipse.js, net.js), MarsBar/ (css + vine svgs),
                           #   HA-Bridge/, Asgard-Stats/, Eclipse-Control/, Network-Panel/,
                           #   Wolf-Bridge/ (Sisyphus), Scripts/ (deploy-tools + lib/ui.sh),
                           #   Fonts/, Spicetify-Text-Theme/, Steam-Glass-Theme/, Terminal-Images/

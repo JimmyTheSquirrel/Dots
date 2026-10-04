@@ -9,12 +9,12 @@
 #                                members of the Living Room Lights group
 #   Modules/Server/marsbar.nix        → her light tiles
 #   Modules/Server/glance.nix         → the main Glance: the home page's light
-#                                tiles, the Monitoring page's power cards and
+#                                tiles, the Power page's chart, cards and
 #                                switches, Plug Health, and the one Jinja query
 #                                behind them all
 #
 # Before this file the same five plugs were spelled out in about eight places —
-# Jinja tuples on the Monitoring page, the bridge allowlist, the HA group, the
+# Jinja tuples on the old Monitoring page, the bridge allowlist, the HA group, the
 # MarsBar list — and they had already drifted (three different display names for
 # the fairy lights, two different orders). Add a plug HERE and everything that
 # should know about it does; nothing else needs touching.
@@ -26,7 +26,7 @@ let
   # Every plug is an Athom Plug V3 on ESPHome, so every entity hangs off one
   # device slug: switch.<slug>_switch, sensor.<slug>_power, sensor.<slug>_voltage,
   # sensor.<slug>_total_daily_energy, binary_sensor.<slug>_status, … — the
-  # Monitoring page's Jinja (plugQuery in glance.nix) builds all of those from
+  # Power page's Jinja (plugQuery in glance.nix) builds all of those from
   # `slug` alone.
   #
   # Fields:
@@ -134,10 +134,21 @@ in
   toggleable = [ group.entity ] ++ group.members;
 
   # ── What ha-bridge watches and streams ──────────────────────────────────
-  # Every relay (machines included — read-only is still worth seeing) plus each
-  # plug's live draw, so a dashboard can show watts moving without polling HA.
+  # Every relay (machines included — read-only is still worth seeing), each
+  # plug's live draw, and the rest of what the Power page shows — volts, amps,
+  # today's energy, wifi signal, and whether the plug itself answers — so every
+  # figure on that page moves live instead of being a page-load snapshot.
+  # Read-only: watching is not the same as ALLOWED (toggleable, above).
   watched =
     [ group.entity ]
     ++ map (p: p.entity) all
-    ++ map (p: p.power) all;
+    ++ builtins.concatMap (p: [
+      p.power
+      "sensor.${p.slug}_voltage"
+      "sensor.${p.slug}_current"
+      "sensor.${p.slug}_total_daily_energy"
+      "sensor.${p.slug}_wifi_signal_percent"
+      "sensor.${p.slug}_wifi_signal_db"
+      "binary_sensor.${p.slug}_status"
+    ]) all;
 }
