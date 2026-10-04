@@ -17,7 +17,7 @@
 # Every rebuild — menu or CLI, local or remote — is the same three steps:
 #   1. build  nom build <flake>#nixosConfigurations.<user>-<Host>.config.system.build.toplevel
 #   2. diff   dix <what is running> <what was built>
-#   3. apply  nixos-rebuild <switch|boot> --store-path <built path>
+#   3. apply  nixos-rebuild <switch|boot> --no-reexec --store-path <built path>
 #             (-p <profile> for a named one; --target-host for another machine)
 # Building first and handing nixos-rebuild the finished store path (supported
 # since nixos-rebuild-ng) evaluates the flake once, gives the build nom's live
@@ -342,12 +342,18 @@ rebuild() {
     next="nothing to activate"
   else
     ui_stage "$accent" 3 "Activate · $action"
+    # --no-reexec: before switch/boot, nixos-rebuild-ng swaps itself for the
+    # new system's copy by building config.system.build.nixos-rebuild — from
+    # --flake if given, otherwise from <nixpkgs/nixos> + NIX_PATH's
+    # nixos-config, which a flake system doesn't have. It does this even with
+    # --store-path, so without the flag every activation dies with "file
+    # 'nixos-config' was not found". The running nixos-rebuild is fine.
     local cmd
     if [[ "$kind" == "local" ]]; then
-      cmd=(sudo nixos-rebuild "$action" "${pflag[@]}" --store-path "$out")
+      cmd=(sudo nixos-rebuild "$action" "${pflag[@]}" --no-reexec --store-path "$out")
     else
       ui_info "$host will ask for $(ui_bold "$user")'s sudo password — that's the password on $system"
-      cmd=(nixos-rebuild "$action" "${pflag[@]}" --store-path "$out" --target-host "$ssh_target" --ask-sudo-password)
+      cmd=(nixos-rebuild "$action" "${pflag[@]}" --no-reexec --store-path "$out" --target-host "$ssh_target" --ask-sudo-password)
     fi
     if ! "${cmd[@]}"; then
       ui_box "$UI_RED" "✘ Activation failed — $system" \
