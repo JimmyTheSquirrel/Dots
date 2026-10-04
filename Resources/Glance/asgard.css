@@ -5,110 +5,186 @@
    glance.nix). Glance's own theme colours (set there) still drive the few
    things Glance draws itself; everything else is here.
 
-   ── Yggdrasil ──────────────────────────────────────────────────────────────
-   The dashboard is themed on the world tree its tailnet card already carries:
-   plain neutral grey, a faint line drawing of the tree (branches above, roots
-   below, a ring round it) behind everything, the tree as the logo, and each
-   card headed by an Elder Futhark rune chosen for what it holds — ᚲ kenaz the
-   torch for the lights, ᚨ ansuz (the gods' rune) for Asgard itself, ᛟ othala
-   the estate for storage, ᚱ raidho the journey for the network, ᛞ dagaz
-   day-and-night for Eclipse… (`rune-*` classes, Resources/Glance/runes/).
-   Forest greens with orange and purple, in gradients — like MarsBar's vine.
+   ── Overgrown ────────────────────────────────────────────────────────────────
+   The hall gone back to the forest. Yggdrasil is the frame — its tree behind
+   the page, a rune heading each card (ᚨ ansuz for Asgard, ᛟ othala the
+   estate for storage, ᚱ raidho the journey for the network…) — and the
+   forest has grown down over everything else, from the top: ivy along a
+   card's edge, a mossy bough hung with old-man's-beard, rowan, bramble,
+   ferns, oak — something different on every card — and each page its own
+   growth over the navigation (asgard ivy and rowan, eclipse a mossy bough
+   with glowing toadstools, power bramble, terminal roots) and its own forest
+   along the foot. None of it is drawn here: Resources/Glance/growth.py grows
+   it at build time, and its growth.css hands each card and page its pieces
+   as custom properties (--g-top, --g-rule, --g-nav, --g-trees, --g-glyph)
+   that the rules below draw.
 
    ── The colour system ──────────────────────────────────────────────────────
-     1. INK — neutral grey surfaces and text. Nothing here carries a hue.
-     2. ACCENTS — one per card (--acc): its rune, its top edge, a breath of
-        tint in its first corner:
-          FOREST GREEN dominates — lights, server, services, power, the tree —
-          with moss (storage, devices, plug health), purple (network, media,
-          Eclipse) and orange kept to a few accents (downloads, streams)
-     3. DATA — a fixed, ordered six-colour palette (--s1…--s6) for series that
-        need telling apart: the three gauges, the disks, the plugs. VALIDATED,
-        not picked by eye (dataviz validator, dark mode, card surface #26272a):
-        forest · purple · orange · sky · rose · gold — every adjacent pair
-        clears colour-blind ΔE 10.8 (target ≥ 8) and normal-vision ΔE 17.5
-        (floor 15), all ≥ 3:1. Green and ORANGE must never be neighbours: to
-        red-green colour blindness they are nearly the same colour (ΔE 4.9) —
-        which is why purple sits between them. Change a slot → re-run the
-        validator. A series keeps its colour wherever it appears.
-   Status (good / warn / bad) is separate and reserved: always with a word.
-   Lamps that are ON glow forest green — sunlight through leaves.
+   Forest greens and one deep red — rowan berries, never pink — with the
+   browns of bark. Everything is a green, the red, or the two run together
+   by a gradient; the rest is ink.
+     FAMILY   DATA (--sN)                LIT (--c-*)  DEEP
+     greens   #3d9a50 forest             #86cf86      #1d4a2b
+              #7aa344 moss · #2f7a5c pine
+     red      #c62f27 rowan · #8f1d1d oxblood · #d4572f rust
+                                         #e24a3f      #6e1414
+     bark     —                         #987a59      (the growth: wood)
+     birch    —                         #edeade      text
+     fog      surfaces: #191d1b page, #1f2421 cards — grey, cool-green cast
 
-   MarsBar (Resources/MarsBar/marsbar.css) is purple with a vine; the cards
-   both dashboards draw (cards.css) are written against the tokens below and
-   MarsBar defines the same names in her colours.
+   ACCENTS — every card is .acc-green or .acc-red (glance.nix), alternating
+   down each column so no two neighbours match. A card's --acc is its colour
+   and --acc2 the OTHER one, and every ornament runs from one into the other:
+   the top edge, the rune, the title rule, the corner wash.
+
+   DATA — the --sN slots alternate the families, green · red · green · red …,
+   each step also a step in lightness, so neighbours never blur together. A
+   series keeps its colour everywhere: CPU green, memory red, in the ring, the
+   chart and the legend; download green, upload red. (Colour-blind safety was
+   deliberately NOT a constraint — rock's call; the lightness steps stay.)
+   WOVEN — --weave (leaf → berry) is the signature: the navigation ribbon, the
+   current page, the hero stripe. In data it means BOTH: ping (the round trip,
+   both directions) is drawn in it, and CPU temperature is mixed along it —
+   cool is leaf, hot is berry (oklch, so it ripens through amber, not mud).
+   STATUS — good / warn / bad are reserved, brighter than any data slot, and
+   always come with a word: never colour alone. In a red-and-green theme this
+   matters twice — the red here is a berry, never an alarm; "bad" is a hotter
+   orange-red of its own.
+
+   MarsBar (Resources/MarsBar/marsbar.css) keeps her purple and vine; the
+   cards both dashboards draw (cards.css) are written against the tokens below
+   and MarsBar defines the same names in her colours.
 
    ⚠ rem is NOT 16px here. Glance sets `:root { font-size: 10px }` (9.4px under
    550px wide), so 1.1rem is an 11px label. Nothing a person has to READ is
    under 1.1rem.
    ════════════════════════════════════════════════════════════════════════════ */
 
+/* Cinzel — carved Roman capitals, for card titles and the navigation.
+   Packaged in nixpkgs (pkgs.cinzel) and served from Glance's assets
+   (glance.nix links it in), so nothing is fetched from anywhere else. */
+@font-face {
+  font-family: "Cinzel";
+  src: url("fonts/cinzel-bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cinzel";
+  src: url("fonts/cinzel-regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
-  /* ink — neutral grey */
-  --ag-page: #1b1c1e;
-  --ag-text: #ececec;
-  --ag-text-dim: rgba(236, 236, 236, 0.68);
-  --ag-text-faint: rgba(236, 236, 236, 0.46);
-  --ag-line: rgba(255, 255, 255, 0.11);
-  --ag-line-soft: rgba(255, 255, 255, 0.065);
-  --ag-tile: rgba(255, 255, 255, 0.035);
-  --ag-tile-off: rgba(0, 0, 0, 0.16);
-  --ag-surface: #26272a;            /* the card surface the palette was validated on */
-  --ag-tile-hi: rgba(255, 255, 255, 0.045); /* inner panels (cards.css): their gradient */
-  --ag-tile-lo: rgba(255, 255, 255, 0.015);
-  --ag-well: rgba(0, 0, 0, 0.22);         /* recessed controls: the path switch, End */
-  --ag-pop: rgba(30, 31, 33, 0.97);       /* hover read-outs */
-  --ag-on-acc: #17181a;                   /* text on an accent fill */
+  --ag-title: "Cinzel", "Trajan Pro", Georgia, serif;
+  /* ink — fog grey with a whisper of spruce; birch-bark text */
+  --ag-page: #191d1b;
+  --ag-text: #edeade;
+  --ag-text-dim: rgb(237 234 222 / 0.68);
+  --ag-text-faint: rgb(237 234 222 / 0.46);
+  --ag-line: rgb(214 232 222 / 0.11);
+  --ag-line-soft: rgb(214 232 222 / 0.065);
+  --ag-tile: rgb(214 232 222 / 0.035);
+  --ag-tile-off: rgb(0 0 0 / 0.18);
+  --ag-surface: #1f2421;                  /* the card surface the palette was validated on */
+  --ag-card-top: #232825;
+  --ag-card-bot: #1c211e;
+  --ag-tile-hi: rgb(214 232 222 / 0.045); /* inner panels (cards.css): their gradient */
+  --ag-tile-lo: rgb(214 232 222 / 0.015);
+  --ag-well: rgb(0 0 0 / 0.24);           /* recessed controls: the path switch, End */
+  --ag-pop: rgb(22 27 24 / 0.97);         /* hover read-outs */
+  --ag-on-acc: #121714;                   /* text on an accent fill */
 
   /* data palette — validated order, see the header */
-  --s1: #359658;   /* forest */
-  --s2: #8f68cb;   /* purple */
-  --s3: #d7712e;   /* orange */
-  --s4: #3f95d0;   /* sky    */
-  --s5: #c95d7b;   /* rose   */
-  --s6: #b58d2d;   /* gold   */
+  --s1: #3d9a50;   /* forest green */
+  --s2: #c62f27;   /* rowan red    */
+  --s3: #7aa344;   /* moss green   */
+  --s4: #8f1d1d;   /* oxblood      */
+  --s5: #2f7a5c;   /* pine green   */
+  --s6: #d4572f;   /* rust         */
 
-  /* chrome accents — the same families, lifted for runes, edges and titles */
-  --c-green: #5fcf8a;
-  --c-moss: #a6c965;
-  --c-purple: #b394f0;
-  --c-orange: #f2944f;
-  --c-gold: #e9c46a;
-  --c-rose: #ec8cab;
-  --c-sky: #7cc0f0;
-  --c-lamp: #ffc66b;               /* warm lamp light */
+  /* the two families, lit (runes, titles, edges, glows — never data) and deep */
+  --c-leaf: #86cf86;
+  --c-berry: #e24a3f;
+  --c-leaf-deep: #1d4a2b;
+  --c-berry-deep: #6e1414;
+  --c-bark: #987a59;
+  --c-birch: #edeade;
+  /* the same, as "r g b" for rgb(var(--x-rgb) / alpha) glows */
+  --leaf-rgb: 134 207 134;
+  --berry-rgb: 226 74 63;
 
-  /* status — reserved */
-  --ag-good: #3fcf82;
-  --ag-warn: #f5b041;
-  --ag-bad: #f2665e;
+  /* the names cards.css (and older markup) use, mapped onto the two */
+  --c-green: var(--c-leaf);
+  --c-moss: var(--c-leaf);
+  --c-purple: var(--c-berry);
+  --c-orange: var(--c-berry);
+  --c-rose: var(--c-berry);
+
+  /* status — reserved, brighter than any data slot, always with a word */
+  --ag-good: #68e099;
+  --ag-warn: #f9b64f;
+  --ag-bad: #ff6a3d;
+  --good-rgb: 104 224 153;
+  --warn-rgb: 249 182 79;
+  --bad-rgb: 255 106 61;
   /* the old names, still used across the markup */
   --ag-up: var(--ag-good);
-  --ag-accent: var(--c-green);
+  --ag-accent: var(--c-leaf);
 
-  /* the signature run: canopy green → moss → a touch of dusk purple */
-  --grove: linear-gradient(90deg, var(--c-green), var(--c-moss) 60%, var(--c-purple));
+  /* the weave — the two, run together */
+  --weave: linear-gradient(90deg, var(--c-leaf), var(--c-berry));
+  --weave-v: linear-gradient(to bottom, var(--c-leaf), var(--c-berry));
+
+  /* A card's colour and the other one. On :root, not .widget, so the tabs of
+     a group (widgets themselves) inherit the group's instead of resetting. */
+  --acc: var(--c-leaf);
+  --acc2: var(--c-berry);
+  --rune: url("runes/ansuz.svg");
 
   --ag-r-card: 20px;
   --ag-r-tile: 16px;
   --ag-r-small: 12px;
   --ag-gap: 12px;
   --ag-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --ag-shadow: 0 14px 30px -18px rgba(0, 0, 0, 0.75), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
+  --ag-shadow: 0 14px 30px -18px rgb(0 0 0 / 0.78), 0 2px 6px -2px rgb(0 0 0 / 0.38);
 }
 
-/* ── The page: neutral grey, the world tree faint behind it ──────────────────
-   A plain grey ground with a soft lift of light at the top, and the tree
-   (Resources/Glance/ygg-bg.svg — generated: branches, roots and a ring, in
-   green, gold and purple strokes) drawn at a few percent opacity, fixed, so
-   the cards sit in its branches. Nothing animates and nothing is blurred:
-   on a plain background a backdrop-filter buys nothing but battery. */
+/* ── The page: the wood ──────────────────────────────────────────────────────
+   Behind everything, the page's own wood (--g-forest, growth.py: canopy light
+   and soft shafts of it, trunks at three depths in mist, big mossy trunks and
+   hanging vines at the sides, fireflies), fixed, so the cards scroll over it;
+   each page has its own light — dusk red on Asgard, a moonlit night on
+   Eclipse, warm sun on Power, deep shade on Terminal. Over it the world tree
+   (ygg-bg.svg) a few percent opaque, the page's treeline (--g-trees) along the
+   foot, and a few fireflies that slowly glow and fade (html::before/::after —
+   opacity only, so it costs next to nothing; still with reduced motion). */
 body {
-  background:
-    radial-gradient(120% 60% at 50% -10%, rgba(255, 255, 255, 0.045), transparent 60%),
-    var(--ag-page);
-  background-attachment: fixed;
+  background: var(--g-forest, none) center / cover no-repeat fixed, var(--ag-page);
 }
+html::before,
+html::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 7% 62%, rgb(230 255 154 / 0.55) 0 1.5px, rgb(230 255 154 / 0.18) 3px, transparent 9px),
+    radial-gradient(circle at 93% 41%, rgb(230 255 154 / 0.55) 0 1.5px, rgb(230 255 154 / 0.18) 3px, transparent 9px),
+    radial-gradient(circle at 15% 84%, rgb(230 255 154 / 0.5) 0 1.2px, rgb(230 255 154 / 0.15) 3px, transparent 8px),
+    radial-gradient(circle at 88% 77%, rgb(230 255 154 / 0.5) 0 1.2px, rgb(230 255 154 / 0.15) 3px, transparent 8px),
+    radial-gradient(circle at 3% 31%, rgb(230 255 154 / 0.45) 0 1.2px, rgb(230 255 154 / 0.12) 3px, transparent 8px),
+    radial-gradient(circle at 97% 18%, rgb(230 255 154 / 0.45) 0 1.2px, rgb(230 255 154 / 0.12) 3px, transparent 8px);
+  animation: ag-firefly 7s ease-in-out infinite;
+}
+html::after {
+  transform: scale(-1, 1) translateY(-6vh);
+  animation-delay: -3.5s;
+  animation-duration: 9s;
+}
+@keyframes ag-firefly { 0%, 100% { opacity: 0.15; } 50% { opacity: 1; } }
 body::before {
   content: "";
   position: fixed;
@@ -118,22 +194,26 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background: url("ygg-bg.svg") center / contain no-repeat;
-  opacity: 0.075;
+  opacity: 0.07;
 }
+body::after {
+  content: "";
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: clamp(150px, 24vh, 300px);
+  z-index: -1;
+  pointer-events: none;
+  background: var(--g-trees) center bottom / auto 100% repeat-x;
+  opacity: 0.9;
+}
+::selection { background: rgb(var(--berry-rgb) / 0.32); color: var(--ag-text); }
 
 /* ── Section accents + runes ──────────────────────────────────────────────────
    Set with `css-class` on a widget in glance.nix (or `acc` / `rune` on a live
-   card). Everything accent-coloured reads var(--acc); the title's rune is
-   var(--rune), a mask filled with the accent. */
-.widget { --acc: var(--c-green); --rune: url("runes/ansuz.svg"); }
-.acc-green  { --acc: var(--c-green); }
-.acc-moss   { --acc: var(--c-moss); }
-.acc-purple { --acc: var(--c-purple); }
-.acc-orange { --acc: var(--c-orange); }
-.acc-gold   { --acc: var(--c-gold); }
-.acc-rose   { --acc: var(--c-rose); }
-.acc-sky    { --acc: var(--c-sky); }
-.acc-lamp   { --acc: var(--c-lamp); }
+   card). Everything accent-coloured reads var(--acc), and runs on into
+   var(--acc2); the title's rune is var(--rune), a mask filled with the two. */
+.acc-green { --acc: var(--c-leaf);  --acc2: var(--c-berry); }
+.acc-red   { --acc: var(--c-berry); --acc2: var(--c-leaf); }
 .rune-fehu    { --rune: url("runes/fehu.svg"); }     /* ᚠ wealth gained — Downloads */
 .rune-uruz    { --rune: url("runes/uruz.svg"); }     /* ᚢ strength, health — Plug health */
 .rune-ansuz   { --rune: url("runes/ansuz.svg"); }    /* ᚨ the gods — Asgard */
@@ -154,37 +234,55 @@ body::before {
 .rune-isa     { --rune: url("runes/isa.svg"); }      /* ᛁ ice, stillness — Terminal */
 
 /* ── Cards ────────────────────────────────────────────────────────────────────
-   Solid grey panels (no glass — the page behind is plain), a soft gradient
-   down the card, an inset top highlight, a hairline edge, and a breath of the
-   card's own accent in its first corner. It is the ONLY container — see the
-   frame fix below. */
+   Deep green glass over the wood — mostly opaque, so text never fights the
+   forest — a breath of the card's colour in its first corner and of the
+   other in the last, and an inset glow. It is the ONLY container — see the
+   frame fix below.
+
+   Each card is FRAMED in vines (--g-frame, growth.py: a branch with a second
+   one and two green vines twisting round it, leaves, bright moss, berries or
+   a toadstool or a fern at the corners — its own, seeded). It is a 9-slice
+   border-image: the 80px corners drawn once, the edges tiled (`round`) to
+   any size, so one image fits every card. It lies along the card's border,
+   10px out (::before). About half the cards also have something grown down
+   over the top from a corner (--g-top, ::after). Both sit OVER the card's
+   own background and UNDER its content (`isolation` + z-index -1): text
+   always wins. Yggdrasil's card uses its ::before for the rune ring, so its
+   frame is on ::after. */
 .widget {
   position: relative;
-  border: 1px solid var(--ag-line-soft);
+  isolation: isolate;
+  border: 1px solid transparent;
   border-radius: var(--ag-r-card);
-  padding: 18px 18px 20px;
+  padding: 24px 24px 26px;
   background:
     radial-gradient(110% 55% at 0% 0%, color-mix(in srgb, var(--acc) 7%, transparent), transparent 60%),
-    linear-gradient(180deg, #2a2b2e, #242528 60%, #222326);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--ag-shadow);
-  transition: border-color 0.3s ease;
+    radial-gradient(80% 45% at 100% 100%, color-mix(in srgb, var(--acc2) 4%, transparent), transparent 65%),
+    linear-gradient(180deg, rgb(20 34 26 / 0.93), rgb(13 24 18 / 0.95));
+  box-shadow: inset 0 0 30px rgb(var(--leaf-rgb) / 0.04), 0 18px 40px -20px rgb(0 0 0 / 0.85);
 }
-@media (hover: hover) {
-  .widget:hover { border-color: var(--ag-line); }
-}
-/* Top edge: the card's accent, running on into the canopy and a hint of dusk. */
-.widget::after {
+.widget:not(.ygg-widget)::before,
+.widget.ygg-widget::after {
   content: "";
   position: absolute;
-  left: 20px; right: 20px; top: -1px;
-  height: 1px;
+  inset: -10px;
+  z-index: -1;
   pointer-events: none;
-  background: linear-gradient(to right,
-    transparent,
-    color-mix(in srgb, var(--acc) 75%, transparent) 20%,
-    color-mix(in srgb, var(--c-green) 30%, transparent) 55%,
-    color-mix(in srgb, var(--c-purple) 18%, transparent) 82%,
-    transparent);
+  border: 80px solid transparent;
+  border-image: var(--g-frame, none) 80 / 80px round;
+}
+.widget:not(.ygg-widget)::after {
+  content: "";
+  position: absolute;
+  inset: -18px 0 0 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--g-top, none) var(--g-top-at, right top) / min(var(--g-top-w, 640px), 100%) auto no-repeat;
+}
+/* Titles, badges and header links sit over leaves now: a shadow keeps them
+   readable against anything. */
+.widget-header h2, .widget-group-title, .ags-live, .ags-open, .ag-live {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9), 0 0 8px rgb(0 0 0 / 0.75);
 }
 
 /* A group's tabs are widgets too (.widget inside .widget). They must NOT be
@@ -198,7 +296,8 @@ body::before {
   -webkit-backdrop-filter: none;
   box-shadow: none;
 }
-.widget .widget::after { content: none; }
+.widget .widget::after,
+.widget .widget::before { content: none; }
 
 /* ⚠ THE "border within a border" FIX.
    Glance wraps every widget's content in its own framed box
@@ -215,54 +314,118 @@ body::before {
   padding: 0;
 }
 
-/* Card titles: the card's rune, filled with its accent (a mask, so it is
-   drawn, not a font glyph — no device needs a Runic font), then the name. */
+/* Card titles, in Cinzel: the card's rune in a medallion — a dark disc with a
+   ring running from the card's colour into the other and a soft glow; the
+   rune itself a mask (so no device needs a Runic font) glowing in the two —
+   then the name. Under it, this card's own tendril (--g-rule): the page's
+   plant creeping out and fading. */
 .widget-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 2px 11px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--ag-line-soft);
+  padding: 0 2px 17px;
+  margin-bottom: 14px;
   font-size: 1.25rem;
+  background: var(--g-rule, none) 0 100% / 290px auto no-repeat;
 }
 .widget-header h2,
 .widget-group-title {
-  letter-spacing: 0.16em;
+  font-family: var(--ag-title);
+  letter-spacing: 0.12em;
   font-weight: 700;
-  font-size: 1.25rem;
-  color: rgba(236, 236, 236, 0.86);
+  font-size: 1.45rem;
+  color: rgb(237 234 222 / 0.92);
 }
-.widget > .widget-header h2::before,
+.widget > .widget-header h2 {
+  position: relative;
+  padding-left: 3.1rem;
+  min-height: 2.4rem;
+  display: flex;
+  align-items: center;
+}
+.widget > .widget-header h2::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 50%;
+  width: 2.4rem; height: 2.4rem;
+  margin-top: -1.2rem;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 40%, rgb(30 52 38), rgb(12 22 16) 70%) padding-box,
+    linear-gradient(140deg, var(--acc), color-mix(in srgb, var(--acc2) 70%, #000)) border-box;
+  border: 1.5px solid transparent;
+  box-shadow: 0 0 12px -2px color-mix(in srgb, var(--acc) 55%, transparent), inset 0 0 8px rgb(0 0 0 / 0.6);
+}
+.widget > .widget-header h2::after {
+  content: "";
+  position: absolute;
+  left: 0.65rem; top: 50%;
+  width: 1.1rem; height: 1.4rem;
+  margin-top: -0.7rem;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--acc) 70%, #fff), var(--acc) 50%, var(--acc2));
+  -webkit-mask: var(--rune) center / contain no-repeat;
+  mask: var(--rune) center / contain no-repeat;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--acc) 70%, transparent));
+}
 .widget-group-header .widget-group-title-current::before {
   content: "";
   display: inline-block;
   width: 0.9em; height: 1.35em;
   margin-right: 11px;
   vertical-align: -0.32em;
-  background: linear-gradient(to bottom, var(--acc), color-mix(in srgb, var(--acc) 45%, var(--c-gold)));
+  background: linear-gradient(to bottom, var(--acc) 30%, var(--acc2));
   -webkit-mask: var(--rune) center / contain no-repeat;
   mask: var(--rune) center / contain no-repeat;
 }
 .widget .widget .widget-header { display: none; }
 
-/* ── Page navigation ─────────────────────────────────────────────────────── */
-.header { background: rgba(36, 37, 40, 0.92) !important; }
+/* ── Page navigation ───────────────────────────────────────────────────────
+   The bar, darker glass over the wood, with the page's own growth (--g-nav)
+   resting along its foot and hanging below it — ivy and rowan on Asgard,
+   dark vines hung with lichen and foxfire on Eclipse, bramble on Power, roots
+   on Terminal. Over the cards (z-index), never in the way of a click. The
+   pages are pills in Cinzel, edged in green; the current one lit. */
+.header { position: relative; background: rgb(10 20 15 / 0.82) !important; }
+.header::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -54px;   /* the vine just under the bar: the pills stay clear */
+  height: 58px;
+  z-index: 3;
+  pointer-events: none;
+  background: var(--g-nav) 0 0 / auto 100% repeat-x;
+}
 /* The tree as the logo (branding.logo-url in glance.nix). */
-.logo img { height: 3rem; width: auto; filter: drop-shadow(0 0 6px rgba(95, 207, 138, 0.35)); }
-.nav-item { transition: color 0.2s ease, border-color 0.2s ease; }
+.logo img { height: 3rem; width: auto; filter: drop-shadow(0 0 8px rgb(var(--leaf-rgb) / 0.4)); }
+.nav-item {
+  font-family: var(--ag-title);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.45em 1.15em;
+  margin: 0 3px;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--leaf-rgb) / 0.22) !important;
+  background: linear-gradient(180deg, rgb(26 44 32 / 0.75), rgb(12 22 16 / 0.8));
+  box-shadow: inset 0 1px 0 rgb(var(--leaf-rgb) / 0.08);
+  transition: color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+@media (hover: hover) {
+  .nav-item:hover { border-color: rgb(var(--leaf-rgb) / 0.45) !important; color: var(--ag-text); }
+}
 .nav-item.nav-item-current {
   color: var(--ag-text);
-  border-bottom-color: transparent;
-  background: var(--grove) bottom / 100% 2px no-repeat;
-  text-shadow: 0 0 14px rgba(95, 207, 138, 0.35);
+  border-color: rgb(var(--leaf-rgb) / 0.6) !important;
+  background: linear-gradient(180deg, rgb(44 80 50 / 0.85), rgb(18 36 24 / 0.9));
+  box-shadow: 0 0 14px -2px rgb(var(--leaf-rgb) / 0.55), inset 0 1px 0 rgb(var(--leaf-rgb) / 0.2);
+  text-shadow: 0 0 10px rgb(var(--leaf-rgb) / 0.4);
 }
 .mobile-navigation {
-  background: rgba(36, 37, 40, 0.97);
+  background: rgb(10 20 15 / 0.97);
   border-color: var(--ag-line);
 }
 .mobile-navigation-input:checked + .mobile-navigation-pill,
-.mobile-navigation-label:hover > .mobile-navigation-pill { background: var(--c-green); }
+.mobile-navigation-label:hover > .mobile-navigation-pill { background: var(--weave); }
 
 /* ── Tabs inside a group (the service categories) ─────────────────────────── */
 .widget-group-header .widget-header { gap: 22px; }
@@ -299,7 +462,7 @@ body::before {
 }
 .ag-live-corner { position: absolute; top: 18px; right: 20px; }
 html[data-ha-link="live"] .ag-live { color: var(--ag-text-dim); }
-html[data-ha-link="live"] .ag-live i { background: var(--ag-good); box-shadow: 0 0 10px rgba(63, 207, 130, 0.8); }
+html[data-ha-link="live"] .ag-live i { background: var(--ag-good); box-shadow: 0 0 10px rgb(var(--good-rgb) / 0.8); }
 html[data-ha-link="delayed"] .ag-live i { background: var(--ag-warn); }
 html[data-ha-link="reconnecting"] .ag-live,
 html[data-ha-link="offline"] .ag-live { color: var(--ag-warn); }
@@ -363,7 +526,7 @@ html[data-ha-link="offline"] .ag-live i { background: var(--ag-warn); animation:
   outline-offset: 2px;
 }
 @media (hover: hover) {
-  .ag-light:hover { border-color: rgba(120, 220, 160, 0.34); }
+  .ag-light:hover { border-color: rgb(var(--leaf-rgb) / 0.34); }
 }
 
 /* ON — lit: a forest wash — sunlight through leaves — a bright green edge and
@@ -371,10 +534,10 @@ html[data-ha-link="offline"] .ag-live i { background: var(--ag-warn); animation:
    together: one subtle tint is not readable at a glance on a phone. */
 .ag-light[data-ha-state="on"] {
   background:
-    radial-gradient(120% 140% at 0% 50%, rgba(140, 230, 160, 0.20), transparent 60%),
+    radial-gradient(120% 140% at 0% 50%, rgb(var(--leaf-rgb) / 0.20), transparent 60%),
     linear-gradient(135deg, rgba(38, 96, 60, 0.78), rgba(28, 58, 42, 0.62));
-  border-color: rgba(120, 220, 160, 0.55);
-  box-shadow: 0 0 0 1px rgba(120, 220, 160, 0.08), 0 12px 34px -14px rgba(60, 190, 110, 0.5),
+  border-color: rgb(var(--leaf-rgb) / 0.55);
+  box-shadow: 0 0 0 1px rgb(var(--leaf-rgb) / 0.08), 0 12px 34px -14px rgb(var(--leaf-rgb) / 0.5),
               inset 0 1px 0 rgba(220, 255, 230, 0.10);
 }
 .ag-light[data-ha-state="off"] { background: var(--ag-tile-off); }
@@ -408,10 +571,10 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   position: absolute;
   left: 0; top: 0; bottom: 0;
   width: 4px;
-  background: linear-gradient(to bottom, var(--c-green), var(--c-purple));
+  background: var(--weave-v);
   transition: background 0.35s ease;
 }
-.ag-hero[data-ha-state="on"]::before { background: linear-gradient(to bottom, #a6f0c2, #3f9a63); }
+.ag-hero[data-ha-state="on"]::before { background: linear-gradient(to bottom, var(--c-leaf), var(--s1) 60%, var(--c-berry)); box-shadow: 0 0 12px rgb(var(--leaf-rgb) / 0.5); }
 .ag-hero .ag-name { font-size: 1.7rem; }
 .ag-hero[data-ha-state="off"] { background: linear-gradient(135deg, rgba(30, 30, 30, 0.62), rgba(21, 21, 21, 0.56)); }
 
@@ -425,8 +588,8 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   transition: color 0.3s ease, text-shadow 0.3s ease, transform 0.3s var(--ag-ease);
 }
 .ag-light[data-ha-state="on"] .ag-ico {
-  color: #e6ffd8;
-  text-shadow: 0 0 18px rgba(150, 240, 150, 0.9), 0 0 4px rgba(230, 255, 200, 0.9);
+  color: #eefbe9;
+  text-shadow: 0 0 18px rgb(var(--leaf-rgb) / 0.9), 0 0 4px rgb(238 251 233 / 0.9);
   transform: scale(1.08);
 }
 
@@ -472,7 +635,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 [data-ha-error] > * > .ag-state::after,
 [data-ha-error] > .ag-state::after { content: "Failed"; }
 [data-ha-state="on"] > * > .ag-state,
-[data-ha-state="on"] > .ag-state { color: #a6f0c2; }
+[data-ha-state="on"] > .ag-state { color: var(--c-leaf); }
 [data-ha-error] > * > .ag-state,
 [data-ha-error] > .ag-state { color: var(--ag-bad); }
 
@@ -507,9 +670,9 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 }
 [data-ha-state="on"] .ag-sw,
 .ag-sw[data-ha-state="on"] {
-  background: linear-gradient(90deg, #2f8a52, #5fcf8a);
-  border-color: rgba(160, 240, 190, 0.7);
-  box-shadow: 0 0 14px -2px rgba(80, 200, 120, 0.6);
+  background: linear-gradient(90deg, var(--s1), var(--c-leaf));
+  border-color: rgb(var(--leaf-rgb) / 0.7);
+  box-shadow: 0 0 14px -2px rgb(var(--leaf-rgb) / 0.6);
 }
 [data-ha-state="on"] .ag-sw::after,
 .ag-sw[data-ha-state="on"]::after { transform: translateX(20px); background: #fffaf0; }
@@ -522,11 +685,11 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 
 /* A machine's relay: shown, never switchable. The bridge's allowlist is what
    actually refuses it; this just must not LOOK like something to tap — and a
-   running machine's "on" is cool azure, not a lamp's warm glow. */
+   running machine's "on" is a dull berry, not a lamp's bright leaf. */
 .ag-sw[aria-disabled="true"] { cursor: not-allowed; opacity: 0.6; }
 [data-ha-state="on"] .ag-sw[aria-disabled="true"] {
-  background: linear-gradient(90deg, #27523a, #3a7550);
-  border-color: rgba(140, 220, 170, 0.5);
+  background: linear-gradient(90deg, var(--c-berry-deep), #8a2a22);
+  border-color: rgb(var(--berry-rgb) / 0.45);
   box-shadow: none;
 }
 .ag-sw[aria-disabled="true"]::before {
@@ -556,7 +719,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   letter-spacing: -0.01em;
   color: var(--ag-text);
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 22px rgba(95, 207, 138, 0.28);
+  text-shadow: 0 0 22px rgb(var(--leaf-rgb) / 0.28);
 }
 .pw-big-unit { font-size: 1.8rem; color: var(--ag-text-faint); margin-left: 6px; }
 .pw-trail { text-align: right; font-size: 1.2rem; color: var(--ag-text-dim); line-height: 1.6; }
@@ -575,19 +738,19 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   transition: flex-grow 0.8s var(--ag-ease);
 }
 
-/* The last 24 h: one smooth line — the house's total — canopy green into moss
-   over a soft green fill. Hover any moment for every
+/* The last 24 h: one smooth line — the house's total — leaf ripening into
+   berry towards now, over a soft green fill. Hover any moment for every
    plug's share of it (asgard.js). */
 .pw-chart { position: relative; height: 120px; }
 .pw-chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .pw-chart .pw-area { fill: url(#pw-fill); }
 .pw-chart .pw-line { fill: none; stroke: url(#pw-stroke); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round;
-  vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 6px rgba(95, 207, 138, 0.35)); }
+  vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 6px rgb(var(--leaf-rgb) / 0.35)); }
 .pw-chart .pw-grid { stroke: var(--ag-line-soft); stroke-dasharray: 2 5; vector-effect: non-scaling-stroke; }
 .pw-chart .pw-cross { stroke: rgba(236, 236, 236, 0.35); stroke-width: 1; vector-effect: non-scaling-stroke; visibility: hidden; }
 .pw-chart .pw-cross.on { visibility: visible; }
 .pw-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; pointer-events: none;
-  background: #d8ffe4; box-shadow: 0 0 0 3px var(--ag-surface), 0 0 12px rgba(95, 207, 138, 0.8); display: none; }
+  background: #eaf8ee; box-shadow: 0 0 0 3px var(--ag-surface), 0 0 12px rgb(var(--leaf-rgb) / 0.8); display: none; }
 .pw-dot.on { display: block; }
 .pw-axis { display: flex; justify-content: space-between; font-size: 1.05rem; letter-spacing: 0.06em; color: var(--ag-text-faint); margin-top: 6px; }
 .pw-ymax { position: absolute; top: -2px; left: 0; font-size: 1rem; color: var(--ag-text-faint); pointer-events: none; }
@@ -704,7 +867,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .ag-row + .ag-row { border-top: 1px solid var(--ag-line-soft); }
 .ag-rows .ag-sec { margin: 10px 0 4px; }
 .ag-rows .ag-sec:first-child { margin-top: 0; }
-.ag-row-hi .ag-v { font-size: 2.6rem; font-weight: 600; color: var(--ag-text); text-shadow: 0 0 18px rgba(95, 207, 138, 0.25); }
+.ag-row-hi .ag-v { font-size: 2.6rem; font-weight: 600; color: var(--ag-text); text-shadow: 0 0 18px rgb(var(--leaf-rgb) / 0.25); }
 
 /* Plug Health — one row per plug: online dot, name, signal bar, numbers. */
 .ag-health { display: flex; flex-direction: column; gap: 12px; }
@@ -717,7 +880,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 /* ── Status dots (plugs, tailnet devices) ────────────────────────────────── */
 .ag-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: rgba(172, 172, 172, 0.5); }
 .is-up > .ag-dot,
-.ag-dot.is-up { background: var(--ag-good); box-shadow: 0 0 9px rgba(63, 207, 130, 0.65); }
+.ag-dot.is-up { background: var(--ag-good); box-shadow: 0 0 9px rgb(var(--good-rgb) / 0.65); }
 .is-down > .ag-dot,
 .ag-dot.is-down { background: transparent; border: 1.5px solid var(--ag-bad); }
 
@@ -738,13 +901,13 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   background-size: contain;
   pointer-events: none;
 }
-/* Ring — the rune circle behind the tree: canopy green → dusk purple, gold runes */
+/* Ring — the rune circle behind the tree: leaf running into berry, berry runes */
 .ygg-widget::before {
   top: 8px;
   transform: translateX(-50%);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Cdefs%3E%3CradialGradient id='bg' cx='50%25' cy='50%25' r='45%25'%3E%3Cstop offset='0%25' stop-color='rgba(95, 207, 138,0.12)'/%3E%3Cstop offset='100%25' stop-color='rgba(95, 207, 138,0)'/%3E%3C/radialGradient%3E%3ClinearGradient id='r' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%235fcf8a'/%3E%3Cstop offset='1' stop-color='%23b394f0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='200' cy='200' r='180' fill='url(%23bg)'/%3E%3Cg fill='none' stroke='url(%23r)' stroke-opacity='0.45' stroke-width='1.5'%3E%3Ccircle cx='200' cy='200' r='178'/%3E%3Ccircle cx='200' cy='200' r='170'/%3E%3C/g%3E%3Cg fill='%23e9c46a' fill-opacity='0.5' font-family='serif' font-size='14' font-weight='bold'%3E%3Ctext x='200' y='28' text-anchor='middle'%3E%E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%E1%9A%B3 %E1%9A%BE %E1%9A%A9%3C/text%3E%3Ctext transform='translate(375,100) rotate(72)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%3C/text%3E%3Ctext transform='translate(390,240) rotate(90)' text-anchor='middle'%3E%E1%9A%A2%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%3C/text%3E%3Ctext transform='translate(350,350) rotate(115)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B7%E1%9A%A8%E1%9A%B2%3C/text%3E%3Ctext x='200' y='390' text-anchor='middle'%3E%E1%9A%BE %E1%9A%A9 %E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%3C/text%3E%3Ctext transform='translate(50,350) rotate(-115)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3Ctext transform='translate(10,240) rotate(-90)' text-anchor='middle'%3E%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%E1%9A%A2%3C/text%3E%3Ctext transform='translate(25,100) rotate(-72)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Cdefs%3E%3CradialGradient id='bg' cx='50%25' cy='50%25' r='45%25'%3E%3Cstop offset='0%25' stop-color='rgba(134, 207, 134,0.10)'/%3E%3Cstop offset='100%25' stop-color='rgba(134, 207, 134,0)'/%3E%3C/radialGradient%3E%3ClinearGradient id='r' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2386cf86'/%3E%3Cstop offset='1' stop-color='%23e24a3f'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='200' cy='200' r='180' fill='url(%23bg)'/%3E%3Cg fill='none' stroke='url(%23r)' stroke-opacity='0.45' stroke-width='1.5'%3E%3Ccircle cx='200' cy='200' r='178'/%3E%3Ccircle cx='200' cy='200' r='170'/%3E%3C/g%3E%3Cg fill='%23e24a3f' fill-opacity='0.6' font-family='serif' font-size='14' font-weight='bold'%3E%3Ctext x='200' y='28' text-anchor='middle'%3E%E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%E1%9A%B3 %E1%9A%BE %E1%9A%A9%3C/text%3E%3Ctext transform='translate(375,100) rotate(72)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%3C/text%3E%3Ctext transform='translate(390,240) rotate(90)' text-anchor='middle'%3E%E1%9A%A2%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%3C/text%3E%3Ctext transform='translate(350,350) rotate(115)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B7%E1%9A%A8%E1%9A%B2%3C/text%3E%3Ctext x='200' y='390' text-anchor='middle'%3E%E1%9A%BE %E1%9A%A9 %E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%3C/text%3E%3Ctext transform='translate(50,350) rotate(-115)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3Ctext transform='translate(10,240) rotate(-90)' text-anchor='middle'%3E%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%E1%9A%A2%3C/text%3E%3Ctext transform='translate(25,100) rotate(-72)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3C/g%3E%3C/svg%3E");
   opacity: 0.85;
-  filter: drop-shadow(0 0 14px rgba(95, 207, 138, 0.22));
+  filter: drop-shadow(0 0 14px rgb(var(--leaf-rgb) / 0.22));
   transition: opacity 0.3s ease, filter 0.3s ease;
 }
 /* The tree — on top of the ring. Hung off the header, because .widget::after
@@ -755,7 +918,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   transform: translateX(-50%);
   background-image: url("yggdrasil.png");
   opacity: 0.9;
-  filter: drop-shadow(0 0 10px rgba(95, 207, 138, 0.28));
+  filter: drop-shadow(0 0 10px rgb(var(--leaf-rgb) / 0.28));
   transition: opacity 0.3s ease, filter 0.3s ease;
   /* the pip rule for h2::before does not apply — this is the header's own */
 }
@@ -763,7 +926,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   .ygg-widget:hover::before,
   .ygg-widget:hover > .widget-header::before {
     opacity: 1;
-    filter: drop-shadow(0 0 20px rgba(95, 207, 138, 0.4));
+    filter: drop-shadow(0 0 20px rgb(var(--leaf-rgb) / 0.4));
   }
 }
 
@@ -785,7 +948,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   border-radius: 10px;
   transition: background-color 0.2s ease;
 }
-@media (hover: hover) { .ag-ts-node:hover { background: rgba(95, 207, 138, 0.06); } }
+@media (hover: hover) { .ag-ts-node:hover { background: rgb(var(--leaf-rgb) / 0.06); } }
 .ag-ts-node + .ag-ts-node { border-top: 1px solid var(--ag-line-soft); border-top-left-radius: 0; border-top-right-radius: 0; }
 .ag-ts-node > .ag-dot { grid-area: dot; }
 .ag-ts-name { grid-area: name; font-size: 1.45rem; font-weight: 600; color: var(--ag-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -802,13 +965,13 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 /* Service health. Bigger names, rounded hover rows, the status icons in the
    reserved status colours. */
 .widget-type-monitor .monitor-site { padding: 6px 8px; border-radius: var(--ag-r-small); transition: background-color 0.2s ease; }
-@media (hover: hover) { .widget-type-monitor .monitor-site:hover { background: rgba(95, 207, 138, 0.07); } }
+@media (hover: hover) { .widget-type-monitor .monitor-site:hover { background: rgb(var(--leaf-rgb) / 0.07); } }
 .widget-type-monitor .monitor-site a.size-h3 { font-size: 1.5rem; font-weight: 600; color: var(--ag-text); }
 .widget-type-monitor .list-horizontal-text { font-size: 1.15rem; color: var(--ag-text-faint); }
 .widget-type-monitor .monitor-site-icon { width: 3rem; }
 .monitor-site-status-icon { color: var(--ag-good); }
 
-.widget-type-clock .clock-time { text-shadow: 0 0 14px rgba(95, 207, 138, 0.35); }
+.widget-type-clock .clock-time { text-shadow: 0 0 14px rgb(var(--leaf-rgb) / 0.35); }
 
 /* Iframes: round them into the card. The terminal fills the window instead
    of a fixed 700 px box that left half a phone screen empty. */
@@ -832,7 +995,10 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
    and the CPU/memory chart below wears the same two colours. warn/bad come
    after and win (with a word under the ring — never colour alone). */
 .ags-ring.hue-mem { --c: var(--s2); }
-.ags-ring.hue-temp { --c: var(--s3); }
+/* Temperature is the weave itself: --f (0 at 25 °C, 1 at 100 °C, set by
+   stats.js) mixes leaf into berry in oklch — through amber, the way a berry
+   ripens, not through the mud an sRGB mix of red and green makes. */
+.ags-ring.hue-temp { --c: color-mix(in oklch, var(--s3), var(--s2) calc(var(--f, 0) * 100%)); }
 .ags-ring.warn { --c: var(--ag-warn); }
 .ags-ring.bad { --c: var(--ag-bad); }
 .ags-ring svg { width: 104px; height: 104px; transform: rotate(-90deg); overflow: visible; }
@@ -861,15 +1027,15 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   padding-bottom: 1px; border-bottom: 1px solid var(--ag-line-soft); }
 .ags-cores i { display: block; border-radius: 3px 3px 1px 1px; min-height: 2px;
   background: linear-gradient(to top, color-mix(in srgb, var(--s1) 45%, transparent), var(--s1)); transition: height 0.8s var(--ag-ease); }
-.ags-cores i.warn { background: linear-gradient(to top, rgba(245, 176, 65, 0.45), var(--ag-warn)); }
-.ags-cores i.bad { background: linear-gradient(to top, rgba(242, 102, 94, 0.45), var(--ag-bad)); }
+.ags-cores i.warn { background: linear-gradient(to top, rgb(var(--warn-rgb) / 0.45), var(--ag-warn)); }
+.ags-cores i.bad { background: linear-gradient(to top, rgb(var(--bad-rgb) / 0.45), var(--ag-bad)); }
 .ags-spark-wrap { position: relative; min-width: 0; }
 .ags-spark-max { position: absolute; top: -2px; left: 0; font-size: 1rem; letter-spacing: 0.06em; color: var(--ag-text-faint); pointer-events: none; }
 .ags-spark { width: 100%; height: 64px; display: block; overflow: visible; border-bottom: 1px solid var(--ag-line-soft); }
 .ags-spark-grid { stroke: var(--ag-line-soft); stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; }
 .ags-spark-fill { fill: url(#ags-spark-g); }
 .ags-spark-line { fill: none; stroke: var(--s1); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 5px rgba(53, 150, 88, 0.5)); }
+  filter: drop-shadow(0 0 5px rgb(61 154 80 / 0.5)); }
 .ags-spark-mem { fill: none; stroke: var(--s2); stroke-width: 1.6; stroke-opacity: 0.9; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .ags-cpu-cap { grid-column: 1 / -1; display: flex; justify-content: space-between;
   font-size: 1.05rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ag-text-faint); }
@@ -896,20 +1062,65 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   background: linear-gradient(90deg, color-mix(in srgb, var(--c) 70%, transparent), var(--c));
   box-shadow: 0 0 14px -2px color-mix(in srgb, var(--c) 50%, transparent); transition: width 0.9s var(--ag-ease); }
 .ags-seg span, .ags-seg em { position: relative; z-index: 1; padding: 0 10px; line-height: 28px; font-style: normal;
-  font-size: 1.1rem; letter-spacing: 0.06em; color: #f6f6f6; text-shadow: 0 1px 3px rgba(7, 7, 7, 0.85);
+  font-size: 1.1rem; letter-spacing: 0.06em; color: var(--ag-text); text-shadow: 0 1px 3px rgb(6 9 7 / 0.85);
   white-space: nowrap; overflow: hidden; }
 .ags-seg em { color: var(--ag-text-dim); }
 .ags-seg-empty { flex: 1; display: grid; place-items: center; font-size: 1.2rem; color: var(--ag-bad);
-  border: 1px dashed rgba(242, 102, 94, 0.4); border-radius: 9px; }
+  border: 1px dashed rgb(var(--bad-rgb) / 0.4); border-radius: 9px; }
 
 .ags-disks { display: grid; gap: 10px; }
-.ags-disk { --c: var(--s1); display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
-  padding: 10px 12px; border-radius: var(--ag-r-small); background: rgba(48, 48, 48, 0.18); border: 1px solid var(--ag-line-soft); }
+/* A drive: <details>. The summary is the row; it opens into .ags-dd. */
+.ags-disk { --c: var(--s1); border-radius: var(--ag-r-small); background: rgb(214 232 222 / 0.025);
+  border: 1px solid var(--ag-line-soft); transition: border-color 0.25s ease, background 0.25s ease; }
 .ags-disk.d1 { --c: var(--s2); } .ags-disk.d2 { --c: var(--s3); }
-.ags-disk.bad { border-color: rgba(242, 102, 94, 0.45); background: rgba(120, 30, 30, 0.12); }
-.ags-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ag-good); box-shadow: 0 0 8px rgba(63, 207, 130, 0.5); }
-.ags-dot.warn { background: var(--ag-warn); box-shadow: 0 0 8px rgba(245, 176, 65, 0.5); }
-.ags-dot.bad { background: var(--ag-bad); box-shadow: 0 0 8px rgba(242, 102, 94, 0.5); }
+.ags-disk.bad { border-color: rgb(var(--bad-rgb) / 0.45); background: rgb(var(--bad-rgb) / 0.06); }
+.ags-disk[open] { border-color: color-mix(in srgb, var(--c) 40%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 7%, transparent), rgb(214 232 222 / 0.02) 40%); }
+@media (hover: hover) { .ags-disk:hover { border-color: color-mix(in srgb, var(--c) 32%, transparent); } }
+.ags-disk-sum { display: grid; grid-template-columns: auto 1fr auto auto; gap: 12px; align-items: center;
+  padding: 10px 12px; cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent; }
+.ags-disk-sum::-webkit-details-marker { display: none; }
+.ags-disk-sum::marker { content: ""; }
+.ags-disk-sum:focus-visible { outline: 2px solid var(--c-leaf); outline-offset: 2px; border-radius: var(--ag-r-small); }
+.ags-chev { width: 7px; height: 7px; margin: 0 2px 0 4px; border-right: 2px solid var(--ag-text-faint); border-bottom: 2px solid var(--ag-text-faint);
+  transform: rotate(-45deg); transition: transform 0.25s var(--ag-ease), border-color 0.25s ease; }
+.ags-disk[open] .ags-chev { transform: rotate(45deg); border-color: color-mix(in srgb, var(--c) 70%, var(--c-birch)); }
+
+/* The opened drive: a verdict, then spec sheets (label over value). */
+.ags-dd { display: grid; gap: 10px; padding: 2px 14px 14px 33px; border-top: 1px solid var(--ag-line-soft); padding-top: 12px; }
+.ags-dd .ag-sec { font-size: 1.05rem; }
+.ags-dd-verdict { font-size: 1.2rem; color: var(--ag-text-dim); padding: 8px 11px; border-radius: 10px;
+  border: 1px solid var(--ag-line-soft); background: var(--ag-tile); }
+.ags-dd-verdict b { color: var(--ag-text); font-weight: 600; }
+.ags-dd-verdict.ok { border-color: rgb(var(--good-rgb) / 0.28); background: rgb(var(--good-rgb) / 0.06); }
+.ags-dd-verdict.ok b { color: var(--ag-good); }
+.ags-dd-verdict.bad { border-color: rgb(var(--bad-rgb) / 0.4); background: rgb(var(--bad-rgb) / 0.08); }
+.ags-dd-verdict.bad b { color: var(--ag-bad); }
+.ags-spec { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 9px 18px; }
+.ags-spec > div { min-width: 0; }
+.ags-spec dt { font-size: 1.02rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ag-text-faint); }
+.ags-spec dd { margin: 2px 0 0; font-size: 1.3rem; color: var(--ag-text); font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere; line-height: 1.35; }
+.ags-spec dd small { display: block; font-size: 1.1rem; color: var(--ag-text-faint); }
+.ags-spec dd b { font-weight: 600; }
+.ags-spec dd b.ok { color: var(--ag-good); }
+.ags-spec dd em { font-style: normal; font-size: 1.02rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-left: 4px; }
+.ags-spec .warn dd, .ags-spec .warn dd em { color: var(--ag-warn); }
+.ags-spec .bad dd, .ags-spec .bad dd em, .ags-spec dd .bad { color: var(--ag-bad); }
+.ags-spec code, .ags-dd-foot code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 0.95em; letter-spacing: 0.02em; color: var(--ag-text-dim); }
+/* The long ones get a row each: label left, value right, wrapping. */
+.ags-spec.wide { grid-template-columns: 1fr; gap: 0; border-top: 1px solid var(--ag-line-soft); }
+.ags-spec.wide > div { display: grid; grid-template-columns: minmax(110px, 0.32fr) 1fr; gap: 12px; align-items: baseline;
+  padding: 7px 0; border-bottom: 1px solid var(--ag-line-soft); }
+.ags-spec.wide dd { margin: 0; white-space: normal; font-size: 1.25rem; }
+.ags-spec.wide dd u { text-decoration: none; color: var(--ag-text-faint); font-size: 0.9em; }
+.ags-spec .busy dd::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 8px; border-radius: 50%;
+  background: var(--c); vertical-align: 1px; animation: ags-ping 2s ease-out infinite; }
+.ags-io { font-weight: 600; }
+.ags-dd-foot { font-size: 1.05rem; color: var(--ag-text-faint); letter-spacing: 0.04em; }
+.ags-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ag-good); box-shadow: 0 0 8px rgb(var(--good-rgb) / 0.5); }
+.ags-dot.warn { background: var(--ag-warn); box-shadow: 0 0 8px rgb(var(--warn-rgb) / 0.5); }
+.ags-dot.bad { background: var(--ag-bad); box-shadow: 0 0 8px rgb(var(--bad-rgb) / 0.5); }
 .ags-dot.asleep { background: transparent; border: 1.5px solid var(--ag-good); box-shadow: none; }
 .ags-disk-main { min-width: 0; display: grid; gap: 5px; }
 .ags-disk-name { font-size: 1.35rem; color: var(--ag-text); display: flex; gap: 8px; align-items: baseline; }
@@ -946,6 +1157,23 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .dl-foot { font-size: 1.1rem; color: var(--ag-text-faint); letter-spacing: 0.04em; }
 .dl-foot b { color: var(--ag-text-dim); font-weight: 600; }
 
+/* ── Ping: woven (net.js; cards.css draws the rest of the network card) ──────
+   Download is leaf, upload is berry — and ping, the round trip, is both:
+   its lines run leaf into berry (dash.js's #ag-weave), and its history bars
+   heat up with height — the gradient is pinned to the chart, not the bar, so
+   a low ping stays green and only a high one reaches the red. */
+.nw-test.ping .nw-spark path:last-child,
+.nw-spark.lat path:last-child { stroke: url(#ag-weave); }
+.nw-test.ping .nw-spark path:first-child,
+.nw-spark.lat path:first-child { fill: url(#ag-weave); }
+.nw-test.ping .nw-spark circle { fill: var(--s2); }
+.nw-test.ping .nw-num i { color: transparent; background: linear-gradient(90deg, var(--s3), var(--s2)); -webkit-background-clip: text; background-clip: text; }
+.nw-trend.ping i b {
+  background: linear-gradient(to top, color-mix(in srgb, var(--s3) 30%, transparent), color-mix(in srgb, var(--s3) 75%, transparent) 35%, color-mix(in srgb, var(--s2) 90%, transparent)) bottom / 100% 84px no-repeat;
+  box-shadow: inset 0 2px 0 rgb(237 234 222 / 0.22);
+}
+.nw-day-bar.ping i { background: linear-gradient(90deg, var(--s3), var(--s2)); }
+
 /* ── Narrow phones ────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
   .ags-hero { grid-template-columns: 1fr; gap: 18px; }
@@ -960,10 +1188,14 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
      their disk name — "1.70 TB free" is in the disk rows just below. */
   .ags-disk-name { flex-wrap: wrap; row-gap: 0; }
   .ags-disk-name span { flex-basis: 100%; }
+  .ags-dd { padding-left: 14px; }
+  .ags-spec { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ags-spec.wide > div { grid-template-columns: 1fr; gap: 2px; }
   .ags-seg em { display: none; }
+  .nw-trend.ping i b { background-size: 100% 76px; }
 }
 @media (max-width: 550px) {
-  .widget { padding: 15px 13px 17px; border-radius: 18px; }
+  .widget { padding: 20px 18px 22px; border-radius: 18px; }
   .widget-group-header .widget-header { gap: 16px; }
   .widget-group-title { letter-spacing: 0.1em; }
   .ag-light { gap: 12px; padding: 12px 12px 12px 14px; }
@@ -976,15 +1208,15 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 
 /* ── Motion ───────────────────────────────────────────────────────────────── */
 @keyframes ag-ring {
-  0%   { box-shadow: 0 0 0 0 rgba(166, 240, 194, 0.6); }
-  100% { box-shadow: 0 0 0 9px rgba(166, 240, 194, 0); }
+  0%   { box-shadow: 0 0 0 0 rgb(var(--leaf-rgb) / 0.6); }
+  100% { box-shadow: 0 0 0 9px rgb(var(--leaf-rgb) / 0); }
 }
 @keyframes ag-blink { 50% { opacity: 0.35; } }
 @keyframes ag-shake {
   25% { transform: translateX(-4px); }
   75% { transform: translateX(4px); }
 }
-@keyframes ag-tick { from { color: #e6ffe9; text-shadow: 0 0 10px rgba(166, 240, 194, 0.6); } }
+@keyframes ag-tick { from { color: #e6ffe9; text-shadow: 0 0 10px rgb(var(--leaf-rgb) / 0.6); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -993,5 +1225,26 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   }
 }
 
-/* Now Playing / On the TV wear purple here (cards.css defaults them to rose). */
-.widget .ags-play .ags-bar { --c: var(--c-purple); }
+/* Section headings: the page's glyph (--g-glyph — a rowan sprig, a
+   fiddlehead, an acorn, a toadstool) where cards.css (shared with MarsBar)
+   draws a diamond. */
+.widget .ag-sec::before {
+  content: "";
+  flex: none;
+  font-size: 1em;            /* cards.css shrinks its diamond to 0.7em */
+  width: 1.1em; height: 1.1em;
+  background: var(--g-glyph) center / contain no-repeat;
+}
+
+/* Now Playing / On the TV: the progress bar ripens as the film plays —
+   leaf at the start, berry at the playhead. */
+.widget .ags-play .ags-bar { --c: var(--c-berry); }
+.widget .ags-play .ags-bar i { background: linear-gradient(90deg, color-mix(in srgb, var(--c-leaf) 70%, transparent), var(--c-berry)); }
+
+/* Phones: the growth covers the far three-quarters of a card at most (the
+   title keeps its corner); the nav growth is a little shorter. */
+@media (max-width: 760px) {
+  .widget:not(.ygg-widget)::after { background-size: min(var(--g-top-w, 640px), 76%) auto; }
+  .nav-item { padding: 0.4em 0.9em; }
+  .header::after { bottom: -45px; height: 48px; }
+}

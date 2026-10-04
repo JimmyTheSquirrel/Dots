@@ -143,7 +143,16 @@
         rx1=$(${pkgs.coreutils}/bin/cat /sys/class/net/${lanInterface}/statistics/rx_bytes)
         ${pkgs.coreutils}/bin/sleep 3
         rx2=$(${pkgs.coreutils}/bin/cat /sys/class/net/${lanInterface}/statistics/rx_bytes)
-        echo "background traffic at test start: $(( (rx2 - rx1) * 8 / 3 / 1000000 )) Mb/s down"
+        bg=$(( (rx2 - rx1) * 8 / 3 / 1000000 ))
+        echo "background traffic at test start: $bg Mb/s down"
+
+        # network-panel touches .manual just before a "Run now" start; consume
+        # it so the history can tell those from the 6-hourly timer's runs.
+        manual=false
+        if [ -e /var/lib/speedtest/.manual ]; then
+          manual=true
+          ${pkgs.coreutils}/bin/rm -f /var/lib/speedtest/.manual
+        fi
 
         if ${lib.getExe pkgs.ookla-speedtest} \
              --format=json --accept-license --accept-gdpr > "$raw"; then
@@ -156,14 +165,21 @@
         if [ -s "$tmp" ]; then
           ${pkgs.coreutils}/bin/mv "$tmp" "$out"
           ${pkgs.coreutils}/bin/rm -f "$raw"
-          # One line per run for the dashboard's "last 7 days" chart
-          # (network-panel reads the tail). Mb/s, like everything on the panel —
-          # Ookla reports bytes/s. Trimmed so it never grows without bound.
+          # One line per run: the dashboard's tiles, its per-day history and the
+          # CSV export all read this (network-panel). It lives in the unit's
+          # StateDirectory, so reboots and rebuilds keep it; the dashboard's
+          # "Clear" empties it. Mb/s, like everything on the panel — Ookla
+          # reports bytes/s. Capped at 5000 runs (~3½ years at four a day,
+          # under 1 MB) so it can never grow without bound.
           hist=/var/lib/speedtest/history.jsonl
-          ${pkgs.jq}/bin/jq -c '{t: .timestamp, down: (.download.bandwidth * 8 / 1e6),
-                                 up: (.upload.bandwidth * 8 / 1e6), ping: .ping.latency}' \
+          ${pkgs.jq}/bin/jq -c --argjson bg "$bg" --argjson manual "$manual" '{
+              t: .timestamp, down: (.download.bandwidth * 8 / 1e6),
+              up: (.upload.bandwidth * 8 / 1e6), ping: .ping.latency,
+              jitter: .ping.jitter, loss: (.packetLoss // null),
+              server: ([.server.name, .server.location] | map(select(. != null)) | join(", ")),
+              isp: (.isp // ""), bg: $bg, manual: $manual}' \
             "$out" >> "$hist" || true
-          ${pkgs.coreutils}/bin/tail -n 400 "$hist" > "$hist.tmp" && ${pkgs.coreutils}/bin/mv "$hist.tmp" "$hist"
+          ${pkgs.coreutils}/bin/tail -n 5000 "$hist" > "$hist.tmp" && ${pkgs.coreutils}/bin/mv "$hist.tmp" "$hist"
         else
           ${pkgs.coreutils}/bin/rm -f "$tmp" "$raw"
           exit 1
@@ -186,8 +202,9 @@
     # ── Network panel endpoint (port 9555, Tailscale-only) ─────────────────────
     # Backs the Network card on the Glance main page: live LAN + tailnet
     # throughput sampled from /proc/net/dev, internet/router latency (only while
-    # a dashboard watches), the last speed-test result and the history of them,
-    # and a POST /run that triggers a fresh test from the "Run now" button.
+    # a dashboard watches), the last speed-test result, the history of them
+    # (per-day averages, each day's runs, a CSV export, and a "Clear"), and a
+    # POST /run that triggers a fresh test from the "Run now" button.
     # GET /events streams it to the admin dashboard; GET /api is the one-shot
     # snapshot MarsBar polls (its shape is a contract — add, never rename).
     #

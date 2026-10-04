@@ -12,7 +12,7 @@ Jellyfin/Jellyseerr links, and the **full** Eclipse panel — the same one the a
 dashboard has (status, Restart Kodi, Sync library, link test, Jellyfin path, Reboot, ending
 a stuck Wolf stream, what the TV is playing, the shared activity log) plus a read-only
 network card. She is the one in front of the TV when it locks up. Purple, so it is never
-confused with Asgard's grey-and-forest Yggdrasil dashboard.
+confused with Asgard's overgrown forest-green-and-rowan-red Yggdrasil dashboard.
 
 ---
 

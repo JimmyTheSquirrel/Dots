@@ -230,6 +230,23 @@
 
   function api(port) { return location.protocol + "//" + location.hostname + ":" + port; }
 
+  // The weave (asgard.css): one gradient any sparkline can paint with —
+  // stroke: url(#ag-weave). In user space, 0 → 300 across, the width every
+  // sparkline here is drawn in (viewBox="0 0 300 h"), so a flat line still
+  // gets it: a bounding-box gradient on a zero-height path paints nothing.
+  // Hidden by size, not display:none, which would switch the gradient off.
+  // Its stops are data slots, so it follows whichever theme is loaded; only
+  // asgard.css asks for it.
+  (function weave() {
+    if ($("ag-weave")) return;
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("style", "position:absolute;width:0;height:0;overflow:hidden");
+    svg.innerHTML = '<linearGradient id="ag-weave" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="300" y2="0">' +
+      '<stop offset="0" style="stop-color:var(--s3)"></stop><stop offset="1" style="stop-color:var(--s2)"></stop></linearGradient>';
+    document.body.appendChild(svg);
+  })();
+
   window.Dash = {
     $: $, esc: esc, clamp: clamp, dur: dur, ago: ago, tb: tb, mbps: mbps, level: level,
     paint: paint, line: line, nice: nice, hover: hover, ready: ready, stream: stream, post: post, api: api

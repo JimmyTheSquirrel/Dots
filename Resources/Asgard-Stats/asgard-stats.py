@@ -13,10 +13,12 @@ Everything fast comes from /proc and /sys, which any user can read, so the
 service runs as a DynamicUser (Modules/Server/stats.nix):
 
   every 2 s   CPU (total + per core), load, memory/swap, uptime, CPU package
-              and NVMe temperatures (hwmon), fan RPMs (it87 hwmon), LAN rx/tx
+              and NVMe temperatures (hwmon), fan RPMs (it87 hwmon), LAN rx/tx,
+              and each drive's read/write rate (/proc/diskstats)
   every 60 s  filesystem usage of every disk's mount and the mergerfs pool —
               os.path.ismount first: a missing `nofail` disk must read as
-              "not mounted", not as the NVMe's numbers through an empty dir
+              "not mounted", not as the NVMe's numbers through an empty dir —
+              plus its filesystem type and inode use
 
 and, ONLY while at least one dashboard is connected (they are HTTP calls into
 other services, so nobody watching means nobody asked):
@@ -27,9 +29,10 @@ other services, so nobody watching means nobody asked):
 The /proc samples keep running regardless — they cost microseconds, and the
 CPU/memory history a newly opened page draws has to have no holes.
 
-Drive temperature / SMART health / spin state need root, so a separate timer
+Drive temperature / SMART health / spin state — and the identity, wear and
+self-test details a drive row opens into — need root, so a separate timer
 (asgard-smart, every 5 min) runs `smartctl -n standby` — which never wakes a
-sleeping drive — and writes SMART_FILE; this only reads it.
+sleeping drive — and writes SMART_FILE; this only reads it and passes it on.
 """
 
 import http.server
@@ -153,13 +156,34 @@ def net_sample(now):
 
 # ── Slow samples ──────────────────────────────────────────────────────────────
 
-def fs(mount):
+def mount_types():
+    """{mountpoint: fstype} from /proc/self/mounts (the last mount at a path wins)."""
+    out = {}
+    for line in read("/proc/self/mounts").splitlines():
+        f = line.split()
+        if len(f) >= 3:
+            out[f[1].replace("\\040", " ")] = f[2]
+    return out
+
+
+def fs(mount, types=None):
     if not os.path.ismount(mount):
         return {"mounted": False}
     st = os.statvfs(mount)
     size = st.f_blocks * st.f_frsize
-    return {"mounted": True, "size": size, "used": (st.f_blocks - st.f_bfree) * st.f_frsize,
-            "free": st.f_bavail * st.f_frsize}
+    out = {"mounted": True, "size": size, "used": (st.f_blocks - st.f_bfree) * st.f_frsize,
+           "free": st.f_bavail * st.f_frsize}
+    if st.f_files:  # 0 on filesystems without fixed inodes (btrfs, mergerfs)
+        out["inodes_pct"] = round(100 * (st.f_files - st.f_ffree) / st.f_files, 1)
+    if types is not None:
+        out["fstype"] = types.get(mount)
+    return out
+
+
+# What the drive rows open into, straight from SMART_FILE (see stats.nix).
+SMART_KEYS = ("temp", "healthy", "state", "hours", "ssd", "kname", "at", "model", "family", "serial",
+              "fw", "capacity", "rpm", "form", "link", "cycles", "realloc", "pending",
+              "uncorrectable", "crc", "loads", "nvme", "selftest")
 
 
 def disks_sample():
@@ -168,13 +192,32 @@ def disks_sample():
             smart = json.load(f)
     except (OSError, ValueError):
         smart = {}
+    types = mount_types()
     out = []
     for d in DISKS:
         s = smart.get(d["dev"], {})
-        out.append({**{k: d[k] for k in ("id", "label", "mount")}, **fs(d["mount"]),
-                    "temp": s.get("temp"), "healthy": s.get("healthy"), "state": s.get("state"),
-                    "hours": s.get("hours"), "ssd": s.get("ssd")})
-    return out, {**fs(POOL), "mount": POOL}, smart.get("_at")
+        out.append({**{k: d[k] for k in ("id", "label", "mount")}, **fs(d["mount"], types),
+                    **{k: s.get(k) for k in SMART_KEYS}})
+    return out, {**fs(POOL, types), "mount": POOL}, smart.get("_at")
+
+
+def io_sample(now):
+    """{kname: {"r": MB/s, "w": MB/s}} from /proc/diskstats (512-byte sectors)."""
+    cur = {}
+    for line in read("/proc/diskstats").splitlines():
+        f = line.split()
+        if len(f) >= 10:
+            cur[f[2]] = (int(f[5]), int(f[9]))
+    prev, _prev["io"] = _prev.get("io"), (cur, now)
+    if not prev:
+        return {}
+    dt = now - prev[1]
+    out = {}
+    for k, (r, w) in cur.items():
+        p = prev[0].get(k)
+        if p and dt > 0 and r >= p[0] and w >= p[1]:
+            out[k] = {"r": round((r - p[0]) * 512 / dt / 1e6, 1), "w": round((w - p[1]) * 512 / dt / 1e6, 1)}
+    return out
 
 
 def jellyfin_sample():
@@ -343,13 +386,15 @@ def sampler():
                 sabh = sab_history()
                 sabh_at = now
         temps, fans = hwmon_sample()
+        io = io_sample(now)
         load = read("/proc/loadavg").split()[:3]
         publish({
             "ts": now,
             "uptime": float(read("/proc/uptime", "0 0").split()[0]),
             "load": [float(x) for x in load] if len(load) == 3 else [0, 0, 0],
             "cpu": cpu_sample(), "mem": mem_sample(), "temps": temps, "fans": fans,
-            "net": net_sample(now), "disks": disks, "pool": pool, "smart_at": smart_at,
+            "net": net_sample(now), "pool": pool, "smart_at": smart_at,
+            "disks": [dict(d, io=io.get(d.get("kname") or "")) for d in disks],
             "streams": streams,
             "downloads": dict(sab, history=sabh) if sab else None,
             "media": watched,
