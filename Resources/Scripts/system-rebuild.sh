@@ -431,20 +431,39 @@ ssh_to() {
 # on_host NAME pull|switch — rebuild a managed machine on itself, from its own
 # checkout (pull: fast-forward it to origin first; refuses if it has diverged).
 on_host() {
-  local name="$1" how="$2" cmd tag=SWITCH
+  local name="$1" how="$2" cmd shown tag=SWITCH rc=0
   host_info "$name"
   local key="$H_USER-$name"
   cmd="sudo nixos-rebuild switch --flake .#$key"
-  if [[ "$how" == pull ]]; then cmd="git pull --ff-only && $cmd"; tag=UPDATE; fi
-  cmd="cd ~/Dots && $cmd"
+  shown="cd ~/Dots && $cmd"
+  if [[ "$how" == pull ]]; then
+    tag=UPDATE
+    shown="cd ~/Dots && git pull --ff-only && $cmd"
+    # Uncommitted edits make `git pull` refuse with a wall of file names. Check
+    # first, list them, and exit 3 so the box below can say what to do.
+    # shellcheck disable=SC2016  # expands on the remote side, by design
+    cmd='if [ -n "$(git status --porcelain --untracked-files=no)" ]; then'
+    cmd+=' echo; echo "~/Dots has uncommitted changes:"; git status --short --untracked-files=no | head -12; exit 3; fi;'
+    cmd+=" git pull --ff-only && sudo nixos-rebuild switch --flake .#$key"
+  fi
+  cmd="cd ~/Dots || exit 1; $cmd"
   ui_banner "$UI_BLUE" "$tag" "$name" "on $name, from its own ~/Dots" "$key"
   wait_online "$H_SSH" || { ui_info "nothing done"; return 1; }
-  ui_info "$(ui_dim "$H_USER@$H_SSH \$") $cmd"
+  ui_info "$(ui_dim "$H_USER@$H_SSH \$") $shown"
   echo
-  if ssh -t "$H_USER@$H_SSH" "$cmd"; then
+  ssh -t "$H_USER@$H_SSH" "$cmd" || rc=$?
+  if (( rc == 0 )); then
     ui_box "$UI_GREEN" "✔ $name switched" "$(kvline host "$name  $(ui_dim "($key)")")" "$(kvline from "$name's ~/Dots$([[ "$how" == pull ]] && echo ", fast-forwarded")")"
+  elif (( rc == 3 )); then
+    ui_box "$UI_YELLOW" "! $name has local edits — nothing pulled or rebuilt" \
+      "Its ~/Dots has uncommitted changes (listed above)." \
+      "To keep them, commit them on $name first." \
+      "To throw them away and take main, run this," \
+      "then Pull & switch again:" "" \
+      "ssh $H_SSH 'cd ~/Dots && git fetch origin && git reset --hard origin/main'"
+    return 1
   else
-    ui_box "$UI_RED" "✘ $name didn't switch" "Check the output above — a diverged checkout makes" "git pull --ff-only refuse, and changes nothing."
+    ui_box "$UI_RED" "✘ $name didn't switch" "Check the output above. A checkout that has diverged from origin" "makes git pull --ff-only refuse, and changes nothing."
     return 1
   fi
 }
