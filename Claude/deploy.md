@@ -20,7 +20,8 @@ apollo-deploy kitkat-Kit-Kat              # install (ERASES the target's disks)
 Afterwards, ongoing rebuilds go over the tailnet:
 
 ```bash
-system-rebuild kitkat Kit-Kat     # nixos-rebuild --target-host kitkat@kit-kat
+system-rebuild kitkat Kit-Kat     # from Sisyphus: nixos-rebuild --target-host kitkat@kit-kat
+                                  # on Kit-Kat itself: the same command rebuilds in place
 ```
 
 ## Why this works at all
@@ -114,6 +115,13 @@ because the flake is public, so the target needs no credentials.
 `system-rebuild` refuses `Asgard` without an explicit `--target`. This repo's
 `Modules/Server/` can drift from the copy on Asgard (`Claude/server-info.md`), so a
 push would overwrite the live config with a stale copy. Edit it on Asgard.
+
+What the menu offers instead (Remote → Asgard) runs **on Asgard, from its own
+`~/Dots`**: *Pull & switch* (`git pull --ff-only`, which refuses rather than
+merges if Asgard has diverged, then `nixos-rebuild switch --flake .#rock-Asgard`)
+and *Switch there* (no pull). *Compare* builds this checkout's Asgard locally and
+diffs it against what is live, deploying nothing. *Push ours…* is the old
+override, behind a confirm.
 
 ## Checking a disk layout before you wipe anything
 
@@ -213,35 +221,56 @@ it, all of them still in the boot menu.
 
 ## One command, not six
 
-`system-rebuild` is the single entry point — an inline terminal UI (gum menus,
-nom's live build tree, dix's package diff; it draws in normal scrollback and
-never takes over the screen). The home screen shows every machine's tailnet
-state (online / direct or relay / last seen), Sisyphus's current generation and
-the repo's branch, dirty state, ahead/behind and nixpkgs lock age, then:
+`system-rebuild` is the single entry point — an inline terminal UI that draws in
+normal scrollback and never takes over the screen. The home screen is the DOTS
+wordmark (branch, dirty state, ahead/behind, nixpkgs lock age beside it) and a
+MACHINES panel: this machine's generation, every other machine's tailnet state
+(online / direct or relay / last seen). Below it, four sections:
 
 ```
-  Rebuild Sisyphus       switch · boot · build
-  Push to Kit-Kat        waits for her machine if it's offline; asks HER sudo password
-  Asgard                 explains the drift guard; shell on Asgard, or push anyway
-  Update flake inputs    nix flake update + a per-input changelog, then offers a rebuild
-  Git sync / Garbage collect
-  Deploy new hardware    dry-run / vm-test / INSTALL via apollo-deploy
-  Apollo USB             build+copy ISO / write key / connect
+  Rebuild     this machine: Switch · Boot · Build, or build any Other host here
+  Remote      every other machine, live status; per machine its generation,
+              uptime and (Asgard) its checkout, probed over ssh, then
+                Kit-Kat / Sisyphus   Switch · Boot · Build · SSH
+                Asgard               Pull & switch · Switch there · SSH · Compare · Push ours…
+  Utilities   Git sync · Update inputs (changelog, then offers a rebuild) ·
+              Garbage collect · Check hosts (the four-host drvPath eval)
+  Apollo      Deploy (host → Dry run / VM test / INSTALL) · SSH · Build ISO · Tailnet key
 ```
+
+Keys: ↑↓ or j/k, ⏎ (or →/l) to pick, the digit picks directly, esc/←/h goes back,
+q quits. After a job, ⏎ returns to the same menu with the home screen refreshed.
+
+**Host-aware.** It matches the hostname against its machine list (`DOTS_HOST`
+overrides), so "local" is wherever it runs. On Sisyphus, `system-rebuild kitkat
+Kit-Kat` pushes to her; on Kit-Kat the same command — and Rebuild in the menu —
+rebuilds Kit-Kat in place, never trying to reach itself over the tailnet. Kit-Kat
+imports `deploy-tools` with `my.deploy-tools.admin = false`: system-rebuild,
+git-sync and nix-gc, none of the Apollo commands (rock's sops key), so its menu has
+no Apollo section. Without a `~/Dots` it builds `github:JimmyTheSquirrel/Dots`
+(main), and Utilities offers *Get the repo* in place of sync/update.
 
 Every rebuild is build → diff → activate: `nom build` of the toplevel, `dix`
-against what's running (over ssh for Kit-Kat), then
-`nixos-rebuild <switch|boot> --store-path <built>` — so the flake is evaluated
-once and activation is still nixos-rebuild's own. Ends in a summary box (time,
-closure size and delta, generation) or a red box saying nothing was activated.
-The look lives in `Resources/Scripts/lib/ui.sh`, prepended to each tool by
-`Modules/Shell/deploy-tools.nix` (Gruvbox brights to match kitty; plain text
-when piped or with `NO_COLOR`).
+against what's running (over ssh for a remote machine), then
+`nixos-rebuild <switch|boot> --store-path <built>` (`-p sisyphus` for Sisyphus's
+own profile, `--target-host` for a remote) — so the flake is evaluated once and
+activation is still nixos-rebuild's own. Ends in a summary box (time, closure size
+and delta, generation) or a red box saying nothing was activated.
+
+**Where things live.** `Resources/Scripts/lib/ui.sh` is the look and the engine:
+palette (Gruvbox brights to match kitty), the gradient wordmark, framed panels,
+pills, and the keyboard menu (`ui_menu_new` / `ui_item` / `ui_menu`). It is
+prepended to each tool by `Modules/Shell/deploy-tools.nix`; plain text when piped
+or with `NO_COLOR`. `Resources/Scripts/system-rebuild.sh` holds the machine list
+(`host_info` — a new machine is one line), the jobs, and one `menu_*` function per
+section: a new job is one `ui_item` line plus one case arm calling `job <fn>`.
+Block glyphs, box drawing and the round pill caps are drawn by kitty itself; the
+icons are Nerd Font (FantasqueSansM Nerd Font Mono).
 
 The `apollo-*` commands still exist and still work standalone — `apollo-connect` in
 particular is worth keeping in muscle memory — they just don't all need to be
 remembered. The navi cheatsheet (`dots.cheat`, shipped by `Modules/Shell/deploy-tools.nix`) is down to `system-rebuild`, `nix-gc`, `git-sync`,
-`sops`, and three SSH targets.
+and, with admin, `sops` and three SSH targets.
 
 CLI form is unchanged: `system-rebuild USER SYSTEM [--boot|--build] [--target HOST]` —
 no menus, same build → diff → activate output.

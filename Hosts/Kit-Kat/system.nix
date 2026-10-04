@@ -10,7 +10,8 @@
 #     ./facter.json), generated over SSH during the install (see `apollo-deploy`).
 #
 # Deploy:    apollo-deploy kitkat-Kit-Kat        (first install — ERASES the disk)
-# Rebuild:   system-rebuild kitkat Kit-Kat       (pushes over the tailnet)
+# Rebuild:   system-rebuild kitkat Kit-Kat       (from Sisyphus: pushes over the
+#            tailnet; on Kit-Kat itself: rebuilds in place — same command)
 { self, ... }: {
   flake.nixosConfigurations.kitkat-Kit-Kat = self.lib.mkHost {
     activeUser = "kitkat";
@@ -48,6 +49,7 @@
       self.nixosModules.vscodium
       self.nixosModules.screenshot
       self.nixosModules.navi
+      self.nixosModules.deploy-tools   # system-rebuild etc.; admin = false below
       self.nixosModules.spicetify
       self.nixosModules.discord
       self.nixosModules.tailscale
@@ -68,6 +70,12 @@
         # "Women · Umbrella" (Totoro) greeter — Modules/Boot/sddm.nix. rock's
         # Sisyphus runs nier-automata from the same module.
         my.sddm.theme = "women-umbrella";
+
+        # system-rebuild, git-sync and nix-gc, so a rebuild can be run sitting at
+        # her machine (system-rebuild sees it is ON Kit-Kat and rebuilds in place,
+        # from ~/Dots or, without one, github:JimmyTheSquirrel/Dots). Not the
+        # Apollo commands or rock's cheats: Modules/Shell/deploy-tools.nix.
+        my.deploy-tools.admin = false;
 
         # The cat greets her on every new interactive shell. `--once` rather than
         # the looping mode so opening a terminal never blocks, and guarded on an

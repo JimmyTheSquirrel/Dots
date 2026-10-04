@@ -116,11 +116,14 @@ blanks `FZF_DEFAULT_OPTS` for that one command. It ships no cheats of its own. E
 that existed was rock-only, so on Kit-Kat `c` now opens an empty list where it used to
 offer commands that could not run there.
 
-`deploy-tools.nix` is imported on **Sisyphus only**. It installs the commands below and
-`~/.config/navi/cheats/dots.cheat` (navi reads every `*.cheat` under its cheats path):
-- `system-rebuild`: interactive or CLI rebuild/deploy menu. Its third action is **Build**
-  (`nixos-rebuild build`, no sudo); it was mislabelled "Test" before. `--build` and the
-  old `--test` both mean build.
+`deploy-tools.nix` is imported on **Sisyphus** (everything) and **Kit-Kat**
+(`my.deploy-tools.admin = false`: only `system-rebuild`, `git-sync`, `nix-gc` and their
+three cheats). It installs the commands below and `~/.config/navi/cheats/dots.cheat`
+(navi reads every `*.cheat` under its cheats path):
+- `system-rebuild`: interactive (sectioned menus: Rebuild · Remote · Utilities · Apollo)
+  or CLI rebuild/deploy. Host-aware: it rebuilds the machine it runs on in place and
+  pushes to the others. Build only is **Build** (`--build`, and the old `--test`). See
+  `Claude/deploy.md` → "One command, not six".
 - `git-sync`: stash, pull --rebase, push.
 - `nix-gc`: the do-it-now cleanup: `nix-collect-garbage -d` (**every** old generation),
   `nix-store --optimise`, and `docker system prune` where Docker exists. The routine

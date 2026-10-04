@@ -9,7 +9,7 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 |-------|------|--------|
 | **Architecture** | `Claude/architecture.md` | Folder layout, the module pattern, **the `/_` rule**, `mkHost`, per-host hardware/disko files, GRUB profiles, Plymouth |
 | **Next up / backlog** | `Claude/next-up.md` | Open work. **Read before a fresh install or wipe** |
-| **Deploying / installer USB** | `Claude/deploy.md` | The Apollo stick: `apollo-iso` / `apollo-key` / `apollo-connect` / `apollo-deploy`. **nixos-anywhere skips kexec on our ISO, so an SSH-over-tailnet install survives.** Ventoy + Secure Boot caveats |
+| **Deploying / installer USB** | `Claude/deploy.md` | `system-rebuild`'s menus (Rebuild · Remote · Utilities · Apollo) and how to extend them. The Apollo stick: `apollo-iso` / `apollo-key` / `apollo-connect` / `apollo-deploy`. **nixos-anywhere skips kexec on our ISO, so an SSH-over-tailnet install survives.** Ventoy + Secure Boot caveats |
 | **Kit-Kat** (her machine) | `Claude/kit-kat.md` | Separate NVIDIA hardware running Hyprland. **Her own sops file**, disko + facter, what was left out |
 | Niri compositor | `Claude/niri.md` | Layout, keybinds, window rules, startup, Spotify/Steam launchers |
 | Noctalia shell | `Claude/noctalia.md` | Bar, IPC, font packaging, **idle/monitor power-save**. **Nix owns `settings.toml`** — the bar/lockscreen/widget layout lives in `lockedSettings` and a rebuild forces it back over any GUI change, so edit Nix, not the GUI |
@@ -45,16 +45,19 @@ When making changes, always ask: "Will this work on a fresh install without manu
 system-rebuild                          # Interactive menu (recommended)
 system-rebuild rock Sisyphus            # Build and switch immediately
 system-rebuild rock Sisyphus --boot     # Build for GRUB, don't switch
-system-rebuild kitkat Kit-Kat           # Push to her machine over the tailnet
+system-rebuild kitkat Kit-Kat           # Push to her machine (on Kit-Kat: rebuilds in place)
 nix build .#apollo-iso                  # The Apollo ISO (or: apollo-iso)
 nix flake update                        # Update flake inputs
 ```
 
 `system-rebuild`, `git-sync`, `nix-gc` and the `apollo-*` helpers are
 `writeShellApplication`s (shellchecked at build time) from
-`Modules/Shell/deploy-tools.nix`, script bodies in `Resources/Scripts/*.sh`.
-Sisyphus only. Sisyphus builds into the named profile `-p sisyphus` (see
-`Claude/architecture.md` → GRUB); remote hosts use the default profile.
+`Modules/Shell/deploy-tools.nix`, script bodies in `Resources/Scripts/*.sh`, the
+shared look + menu engine in `Resources/Scripts/lib/ui.sh`. Sisyphus gets all of them;
+Kit-Kat gets `system-rebuild`/`git-sync`/`nix-gc` (`my.deploy-tools.admin = false`).
+`system-rebuild` is **host-aware**: the machine it runs on rebuilds in place, any other
+is pushed over the tailnet. Sisyphus builds into the named profile `-p sisyphus` (see
+`Claude/architecture.md` → GRUB); the others use the default profile.
 
 **Check a change evaluates** (all four hosts, no build):
 `nix eval --raw .#nixosConfigurations.<attr>.config.system.build.toplevel.drvPath`
@@ -103,7 +106,7 @@ Claude/                   # topic docs
 | System | Desktop | Entry Point | Where | Key Modules |
 |--------|---------|-------------|-------|-------------|
 | **Sisyphus** | Niri | `Hosts/Sisyphus/system.nix` | rock's desktop, AMD | niri, noctalia, skwd, spicetify, wolf, sunshine, rpcs3, deploy-tools, grub, sddm (nier-automata) |
-| **Kit-Kat** | Hyprland | `Hosts/Kit-Kat/system.nix` | her machine, **NVIDIA** | hyprland, noctalia, skwd, nvidia, grub-celeste, sddm (women-umbrella), sops-kitkat, brave, sleepy-cat; disko + facter |
+| **Kit-Kat** | Hyprland | `Hosts/Kit-Kat/system.nix` | her machine, **NVIDIA** | hyprland, noctalia, skwd, nvidia, grub-celeste, sddm (women-umbrella), sops-kitkat, brave, sleepy-cat, deploy-tools (no admin); disko + facter |
 | **Asgard** | headless | `Hosts/Asgard/system.nix` | media server | server, home-assistant, marsbar; disko; systemd-boot |
 | **Apollo** | Niri (live, not autostarted) | `Hosts/Apollo/system.nix` | USB stick | the deployer/rescue ISO — `Claude/deploy.md` |
 
