@@ -12,7 +12,7 @@
 # styling. The skeleton holds the card's height until the first event
 # (≈instant: every stream sends its state on connect), so nothing jumps.
 #   id     the element the script paints (#ags-host, #nw, #ec-main, …)
-#   acc    the card's accent (green moss purple orange gold rose sky lamp → acc-*)
+#   acc    the card's accent: green or red (→ acc-green / acc-red)
 #   rune   the Elder Futhark rune heading it (→ rune-*, Resources/Glance/runes/;
 #          the admin dashboard's — MarsBar's cards have her crown blossom instead)
 #   badge  id of a live/reconnecting badge in the header, for the script

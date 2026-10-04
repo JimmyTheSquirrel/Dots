@@ -37,10 +37,12 @@
 
   // ring gauge: value 0..1. The arc length is an inline STYLE, not the
   // attribute: a style change is what CSS transitions on, so it sweeps.
+  // --f is the same fraction, for a ring whose colour follows its value
+  // (asgard.css mixes the temperature ring along the weave by it).
   // warn/bad add a word under the label — never colour alone.
   function ring(frac, text, unit, label, hue, state, word) {
     var r = 30, c = 2 * Math.PI * r, f = D.clamp(frac || 0, 0, 1);
-    return '<div class="ags-ring ' + hue + ' ' + state + '">' +
+    return '<div class="ags-ring ' + hue + ' ' + state + '" style="--f:' + f.toFixed(3) + '">' +
       '<svg viewBox="0 0 76 76" aria-hidden="true">' +
         '<circle class="ags-ring-track" cx="38" cy="38" r="' + r + '"></circle>' +
         '<circle class="ags-ring-fill" cx="38" cy="38" r="' + r + '" style="stroke-dasharray:' +
