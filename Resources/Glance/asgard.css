@@ -5,38 +5,50 @@
    glance.nix). Glance's own theme colours (set there) still drive the few
    things Glance draws itself; everything else is here.
 
-   ── Yggdrasil ──────────────────────────────────────────────────────────────
-   The dashboard is themed on the world tree its tailnet card already carries:
-   plain neutral grey, a faint line drawing of the tree (branches above, roots
-   below, a ring round it) behind everything, the tree as the logo, and each
-   card headed by an Elder Futhark rune chosen for what it holds — ᚲ kenaz the
-   torch for the lights, ᚨ ansuz (the gods' rune) for Asgard itself, ᛟ othala
-   the estate for storage, ᚱ raidho the journey for the network, ᛞ dagaz
-   day-and-night for Eclipse… (`rune-*` classes, Resources/Glance/runes/).
-   Forest greens with orange and purple, in gradients — like MarsBar's vine.
+   ── Myrkviðr — the Mirkwood theme ───────────────────────────────────────────
+   A northern conifer forest at dusk: fog-grey ground with a faint spruce cast,
+   evergreen pine, cold fjord water, lichen on stone, the amber of a fire in
+   the trees, lingonberries, birch-bark text. Yggdrasil is the frame — its tree
+   behind the page, a rune heading each card (ᚨ ansuz for Asgard, ᛟ othala the
+   estate for storage, ᚱ raidho the journey for the network…), a spruce bough
+   in each card's corner, misty spruce ridges along the foot of the page and a
+   braided knot band under the navigation.
 
    ── The colour system ──────────────────────────────────────────────────────
-     1. INK — neutral grey surfaces and text. Nothing here carries a hue.
-     2. ACCENTS — one per card (--acc): its rune, its top edge, a breath of
-        tint in its first corner:
-          FOREST GREEN dominates — lights, server, services, power, the tree —
-          with moss (storage, devices, plug health), purple (network, media,
-          Eclipse) and orange kept to a few accents (downloads, streams)
-     3. DATA — a fixed, ordered six-colour palette (--s1…--s6) for series that
-        need telling apart: the three gauges, the disks, the plugs. VALIDATED,
-        not picked by eye (dataviz validator, dark mode, card surface #26272a):
-        forest · purple · orange · sky · rose · gold — every adjacent pair
-        clears colour-blind ΔE 10.8 (target ≥ 8) and normal-vision ΔE 17.5
-        (floor 15), all ≥ 3:1. Green and ORANGE must never be neighbours: to
-        red-green colour blindness they are nearly the same colour (ΔE 4.9) —
-        which is why purple sits between them. Change a slot → re-run the
-        validator. A series keeps its colour wherever it appears.
-   Status (good / warn / bad) is separate and reserved: always with a word.
-   Lamps that are ON glow forest green — sunlight through leaves.
+   Every colour is one of a few NAMED families, each with a job. Nothing is
+   picked per widget.
 
-   MarsBar (Resources/MarsBar/marsbar.css) is purple with a vine; the cards
-   both dashboards draw (cards.css) are written against the tokens below and
-   MarsBar defines the same names in her colours.
+     FAMILY      DATA (--sN)  LIT (--c-*)  ROLE
+     pine        #308c51      #83d494      the evergreen: the brand, the host,
+                                           services, lights, power — DOMINANT
+     fjord       #558ec3      #91c8f0      cold water, mist: the network,
+                                           Eclipse, everything that flows
+     amber       #c7852a      #e3bf76      firelight: downloads, streams, heat
+                                           — a warm accent, kept SMALL
+     lingonberry #b34f60      #ea909b      media: now playing, on the TV
+     heather     #8d76c6      #bea8e2      only as a data slot (sixth plug)
+     lichen      #789142      #c4da7d      moss on stone: storage, devices
+     birch       —            #edeade      text
+     fog/spruce  surfaces     #191d1b page, #1f2421 cards — grey, cool-green cast
+
+   DATA — the --sN slots are the categorical palette for series that need
+   telling apart (gauges, disks, network down/up/ping, plugs). VALIDATED, not
+   picked by eye (dataviz validator, dark mode, card surface #1d221f): every
+   adjacent pair clears colour-blind ΔE 14.2 (target ≥ 8) and normal-vision
+   ΔE 16.6 (floor 15); all ≥ 3:1 on the card. The order is the safety: pine
+   and amber are never neighbours (to red-green colour blindness they meet).
+   Change a slot → re-run the validator. A series keeps its colour wherever
+   it appears: CPU is pine in its ring, its chart line and its legend.
+   LIT — the same hues lifted for runes, titles, edges and glows (never data).
+   GRADIENTS — --aurora (fjord → pine → lichen: the northern lights over the
+   trees) is the signature: nav, card edges, the braid. --hearth (amber →
+   lingonberry) is its warm counterpart, used sparingly.
+   STATUS — good / warn / bad are reserved, brighter than any data slot, and
+   always come with a word: never colour alone.
+
+   MarsBar (Resources/MarsBar/marsbar.css) keeps her purple and vine; the
+   cards both dashboards draw (cards.css) are written against the tokens below
+   and MarsBar defines the same names in her colours.
 
    ⚠ rem is NOT 16px here. Glance sets `:root { font-size: 10px }` (9.4px under
    550px wide), so 1.1rem is an 11px label. Nothing a person has to READ is
@@ -44,68 +56,92 @@
    ════════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  /* ink — neutral grey */
-  --ag-page: #1b1c1e;
-  --ag-text: #ececec;
-  --ag-text-dim: rgba(236, 236, 236, 0.68);
-  --ag-text-faint: rgba(236, 236, 236, 0.46);
-  --ag-line: rgba(255, 255, 255, 0.11);
-  --ag-line-soft: rgba(255, 255, 255, 0.065);
-  --ag-tile: rgba(255, 255, 255, 0.035);
-  --ag-tile-off: rgba(0, 0, 0, 0.16);
-  --ag-surface: #26272a;            /* the card surface the palette was validated on */
-  --ag-tile-hi: rgba(255, 255, 255, 0.045); /* inner panels (cards.css): their gradient */
-  --ag-tile-lo: rgba(255, 255, 255, 0.015);
-  --ag-well: rgba(0, 0, 0, 0.22);         /* recessed controls: the path switch, End */
-  --ag-pop: rgba(30, 31, 33, 0.97);       /* hover read-outs */
-  --ag-on-acc: #17181a;                   /* text on an accent fill */
+  /* ink — fog grey with a whisper of spruce; birch-bark text */
+  --ag-page: #191d1b;
+  --ag-text: #edeade;
+  --ag-text-dim: rgb(237 234 222 / 0.68);
+  --ag-text-faint: rgb(237 234 222 / 0.46);
+  --ag-line: rgb(214 232 222 / 0.11);
+  --ag-line-soft: rgb(214 232 222 / 0.065);
+  --ag-tile: rgb(214 232 222 / 0.035);
+  --ag-tile-off: rgb(0 0 0 / 0.18);
+  --ag-surface: #1f2421;                  /* the card surface the palette was validated on */
+  --ag-card-top: #232825;
+  --ag-card-bot: #1c211e;
+  --ag-tile-hi: rgb(214 232 222 / 0.045); /* inner panels (cards.css): their gradient */
+  --ag-tile-lo: rgb(214 232 222 / 0.015);
+  --ag-well: rgb(0 0 0 / 0.24);           /* recessed controls: the path switch, End */
+  --ag-pop: rgb(22 27 24 / 0.97);         /* hover read-outs */
+  --ag-on-acc: #121714;                   /* text on an accent fill */
 
   /* data palette — validated order, see the header */
-  --s1: #359658;   /* forest */
-  --s2: #8f68cb;   /* purple */
-  --s3: #d7712e;   /* orange */
-  --s4: #3f95d0;   /* sky    */
-  --s5: #c95d7b;   /* rose   */
-  --s6: #b58d2d;   /* gold   */
+  --s1: #308c51;   /* pine        */
+  --s2: #558ec3;   /* fjord       */
+  --s3: #c7852a;   /* amber       */
+  --s4: #b34f60;   /* lingonberry */
+  --s5: #8d76c6;   /* heather     */
+  --s6: #789142;   /* lichen      */
 
-  /* chrome accents — the same families, lifted for runes, edges and titles */
-  --c-green: #5fcf8a;
-  --c-moss: #a6c965;
-  --c-purple: #b394f0;
-  --c-orange: #f2944f;
-  --c-gold: #e9c46a;
-  --c-rose: #ec8cab;
-  --c-sky: #7cc0f0;
-  --c-lamp: #ffc66b;               /* warm lamp light */
+  /* the families, lifted — runes, titles, edges, glows */
+  --c-pine: #83d494;
+  --c-fjord: #91c8f0;
+  --c-amber: #e3bf76;
+  --c-lingon: #ea909b;
+  --c-lichen: #c4da7d;
+  --c-heather: #bea8e2;
+  --c-birch: #edeade;
+  --c-mist: #bbd7d9;
+  --c-lamp: #eccd8c;               /* warm lamp light */
+  /* the same, as "r g b" for rgb(var(--x-rgb) / alpha) glows */
+  --pine-rgb: 131 212 148;
+  --fjord-rgb: 145 200 240;
+  --amber-rgb: 227 191 118;
 
-  /* status — reserved */
-  --ag-good: #3fcf82;
-  --ag-warn: #f5b041;
-  --ag-bad: #f2665e;
+  /* the names cards.css (and older markup) use, mapped onto the families */
+  --c-green: var(--c-pine);
+  --c-moss: var(--c-lichen);
+  --c-purple: var(--c-fjord);
+  --c-orange: var(--c-amber);
+  --c-rose: var(--c-lingon);
+  --c-gold: var(--c-amber);
+  --c-sky: var(--c-fjord);
+
+  /* status — reserved, brighter than any data slot, always with a word */
+  --ag-good: #52db9c;
+  --ag-warn: #f9a63e;
+  --ag-bad: #ef675a;
+  --good-rgb: 82 219 156;
+  --warn-rgb: 249 166 62;
+  --bad-rgb: 239 103 90;
   /* the old names, still used across the markup */
   --ag-up: var(--ag-good);
-  --ag-accent: var(--c-green);
+  --ag-accent: var(--c-pine);
 
-  /* the signature run: canopy green → moss → a touch of dusk purple */
-  --grove: linear-gradient(90deg, var(--c-green), var(--c-moss) 60%, var(--c-purple));
+  /* the signature runs */
+  --aurora: linear-gradient(90deg, var(--c-fjord), var(--c-pine) 50%, var(--c-lichen));
+  --hearth: linear-gradient(90deg, var(--c-amber), var(--c-lingon));
+  --grove: var(--aurora);
 
   --ag-r-card: 20px;
   --ag-r-tile: 16px;
   --ag-r-small: 12px;
   --ag-gap: 12px;
   --ag-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --ag-shadow: 0 14px 30px -18px rgba(0, 0, 0, 0.75), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
+  --ag-shadow: 0 14px 30px -18px rgb(0 0 0 / 0.78), 0 2px 6px -2px rgb(0 0 0 / 0.38);
 }
 
-/* ── The page: neutral grey, the world tree faint behind it ──────────────────
-   A plain grey ground with a soft lift of light at the top, and the tree
-   (Resources/Glance/ygg-bg.svg — generated: branches, roots and a ring, in
-   green, gold and purple strokes) drawn at a few percent opacity, fixed, so
-   the cards sit in its branches. Nothing animates and nothing is blurred:
-   on a plain background a backdrop-filter buys nothing but battery. */
+/* ── The page: fog over the forest floor ──────────────────────────────────────
+   Grey with a faint spruce cast and a lift of cold light at the top, the world
+   tree (Resources/Glance/ygg-bg.svg — generated: pine branches, bark roots,
+   a frost ring) a few percent opaque behind everything, and misty spruce
+   ridges (treeline.svg — three layers, far to near, fog between) along the
+   foot of the viewport. Both fixed, so the cards scroll over the forest.
+   Nothing animates and nothing is blurred: a backdrop-filter over a plain
+   background buys nothing but battery. */
 body {
   background:
-    radial-gradient(120% 60% at 50% -10%, rgba(255, 255, 255, 0.045), transparent 60%),
+    radial-gradient(120% 60% at 50% -10%, rgb(var(--fjord-rgb) / 0.05), transparent 60%),
+    radial-gradient(90% 50% at 50% 110%, rgb(var(--pine-rgb) / 0.05), transparent 70%),
     var(--ag-page);
   background-attachment: fixed;
 }
@@ -118,22 +154,31 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background: url("ygg-bg.svg") center / contain no-repeat;
-  opacity: 0.075;
+  opacity: 0.07;
+}
+body::after {
+  content: "";
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: clamp(140px, 24vh, 300px);
+  z-index: -1;
+  pointer-events: none;
+  background: url("treeline.svg") center bottom / auto 100% repeat-x;
+  opacity: 0.85;
 }
 
 /* ── Section accents + runes ──────────────────────────────────────────────────
    Set with `css-class` on a widget in glance.nix (or `acc` / `rune` on a live
    card). Everything accent-coloured reads var(--acc); the title's rune is
    var(--rune), a mask filled with the accent. */
-.widget { --acc: var(--c-green); --rune: url("runes/ansuz.svg"); }
-.acc-green  { --acc: var(--c-green); }
-.acc-moss   { --acc: var(--c-moss); }
-.acc-purple { --acc: var(--c-purple); }
-.acc-orange { --acc: var(--c-orange); }
-.acc-gold   { --acc: var(--c-gold); }
-.acc-rose   { --acc: var(--c-rose); }
-.acc-sky    { --acc: var(--c-sky); }
-.acc-lamp   { --acc: var(--c-lamp); }
+.widget { --acc: var(--c-pine); --rune: url("runes/ansuz.svg"); }
+.acc-pine    { --acc: var(--c-pine); }
+.acc-fjord   { --acc: var(--c-fjord); }
+.acc-amber   { --acc: var(--c-amber); }
+.acc-lingon  { --acc: var(--c-lingon); }
+.acc-lichen  { --acc: var(--c-lichen); }
+.acc-birch   { --acc: var(--c-birch); }
+.acc-lamp    { --acc: var(--c-lamp); }
 .rune-fehu    { --rune: url("runes/fehu.svg"); }     /* ᚠ wealth gained — Downloads */
 .rune-uruz    { --rune: url("runes/uruz.svg"); }     /* ᚢ strength, health — Plug health */
 .rune-ansuz   { --rune: url("runes/ansuz.svg"); }    /* ᚨ the gods — Asgard */
@@ -154,10 +199,10 @@ body::before {
 .rune-isa     { --rune: url("runes/isa.svg"); }      /* ᛁ ice, stillness — Terminal */
 
 /* ── Cards ────────────────────────────────────────────────────────────────────
-   Solid grey panels (no glass — the page behind is plain), a soft gradient
-   down the card, an inset top highlight, a hairline edge, and a breath of the
-   card's own accent in its first corner. It is the ONLY container — see the
-   frame fix below. */
+   Solid fog-grey panels, a soft gradient down the card, an inset top
+   highlight, a hairline edge, a breath of the card's accent in its first
+   corner — and a spruce bough hanging into the other one. It is the ONLY
+   container — see the frame fix below. */
 .widget {
   position: relative;
   border: 1px solid var(--ag-line-soft);
@@ -165,14 +210,14 @@ body::before {
   padding: 18px 18px 20px;
   background:
     radial-gradient(110% 55% at 0% 0%, color-mix(in srgb, var(--acc) 7%, transparent), transparent 60%),
-    linear-gradient(180deg, #2a2b2e, #242528 60%, #222326);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--ag-shadow);
+    linear-gradient(180deg, var(--ag-card-top), var(--ag-surface) 60%, var(--ag-card-bot));
+  box-shadow: inset 0 1px 0 rgb(214 232 222 / 0.05), var(--ag-shadow);
   transition: border-color 0.3s ease;
 }
 @media (hover: hover) {
   .widget:hover { border-color: var(--ag-line); }
 }
-/* Top edge: the card's accent, running on into the canopy and a hint of dusk. */
+/* Top edge: the card's accent, running on into the aurora. */
 .widget::after {
   content: "";
   position: absolute;
@@ -181,10 +226,24 @@ body::before {
   pointer-events: none;
   background: linear-gradient(to right,
     transparent,
-    color-mix(in srgb, var(--acc) 75%, transparent) 20%,
-    color-mix(in srgb, var(--c-green) 30%, transparent) 55%,
-    color-mix(in srgb, var(--c-purple) 18%, transparent) 82%,
+    color-mix(in srgb, var(--acc) 80%, transparent) 18%,
+    rgb(var(--pine-rgb) / 0.35) 50%,
+    rgb(var(--fjord-rgb) / 0.22) 80%,
     transparent);
+}
+/* The bough: Resources/Glance/bough.svg (generated) as a MASK, filled with
+   the card's accent fading into fjord mist, hanging from the top-right corner
+   behind the header. Decoration only — under everything, never in the way. */
+.widget:not(.ygg-widget)::before {
+  content: "";
+  position: absolute;
+  top: 4px; right: 6px;
+  width: 210px; height: 138px;
+  pointer-events: none;
+  background: linear-gradient(215deg, var(--acc) 0%, color-mix(in srgb, var(--acc) 40%, var(--c-fjord)) 55%, transparent 92%);
+  -webkit-mask: url("bough.svg") top right / contain no-repeat;
+  mask: url("bough.svg") top right / contain no-repeat;
+  opacity: 0.2;
 }
 
 /* A group's tabs are widgets too (.widget inside .widget). They must NOT be
@@ -198,7 +257,8 @@ body::before {
   -webkit-backdrop-filter: none;
   box-shadow: none;
 }
-.widget .widget::after { content: none; }
+.widget .widget::after,
+.widget .widget::before { content: none; }
 
 /* ⚠ THE "border within a border" FIX.
    Glance wraps every widget's content in its own framed box
@@ -217,21 +277,25 @@ body::before {
 
 /* Card titles: the card's rune, filled with its accent (a mask, so it is
    drawn, not a font glyph — no device needs a Runic font), then the name. */
+/* The divider under it is carved, not ruled: the card's accent, a gap, then a
+   thin line fading out — a rune-stone's cut line. */
 .widget-header {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 2px 11px;
   margin-bottom: 16px;
-  border-bottom: 1px solid var(--ag-line-soft);
   font-size: 1.25rem;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--acc) 70%, transparent), color-mix(in srgb, var(--acc) 70%, transparent)) 0 100% / 26px 2px no-repeat,
+    linear-gradient(90deg, color-mix(in srgb, var(--acc) 35%, transparent), var(--ag-line-soft) 45%, transparent) 32px 100% / calc(100% - 32px) 1px no-repeat;
 }
 .widget-header h2,
 .widget-group-title {
   letter-spacing: 0.16em;
   font-weight: 700;
   font-size: 1.25rem;
-  color: rgba(236, 236, 236, 0.86);
+  color: rgb(237 234 222 / 0.88);
 }
 .widget > .widget-header h2::before,
 .widget-group-header .widget-group-title-current::before {
@@ -240,29 +304,42 @@ body::before {
   width: 0.9em; height: 1.35em;
   margin-right: 11px;
   vertical-align: -0.32em;
-  background: linear-gradient(to bottom, var(--acc), color-mix(in srgb, var(--acc) 45%, var(--c-gold)));
+  background: linear-gradient(to bottom, var(--acc), color-mix(in srgb, var(--acc) 55%, var(--c-birch)));
   -webkit-mask: var(--rune) center / contain no-repeat;
   mask: var(--rune) center / contain no-repeat;
 }
 .widget .widget .widget-header { display: none; }
 
-/* ── Page navigation ─────────────────────────────────────────────────────── */
-.header { background: rgba(36, 37, 40, 0.92) !important; }
+/* ── Page navigation ───────────────────────────────────────────────────────
+   The bar, with the braided knot band (braid.svg, a mask) along its foot in
+   the aurora gradient; the current page underlined in the aurora too. */
+.header { position: relative; background: rgb(31 36 33 / 0.94) !important; }
+.header::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -7px;
+  height: 9px;
+  pointer-events: none;
+  background: var(--aurora);
+  -webkit-mask: url("braid.svg") 0 0 / auto 100% repeat-x;
+  mask: url("braid.svg") 0 0 / auto 100% repeat-x;
+  opacity: 0.55;
+}
 /* The tree as the logo (branding.logo-url in glance.nix). */
-.logo img { height: 3rem; width: auto; filter: drop-shadow(0 0 6px rgba(95, 207, 138, 0.35)); }
+.logo img { height: 3rem; width: auto; filter: drop-shadow(0 0 6px rgb(var(--pine-rgb) / 0.35)); }
 .nav-item { transition: color 0.2s ease, border-color 0.2s ease; }
 .nav-item.nav-item-current {
   color: var(--ag-text);
   border-bottom-color: transparent;
-  background: var(--grove) bottom / 100% 2px no-repeat;
-  text-shadow: 0 0 14px rgba(95, 207, 138, 0.35);
+  background: var(--aurora) bottom / 100% 2px no-repeat;
+  text-shadow: 0 0 14px rgb(var(--pine-rgb) / 0.35);
 }
 .mobile-navigation {
-  background: rgba(36, 37, 40, 0.97);
+  background: rgb(31 36 33 / 0.97);
   border-color: var(--ag-line);
 }
 .mobile-navigation-input:checked + .mobile-navigation-pill,
-.mobile-navigation-label:hover > .mobile-navigation-pill { background: var(--c-green); }
+.mobile-navigation-label:hover > .mobile-navigation-pill { background: var(--c-pine); }
 
 /* ── Tabs inside a group (the service categories) ─────────────────────────── */
 .widget-group-header .widget-header { gap: 22px; }
@@ -299,7 +376,7 @@ body::before {
 }
 .ag-live-corner { position: absolute; top: 18px; right: 20px; }
 html[data-ha-link="live"] .ag-live { color: var(--ag-text-dim); }
-html[data-ha-link="live"] .ag-live i { background: var(--ag-good); box-shadow: 0 0 10px rgba(63, 207, 130, 0.8); }
+html[data-ha-link="live"] .ag-live i { background: var(--ag-good); box-shadow: 0 0 10px rgb(var(--good-rgb) / 0.8); }
 html[data-ha-link="delayed"] .ag-live i { background: var(--ag-warn); }
 html[data-ha-link="reconnecting"] .ag-live,
 html[data-ha-link="offline"] .ag-live { color: var(--ag-warn); }
@@ -363,7 +440,7 @@ html[data-ha-link="offline"] .ag-live i { background: var(--ag-warn); animation:
   outline-offset: 2px;
 }
 @media (hover: hover) {
-  .ag-light:hover { border-color: rgba(120, 220, 160, 0.34); }
+  .ag-light:hover { border-color: rgb(var(--pine-rgb) / 0.34); }
 }
 
 /* ON — lit: a forest wash — sunlight through leaves — a bright green edge and
@@ -371,10 +448,10 @@ html[data-ha-link="offline"] .ag-live i { background: var(--ag-warn); animation:
    together: one subtle tint is not readable at a glance on a phone. */
 .ag-light[data-ha-state="on"] {
   background:
-    radial-gradient(120% 140% at 0% 50%, rgba(140, 230, 160, 0.20), transparent 60%),
+    radial-gradient(120% 140% at 0% 50%, rgb(var(--pine-rgb) / 0.20), transparent 60%),
     linear-gradient(135deg, rgba(38, 96, 60, 0.78), rgba(28, 58, 42, 0.62));
-  border-color: rgba(120, 220, 160, 0.55);
-  box-shadow: 0 0 0 1px rgba(120, 220, 160, 0.08), 0 12px 34px -14px rgba(60, 190, 110, 0.5),
+  border-color: rgb(var(--pine-rgb) / 0.55);
+  box-shadow: 0 0 0 1px rgb(var(--pine-rgb) / 0.08), 0 12px 34px -14px rgb(var(--pine-rgb) / 0.5),
               inset 0 1px 0 rgba(220, 255, 230, 0.10);
 }
 .ag-light[data-ha-state="off"] { background: var(--ag-tile-off); }
@@ -408,10 +485,10 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   position: absolute;
   left: 0; top: 0; bottom: 0;
   width: 4px;
-  background: linear-gradient(to bottom, var(--c-green), var(--c-purple));
+  background: linear-gradient(to bottom, var(--c-pine), var(--c-fjord));
   transition: background 0.35s ease;
 }
-.ag-hero[data-ha-state="on"]::before { background: linear-gradient(to bottom, #a6f0c2, #3f9a63); }
+.ag-hero[data-ha-state="on"]::before { background: linear-gradient(to bottom, var(--c-pine), var(--s1)); }
 .ag-hero .ag-name { font-size: 1.7rem; }
 .ag-hero[data-ha-state="off"] { background: linear-gradient(135deg, rgba(30, 30, 30, 0.62), rgba(21, 21, 21, 0.56)); }
 
@@ -425,8 +502,8 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   transition: color 0.3s ease, text-shadow 0.3s ease, transform 0.3s var(--ag-ease);
 }
 .ag-light[data-ha-state="on"] .ag-ico {
-  color: #e6ffd8;
-  text-shadow: 0 0 18px rgba(150, 240, 150, 0.9), 0 0 4px rgba(230, 255, 200, 0.9);
+  color: #eefbe9;
+  text-shadow: 0 0 18px rgb(var(--pine-rgb) / 0.9), 0 0 4px rgb(238 251 233 / 0.9);
   transform: scale(1.08);
 }
 
@@ -472,7 +549,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 [data-ha-error] > * > .ag-state::after,
 [data-ha-error] > .ag-state::after { content: "Failed"; }
 [data-ha-state="on"] > * > .ag-state,
-[data-ha-state="on"] > .ag-state { color: #a6f0c2; }
+[data-ha-state="on"] > .ag-state { color: var(--c-pine); }
 [data-ha-error] > * > .ag-state,
 [data-ha-error] > .ag-state { color: var(--ag-bad); }
 
@@ -507,9 +584,9 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 }
 [data-ha-state="on"] .ag-sw,
 .ag-sw[data-ha-state="on"] {
-  background: linear-gradient(90deg, #2f8a52, #5fcf8a);
-  border-color: rgba(160, 240, 190, 0.7);
-  box-shadow: 0 0 14px -2px rgba(80, 200, 120, 0.6);
+  background: linear-gradient(90deg, var(--s1), var(--c-pine));
+  border-color: rgb(var(--pine-rgb) / 0.7);
+  box-shadow: 0 0 14px -2px rgb(var(--pine-rgb) / 0.6);
 }
 [data-ha-state="on"] .ag-sw::after,
 .ag-sw[data-ha-state="on"]::after { transform: translateX(20px); background: #fffaf0; }
@@ -525,8 +602,8 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
    running machine's "on" is cool azure, not a lamp's warm glow. */
 .ag-sw[aria-disabled="true"] { cursor: not-allowed; opacity: 0.6; }
 [data-ha-state="on"] .ag-sw[aria-disabled="true"] {
-  background: linear-gradient(90deg, #27523a, #3a7550);
-  border-color: rgba(140, 220, 170, 0.5);
+  background: linear-gradient(90deg, #2a4a63, #3f6f93);
+  border-color: rgb(var(--fjord-rgb) / 0.5);
   box-shadow: none;
 }
 .ag-sw[aria-disabled="true"]::before {
@@ -556,7 +633,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   letter-spacing: -0.01em;
   color: var(--ag-text);
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 22px rgba(95, 207, 138, 0.28);
+  text-shadow: 0 0 22px rgb(var(--pine-rgb) / 0.28);
 }
 .pw-big-unit { font-size: 1.8rem; color: var(--ag-text-faint); margin-left: 6px; }
 .pw-trail { text-align: right; font-size: 1.2rem; color: var(--ag-text-dim); line-height: 1.6; }
@@ -582,12 +659,12 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .pw-chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .pw-chart .pw-area { fill: url(#pw-fill); }
 .pw-chart .pw-line { fill: none; stroke: url(#pw-stroke); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round;
-  vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 6px rgba(95, 207, 138, 0.35)); }
+  vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 6px rgb(var(--pine-rgb) / 0.35)); }
 .pw-chart .pw-grid { stroke: var(--ag-line-soft); stroke-dasharray: 2 5; vector-effect: non-scaling-stroke; }
 .pw-chart .pw-cross { stroke: rgba(236, 236, 236, 0.35); stroke-width: 1; vector-effect: non-scaling-stroke; visibility: hidden; }
 .pw-chart .pw-cross.on { visibility: visible; }
 .pw-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; pointer-events: none;
-  background: #d8ffe4; box-shadow: 0 0 0 3px var(--ag-surface), 0 0 12px rgba(95, 207, 138, 0.8); display: none; }
+  background: #eaf8ee; box-shadow: 0 0 0 3px var(--ag-surface), 0 0 12px rgb(var(--pine-rgb) / 0.8); display: none; }
 .pw-dot.on { display: block; }
 .pw-axis { display: flex; justify-content: space-between; font-size: 1.05rem; letter-spacing: 0.06em; color: var(--ag-text-faint); margin-top: 6px; }
 .pw-ymax { position: absolute; top: -2px; left: 0; font-size: 1rem; color: var(--ag-text-faint); pointer-events: none; }
@@ -704,7 +781,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .ag-row + .ag-row { border-top: 1px solid var(--ag-line-soft); }
 .ag-rows .ag-sec { margin: 10px 0 4px; }
 .ag-rows .ag-sec:first-child { margin-top: 0; }
-.ag-row-hi .ag-v { font-size: 2.6rem; font-weight: 600; color: var(--ag-text); text-shadow: 0 0 18px rgba(95, 207, 138, 0.25); }
+.ag-row-hi .ag-v { font-size: 2.6rem; font-weight: 600; color: var(--ag-text); text-shadow: 0 0 18px rgb(var(--pine-rgb) / 0.25); }
 
 /* Plug Health — one row per plug: online dot, name, signal bar, numbers. */
 .ag-health { display: flex; flex-direction: column; gap: 12px; }
@@ -717,7 +794,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 /* ── Status dots (plugs, tailnet devices) ────────────────────────────────── */
 .ag-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: rgba(172, 172, 172, 0.5); }
 .is-up > .ag-dot,
-.ag-dot.is-up { background: var(--ag-good); box-shadow: 0 0 9px rgba(63, 207, 130, 0.65); }
+.ag-dot.is-up { background: var(--ag-good); box-shadow: 0 0 9px rgb(var(--good-rgb) / 0.65); }
 .is-down > .ag-dot,
 .ag-dot.is-down { background: transparent; border: 1.5px solid var(--ag-bad); }
 
@@ -738,13 +815,13 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   background-size: contain;
   pointer-events: none;
 }
-/* Ring — the rune circle behind the tree: canopy green → dusk purple, gold runes */
+/* Ring — the rune circle behind the tree: pine → fjord frost, amber runes */
 .ygg-widget::before {
   top: 8px;
   transform: translateX(-50%);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Cdefs%3E%3CradialGradient id='bg' cx='50%25' cy='50%25' r='45%25'%3E%3Cstop offset='0%25' stop-color='rgba(95, 207, 138,0.12)'/%3E%3Cstop offset='100%25' stop-color='rgba(95, 207, 138,0)'/%3E%3C/radialGradient%3E%3ClinearGradient id='r' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%235fcf8a'/%3E%3Cstop offset='1' stop-color='%23b394f0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='200' cy='200' r='180' fill='url(%23bg)'/%3E%3Cg fill='none' stroke='url(%23r)' stroke-opacity='0.45' stroke-width='1.5'%3E%3Ccircle cx='200' cy='200' r='178'/%3E%3Ccircle cx='200' cy='200' r='170'/%3E%3C/g%3E%3Cg fill='%23e9c46a' fill-opacity='0.5' font-family='serif' font-size='14' font-weight='bold'%3E%3Ctext x='200' y='28' text-anchor='middle'%3E%E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%E1%9A%B3 %E1%9A%BE %E1%9A%A9%3C/text%3E%3Ctext transform='translate(375,100) rotate(72)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%3C/text%3E%3Ctext transform='translate(390,240) rotate(90)' text-anchor='middle'%3E%E1%9A%A2%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%3C/text%3E%3Ctext transform='translate(350,350) rotate(115)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B7%E1%9A%A8%E1%9A%B2%3C/text%3E%3Ctext x='200' y='390' text-anchor='middle'%3E%E1%9A%BE %E1%9A%A9 %E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%3C/text%3E%3Ctext transform='translate(50,350) rotate(-115)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3Ctext transform='translate(10,240) rotate(-90)' text-anchor='middle'%3E%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%E1%9A%A2%3C/text%3E%3Ctext transform='translate(25,100) rotate(-72)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Cdefs%3E%3CradialGradient id='bg' cx='50%25' cy='50%25' r='45%25'%3E%3Cstop offset='0%25' stop-color='rgba(131, 212, 148,0.12)'/%3E%3Cstop offset='100%25' stop-color='rgba(131, 212, 148,0)'/%3E%3C/radialGradient%3E%3ClinearGradient id='r' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2383d494'/%3E%3Cstop offset='1' stop-color='%2391c8f0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='200' cy='200' r='180' fill='url(%23bg)'/%3E%3Cg fill='none' stroke='url(%23r)' stroke-opacity='0.45' stroke-width='1.5'%3E%3Ccircle cx='200' cy='200' r='178'/%3E%3Ccircle cx='200' cy='200' r='170'/%3E%3C/g%3E%3Cg fill='%23e3bf76' fill-opacity='0.5' font-family='serif' font-size='14' font-weight='bold'%3E%3Ctext x='200' y='28' text-anchor='middle'%3E%E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%E1%9A%B3 %E1%9A%BE %E1%9A%A9%3C/text%3E%3Ctext transform='translate(375,100) rotate(72)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%3C/text%3E%3Ctext transform='translate(390,240) rotate(90)' text-anchor='middle'%3E%E1%9A%A2%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%3C/text%3E%3Ctext transform='translate(350,350) rotate(115)' text-anchor='middle'%3E%E1%9A%B1%E1%9A%A6%E1%9A%B7%E1%9A%A8%E1%9A%B2%3C/text%3E%3Ctext x='200' y='390' text-anchor='middle'%3E%E1%9A%BE %E1%9A%A9 %E1%9A%A0 %E1%9A%B1 %E1%9A%A6 %E1%9A%B2 %E1%9A%A8 %E1%9A%B7 %E1%9A%A2%3C/text%3E%3Ctext transform='translate(50,350) rotate(-115)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3Ctext transform='translate(10,240) rotate(-90)' text-anchor='middle'%3E%E1%9A%A6%E1%9A%B2%E1%9A%A8%E1%9A%B7%E1%9A%A2%3C/text%3E%3Ctext transform='translate(25,100) rotate(-72)' text-anchor='middle'%3E%E1%9A%B3%E1%9A%BE%E1%9A%A9%E1%9A%A0%E1%9A%B1%3C/text%3E%3C/g%3E%3C/svg%3E");
   opacity: 0.85;
-  filter: drop-shadow(0 0 14px rgba(95, 207, 138, 0.22));
+  filter: drop-shadow(0 0 14px rgb(var(--pine-rgb) / 0.22));
   transition: opacity 0.3s ease, filter 0.3s ease;
 }
 /* The tree — on top of the ring. Hung off the header, because .widget::after
@@ -755,7 +832,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   transform: translateX(-50%);
   background-image: url("yggdrasil.png");
   opacity: 0.9;
-  filter: drop-shadow(0 0 10px rgba(95, 207, 138, 0.28));
+  filter: drop-shadow(0 0 10px rgb(var(--pine-rgb) / 0.28));
   transition: opacity 0.3s ease, filter 0.3s ease;
   /* the pip rule for h2::before does not apply — this is the header's own */
 }
@@ -763,7 +840,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   .ygg-widget:hover::before,
   .ygg-widget:hover > .widget-header::before {
     opacity: 1;
-    filter: drop-shadow(0 0 20px rgba(95, 207, 138, 0.4));
+    filter: drop-shadow(0 0 20px rgb(var(--pine-rgb) / 0.4));
   }
 }
 
@@ -785,7 +862,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   border-radius: 10px;
   transition: background-color 0.2s ease;
 }
-@media (hover: hover) { .ag-ts-node:hover { background: rgba(95, 207, 138, 0.06); } }
+@media (hover: hover) { .ag-ts-node:hover { background: rgb(var(--pine-rgb) / 0.06); } }
 .ag-ts-node + .ag-ts-node { border-top: 1px solid var(--ag-line-soft); border-top-left-radius: 0; border-top-right-radius: 0; }
 .ag-ts-node > .ag-dot { grid-area: dot; }
 .ag-ts-name { grid-area: name; font-size: 1.45rem; font-weight: 600; color: var(--ag-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -802,13 +879,13 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 /* Service health. Bigger names, rounded hover rows, the status icons in the
    reserved status colours. */
 .widget-type-monitor .monitor-site { padding: 6px 8px; border-radius: var(--ag-r-small); transition: background-color 0.2s ease; }
-@media (hover: hover) { .widget-type-monitor .monitor-site:hover { background: rgba(95, 207, 138, 0.07); } }
+@media (hover: hover) { .widget-type-monitor .monitor-site:hover { background: rgb(var(--pine-rgb) / 0.07); } }
 .widget-type-monitor .monitor-site a.size-h3 { font-size: 1.5rem; font-weight: 600; color: var(--ag-text); }
 .widget-type-monitor .list-horizontal-text { font-size: 1.15rem; color: var(--ag-text-faint); }
 .widget-type-monitor .monitor-site-icon { width: 3rem; }
 .monitor-site-status-icon { color: var(--ag-good); }
 
-.widget-type-clock .clock-time { text-shadow: 0 0 14px rgba(95, 207, 138, 0.35); }
+.widget-type-clock .clock-time { text-shadow: 0 0 14px rgb(var(--pine-rgb) / 0.35); }
 
 /* Iframes: round them into the card. The terminal fills the window instead
    of a fixed 700 px box that left half a phone screen empty. */
@@ -861,15 +938,15 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   padding-bottom: 1px; border-bottom: 1px solid var(--ag-line-soft); }
 .ags-cores i { display: block; border-radius: 3px 3px 1px 1px; min-height: 2px;
   background: linear-gradient(to top, color-mix(in srgb, var(--s1) 45%, transparent), var(--s1)); transition: height 0.8s var(--ag-ease); }
-.ags-cores i.warn { background: linear-gradient(to top, rgba(245, 176, 65, 0.45), var(--ag-warn)); }
-.ags-cores i.bad { background: linear-gradient(to top, rgba(242, 102, 94, 0.45), var(--ag-bad)); }
+.ags-cores i.warn { background: linear-gradient(to top, rgb(var(--warn-rgb) / 0.45), var(--ag-warn)); }
+.ags-cores i.bad { background: linear-gradient(to top, rgb(var(--bad-rgb) / 0.45), var(--ag-bad)); }
 .ags-spark-wrap { position: relative; min-width: 0; }
 .ags-spark-max { position: absolute; top: -2px; left: 0; font-size: 1rem; letter-spacing: 0.06em; color: var(--ag-text-faint); pointer-events: none; }
 .ags-spark { width: 100%; height: 64px; display: block; overflow: visible; border-bottom: 1px solid var(--ag-line-soft); }
 .ags-spark-grid { stroke: var(--ag-line-soft); stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; }
 .ags-spark-fill { fill: url(#ags-spark-g); }
 .ags-spark-line { fill: none; stroke: var(--s1); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 5px rgba(53, 150, 88, 0.5)); }
+  filter: drop-shadow(0 0 5px rgb(48 140 81 / 0.5)); }
 .ags-spark-mem { fill: none; stroke: var(--s2); stroke-width: 1.6; stroke-opacity: 0.9; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .ags-cpu-cap { grid-column: 1 / -1; display: flex; justify-content: space-between;
   font-size: 1.05rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ag-text-faint); }
@@ -896,20 +973,65 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   background: linear-gradient(90deg, color-mix(in srgb, var(--c) 70%, transparent), var(--c));
   box-shadow: 0 0 14px -2px color-mix(in srgb, var(--c) 50%, transparent); transition: width 0.9s var(--ag-ease); }
 .ags-seg span, .ags-seg em { position: relative; z-index: 1; padding: 0 10px; line-height: 28px; font-style: normal;
-  font-size: 1.1rem; letter-spacing: 0.06em; color: #f6f6f6; text-shadow: 0 1px 3px rgba(7, 7, 7, 0.85);
+  font-size: 1.1rem; letter-spacing: 0.06em; color: var(--ag-text); text-shadow: 0 1px 3px rgb(6 9 7 / 0.85);
   white-space: nowrap; overflow: hidden; }
 .ags-seg em { color: var(--ag-text-dim); }
 .ags-seg-empty { flex: 1; display: grid; place-items: center; font-size: 1.2rem; color: var(--ag-bad);
-  border: 1px dashed rgba(242, 102, 94, 0.4); border-radius: 9px; }
+  border: 1px dashed rgb(var(--bad-rgb) / 0.4); border-radius: 9px; }
 
 .ags-disks { display: grid; gap: 10px; }
-.ags-disk { --c: var(--s1); display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
-  padding: 10px 12px; border-radius: var(--ag-r-small); background: rgba(48, 48, 48, 0.18); border: 1px solid var(--ag-line-soft); }
+/* A drive: <details>. The summary is the row; it opens into .ags-dd. */
+.ags-disk { --c: var(--s1); border-radius: var(--ag-r-small); background: rgb(214 232 222 / 0.025);
+  border: 1px solid var(--ag-line-soft); transition: border-color 0.25s ease, background 0.25s ease; }
 .ags-disk.d1 { --c: var(--s2); } .ags-disk.d2 { --c: var(--s3); }
-.ags-disk.bad { border-color: rgba(242, 102, 94, 0.45); background: rgba(120, 30, 30, 0.12); }
-.ags-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ag-good); box-shadow: 0 0 8px rgba(63, 207, 130, 0.5); }
-.ags-dot.warn { background: var(--ag-warn); box-shadow: 0 0 8px rgba(245, 176, 65, 0.5); }
-.ags-dot.bad { background: var(--ag-bad); box-shadow: 0 0 8px rgba(242, 102, 94, 0.5); }
+.ags-disk.bad { border-color: rgb(var(--bad-rgb) / 0.45); background: rgb(var(--bad-rgb) / 0.06); }
+.ags-disk[open] { border-color: color-mix(in srgb, var(--c) 40%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 7%, transparent), rgb(214 232 222 / 0.02) 40%); }
+@media (hover: hover) { .ags-disk:hover { border-color: color-mix(in srgb, var(--c) 32%, transparent); } }
+.ags-disk-sum { display: grid; grid-template-columns: auto 1fr auto auto; gap: 12px; align-items: center;
+  padding: 10px 12px; cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent; }
+.ags-disk-sum::-webkit-details-marker { display: none; }
+.ags-disk-sum::marker { content: ""; }
+.ags-disk-sum:focus-visible { outline: 2px solid var(--c-pine); outline-offset: 2px; border-radius: var(--ag-r-small); }
+.ags-chev { width: 7px; height: 7px; margin: 0 2px 0 4px; border-right: 2px solid var(--ag-text-faint); border-bottom: 2px solid var(--ag-text-faint);
+  transform: rotate(-45deg); transition: transform 0.25s var(--ag-ease), border-color 0.25s ease; }
+.ags-disk[open] .ags-chev { transform: rotate(45deg); border-color: color-mix(in srgb, var(--c) 70%, var(--c-birch)); }
+
+/* The opened drive: a verdict, then spec sheets (label over value). */
+.ags-dd { display: grid; gap: 10px; padding: 2px 14px 14px 33px; border-top: 1px solid var(--ag-line-soft); padding-top: 12px; }
+.ags-dd .ag-sec { font-size: 1.05rem; }
+.ags-dd-verdict { font-size: 1.2rem; color: var(--ag-text-dim); padding: 8px 11px; border-radius: 10px;
+  border: 1px solid var(--ag-line-soft); background: var(--ag-tile); }
+.ags-dd-verdict b { color: var(--ag-text); font-weight: 600; }
+.ags-dd-verdict.ok { border-color: rgb(var(--good-rgb) / 0.28); background: rgb(var(--good-rgb) / 0.06); }
+.ags-dd-verdict.ok b { color: var(--ag-good); }
+.ags-dd-verdict.bad { border-color: rgb(var(--bad-rgb) / 0.4); background: rgb(var(--bad-rgb) / 0.08); }
+.ags-dd-verdict.bad b { color: var(--ag-bad); }
+.ags-spec { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 9px 18px; }
+.ags-spec > div { min-width: 0; }
+.ags-spec dt { font-size: 1.02rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ag-text-faint); }
+.ags-spec dd { margin: 2px 0 0; font-size: 1.3rem; color: var(--ag-text); font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere; line-height: 1.35; }
+.ags-spec dd small { display: block; font-size: 1.1rem; color: var(--ag-text-faint); }
+.ags-spec dd b { font-weight: 600; }
+.ags-spec dd b.ok { color: var(--ag-good); }
+.ags-spec dd em { font-style: normal; font-size: 1.02rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-left: 4px; }
+.ags-spec .warn dd, .ags-spec .warn dd em { color: var(--ag-warn); }
+.ags-spec .bad dd, .ags-spec .bad dd em, .ags-spec dd .bad { color: var(--ag-bad); }
+.ags-spec code, .ags-dd-foot code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 0.95em; letter-spacing: 0.02em; color: var(--ag-text-dim); }
+/* The long ones get a row each: label left, value right, wrapping. */
+.ags-spec.wide { grid-template-columns: 1fr; gap: 0; border-top: 1px solid var(--ag-line-soft); }
+.ags-spec.wide > div { display: grid; grid-template-columns: minmax(110px, 0.32fr) 1fr; gap: 12px; align-items: baseline;
+  padding: 7px 0; border-bottom: 1px solid var(--ag-line-soft); }
+.ags-spec.wide dd { margin: 0; white-space: normal; font-size: 1.25rem; }
+.ags-spec.wide dd u { text-decoration: none; color: var(--ag-text-faint); font-size: 0.9em; }
+.ags-spec .busy dd::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 8px; border-radius: 50%;
+  background: var(--c); vertical-align: 1px; animation: ags-ping 2s ease-out infinite; }
+.ags-io { font-weight: 600; }
+.ags-dd-foot { font-size: 1.05rem; color: var(--ag-text-faint); letter-spacing: 0.04em; }
+.ags-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ag-good); box-shadow: 0 0 8px rgb(var(--good-rgb) / 0.5); }
+.ags-dot.warn { background: var(--ag-warn); box-shadow: 0 0 8px rgb(var(--warn-rgb) / 0.5); }
+.ags-dot.bad { background: var(--ag-bad); box-shadow: 0 0 8px rgb(var(--bad-rgb) / 0.5); }
 .ags-dot.asleep { background: transparent; border: 1.5px solid var(--ag-good); box-shadow: none; }
 .ags-disk-main { min-width: 0; display: grid; gap: 5px; }
 .ags-disk-name { font-size: 1.35rem; color: var(--ag-text); display: flex; gap: 8px; align-items: baseline; }
@@ -960,6 +1082,9 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
      their disk name — "1.70 TB free" is in the disk rows just below. */
   .ags-disk-name { flex-wrap: wrap; row-gap: 0; }
   .ags-disk-name span { flex-basis: 100%; }
+  .ags-dd { padding-left: 14px; }
+  .ags-spec { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ags-spec.wide > div { grid-template-columns: 1fr; gap: 2px; }
   .ags-seg em { display: none; }
 }
 @media (max-width: 550px) {
@@ -976,15 +1101,15 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 
 /* ── Motion ───────────────────────────────────────────────────────────────── */
 @keyframes ag-ring {
-  0%   { box-shadow: 0 0 0 0 rgba(166, 240, 194, 0.6); }
-  100% { box-shadow: 0 0 0 9px rgba(166, 240, 194, 0); }
+  0%   { box-shadow: 0 0 0 0 rgb(var(--pine-rgb) / 0.6); }
+  100% { box-shadow: 0 0 0 9px rgb(var(--pine-rgb) / 0); }
 }
 @keyframes ag-blink { 50% { opacity: 0.35; } }
 @keyframes ag-shake {
   25% { transform: translateX(-4px); }
   75% { transform: translateX(4px); }
 }
-@keyframes ag-tick { from { color: #e6ffe9; text-shadow: 0 0 10px rgba(166, 240, 194, 0.6); } }
+@keyframes ag-tick { from { color: #e6ffe9; text-shadow: 0 0 10px rgb(var(--pine-rgb) / 0.6); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -993,5 +1118,22 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   }
 }
 
-/* Now Playing / On the TV wear purple here (cards.css defaults them to rose). */
-.widget .ags-play .ags-bar { --c: var(--c-purple); }
+/* Section headings: a small spruce in the card's accent, where cards.css
+   (shared with MarsBar) draws a diamond. */
+.widget .ag-sec::before {
+  content: "";
+  flex: none;
+  width: 0.85em; height: 1.05em;
+  background: linear-gradient(to bottom, var(--acc), color-mix(in srgb, var(--acc) 50%, var(--s1)));
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 16'%3E%3Cpath d='M6 0l3.6 4.6H7.9l3 4H8.7L12 13.2H7.1V16H4.9v-2.8H0l3.3-4.6H1.1l3-4H2.4z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 16'%3E%3Cpath d='M6 0l3.6 4.6H7.9l3 4H8.7L12 13.2H7.1V16H4.9v-2.8H0l3.3-4.6H1.1l3-4H2.4z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* Now Playing / On the TV: lingonberry (cards.css's --c-rose maps to it). */
+.widget .ags-play .ags-bar { --c: var(--c-lingon); }
+
+/* The bough shrinks on a phone, where the header row is tighter. */
+@media (max-width: 550px) {
+  .widget:not(.ygg-widget)::before { width: 150px; height: 98px; opacity: 0.17; }
+  .header::after { bottom: -6px; height: 8px; }
+}

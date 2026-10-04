@@ -42,6 +42,12 @@
       "yggdrasil.png" = ../../Resources/Glance/yggdrasil-banner.png;
       # the world tree behind the page, and the runes heading each card
       "ygg-bg.svg" = ../../Resources/Glance/ygg-bg.svg;
+      # the forest ornaments (asgard.css): a spruce bough in each card's
+      # corner, misty spruce ridges along the foot of the page, and a braided
+      # knot band under the navigation
+      "bough.svg" = ../../Resources/Glance/bough.svg;
+      "treeline.svg" = ../../Resources/Glance/treeline.svg;
+      "braid.svg" = ../../Resources/Glance/braid.svg;
       "asgard.css" = ../../Resources/Glance/asgard.css;
       "cards.css" = ../../Resources/Glance/cards.css;
       "dash.js" = ../../Resources/Glance/dash.js;
@@ -664,17 +670,18 @@
         <script src="${asset "eclipse.js"}" data-api-port="${toString eclipsePort}" defer></script>
       '';
 
-      # Neutral grey with a forest-green primary — the Yggdrasil theme. Glance
-      # only draws a little itself (links, the monitor icons); asgard.css
-      # carries the real system — the world tree behind the page, a rune and an
-      # accent per card, a validated data palette (forest · purple · orange …),
-      # warm lamp light — see the top of that file. MarsBar stays purple with
-      # her vine, so the two are never confused.
+      # Myrkviðr, the Mirkwood theme: fog-grey with a spruce cast, pine as the
+      # primary. Glance only draws a little itself (links, the monitor icons);
+      # asgard.css carries the real system — the colour families (pine, fjord,
+      # amber, lingonberry, lichen, birch) and their validated data palette,
+      # the world tree, the spruce boughs, the treeline, the braid, a rune and
+      # an accent per card — see the top of that file. MarsBar stays purple
+      # with her vine, so the two are never confused.
       theme = {
-        background-color = "hsl(220, 5%, 11%)";
-        primary-color = "hsl(142, 52%, 59%)";
-        positive-color = "hsl(148, 59%, 53%)";
-        negative-color = "hsl(3, 85%, 66%)";
+        background-color = "hsl(150, 7%, 10%)";
+        primary-color = "hsl(133, 49%, 67%)";
+        positive-color = "hsl(152, 66%, 59%)";
+        negative-color = "hsl(5, 82%, 65%)";
         custom-css-file = "/assets/asgard.css";
       };
 
@@ -691,15 +698,15 @@
               widgets = [
                 # Was Glance's server-stats (three small bars, refreshed on load).
                 # Now a live stream from asgard-stats — see Modules/Server/stats.nix.
-                (liveCard { id = "ags-host"; title = "Asgard"; acc = "green"; rune = "ansuz"; badge = "ags-live"; })
-                (liveCard { id = "ags-storage"; title = "Storage"; acc = "moss"; rune = "othala"; })
-                (liveCard { id = "nw"; title = "Network"; acc = "purple"; rune = "raidho"; badge = "nw-live"; })
+                (liveCard { id = "ags-host"; title = "Asgard"; acc = "pine"; rune = "ansuz"; badge = "ags-live"; })
+                (liveCard { id = "ags-storage"; title = "Storage"; acc = "lichen"; rune = "othala"; })
+                (liveCard { id = "nw"; title = "Network"; acc = "fjord"; rune = "raidho"; badge = "nw-live"; })
                 # One group rather than five stacked monitors. "All" is the
                 # default tab because "is everything up" is the question this
                 # page exists to answer; the category tabs isolate a red one.
                 {
                   type = "group";
-                  css-class = "acc-green rune-algiz";
+                  css-class = "acc-pine rune-algiz";
                   widgets = [ (monitor "All" services) ]
                     ++ map (t: monitor t (builtins.filter (s: s.tab == t) services)) tabs;
                 }
@@ -708,13 +715,13 @@
             {
               size = "small";
               widgets = [
-                { type = "clock"; hour-format = "12h"; css-class = "acc-green rune-jera"; }
-                (liveCard { id = "ags-playing"; title = "Now Playing"; acc = "purple"; rune = "laguz"; })
+                { type = "clock"; hour-format = "12h"; css-class = "acc-birch rune-jera"; }
+                (liveCard { id = "ags-playing"; title = "Now Playing"; acc = "lingon"; rune = "laguz"; })
                 (liveCard {
-                  id = "ags-dl"; title = "Downloads"; acc = "orange"; rune = "fehu";
+                  id = "ags-dl"; title = "Downloads"; acc = "amber"; rune = "fehu";
                   link = { href = at sabPort; text = "SABnzbd"; };
                 })
-                (tailnet // { css-class = "ygg-widget acc-green rune-eihwaz"; })
+                (tailnet // { css-class = "ygg-widget acc-pine rune-eihwaz"; })
               ];
             }
           ];
@@ -736,15 +743,15 @@
             {
               size = "full";
               widgets = [
-                (liveCard { id = "ec-main"; title = "Eclipse"; acc = "purple"; rune = "dagaz"; badge = "ec-live"; })
-                (liveCard { id = "ec-wolf"; title = "Streams · Wolf on Sisyphus"; acc = "orange"; rune = "ehwaz"; })
+                (liveCard { id = "ec-main"; title = "Eclipse"; acc = "fjord"; rune = "dagaz"; badge = "ec-live"; })
+                (liveCard { id = "ec-wolf"; title = "Streams · Wolf on Sisyphus"; acc = "amber"; rune = "ehwaz"; })
               ];
             }
             {
               size = "small";
               widgets = [
-                (liveCard { id = "ec-tv"; title = "On the TV"; acc = "purple"; rune = "perthro"; })
-                (liveCard { id = "ec-log"; title = "Activity"; acc = "green"; rune = "mannaz"; })
+                (liveCard { id = "ec-tv"; title = "On the TV"; acc = "lingon"; rune = "perthro"; })
+                (liveCard { id = "ec-log"; title = "Activity"; acc = "lichen"; rune = "mannaz"; })
               ];
             }
           ];
@@ -771,7 +778,7 @@
                 {
                   type = "custom-api";
                   title = "Lights";
-                  css-class = "acc-green rune-kenaz";
+                  css-class = "acc-pine rune-kenaz";
                   # The bridge, not HA: it answers from memory, so a 1s cache
                   # costs nothing and keeps each tile's first paint honest — and
                   # the widget fails visibly when ha-bridge is down.
@@ -779,11 +786,11 @@
                   url = "http://localhost:${toString bridgePort}/states";
                   template = lightsCard;
                 }
-                (powerOverview // { css-class = "acc-green rune-sowilo"; })
-                (powerDevices // { css-class = "acc-moss rune-tiwaz"; })
+                (powerOverview // { css-class = "acc-pine rune-sowilo"; })
+                (powerDevices // { css-class = "acc-lichen rune-tiwaz"; })
               ];
             }
-            { size = "small"; widgets = [ (costOutlook // { css-class = "acc-green rune-gebo"; }) (plugHealth // { css-class = "acc-moss rune-uruz"; }) ]; }
+            { size = "small"; widgets = [ (costOutlook // { css-class = "acc-amber rune-gebo"; }) (plugHealth // { css-class = "acc-lichen rune-uruz"; }) ]; }
           ];
         }
 
@@ -793,7 +800,7 @@
         # Sized to the window by asgard.css (.term-widget), not the 700 px box.
         {
           name = "Terminal";
-          columns = [ { size = "full"; widgets = [ ((iframe "Asgard Terminal" 7681 700) // { css-class = "term-widget acc-green rune-isa"; }) ]; } ];
+          columns = [ { size = "full"; widgets = [ ((iframe "Asgard Terminal" 7681 700) // { css-class = "term-widget acc-fjord rune-isa"; }) ]; } ];
         }
       ];
     };

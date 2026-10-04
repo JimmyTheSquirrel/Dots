@@ -64,8 +64,8 @@
       '<div class="ags-spark-wrap"><span class="ags-spark-max">' + max + '%</span>' +
       '<svg class="ags-spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
         '<defs><linearGradient id="ags-spark-g" x1="0" y1="0" x2="0" y2="1">' +
-          '<stop offset="0" stop-color="#359658" stop-opacity=".34"></stop>' +
-          '<stop offset="1" stop-color="#359658" stop-opacity="0"></stop></linearGradient></defs>' +
+          '<stop offset="0" style="stop-color:var(--s1);stop-opacity:.34"></stop>' +
+          '<stop offset="1" style="stop-color:var(--s1);stop-opacity:0"></stop></linearGradient></defs>' +
         '<line class="ags-spark-grid" x1="0" x2="' + W + '" y1="' + H / 2 + '" y2="' + H / 2 + '"></line>' +
         (cpu.line ? '<path class="ags-spark-fill" d="' + cpu.area + '"></path><path class="ags-spark-line" d="' + cpu.line + '"></path>' : '') +
         (mem.line ? '<path class="ags-spark-mem" d="' + mem.line + '"></path>' : '') +
@@ -106,6 +106,108 @@
   }
 
   // ── Storage ────────────────────────────────────────────────────────────────
+  // Each drive row is a <details>: the summary is the row (name, bar, free,
+  // temperature), and it opens into everything asgard-smart read about the
+  // drive — identity, health, wear, the last self-test, its filesystem and
+  // what it is reading and writing right now. Which rows are open is kept
+  // here (the 2 s repaint would otherwise close them: the morph mirrors the
+  // rendered attributes, and the rendered html is what says `open`).
+  var openDisks = {};
+  document.addEventListener("toggle", function (e) {
+    var d = e.target;
+    if (d && d.matches && d.matches("details[data-disk]")) openDisks[d.getAttribute("data-disk")] = d.open;
+  }, true);
+
+  function num(n) { return n == null ? "–" : Number(n).toLocaleString(); }
+  function onFor(h) {
+    if (h == null) return "–";
+    return (h >= 8760 ? (h / 8760).toFixed(1) + " years" : Math.round(h / 24) + " days") + " · " + num(h) + " h";
+  }
+  function spec(k, v, cls, word) {
+    return '<div class="' + (cls || "") + '"><dt>' + k + '</dt><dd>' + v +
+      (word ? ' <em>' + word + '</em>' : '') + '</dd></div>';
+  }
+  // Counters that should be zero on a healthy drive: anything else is called
+  // out with a word, never colour alone.
+  function counter(k, v, bad, word) {
+    if (v == null) return "";
+    return spec(k, num(v), v > 0 ? bad : "", v > 0 ? word : "");
+  }
+
+  function diskDetails(d) {
+    var nv = d.nvme, st = d.selftest, io = d.io || {};
+    var issues = [];
+    if (d.healthy === false) issues.push("SMART reports FAILING");
+    if (d.pending > 0) issues.push(num(d.pending) + " pending sectors");
+    if (d.uncorrectable > 0) issues.push(num(d.uncorrectable) + " uncorrectable");
+    if (d.realloc > 0) issues.push(num(d.realloc) + " reallocated");
+    if (nv && nv.media_errors > 0) issues.push(num(nv.media_errors) + " media errors");
+    if (nv && nv.warning) issues.push("critical warning flag set");
+    var verdict = issues.length ? '<div class="ags-dd-verdict bad"><b>Needs attention</b> — ' + esc(issues.join(" · ")) + '</div>'
+      : d.healthy ? '<div class="ags-dd-verdict ok"><b>Healthy</b> — SMART passed' +
+          (nv ? ", no media errors" : ", no reallocated, pending or uncorrectable sectors") + '</div>'
+      : '<div class="ags-dd-verdict"><b>Not read yet</b> — asgard-smart reads every 5 minutes</div>';
+
+    var kind = d.ssd ? (d.link === "NVMe" ? "NVMe SSD" : "SSD")
+      : (d.rpm ? num(d.rpm) + " rpm HDD" : "HDD") + (d.form ? " · " + esc(d.form) : "");
+    var ident = [
+      spec("Model", esc(d.model || "–") + (d.family && d.family !== d.model ? '<small>' + esc(d.family) + '</small>' : "")),
+      spec("Serial", '<code>' + esc(d.serial || "–") + '</code>'),
+      spec("Firmware", esc(d.fw || "–")),
+      spec("Capacity", d.capacity ? D.tb(d.capacity) : "–"),
+      spec("Type", kind),
+      spec("Link", esc(d.link || "–")),
+    ];
+    var health = [
+      spec("Temperature", d.temp != null ? Math.round(d.temp) + " °C" : d.state === "standby" ? "asleep" : "–",
+        d.temp >= 55 ? "warn" : "", d.temp >= 55 ? "hot" : ""),
+      spec("Powered on", onFor(d.hours)),
+      spec("Power cycles", num(d.cycles)),
+    ];
+    if (nv) {
+      health.push(
+        spec("Life used", nv.used != null ? nv.used + " %" : "–", nv.used >= 80 ? "warn" : "", nv.used >= 80 ? "wearing" : ""),
+        spec("Spare left", nv.spare != null ? nv.spare + " %" : "–", nv.spare != null && nv.spare < 10 ? "bad" : "", nv.spare != null && nv.spare < 10 ? "low" : ""),
+        spec("Written", nv.written ? D.tb(nv.written) : "–"),
+        spec("Read", nv.read ? D.tb(nv.read) : "–"),
+        counter("Media errors", nv.media_errors, "bad", "errors"),
+        spec("Unsafe shutdowns", num(nv.unsafe)));
+    } else {
+      health.push(
+        counter("Reallocated", d.realloc, "warn", "remapped"),
+        counter("Pending", d.pending, "bad", "unreadable"),
+        counter("Uncorrectable", d.uncorrectable, "bad", "lost"),
+        counter("CRC errors", d.crc, "warn", "check cable"),
+        spec("Head loads", num(d.loads)));
+    }
+
+    var test = st ? esc(st.type || "Self-test") + " · " +
+        '<b class="' + (st.passed === false ? "bad" : "ok") + '">' + esc(st.status || "?") + '</b>' +
+        (st.hours != null && d.hours != null ? ' · ' + (d.hours - st.hours < 48 ? (d.hours - st.hours) + " h" : Math.round((d.hours - st.hours) / 24) + " days") + " ago" : "")
+      : "none recorded";
+
+    var fsLine = d.mounted
+      ? esc(d.mount) + (d.fstype ? " · " + esc(d.fstype) : "") + " · " + D.tb(d.used) + " of " + D.tb(d.size) +
+        " (" + Math.round(100 * d.used / d.size) + "%)" + (d.inodes_pct != null ? " · inodes " + d.inodes_pct + "%" : "")
+      : esc(d.mount) + " · not mounted";
+
+    var busy = (io.r || 0) + (io.w || 0) >= 0.5;
+    var act = d.state === "standby" ? "asleep — spun down"
+      : io.r != null ? '<b class="ags-io r">↓ ' + io.r.toFixed(1) + '</b> read · <b class="ags-io w">↑ ' + io.w.toFixed(1) + '</b> write <u>MB/s</u>'
+      : "–";
+
+    return verdict +
+      '<div class="ag-sec">Drive</div><dl class="ags-spec">' + ident.join("") + '</dl>' +
+      '<div class="ag-sec">Health</div><dl class="ags-spec">' + health.join("") + '</dl>' +
+      '<dl class="ags-spec wide">' +
+        spec("Last self-test", test) +
+        spec("Filesystem", fsLine) +
+        spec("Right now", act, busy ? "busy" : "") +
+      '</dl>' +
+      '<div class="ags-dd-foot">' + (d.at ? (d.state === "standby" ? "Asleep — these are from when it was last awake, " : "Read ") + D.ago(d.at) : "") +
+        (d.kname ? ' · <code>/dev/' + esc(d.kname) + '</code>' : '') + '</div>';
+  }
+
   function renderStorage(s) {
     var el = $("ags-storage"); if (!el) return;
     var disks = s.disks || [], pool = s.pool || {};
@@ -123,7 +225,7 @@
     var failing = disks.filter(function (d) { return d.healthy === false; });
     var smart = !s.smart_at ? "SMART not read yet"
       : failing.length ? "SMART: " + failing.map(function (d) { return d.label; }).join(", ") + " FAILING"
-      : "SMART passed on " + known.length + " of " + disks.length + " · checked " + D.ago(s.smart_at);
+      : "SMART passed on " + known.length + " of " + disks.length + " · checked " + D.ago(s.smart_at) + " · tap a drive for its details";
 
     D.paint(el,
       '<div class="ags-pool">' +
@@ -135,27 +237,33 @@
         '<div class="ags-segs">' + (segs || '<div class="ags-seg-empty">no data disks mounted</div>') + '</div>' +
       '</div>' +
       '<div class="ags-disks">' + disks.map(function (d, i) {
+        var open = openDisks[d.id] ? " open" : "";
+        var head;
         if (!d.mounted) {
-          return '<div class="ags-disk bad"><span class="ags-dot bad"></span><div class="ags-disk-main">' +
+          head = '<span class="ags-dot bad"></span><div class="ags-disk-main">' +
                  '<div class="ags-disk-name">' + esc(d.label) + '</div>' +
-                 '<div class="ags-sub">' + esc(d.mount) + ' · NOT MOUNTED — services needing it are stopped</div></div></div>';
+                 '<div class="ags-sub">' + esc(d.mount) + ' · NOT MOUNTED — services needing it are stopped</div></div><span></span>';
+        } else {
+          var pct = 100 * d.used / d.size;
+          var health = d.healthy === false ? "bad" : (d.temp != null && d.temp >= 55 ? "warn" : "ok");
+          var state = d.state === "standby" ? "asleep" : d.ssd ? "solid state" : d.state === "active" ? "spinning" : "";
+          var on = d.hours ? " · " + (d.hours >= 8760 ? (d.hours / 8760).toFixed(1) + " yrs" : Math.round(d.hours / 24) + " days") + " on" : "";
+          head =
+            '<span class="ags-dot ' + health + (d.state === "standby" ? " asleep" : "") + '" title="' +
+              (d.healthy === false ? "SMART: FAILING" : d.healthy ? "SMART: passed" : "SMART: unknown") + '"></span>' +
+            '<div class="ags-disk-main">' +
+              '<div class="ags-disk-name">' + esc(d.label) + '<span>' + esc(d.mount) + '</span></div>' +
+              '<div class="ags-bar ' + (pct >= 85 ? level(pct, 85, 95) : "") + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+              '<div class="ags-sub">' + D.tb(d.used) + ' of ' + D.tb(d.size) + ' · <b>' + D.tb(d.free) + ' free</b>' + on + '</div>' +
+            '</div>' +
+            '<div class="ags-disk-side">' +
+              '<b>' + (d.temp != null ? Math.round(d.temp) + "°" : d.state === "standby" ? "zz" : "–") + '</b>' +
+              '<span>' + state + '</span>' +
+            '</div>';
         }
-        var pct = 100 * d.used / d.size;
-        var health = d.healthy === false ? "bad" : (d.temp != null && d.temp >= 55 ? "warn" : "ok");
-        var state = d.state === "standby" ? "asleep" : d.ssd ? "solid state" : d.state === "active" ? "spinning" : "";
-        var on = d.hours ? " · " + (d.hours >= 8760 ? (d.hours / 8760).toFixed(1) + " yrs" : Math.round(d.hours / 24) + " days") + " on" : "";
-        return '<div class="ags-disk d' + (i % 3) + '">' +
-          '<span class="ags-dot ' + health + (d.state === "standby" ? " asleep" : "") + '" title="' +
-            (d.healthy === false ? "SMART: FAILING" : d.healthy ? "SMART: passed" : "SMART: unknown") + '"></span>' +
-          '<div class="ags-disk-main">' +
-            '<div class="ags-disk-name">' + esc(d.label) + '<span>' + esc(d.mount) + '</span></div>' +
-            '<div class="ags-bar ' + (pct >= 85 ? level(pct, 85, 95) : "") + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
-            '<div class="ags-sub">' + D.tb(d.used) + ' of ' + D.tb(d.size) + ' · <b>' + D.tb(d.free) + ' free</b>' + on + '</div>' +
-          '</div>' +
-          '<div class="ags-disk-side">' +
-            '<b>' + (d.temp != null ? Math.round(d.temp) + "°" : d.state === "standby" ? "zz" : "–") + '</b>' +
-            '<span>' + state + '</span>' +
-          '</div></div>';
+        return '<details class="ags-disk d' + (i % 3) + (d.mounted ? "" : " bad") + '" data-disk="' + esc(d.id) + '"' + open + '>' +
+          '<summary class="ags-disk-sum">' + head + '<i class="ags-chev" aria-hidden="true"></i></summary>' +
+          '<div class="ags-dd">' + diskDetails(d) + '</div></details>';
       }).join("") + '</div>' +
       '<div class="ags-foot ' + (failing.length ? "bad" : "") + '">' + esc(smart) + '</div>');
   }

@@ -92,7 +92,7 @@ temperatures could not be read at all.
 - **Tailscale** — stock Tailscale (free plan), tailnet `tailb54b82.ts.net`. Asgard (100.126.205.100), Sisyphus (100.70.29.3), rhys-s25 (100.68.29.23)
 - **Networking** — stock Tailscale, `tailscale0` trusted in firewall, all services reachable via `asgard:port` from tailnet devices
 - **Mullvad VPN** — SABnzbd confined to WireGuard network namespace (`/var/run/netns/vpn`), Mullvad Sydney exit, socat proxy host:8080 → namespace
-- **asgard-stats** — `Resources/Asgard-Stats/asgard-stats.py` (port 9552, Tailscale only), unit in `Modules/Server/stats.nix`. Pushes host stats over SSE every 2 s for the dashboard's Asgard, Storage and Now Playing cards. Its root companion `asgard-smart.timer` (every 5 min) runs `smartctl -n standby,3` per disk into `/var/lib/asgard-smart/smart.json` — **never wakes a sleeping drive**
+- **asgard-stats** — `Resources/Asgard-Stats/asgard-stats.py` (port 9552, Tailscale only), unit in `Modules/Server/stats.nix`. Pushes host stats over SSE every 2 s for the dashboard's Asgard, Storage and Now Playing cards. Its root companion `asgard-smart.timer` (every 5 min) runs `smartctl -n standby,3 -i -H -A -l selftest` per disk into `/var/lib/asgard-smart/smart.json` (temp, health, identity, wear counters, last self-test, kernel name) — **never wakes a sleeping drive**; an asleep one keeps its last-known details
 - **tailscale-status-proxy** — `Resources/Glance/tailscale-status.py` (port 9553, loopback) reads tailscaled's LocalAPI over its Unix socket and serves the Yggdrasil widget a sorted device list (MagicDNS names, online/offline, last seen, direct/relay)
 - **No metrics/log stack** — Prometheus, the exporters (node, Exportarr ×4, SABnzbd), cAdvisor, Loki, Alloy and Grafana were all **removed 2026-10-03** — unused. asgard-stats covers host CPU/RAM/temps/disks, its Downloads widgets ask SABnzbd's API directly, and logs are `journalctl -u <unit>`. Kavita, Komga and the tailnet NFS export of `/data/media` (the Eclipse "Native mode" trial) went in the same pass
 
@@ -115,10 +115,10 @@ temperatures could not be read at all.
 | **Suwayomi**       | 4567 | Tailscale only | Manga server (native NixOS service). **Package pinned to 2.3.x on purpose — nixpkgs' 2.1 finds ZERO sources.** See *Manga* below |
 | ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
-| asgard-stats       | 9552 | Tailscale only | `GET /stream` (SSE: 3 min of CPU/memory history on connect, then a snapshot every 2 s), `GET /snapshot`. Read-only: no verbs. CPU per thread, temps, fans, memory, every disk + the pool (`ismount`-checked), SMART from `asgard-smart`; Jellyfin now-playing and SABnzbd queue/history only while a dashboard is connected. CORS only for `_origins.nix` |
+| asgard-stats       | 9552 | Tailscale only | `GET /stream` (SSE: 3 min of CPU/memory history on connect, then a snapshot every 2 s), `GET /snapshot`. Read-only: no verbs. CPU per thread, temps, fans, memory, every disk + the pool (`ismount`-checked, fs type, inodes), per-drive read/write rate (`/proc/diskstats`), SMART + drive identity/wear/self-test from `asgard-smart`; Jellyfin now-playing and SABnzbd queue/history only while a dashboard is connected. CORS only for `_origins.nix` |
 | tailscale-status-proxy | 9553 | **loopback only** | `GET /status` — the tailnet device list behind Glance's Yggdrasil widget (read server-side by Glance; no CORS) |
 | **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Pages Asgard / Eclipse / Power / Terminal — see *Dashboard — Glance* |
-| network-panel      | 9555 | Tailscale only | `GET /events` (SSE: LAN + tailnet throughput every second, latency, speed tests), `GET /api` (snapshot), `POST /run` (needs `X-Dash: 1`). Backs the Network card on both dashboards; CORS only for `_origins.nix` |
+| network-panel      | 9555 | Tailscale only | `GET /events` (SSE: LAN + tailnet throughput every second, latency, speed tests + history summary), `GET /api` (snapshot), `GET /history[?day=]`, `GET /history.csv`, `POST /run` and `POST /history/clear` (need `X-Dash: 1`). Backs the Network card on both dashboards; CORS only for `_origins.nix` |
 | eclipse-control    | 9554 | Tailscale only | Eclipse TV box API — `GET /events` (SSE: status, TV now-playing, Wolf streams, shared activity, busy), `GET /status`, `/act/<name>` verbs (incl. `reboot`) and `/wolf/stop/<id>` (POSTs need `X-Dash: 1`). Both dashboards draw the same panel from it. **Deliberately off the LAN**; that is why the LAN speed test needed 9557 |
 | eclipse speedtest sink | 9557 | **LAN + Tailscale** | Zero-filled payload only, no control surface. Opened via `networking.firewall.interfaces."enp3s0"` so the Pi can measure LAN throughput. Safe to expose *because* it has no verbs |
 | **glance-marsbar** | 8890 | **loopback only** | Partner dashboard. Reachable solely via the `marsbar` tailnet node's serve proxy — see `Claude/marsbar.md` |
@@ -665,40 +665,63 @@ POST carries `X-Dash: 1`; the backends refuse a POST without it and answer CORS 
 **Caches** (server-side, first frame only): Lights 1s and Devices 1s (they render switch
 positions) · Power 30s · Cost Outlook 5m · Plug Health 1m · Yggdrasil 1m · monitors 1m.
 
-#### The look — Yggdrasil (asgard.css)
+#### The look — Myrkviðr, the Mirkwood theme (asgard.css)
 
-Themed on the world tree its tailnet card already carried, the way MarsBar has her vine:
-a **plain neutral-grey** page with a faint line drawing of the tree behind everything
-(`Resources/Glance/ygg-bg.svg` — generated and seeded: canopy in green with purple blossom,
-roots in ember orange, a ring), the tree as the **logo, tab icon and phone home-screen icon**
-(`branding.logo-url` / `favicon-url` / `app-icon-url`), and each card headed by an **Elder
-Futhark rune** chosen for what it holds — ᚲ kenaz (torch) Lights, ᚨ ansuz (the gods) Asgard,
-ᛟ othala (estate) Storage, ᚱ raidho (journey) Network, ᛉ algiz (guardian) Services, ᛃ jera
-(the year) Clock, ᛚ laguz (flow) Now Playing, ᚠ fehu (wealth) Downloads, ᛇ eihwaz (the yew)
-Yggdrasil, ᛞ dagaz (day/night) Eclipse, ᛖ ehwaz (the horse) Streams, ᛈ perthro On the TV,
-ᛗ mannaz Activity, ᛊ sowilo (sun) Power, ᛏ tiwaz Devices, ᚷ gebo Cost, ᚢ uruz Plug health,
-ᛁ isa Terminal. The runes are SVG strokes (`Resources/Glance/runes/`) used as a CSS mask, so
-no device needs a Runic font; `rune-*` + `acc-*` classes (`css-class`, or `rune`/`acc` on a
+A northern conifer forest at dusk, framed by Yggdrasil. The ground is **fog grey with a
+faint spruce cast** (`#191d1b` page, `#1f2421` cards), with these layers:
+- the world tree a few percent opaque behind everything (`Resources/Glance/ygg-bg.svg` —
+  generated and seeded: pine branches, bark roots, lichen leaves, a frost ring);
+- **misty spruce ridges** fixed along the foot of the viewport (`treeline.svg` — three
+  layers, far to near, fog between, tiles seamlessly);
+- a **spruce bough** hanging into each card's top-right corner (`bough.svg`, a mask filled
+  with the card's accent);
+- a **braided knot band** under the navigation (`braid.svg`, a mask in the aurora gradient);
+- the tree as the **logo, tab icon and phone home-screen icon** (`branding.logo-url` /
+  `favicon-url` / `app-icon-url`);
+- an **Elder Futhark rune** heading each card — ᚲ kenaz (torch) Lights, ᚨ ansuz (the gods)
+  Asgard, ᛟ othala (estate) Storage, ᚱ raidho (journey) Network, ᛉ algiz (guardian)
+  Services, ᛃ jera (the year) Clock, ᛚ laguz (flow) Now Playing, ᚠ fehu (wealth)
+  Downloads, ᛇ eihwaz (the yew) Yggdrasil, ᛞ dagaz (day/night) Eclipse, ᛖ ehwaz (the
+  horse) Streams, ᛈ perthro On the TV, ᛗ mannaz Activity, ᛊ sowilo (sun) Power, ᛏ tiwaz
+  Devices, ᚷ gebo Cost, ᚢ uruz Plug health, ᛁ isa Terminal.
+
+Card headers end in a carved line (a short accent stroke, then a fading rule), and section
+headings carry a small spruce. The ornaments were generated by a seeded script and are
+static files. The runes are SVG strokes (`Resources/Glance/runes/`) used as a CSS mask, so no
+device needs a Runic font. Classes: `rune-*` + `acc-*` (`css-class`, or `rune`/`acc` on a
 live card).
 
-Three colour layers, each with one job (details at the top of `asgard.css`):
+**The colour system** — a few NAMED families, each with a job; nothing is picked per widget
+(table and reasoning at the top of `asgard.css`):
 
-1. **Ink** — neutral grey surfaces and text; nothing carries a hue.
-2. **Accents** — one per card: its rune, top edge and a breath of tint. **Forest green
-   dominates** (lights, server, services, power, the tree), with moss (storage, devices, plug
-   health), purple (network, media, Eclipse) and orange only as a few accents (downloads,
-   streams). A first pass leaned orange on the Power page (amber lamp glow, orange accents) and
-   read as orange-dominant — keep orange to accents.
-3. **Data** — a fixed, ordered palette `--s1…--s6`: **forest · purple · orange** · sky · rose ·
-   gold. **Validated, not picked by eye** (dataviz validator, dark, card surface `#26272a`):
-   worst adjacent colour-blind ΔE 10.8 (target ≥ 8), normal-vision ΔE 17.5 (floor 15), all
-   ≥ 3:1. ⚠ **Green and orange must never be neighbours** — to red-green colour blindness
-   they are nearly one colour (ΔE 4.9), which is why purple sits between them. Change a slot
-   → re-run the validator. A series keeps its colour everywhere (a plug's chip = its
-   share-bar segment = the stripe down its card).
+| Family | Data `--sN` | Lit `--c-*` | Job |
+|---|---|---|---|
+| pine | `#308c51` | `#83d494` | the brand: host, services, lights, power — **dominant** |
+| fjord | `#558ec3` | `#91c8f0` | cold water and mist: network, Eclipse, Terminal |
+| amber | `#c7852a` | `#e3bf76` | firelight: downloads, streams, heat, cost — **a small accent** |
+| lingonberry | `#b34f60` | `#ea909b` | media: Now Playing, On the TV |
+| heather | `#8d76c6` | `#bea8e2` | only as data slot 5 (the fifth plug) |
+| lichen | `#789142` | `#c4da7d` | storage, devices, plug health, activity |
+| birch | — | `#edeade` | text, and the Clock card |
 
-Status (good / warn / bad) is reserved and always paired with a word. Lamps that are **on glow
-forest green** (sunlight through leaves). ⚠ **Glance's rem is 10px** (9.4px under 550px): nothing read is under 1.1rem.
+- **Data** — `--s1…--s6` in the order pine · fjord · amber · lingonberry · heather · lichen,
+  **validated, not picked by eye** (dataviz validator, dark, card surface `#1f2421`): worst
+  adjacent colour-blind ΔE 14.2 (target ≥ 8), normal-vision ΔE 16.6 (floor 15), all ≥ 3:1.
+  The order is the safety:
+  - **pine and amber are never neighbours** (red-green colour blindness merges them);
+  - **lichen can't follow lingonberry** (ΔE 7.4 — why heather, not lichen, is slot 5).
+
+  Change a slot → re-run the validator. A series keeps its colour everywhere: CPU is pine in
+  its ring, its chart and its legend; Disk 2 is fjord in its segment and its row; down / up
+  / ping are pine / fjord / amber in the live tiles, the history chart and its rows.
+- **Gradients** — `--aurora` (fjord → pine → lichen) is the signature: nav underline, card
+  top edges, the braid. `--hearth` (amber → lingonberry) is its warm counterpart.
+- **Status** (good `#52db9c` / warn `#f9a63e` / bad `#ef675a`) is reserved, brighter than any
+  data slot, and always paired with a word.
+
+History: green · purple · orange read as random, and a first pass leaned orange; keep amber
+an accent. Lamps that are **on glow pine** (sunlight through leaves). ⚠ **Glance's rem is
+10px** (9.4px under 550px): nothing read is under 1.1rem.
 
 ⚠️ **Glance frames widget content itself** (`.widget-content:not(.widget-content-frameless),
 .widget-content-frame` get a background, border and shadow). Styling `.widget` as a card
@@ -714,7 +737,7 @@ bottom navigation off its tap targets.
 
 Full column: **Asgard** (CPU / memory / CPU-temp rings, facts, per-thread bars, 3-minute CPU +
 memory chart) · **Storage** (pool, a segment per data disk, a row per disk with age, temperature,
-spin state, SMART) · **Network** (below) · **Service health** group (All / Media / Downloads /
+spin state, SMART — **tap a row to open the drive**, below) · **Network** (below) · **Service health** group (All / Media / Downloads /
 Arr / Management, generated from `services`; no bookmarks column — rows are clickable).
 
 Small column: Clock · **Now Playing** (every Jellyfin stream, poster from Jellyfin's anonymous
@@ -723,10 +746,36 @@ next, the last few finished or failed with sizes and SAB's day/week totals; rele
 prettified — `Dune.Part.Two.2024.1080p…` → `Dune Part Two (2024)`; header links to SABnzbd) ·
 **Yggdrasil Network** (the tree banner over every tailnet device, sorted by the proxy).
 
-**Network card** (net.js): LAN down/up (each on its own scale — they differ by an order of
-magnitude), the tailnet's share (tailscale0), latency to the internet and the router (TCP
-handshake every 5 s, only while watched), and the speed test — last result, the last 7 days of
-results as one sparkline per figure (hover any tile for each run), and Run now.
+**A drive, opened** (stats.js; each row is a `<details>`, kept open across the 2 s repaints):
+- a verdict: Healthy, or Needs attention with what is wrong;
+- **Drive**: model, family, serial, firmware, capacity, type (rpm / form factor / NVMe), link speed;
+- **Health**: temperature, power-on time, power cycles;
+  - a spinning disk adds the failure predictors — reallocated, pending and uncorrectable
+    sectors, CRC errors (cable, not disk), head loads;
+  - NVMe adds its health log instead — life used, spare left, data written and read, media
+    errors, unsafe shutdowns;
+  - any non-zero counter is called out with a word;
+- the **last self-test**, the **filesystem** (type, use, inodes), **read/write MB/s right
+  now**, when it was read, and its `/dev` name.
+
+All of it comes from `asgard-smart`, which never wakes a sleeping drive. An asleep drive keeps
+what it reported when it was last awake.
+
+**Network card** (net.js):
+- LAN down/up (each on its own scale — they differ by an order of magnitude);
+- the tailnet's share (tailscale0);
+- latency to the internet and the router (TCP handshake every 5 s, only while watched);
+- the speed test — last result, the last 7 days as one sparkline per figure (hover any tile
+  for each run), and Run now.
+
+Under it, **History** (a toggle; remembered per browser):
+- every run kept on Asgard, as per-day averages: a bar chart with one bar per calendar day (a
+  missed day is a gap) and a min–max whisker, hover for the day;
+- below the chart, the days as rows that **open into that day's runs** — time, figures,
+  jitter, loss, background traffic, server, and a MANUAL tag for "Run now";
+- range 7 d / 30 d / 90 d / All; measure ↓ down / ↑ up / ◷ ping;
+- **Export CSV**, and **Clear** (two taps within 4 s; admin only — MarsBar shows the history
+  read-only).
 
 #### Page 2 — Eclipse
 
@@ -745,7 +794,7 @@ width) and **Lamps** (one warm tile each); moved here from the home page so ever
 every watt is in one place · **Power** — total draw, machines vs lights, today's cost so far
 and the yearly rate, a **share bar** (who is drawing it right now, one segment per plug,
 live), legend chips with live watts, and **the last 24 hours as ONE smooth line** — the house's
-total, canopy-green to ember-orange, with peak · average · kWh beside it; hover any moment for
+total, pine into lichen, with peak · average · kWh beside it; hover any moment for
 every plug's share of it. (It was a stacked band per plug, which read as clutter.) ·
 **Devices** — one card per plug, machines first, relay locked on machines; expand for V, A,
 apparent power, power factor, kWh and cost today. Small column: **Cost Outlook**, **Plug
@@ -759,8 +808,8 @@ never "average"; see `Claude/home-assistant.md` for why.
 
 ttyd (:7681), sized to the window (`.term-widget`) instead of a fixed 700 px box.
 
-**Theme:** background `hsl(220, 5%, 11%)` (neutral grey), primary `hsl(142, 52%, 59%)` (forest), positive
-`hsl(148, 59%, 53%)`, negative `hsl(3, 85%, 66%)`. `branding.app-name = "Asgard"`, footer hidden.
+**Theme:** background `hsl(150, 7%, 10%)` (fog grey, spruce cast), primary `hsl(133, 49%, 67%)` (pine), positive
+`hsl(152, 66%, 59%)`, negative `hsl(5, 82%, 65%)`. `branding.app-name = "Asgard"`, footer hidden.
 
 **Icons:** `sh:` (selfh.st, coloured); a CDN URL where selfh.st has none. Avoid `si:` — monochrome.
 
@@ -774,12 +823,24 @@ One process, three jobs:
 - **Latency** — while an `/events` client is connected, a TCP handshake to `1.1.1.1:443` and to
   the default gateway (`:80`) every 5 s. A handshake, not ICMP, so no raw socket; a refused port
   answers as fast as an open one.
-- **Speed test** — serves the last result written by `speedtest.service`, the history it appends
-  (`/var/lib/speedtest/history.jsonl`, last 400 runs; the card shows 28 = 7 days), and
-  `POST /run` starts a fresh one.
+- **Speed test** — serves the last result written by `speedtest.service` and the history it
+  appends, and `POST /run` starts a fresh one (touching `.manual` first, so the run is tagged).
+- **Speed-test history** — `/var/lib/speedtest/history.jsonl`, one JSON line per run:
+  - t, down, up, ping, plus jitter, loss, server, isp, bg (background Mb/s at test start)
+    and manual — older lines have only the first four;
+  - it is the unit's **StateDirectory, so it survives reboots and rebuilds**;
+  - capped at 5000 runs (~3½ years at four a day, under 1 MB).
 
-`GET /events` streams it to the dashboards (`init` once, a `tick` a second, `latency`, and
-`speedtest` when a run starts or lands) — `net.js` on both dashboards; MarsBar's goes through
+  Endpoints:
+  - `GET /history` — every day's count + avg/min/max of down, up and ping (local days);
+  - `GET /history?day=YYYY-MM-DD` — that day's runs in full;
+  - `GET /history.csv` — all of it, as a download;
+  - `POST /history/clear` (needs `X-Dash: 1`) — empties the file; `latest.json` stays, so
+    the tiles keep the last result.
+
+`GET /events` streams it to the dashboards (`init` once — with the last 120 days' summary — a
+`tick` a second, `latency`, and `speedtest` when a run starts or lands or the history is
+cleared) — `net.js` on both dashboards; MarsBar's goes through
 her `/net-api` serve mount and is read-only (no Run now). `GET /api` is the same as one JSON
 snapshot (kept; add fields, never rename). CORS for the `_origins.nix` dashboards only, `0.0.0.0`
 bind, still tailnet-only (9555 not in `allowedTCPPorts`). `POST /run` needs `X-Dash: 1`.

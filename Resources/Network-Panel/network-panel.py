@@ -12,13 +12,23 @@ Three jobs in one process:
     it needs no raw socket; a refused port answers just as fast as an open one.
   * speed test — serves the last result written by speedtest.service and the
     history it appends, and can trigger a fresh run on demand.
+  * speed-test history — every run is one line of RESULTS (history.jsonl in
+    speedtest's StateDirectory, so it survives reboots and rebuilds). Served
+    as per-day averages, one day's runs, or a CSV; POST /history/clear wipes it.
 
 Two ways to read it:
 
   GET /api     one JSON snapshot (MarsBar polls this; its shape is a contract)
   GET /events  Server-Sent Events for the admin dashboard: everything once on
                connect, then a `tick` every second, `latency` every 5 s and
-               `speedtest` when a run starts, finishes or lands a new result
+               `speedtest` when a run starts, finishes, lands a new result or
+               the history is cleared
+  GET /history             every day that has runs: count + avg/min/max of
+                           down, up and ping, newest first
+  GET /history?day=Y-M-D   that day's runs, each in full
+  GET /history.csv         all of it, one row per run, as a download
+  POST /run                start a speed test now          (needs X-Dash: 1)
+  POST /history/clear      empty the history file           (needs X-Dash: 1)
 
 This replaced `flow` wrapped in a second read-only ttyd on :7682. That worked,
 but ttyd kills the child whenever the websocket drops — a backgrounded tab, a
@@ -47,7 +57,9 @@ drop the panel to Kb/s whenever the link went quiet, which made a glance at the
 dashboard misread by three orders of magnitude.
 """
 
+import csv
 import http.server
+import io
 import json
 import os
 import socket
@@ -56,6 +68,8 @@ import subprocess
 import threading
 import time
 from collections import deque
+from datetime import datetime
+from urllib.parse import parse_qs, urlsplit
 
 IFACE = os.environ.get("NETPANEL_IFACE", "enp3s0")
 PORT = int(os.environ.get("NETPANEL_PORT", "9555"))
@@ -64,6 +78,9 @@ RESULTS = os.environ.get("NETPANEL_HISTORY", "/var/lib/speedtest/history.jsonl")
 TS_IFACE = os.environ.get("NETPANEL_TS_IFACE", "tailscale0")
 INTERNET = (os.environ.get("NETPANEL_PROBE", "1.1.1.1"), 443)
 UNIT = os.environ.get("NETPANEL_UNIT", "speedtest.service")
+# Touched before a "Run now" start; speedtest.service consumes it and records
+# the run as manual, so the history can tell them from the 6-hourly timer.
+MANUAL = os.environ.get("NETPANEL_MANUAL", os.path.join(os.path.dirname(RESULTS), ".manual"))
 
 # Mirrors Modules/Server/_origins.nix, which Modules/Server/network.nix passes in
 # as DASH_ORIGINS (comma-separated); this default only applies when run by hand. The admin Glance
@@ -212,22 +229,129 @@ def latency():
                 "probe": INTERNET[0], "hist": list(_rtt["hist"])}
 
 
-def results(n=28):
-    """The last n speed tests (7 days at one every 6 h), oldest first."""
+# ── Speed-test history ───────────────────────────────────────────────────────
+# One JSON object per line, appended by speedtest.service. Older lines carry
+# only t/down/up/ping; newer ones add jitter, loss, server, isp, bg (background
+# Mb/s at test start) and manual. Parsed once per change of the file, not per
+# request: every open tab asks for the summary on each new result.
+_hist = {"key": None, "runs": []}
+_hist_lock = threading.Lock()
+
+
+def _num(v, nd=1):
     try:
-        with open(RESULTS) as fh:
-            lines = fh.readlines()[-n:]
+        return round(float(v), nd)
+    except (TypeError, ValueError):
+        return None
+
+
+def history():
+    """Every recorded run, oldest first, each with its local day."""
+    try:
+        st = os.stat(RESULTS)
+        key = (st.st_mtime_ns, st.st_size)
     except OSError:
         return []
+    with _hist_lock:
+        if _hist["key"] == key:
+            return _hist["runs"]
+        runs = []
+        with open(RESULTS) as fh:
+            for line in fh:
+                try:
+                    r = json.loads(line)
+                    at = datetime.fromisoformat(str(r["t"]).replace("Z", "+00:00")).astimezone()
+                    run = {"t": r["t"], "at": int(at.timestamp()), "day": at.strftime("%Y-%m-%d"),
+                           "down": _num(r["down"]), "up": _num(r["up"]), "ping": _num(r["ping"])}
+                except (ValueError, KeyError, TypeError):
+                    continue
+                if run["down"] is None or run["up"] is None or run["ping"] is None:
+                    continue
+                for k in ("jitter", "loss", "bg"):
+                    if r.get(k) is not None:
+                        run[k] = _num(r[k])
+                for k in ("server", "isp"):
+                    if r.get(k):
+                        run[k] = str(r[k])
+                if r.get("manual"):
+                    run["manual"] = True
+                runs.append(run)
+        runs.sort(key=lambda x: x["at"])
+        _hist.update(key=key, runs=runs)
+        return runs
+
+
+def results(n=28):
+    """The last n speed tests (7 days at one every 6 h), oldest first — what
+    the three tiles' sparklines draw."""
+    return [{"t": r["t"], "down": r["down"], "up": r["up"], "ping": r["ping"]} for r in history()[-n:]]
+
+
+def _span(vals):
+    return [round(sum(vals) / len(vals), 1), min(vals), max(vals)]
+
+
+def days(limit=None):
+    """Per-day summary, newest first: [{d, n, manual, down/up/ping: [avg, min, max]}]."""
+    by = {}
+    for r in history():
+        by.setdefault(r["day"], []).append(r)
     out = []
-    for line in lines:
-        try:
-            r = json.loads(line)
-            out.append({"t": r["t"], "down": round(float(r["down"]), 1),
-                        "up": round(float(r["up"]), 1), "ping": round(float(r["ping"]), 1)})
-        except (ValueError, KeyError, TypeError):
-            continue
+    for d in sorted(by, reverse=True)[:limit]:
+        rs = by[d]
+        out.append({"d": d, "n": len(rs), "manual": sum(1 for r in rs if r.get("manual")),
+                    "down": _span([r["down"] for r in rs]), "up": _span([r["up"] for r in rs]),
+                    "ping": _span([r["ping"] for r in rs])})
     return out
+
+
+def summary(limit=120):
+    runs = history()
+    try:
+        size = os.path.getsize(RESULTS)
+    except OSError:
+        size = 0
+    return {"count": len(runs), "bytes": size, "first": runs[0]["at"] if runs else None,
+            "last": runs[-1]["at"] if runs else None, "days": days(limit)}
+
+
+def day_runs(day):
+    return [{k: v for k, v in r.items() if k != "day"} for r in history() if r["day"] == day]
+
+
+CSV_FIELDS = ["time", "download_mbps", "upload_mbps", "ping_ms", "jitter_ms", "loss_pct",
+              "background_mbps", "manual", "server", "isp"]
+
+
+def history_csv():
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(CSV_FIELDS)
+    for r in history():
+        w.writerow([datetime.fromtimestamp(r["at"]).astimezone().isoformat(timespec="minutes"),
+                    r["down"], r["up"], r["ping"], r.get("jitter", ""), r.get("loss", ""),
+                    r.get("bg", ""), "yes" if r.get("manual") else "", r.get("server", ""), r.get("isp", "")])
+    return buf.getvalue().encode()
+
+
+def clear_history():
+    """Empty the file (not delete: speedtest.service appends to it, and its
+    directory is the unit's StateDirectory). latest.json stays — the tiles
+    keep showing the last result."""
+    n = len(history())
+    with _hist_lock:
+        with open(RESULTS, "w"):
+            pass
+        _hist.update(key=None, runs=[])
+    return n
+
+
+def _hist_stamp():
+    try:
+        st = os.stat(RESULTS)
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
 
 
 def speedtest():
@@ -314,9 +438,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             _watchers["n"] += 1
         _probe_now.set()
         try:
-            st = (speedtest(), running(), os.path.getmtime(RESULT) if os.path.exists(RESULT) else 0)
+            st = (speedtest(), running(), os.path.getmtime(RESULT) if os.path.exists(RESULT) else 0, _hist_stamp())
             send("init", {"live": live(), "latency": latency(), "speedtest": st[0],
-                          "running": st[1], "results": results()})
+                          "running": st[1], "results": results(), "history": summary()})
             self.wfile.flush()
             seen, n = _tick["n"], 0
             last_rtt = None
@@ -331,11 +455,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if rtt != last_rtt:
                     send("latency", latency())
                     last_rtt = rtt
-                if n % 2 == 0:  # a finished or started run, within 2 s
-                    now = (None, running(), os.path.getmtime(RESULT) if os.path.exists(RESULT) else 0)
+                if n % 2 == 0:  # a finished or started run, or a cleared history, within 2 s
+                    now = (None, running(), os.path.getmtime(RESULT) if os.path.exists(RESULT) else 0, _hist_stamp())
                     if now[1:] != st[1:]:
                         st = (speedtest(),) + now[1:]
-                        send("speedtest", {"speedtest": st[0], "running": st[1], "results": results()})
+                        send("speedtest", {"speedtest": st[0], "running": st[1], "results": results(),
+                                           "history": summary()})
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
@@ -344,10 +469,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _watchers["n"] -= 1
 
     def do_GET(self):
-        if self.path.split("?")[0].rstrip("/") == "/events":
+        url = urlsplit(self.path)
+        path = url.path.rstrip("/")
+        if path == "/events":
             self.events()
             return
-        if self.path.rstrip("/") in ("", "/api"):
+        if path == "/history":
+            day = (parse_qs(url.query).get("day") or [None])[0]
+            if day:
+                self._send(200, {"day": day, "tests": day_runs(day)})
+            else:
+                self._send(200, summary(limit=None))
+            return
+        if path == "/history.csv":
+            body = history_csv()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="asgard-speedtests-%s.csv"'
+                             % time.strftime("%Y-%m-%d"))
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path in ("", "/api"):
             self._send(200, {
                 "live": live(),
                 "speedtest": speedtest(),
@@ -357,7 +503,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path.rstrip("/") != "/run":
+        path = urlsplit(self.path).path.rstrip("/")
+        if path not in ("/run", "/history/clear"):
             self._send(404, {"error": "not found"})
             return
 
@@ -366,10 +513,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(403, {"error": "missing X-Dash header"})
             return
 
+        if path == "/history/clear":
+            try:
+                self._send(200, {"cleared": clear_history()})
+            except OSError as exc:
+                self._send(500, {"error": str(exc)})
+            return
+
         if running():
             self._send(200, {"running": True, "started": False})
             return
 
+        try:
+            with open(MANUAL, "w"):
+                pass
+        except OSError:
+            pass  # only the "manual" tag in the history is lost
         try:
             subprocess.run(
                 ["systemctl", "start", "--no-block", UNIT],

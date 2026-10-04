@@ -199,8 +199,8 @@
       '<span class="pw-ymax">' + max + ' W</span>' +
       '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-label="Total power draw, last 24 hours">' +
         '<defs>' +
-          '<linearGradient id="pw-stroke" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3f9a63"></stop><stop offset=".55" stop-color="#5fcf8a"></stop><stop offset="1" stop-color="#a6c965"></stop></linearGradient>' +
-          '<linearGradient id="pw-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5fcf8a" stop-opacity=".28"></stop><stop offset="1" stop-color="#5fcf8a" stop-opacity="0"></stop></linearGradient>' +
+          '<linearGradient id="pw-stroke" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--s1)"></stop><stop offset=".55" style="stop-color:var(--c-pine)"></stop><stop offset="1" style="stop-color:var(--c-lichen)"></stop></linearGradient>' +
+          '<linearGradient id="pw-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--c-pine);stop-opacity:.26"></stop><stop offset="1" style="stop-color:var(--c-pine);stop-opacity:0"></stop></linearGradient>' +
         '</defs>' +
         [0.5].map(function (f) { return '<line class="pw-grid" x1="0" x2="' + W + '" y1="' + y(max * f).toFixed(1) + '" y2="' + y(max * f).toFixed(1) + '"></line>'; }).join("") +
         '<path class="pw-area" d="' + area + '"></path>' +
