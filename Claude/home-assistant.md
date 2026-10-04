@@ -1,6 +1,6 @@
 # Home Assistant (Asgard)
 
-**Module:** `Modules/home-assistant.nix` (standalone — deliberately **not** in `server.nix`)
+**Module:** `Modules/Server/home-assistant.nix` (its own `nixosModules.home-assistant`, **not** part of `nixosModules.server`)
 **Host:** Asgard only. **Port:** 8123, tailnet-only (`http://asgard:8123`)
 **Version:** home-assistant 2026.5.4 (nixpkgs), deployed 2026-09-16
 **State dir:** `/var/lib/hass`
@@ -9,11 +9,13 @@ Home automation — smart plugs, sensors, automations. Not to be confused with N
 **home-manager**, which is also on Asgard (`home-manager-rock.service`) and is a completely
 different thing.
 
-## Why it isn't in `server.nix`
+## Why it is its own module
 
-Asgard's `Modules/server.nix` carries hundreds of lines of uncommitted local work and is
-**materially divergent** from the Sisyphus copy — see `memory/asgard-clone-diverged.md`. A
-standalone module avoids ever having to patch that file.
+It started as a standalone file because Asgard's old monolithic `server.nix` carried uncommitted
+local work and had diverged from the Sisyphus copy, and a separate module avoided patching it.
+That file is gone (split into `Modules/Server/*.nix`, 2026-10-03), but the separation stays
+useful: the automation side can be dropped from, or added to, a host on its own. It does lean
+on `nixosModules.server` for `config.asgard` (the dashboard origins) and for `glance.service`.
 
 ## ⚠ The declarative limit — read this before "fixing" it
 
@@ -64,15 +66,72 @@ Brand matters: if the plugs are Tuya-based, expect the vendor-app + cloud-creden
 Asgard builds from **its own clone** at `~/Dots` on `main`. Never push/pull — patch across:
 
 ```bash
-git diff Modules/home-assistant.nix > /tmp/x.patch
+git diff Modules/Server/home-assistant.nix > /tmp/x.patch
 cat /tmp/x.patch | ssh asgard 'cat > /tmp/x.patch'
 ssh asgard 'cd ~/Dots && git apply --check /tmp/x.patch'   # always --check first
 ssh asgard 'cd ~/Dots && git apply /tmp/x.patch'
 ssh asgard 'cd ~/Dots && NIXOS_INSTALL_BOOTLOADER=0 sudo nixos-rebuild switch --flake .#rock-Asgard'
 ```
 
-**New `.nix` files must be `git add`-ed on Asgard too** — import-tree only sees tracked files,
-so an unstaged module is silently ignored.
+**New files must be `git add`-ed on Asgard too** — import-tree only sees tracked files,
+so an unstaged module is silently ignored, and a flake build cannot see an untracked
+`Resources/…` file or `Modules/Server/_plugs.nix` at all (eval fails "path does not
+exist"). `git apply` creates new files untracked.
+
+## ha-bridge — live plug state for the dashboards
+
+**Code:** `Resources/HA-Bridge/ha-bridge.py` · **unit:** `ha-bridge` · **port:** 9556 (tailnet only)
+**Config:** generated from `Modules/Server/_plugs.nix` into a JSON file (`HA_BRIDGE_CONFIG`)
+
+| Verb | What |
+|---|---|
+| `GET /events` | Server-Sent Events: `snapshot` on connect, then one `state` event per change, `link` when the HA connection changes, `ping` every 15s |
+| `GET /states` | the snapshot as `{entity: state}` — from memory, so free to call |
+| `POST /toggle/<entity>` | toggle an `ALLOWED` entity; needs `X-Dash: 1`; waits (≤2s) for HA to report the new state and returns it plus the whole snapshot |
+
+**Push, not poll.** One websocket to HA (`/api/websocket`, `subscribe_entities`
+filtered to the watched entities, so HA only sends what we care about) feeds the
+snapshot; every dashboard holds one EventSource (`Resources/Glance/lights.js`).
+Before this, every open page — MarsBar and the main Glance alike — polled `/states` every 3s
+and **each poll made the bridge download HA's entire `/api/states`**. If the websocket drops, the bridge
+reconnects with backoff (1s → 30s) and meanwhile polls `/api/states/<entity>` for
+the watched entities only, every 10s, telling the pages (`link: polling`, shown as
+"Delayed").
+
+**Watched** = every plug relay (machines too — read-only is still worth seeing), the
+Living Room Lights group, and each plug's `sensor.<slug>_power`. **Allowed** = the
+group and the `light = true` plugs. Both come from `_plugs.nix`; adding a plug there
+updates the bridge, the HA group and MarsBar's tiles together.
+
+Python deps: `python3.withPackages (ps: [ps.aiohttp])` — the stdlib has no
+websocket client. aiohttp also serves the HTTP side.
+
+Test it from Asgard:
+
+```bash
+curl -sN http://localhost:9556/events          # snapshot, then live events
+curl -s  http://localhost:9556/states | jq
+curl -s -XPOST -H 'X-Dash: 1' http://localhost:9556/toggle/switch.colour_lamp_switch
+journalctl -u ha-bridge -n 50                  # link transitions + websocket errors
+```
+
+## The `ha-token` secret
+
+An **admin** long-lived token: anything holding it can call any HA service, including
+`switch.toggle` on `switch.server_power_switch`. It was mode `0444` (any local uid
+could read it and bypass the bridge's allowlist entirely), then briefly `0440` with a
+group only Glance was in. Now it is **sops' default, root-only `0400`**, and neither
+consumer reads the file itself — each gets a private copy as a systemd credential
+(`LoadCredential`: systemd, as root, copies it into a per-unit directory only that unit's
+DynamicUser can read):
+
+- `ha-bridge` reads `$CREDENTIALS_DIRECTORY/ha-token`.
+- `glance.service` (`Modules/Server/glance.nix`) has `HA_TOKEN_FILE` pointing at its copy,
+  and the Power page's widgets send `Authorization: Bearer ${readFileFromEnv:HA_TOKEN_FILE}`
+  — Glance's own config variable, expanded as text over the whole config file at startup,
+  so it works inside a `headers:` map (verified against Glance 0.8.5).
+- `restartUnits = ["ha-bridge.service" "glance.service"]`: a credential is copied at unit
+  start (and Glance reads its config only then), so a rotated token needs both restarted.
 
 ## Troubleshooting
 
@@ -85,19 +144,39 @@ ssh asgard 'curl -sI http://localhost:8123 | head -3'
 First start is slow (it builds its initial DB). Onboarding is at `http://asgard:8123` — create
 the owner account there; it is **not** declarable.
 
+## Living Room Lights group
+
+`switch.living_room_lights` is a `group` platform switch declared in
+`home-assistant.nix`; its members are generated from the `light = true` plugs in
+`Modules/Server/_plugs.nix`. HA derives the entity id from the group's `name`, so
+renaming it renames the entity — change `group.entity` in `_plugs.nix` in the same
+edit.
+
 ## Glance
 
-Added to `Modules/server.nix` **on Asgard directly** (backup: `server.nix.bak-ha-20260916-1949`),
-in **both** the `All` and `Management` monitor groups. That config has **no bookmarks column by
-design** — a comment near line 322 says new services go in the *monitors*, because monitor rows
-are already clickable and a sidebar made the page scroll.
+HA is a monitor in the main Glance's **All** and **Management** tabs — one entry in the
+`services` list in `Modules/Server/glance.nix`. The **Power** page (was Monitoring) renders its
+first frame from HA's `/api/template` with one generated Jinja query (`plugQuery`); after that
+everything on it is live from ha-bridge's stream — `lights.js` for the switches, `asgard.js`
+for the figures (it listens to lights.js's `ha:state` events).
+
+**What ha-bridge watches** (`watched` in `_plugs.nix`): every relay, and per plug its power,
+voltage, current, today's energy, wifi signal (% and dBm) and `binary_sensor.<slug>_status`
+— so V, A, kWh/cost today, signal and "plug online" move live, not just the watts. Watched is
+read-only; `toggleable` (ALLOWED) is still only the lamps and their group.
+
+**`GET /history`** (ha-bridge) — the Power page's 24 h chart: HA's
+`/api/history/period/…` for every plug's power sensor (`history` in the bridge config),
+bucketed to 10-minute **time-weighted** averages (a reading holds until the next, so a
+1-minute blip in an hour barely moves the bucket; unknown/unavailable is a gap, never a
+zero). Fetched only when a page asks, cached 2 minutes, one HA query however many tabs ask.
 
 ⚠️ HA returns **302** on `/` until onboarding is finished. If Glance shows it down, either
-complete onboarding (after which `/` is 200) or add `alt-status-codes: [302]` to the site entry.
+complete onboarding (after which `/` is 200) or add `alt-status-codes = [ 302 ];` to its entry.
 
 ## ⚠ Power cost maths — never divide an ESPHome counter by a wall clock
 
-Fixed 2026-09-19 after a reboot made every cost on the Monitoring page absurd:
+Fixed 2026-09-19 after a reboot made every cost on the (then) Monitoring page absurd:
 Asgard was projected at **$1047/yr** while drawing 35.5 W (true ~$95/yr). Wrong by
 ~11×, and plausible-looking enough that it did not read as a bug.
 
@@ -124,9 +203,12 @@ the Jinja template Glance runs.
 **Rule of thumb:** if a projection must use a cumulative counter, sanity-check it
 against `W * 0.024` and distrust it when they diverge.
 
-Tunables live in the `let` block of `Modules/server.nix`: `powerRate` (0.3041 $/kWh,
+Tunables live in the `let` block of `Modules/Server/glance.nix`: `powerRate` (0.3041 $/kWh,
 the GloBird *balance* rate), `powerRefW` (150 W draw-bar ceiling),
-`powerSupplyDaily`.
+`powerSupplyDaily`. The same `W * 0.024` arithmetic runs twice — in the Jinja (first paint)
+and in `Resources/Glance/asgard.js` (live, from the bridge's power sensors) — keep them in step.
+Until 2026-10-03 the cards were labelled **"Avg Daily"** with a caveat that the figure "firms
+up as it runs"; it never could, and both are gone.
 
 ## Not done yet
 

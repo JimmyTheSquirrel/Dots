@@ -1,27 +1,79 @@
 #!/usr/bin/env python3
 """
-Eclipse control endpoint for Glance.
+Eclipse control endpoint for the dashboards.
 
-Serves a touch-friendly button panel (embedded in Glance as an iframe widget) plus
-a JSON status endpoint. Actions are executed on the Eclipse LibreELEC box over SSH.
+A JSON API, not a page: both dashboards draw the same Eclipse panel from
+GET /events with the same script (Resources/Glance/eclipse.js) — the admin Glance
+directly, MarsBar through her /eclipse-api serve mount. Actions are executed on
+the Eclipse LibreELEC box over SSH.
+
+  GET  /status           the Pi's state (JSON), one-shot
+  GET  /events           Server-Sent Events: status, what the TV is playing,
+                         Wolf sessions, the shared activity log and which
+                         actions are running, pushed as they change. Nothing is
+                         polled while no page has one open.
+  GET  /wolf/sessions    Moonlight streams Wolf is serving on Sisyphus
+  POST /act/<name>       run an action (needs `X-Dash: 1`)
+  POST /wolf/stop/<id>   end a stream (needs `X-Dash: 1`)
 
 SSH rather than Kodi's JSON-RPC on purpose: the headline action is "restart Kodi
 when it has wedged", and a wedged Kodi cannot answer its own API. Kodi's HTTP
 server is disabled on Eclipse anyway (services.webserver = false, JSON-RPC bound
 to 127.0.0.1:9090).
+
+Status used to be polled by both dashboards (the admin iframe every 10s, MarsBar
+every 15s, plus Glance's own server-side fetches), and every poll used to open a
+brand-new SSH session — key exchange and all, ~0.7s each. Three things keep that
+cheap now:
+
+  * one poller (see Hub) feeds every /events client, and runs only while at
+    least one is connected — a closed dashboard costs the Pi nothing;
+  * SSH connection reuse (ControlMaster): one authenticated connection to the Pi
+    is kept open and every command rides it as a new channel, so a status
+    check costs one round trip instead of a handshake.
+  * a short status cache with in-flight de-duplication (get_status): requests
+    arriving within STATUS_TTL share one answer, and requests arriving while an
+    SSH call is already running wait for that call instead of starting another.
 """
 
+import atexit
 import http.server
 import json
 import os
+import shutil
+import signal
 import socketserver
 import subprocess
+import sys
+import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 
 ECLIPSE = os.environ.get("ECLIPSE_HOST", "100.80.62.3")
 KEY = os.environ.get("ECLIPSE_KEY", "/run/secrets/eclipse-ssh-key")
 PORT = int(os.environ.get("ECLIPSE_PORT", "9554"))
+
+# The dashboards allowed to call this cross-origin. Mirrors
+# Modules/Server/_origins.nix, which Modules/Server/eclipse.nix passes in as
+# DASH_ORIGINS (comma-separated); this default only applies when run by hand. Neither
+# dashboard actually needs it today — the admin one iframes this panel (same
+# origin) and MarsBar proxies it onto her own origin — but it replaces a CORS
+# `*` that let ANY web page read status, and see do_POST for the part that
+# matters.
+DASH_ORIGINS = frozenset(o.strip() for o in os.environ.get(
+    "DASH_ORIGINS",
+    "http://asgard:8888,http://asgard.tailb54b82.ts.net:8888,"
+    "http://100.126.205.100:8888,http://marsbar:1111,"
+    "http://marsbar.tailb54b82.ts.net:1111",
+).split(",") if o.strip())
+
+# How long one status answer is reused. Short enough that a dashboard never
+# shows anything meaningfully old; long enough that several open dashboards,
+# Glance's server-side fetches and the panel's own poll collapse into one SSH
+# call between them.
+STATUS_TTL = 5.0
 
 # Jellyfin library IDs (see Claude/eclipse.md)
 MOVIES_ID = "f137a2dd21bbc1b99aa5c0f6bf02a805"
@@ -72,46 +124,111 @@ SPEEDTEST_LAN_PORT = int(os.environ.get("ECLIPSE_SPEEDTEST_LAN_PORT", "9557"))
 
 # Cache of the last speed test result, so the panel keeps showing a number
 # across page reloads instead of resetting to "never tested" every time.
-LAST_SPEEDTEST = {"mbps": None, "up_mbps": None, "when": 0.0}
+LAST_SPEEDTEST = {"mbps": None, "up_mbps": None, "when": 0.0, "path": ""}
 
 CONNECTOR = "/sys/class/drm/card1-HDMI-A-1"
 KODI_SEND = "/usr/bin/kodi-send"
 
-# JetBrains Mono, served from our own origin so the panel matches Glance's
-# typography. Glance embeds the font in its Go binary and sits on a different
-# port, so it cannot be borrowed cross-origin.
-FONT_DIR = os.environ.get("ECLIPSE_FONT_DIR", "")
-FONTS = {
-    "font/regular.woff2": "JetBrainsMono-Regular.woff2",
-    "font/medium.woff2": "JetBrainsMono-Medium.woff2",
-    "font/bold.woff2": "JetBrainsMono-Bold.woff2",
-}
+# How often the /events poller asks, while anyone is watching. Status is SSH
+# (one channel on the shared master — see SSH_BASE); Wolf is one local HTTP call.
+EVENTS_STATUS_S = 5.0
+EVENTS_WOLF_S = 3.0
+EVENTS_TV_S = 5.0
+
+# What the TV is playing, from Jellyfin's own session list (its API key comes in
+# as a systemd credential). Asking Kodi itself would need its JSON-RPC, which is
+# bound to the Pi's loopback — and a wedged Kodi is exactly when this matters.
+JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "http://127.0.0.1:8096").rstrip("/")
 
 # Jellyfin syncs must run one at a time - concurrent calls raise
 # "Exception: Sync is already running" (Claude/eclipse.md).
 sync_lock = threading.Lock()
 
 
+def _control_dir():
+    """A private directory for the SSH control socket.
+
+    $RUNTIME_DIRECTORY when the unit sets RuntimeDirectory= (systemd creates
+    it, owns it and removes it). Otherwise a fresh mkdtemp() — 0700 and
+    unpredictably named, so nothing else on the box can pre-create or hijack
+    the socket path even in a shared /tmp — removed again on exit.
+    """
+    runtime = os.environ.get("RUNTIME_DIRECTORY", "").split(":")[0]
+    if runtime:
+        return runtime
+    path = tempfile.mkdtemp(prefix="eclipse-ssh-")
+    atexit.register(shutil.rmtree, path, True)
+    return path
+
+
+CONTROL_DIR = _control_dir()
+
+SSH_BASE = [
+    "ssh", "-i", KEY,
+    "-o", "BatchMode=yes",
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "LogLevel=ERROR",
+    "-o", "ConnectTimeout=6",
+    # Connection reuse. The first command opens a master connection that stays
+    # up for ControlPersist seconds after its last use; every command in the
+    # meantime is just a new channel on it. %C is a hash of host/port/user, so
+    # the socket path stays far under the 108-byte unix socket limit.
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPath=" + os.path.join(CONTROL_DIR, "%C"),
+    "-o", "ControlPersist=120",
+    # A master whose peer vanished (the Pi rebooted, its wifi dropped) would
+    # otherwise hand out channels that hang until each command's timeout.
+    # Keepalives notice a dead peer within ~30s and let the master exit.
+    "-o", "ServerAliveInterval=10",
+    "-o", "ServerAliveCountMax=2",
+    "root@" + ECLIPSE,
+]
+
+
+_inflight_lock = threading.Lock()
+_inflight = 0
+
+
+def _drop_master():
+    """Close the shared connection so the next command dials afresh — but only
+    if nothing else is using it: `-O exit` ends every session on the master,
+    and a library sync legitimately runs for tens of seconds. When something
+    else IS in flight, the keepalives above retire a dead master on their own.
+    """
+    with _inflight_lock:
+        if _inflight != 1:
+            return
+    try:
+        subprocess.run(SSH_BASE[:-1] + ["-O", "exit", SSH_BASE[-1]],
+                       capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+
 def ssh(remote_cmd, timeout=30):
     """Run a command on Eclipse. Returns (ok, output)."""
-    argv = [
-        "ssh", "-i", KEY,
-        "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
-        "-o", "ConnectTimeout=6",
-        "root@" + ECLIPSE,
-        remote_cmd,
-    ]
+    global _inflight
+    with _inflight_lock:
+        _inflight += 1
     try:
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(SSH_BASE + [remote_cmd], capture_output=True, text=True,
+                           timeout=timeout)
         out = (p.stdout + p.stderr).strip()
+        if p.returncode == 255:
+            # 255 is ssh's own failure (connect/auth/mux), not the remote
+            # command's. Do not let a wedged master poison the next call.
+            _drop_master()
         return p.returncode == 0, out
     except subprocess.TimeoutExpired:
+        # Usually a master whose connection died half-open.
+        _drop_master()
         return False, "timed out after " + str(timeout) + "s"
     except Exception as exc:
         return False, str(exc)
+    finally:
+        with _inflight_lock:
+            _inflight -= 1
 
 
 STATUS_CMD = (
@@ -119,11 +236,30 @@ STATUS_CMD = (
     'echo "hdmi=$(cat ' + CONNECTOR + '/status 2>/dev/null)"; '
     'echo "edid=$(wc -c < ' + CONNECTOR + '/edid 2>/dev/null)"; '
     'echo "uptime=$(cut -d. -f1 /proc/uptime)"; '
+    # SoC temperature (m°C), the firmware's throttle flags (under-voltage is
+    # the classic Pi 5 problem, and it is invisible from Kodi), load, memory.
+    'echo "temp=$(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null)"; '
+    'echo "throttled=$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)"; '
+    'echo "load=$(cut -d" " -f1-3 /proc/loadavg)"; '
+    "echo \"mem=$(awk '/^MemTotal|^MemAvailable/ {printf \"%s \", $2}' /proc/meminfo)\"; "
     "echo \"mode=$(grep -oE 'Display [0-9]+x[0-9]+ @ [0-9.]+' "
     '/storage/.kodi/temp/kodi.log 2>/dev/null | tail -1)"; '
     'echo "jellyfin=$(grep -oE \'"address": *"[^"]+"\' '
     + JELLYFIN_ADDON_DIR + '/data.json 2>/dev/null | cut -d\'"\' -f4)"'
 )
+
+
+def _throttle(bits):
+    """`vcgencmd get_throttled` → what is wrong now, and what has been since boot.
+
+    Low bits are the present state, bits 16-19 latch "has happened": an
+    under-voltage that came and went during a 4K remux still shows up here.
+    """
+    names = ("under-voltage", "frequency capped", "throttled", "soft temp limit")
+    return {
+        "now": [n for i, n in enumerate(names) if bits & (1 << i)],
+        "since_boot": [n for i, n in enumerate(names) if bits & (1 << (16 + i))],
+    }
 
 
 def _jellyfin_mode(address):
@@ -134,10 +270,66 @@ def _jellyfin_mode(address):
     return "unknown"
 
 
+_status_lock = threading.Lock()
+_status = {"at": 0.0, "value": None, "inflight": None}
+
+
 def get_status():
+    """The Pi's status, at most STATUS_TTL old, from at most one SSH call.
+
+    The first caller after the cache expires does the SSH; anyone arriving
+    while it runs waits on its Event and shares the answer, rather than
+    opening a second session for the same few lines.
+    """
+    with _status_lock:
+        fresh = _status["value"] is not None and time.monotonic() - _status["at"] < STATUS_TTL
+        if fresh:
+            return _with_speedtest(_status["value"])
+        done = _status["inflight"]
+        leader = done is None
+        if leader:
+            done = _status["inflight"] = threading.Event()
+    if not leader:
+        done.wait(20)
+        with _status_lock:
+            value = _status["value"]
+        if value is not None:
+            return _with_speedtest(value)
+        # The leader failed outright; fall through and try ourselves.
+    try:
+        value = _fetch_status()
+    finally:
+        if leader:
+            with _status_lock:
+                _status["inflight"] = None
+            done.set()
+    with _status_lock:
+        _status.update(at=time.monotonic(), value=value)
+    return _with_speedtest(value)
+
+
+def invalidate_status():
+    """After an action, so the next poll shows its effect rather than the cache."""
+    with _status_lock:
+        _status["at"] = 0.0
+
+
+def _with_speedtest(st):
+    # Not cached with the rest: act_speedtest updates it independently.
+    st = dict(st)
+    st["speed_mbps"] = LAST_SPEEDTEST["mbps"]
+    st["speed_up_mbps"] = LAST_SPEEDTEST["up_mbps"]
+    st["speed_when"] = LAST_SPEEDTEST["when"]
+    st["speed_path"] = LAST_SPEEDTEST["path"]
+    return st
+
+
+def _fetch_status():
     ok, out = ssh(STATUS_CMD, timeout=15)
     st = {"reachable": ok, "kodi": "?", "hdmi": "?", "edid": 0,
-          "uptime": 0, "mode": "", "jellyfin": "", "error": ""}
+          "uptime": 0, "mode": "", "jellyfin": "", "error": "",
+          "temp": None, "throttled": None, "load": None, "mem_used": None,
+          "at": int(time.time())}
     if not ok:
         st["error"] = out
         return st
@@ -145,27 +337,29 @@ def get_status():
         if "=" not in line:
             continue
         k, _, v = line.partition("=")
-        if k == "edid":
-            try:
-                st["edid"] = int(v.strip() or 0)
-            except ValueError:
-                st["edid"] = 0
-        elif k == "uptime":
-            try:
-                st["uptime"] = int(v.strip() or 0)
-            except ValueError:
-                st["uptime"] = 0
-        elif k in st:
-            st[k] = v.strip()
+        v = v.strip()
+        try:
+            if k in ("edid", "uptime"):
+                st[k] = int(v or 0)
+            elif k == "temp":
+                st["temp"] = round(int(v) / 1000, 1) if v else None
+            elif k == "throttled":
+                st["throttled"] = _throttle(int(v, 16)) if v else None
+            elif k == "load":
+                st["load"] = [float(x) for x in v.split()[:3]] or None
+            elif k == "mem":
+                total, avail = (int(x) for x in v.split()[:2])
+                st["mem_used"] = round(1 - avail / total, 3) if total else None
+            elif k in st:
+                st[k] = v
+        except ValueError:
+            pass
     # A connected link with no picture is the classic failure mode: Kodi started
     # before the TV came up and never re-probes. Flag it explicitly.
     st["needs_kodi_restart"] = (
         st["hdmi"] == "connected" and st["kodi"] == "active" and not st["mode"]
     )
     st["jellyfin_mode"] = _jellyfin_mode(st["jellyfin"])
-    st["speed_mbps"] = LAST_SPEEDTEST["mbps"]
-    st["speed_up_mbps"] = LAST_SPEEDTEST["up_mbps"]
-    st["speed_when"] = LAST_SPEEDTEST["when"]
     return st
 
 
@@ -227,6 +421,7 @@ def act_speedtest():
                 up_mbps = None
     LAST_SPEEDTEST["up_mbps"] = up_mbps
     LAST_SPEEDTEST["when"] = time.time()
+    LAST_SPEEDTEST["path"] = path
 
     if up_mbps is not None:
         return True, "{:.1f} down / {:.1f} up Mbps over {}".format(mbps, up_mbps, path)
@@ -331,460 +526,362 @@ def _sync(lib_id, label):
         sync_lock.release()
 
 
+def tv_playing():
+    """Jellyfin sessions playing on the TV box: the Kodi addon reports itself as
+    client "Kodi" (device name as set on the Pi). None = Jellyfin not answering."""
+    cred = os.environ.get("CREDENTIALS_DIRECTORY")
+    try:
+        with open(os.path.join(cred, "jellyfin-api-key")) as fh:
+            key = fh.read().strip()
+    except (OSError, TypeError):
+        return None
+    req = urllib.request.Request(JELLYFIN_URL + "/Sessions?activeWithinSeconds=90",
+                                 headers={"X-Emby-Token": key})
+    try:
+        with urllib.request.urlopen(req, timeout=3) as r:
+            sessions = json.load(r)
+    except (OSError, ValueError):
+        return None
+    out = []
+    for s in sessions:
+        item = s.get("NowPlayingItem")
+        client, device = s.get("Client", ""), s.get("DeviceName", "")
+        if not item or not ("kodi" in client.lower() or any(w in device.lower() for w in ("eclipse", "libreelec", "kodi"))):
+            continue
+        ps = s.get("PlayState", {})
+        run, pos = item.get("RunTimeTicks") or 0, ps.get("PositionTicks") or 0
+        sub_ = item.get("SeriesName") or (str(item["ProductionYear"]) if item.get("ProductionYear") else "")
+        if item.get("SeriesName") and item.get("IndexNumber") is not None:
+            sub_ = "%s · S%02dE%02d" % (item["SeriesName"], item.get("ParentIndexNumber", 0), item["IndexNumber"])
+        out.append({
+            "title": item.get("Name", ""), "sub": sub_, "user": s.get("UserName", ""),
+            "poster": item.get("SeriesId") or item.get("AlbumId") or item.get("Id"),
+            "method": ps.get("PlayMethod", ""), "paused": bool(ps.get("IsPaused")),
+            "progress": round(pos / run, 4) if run else None,
+            "remaining_s": int((run - pos) / 1e7) if run else None,
+        })
+    return out
+
+
+def act_sync_library():
+    """Both libraries, one after the other (syncs must not overlap anyway).
+    The dashboard's one Sync button: new films and new episodes are almost
+    always wanted together, and an up-to-date library syncs in seconds."""
+    ok1, m1 = _sync(MOVIES_ID, "Movies")
+    ok2, m2 = _sync(SHOWS_ID, "TV Shows")
+    return ok1 and ok2, m1 + " · " + m2
+
+
+# ── Wolf sessions (Moonlight streams served by Sisyphus) ─────────────────────
+# Wolf never reaps a session whose client vanished (Claude/wolf.md), and a stuck
+# one keeps its virtual pads alive. wolf-bridge on Sisyphus (Modules/Gaming/
+# wolf.nix) lists and stops sessions, and only answers Asgard — so the browser
+# never calls it; this panel proxies it server-side.
+WOLF_BRIDGE = os.environ.get("WOLF_BRIDGE_URL", "http://sisyphus:9560").rstrip("/")
+_ECLIPSE_IPS = {"at": 0.0, "ips": {ECLIPSE}}
+
+
+def _eclipse_ips():
+    """The Pi's own addresses (tailnet + LAN), learned over the SSH link we
+    already hold, so a session from it can be labelled "Eclipse (TV)" whichever
+    network Moonlight used. Refreshed every 10 minutes in the background — an
+    offline Pi makes that ssh take seconds, and the session list mustn't wait
+    on a cosmetic label."""
+    if time.time() - _ECLIPSE_IPS["at"] > 600:
+        _ECLIPSE_IPS["at"] = time.time()
+
+        def refresh_ips():
+            ok, out = ssh("ip -o -4 addr show | awk '{print $4}'", timeout=8)
+            if ok:
+                _ECLIPSE_IPS["ips"] = {ECLIPSE} | {
+                    ln.split("/")[0] for ln in out.split() if ln and not ln.startswith("127.")
+                }
+        threading.Thread(target=refresh_ips, daemon=True).start()
+    return _ECLIPSE_IPS["ips"]
+
+
+def _bridge(method, path, timeout=4):
+    req = urllib.request.Request(WOLF_BRIDGE + path, method=method,
+                                 headers={"X-Dash": "1"} if method == "POST" else {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except ValueError:
+            return e.code, {"ok": False, "error": f"bridge answered {e.code}"}
+
+
+def wolf_sessions():
+    try:
+        status, body = _bridge("GET", "/sessions")
+    except (OSError, ValueError) as e:
+        return {"wolf": "unreachable", "sessions": [], "error": str(e)[:160]}
+    if status != 200:
+        return {"wolf": "unreachable", "sessions": [], "error": f"bridge answered {status}"}
+    ips = _eclipse_ips()
+    for sess in body.get("sessions", []):
+        sess["client_label"] = "Eclipse (TV)" if sess.get("client_ip") in ips else (sess.get("client_ip") or "unknown")
+    return body
+
+
+def wolf_stop(session_id):
+    if not session_id.isdigit():
+        return 400, {"ok": False, "error": "bad session id"}
+    try:
+        return _bridge("POST", f"/sessions/{session_id}/stop", timeout=8)
+    except (OSError, ValueError) as e:
+        return 502, {"ok": False, "error": f"Sisyphus unreachable: {e}"[:160]}
+
+
 ACTIONS = {
     "restart-kodi": ("Restart Kodi", act_restart_kodi),
     "reboot": ("Reboot Pi", act_reboot),
-    "sync-movies": ("Movies", lambda: _sync(MOVIES_ID, "Movies")),
-    "sync-shows": ("TV Shows", lambda: _sync(SHOWS_ID, "TV Shows")),
-    "jellyfin-toggle": ("Jellyfin server", act_jellyfin_toggle),
-    "speedtest": ("Speed test", act_speedtest),
+    "sync-library": ("Sync library", act_sync_library),
+    # MarsBar's buttons — one library each (Modules/Server/marsbar.nix).
+    "sync-movies": ("Sync movies", lambda: _sync(MOVIES_ID, "Movies")),
+    "sync-shows": ("Sync TV shows", lambda: _sync(SHOWS_ID, "TV Shows")),
+    "jellyfin-toggle": ("Switch Jellyfin path", act_jellyfin_toggle),
+    "speedtest": ("Link test", act_speedtest),
 }
 
 
-PAGE = r"""<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Eclipse Control</title>
-<style>
-  @font-face { font-family:'JB'; src:url('font/regular.woff2') format('woff2');
-               font-weight:400; font-display:swap; }
-  @font-face { font-family:'JB'; src:url('font/medium.woff2') format('woff2');
-               font-weight:500; font-display:swap; }
-  @font-face { font-family:'JB'; src:url('font/bold.woff2') format('woff2');
-               font-weight:700; font-display:swap; }
+# ── Live hub: one poller, any number of /events clients ─────────────────────
+# Everything the admin page shows, kept here and pushed on change:
+#   status    get_status() (SSH, cached)      every EVENTS_STATUS_S
+#   tv        tv_playing() (Jellyfin)          every EVENTS_TV_S
+#   wolf      wolf_sessions()                 every EVENTS_WOLF_S
+#   activity  the last 12 actions, from ANY dashboard — so a Restart Kodi
+#             tapped on MarsBar shows up on the admin page too, and the log
+#             survives a reload
+#   busy      actions running right now — every open page greys that button
+# The poller sleeps while nobody is connected.
 
-  :root {
-    color-scheme: dark;
-    --line:    hsla(160, 40%, 40%, .15);
-    --line-hi: hsla(160, 50%, 50%, .34);
-    --glow:    hsla(160, 50%, 40%, .10);
-    --fg:      #d2d5d3;
-    --dim:     hsl(160, 7%, 50%);
-    --ok:      hsl(142, 62%, 56%);
-    --bad:     hsl(0, 78%, 66%);
-    --warn:    hsl(38, 88%, 62%);
-    --card:    hsla(160, 30%, 50%, .035);
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 0;
-    font-family: 'JB', ui-monospace, 'JetBrains Mono', Menlo, monospace;
-    font-size: 13px; line-height: 1.4;
-    background: transparent; color: var(--fg);
-    -webkit-font-smoothing: antialiased;
-  }
-  .wrap { max-width: 1020px; margin: 0 auto; }
+class Hub:
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.version = 0
+        self.state = {"status": None, "tv": None, "wolf": None, "activity": [], "busy": {}}
+        self.watchers = 0
+        self.wake = threading.Event()
 
-  /* ── header ── */
-  .head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 2px 2px 16px;
-  }
-  .head-left { display: flex; align-items: center; gap: 13px; }
-  .dot-lg {
-    width: 12px; height: 12px; border-radius: 50%; flex: none;
-    background: var(--dim); transition: background .2s, box-shadow .2s;
-  }
-  .dot-lg.ok  { background: var(--ok);  box-shadow: 0 0 13px hsla(142,62%,56%,.65); }
-  .dot-lg.bad { background: var(--bad); box-shadow: 0 0 13px hsla(0,78%,66%,.65); }
-  .head-title { font-size: 17px; font-weight: 700; letter-spacing: .01em; }
-  .head-sub   { font-size: 11.5px; color: var(--dim); margin-top: 3px; }
-  .head-right { font-size: 10.5px; color: var(--dim); text-align: right; white-space: nowrap; }
+    def publish(self, key, value):
+        with self.cond:
+            if self.state.get(key) == value:
+                return
+            self.state[key] = value
+            self.version += 1
+            self.cond.notify_all()
 
-  /* ── alert ── */
-  .alert {
-    display: none; align-items: center; gap: 9px;
-    padding: 9px 13px; margin-bottom: 14px; font-size: 12px;
-    border: 1px solid hsla(38, 88%, 62%, .3); border-left-width: 3px;
-    border-radius: 8px; background: hsla(38, 88%, 62%, .07); color: var(--warn);
-  }
-  .alert.show { display: flex; }
+    def log(self, action, ok, message):
+        entry = {"t": int(time.time()), "action": action, "ok": ok, "message": message}
+        with self.cond:
+            self.state["activity"] = ([entry] + self.state["activity"])[:12]
+            self.version += 1
+            self.cond.notify_all()
 
-  /* ── stat cards ── */
-  .stats {
-    display: grid; gap: 10px; margin-bottom: 22px;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  }
-  .stat {
-    display: flex; flex-direction: column; gap: 7px;
-    min-height: 88px; padding: 12px 14px;
-    border: 1px solid var(--line); border-radius: 10px;
-    background: var(--card);
-  }
-  .stat-k {
-    display: flex; align-items: center; gap: 6px;
-    color: var(--dim); font-size: 10px; font-weight: 500;
-    letter-spacing: .09em; text-transform: uppercase;
-  }
-  .stat-k svg { width: 12px; height: 12px; stroke-width: 2; opacity: .8; }
-  .stat-v { font-size: 19px; font-weight: 700; letter-spacing: .005em; }
-  .stat-v.ok   { color: var(--ok); }
-  .stat-v.bad  { color: var(--bad); }
-  .stat-v.warn { color: var(--warn); }
-  .stat-sub { font-size: 11px; color: var(--dim); margin-top: auto; }
-  .gauge {
-    height: 5px; border-radius: 3px; margin-top: 3px; position: relative;
-    background: linear-gradient(90deg,
-      var(--bad) 0%, var(--bad) 16.6%,
-      var(--warn) 16.6%, var(--warn) 66.6%,
-      var(--ok) 66.6%, var(--ok) 100%);
-    opacity: .32;
-  }
-  .gauge i {
-    position: absolute; top: -3px; width: 2px; height: 11px;
-    background: var(--fg); border-radius: 1px; transform: translateX(-1px);
-    box-shadow: 0 0 6px rgba(0,0,0,.5);
-  }
+    def set_busy(self, name, on):
+        with self.cond:
+            busy = dict(self.state["busy"])
+            if on:
+                if name in busy:
+                    return False  # already running — one at a time per action
+                busy[name] = int(time.time())
+            else:
+                busy.pop(name, None)
+            self.state["busy"] = busy
+            self.version += 1
+            self.cond.notify_all()
+        return True
 
-  /* ── button sections ── */
-  .section-label {
-    font-size: 10px; font-weight: 600; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--dim); margin: 0 2px 8px;
-  }
-  .grid {
-    display: grid; gap: 10px; margin-bottom: 20px;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  }
-  button {
-    display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 9px;
-    height: 78px; padding: 10px 8px;
-    font-family: inherit; font-size: 12.5px; font-weight: 500;
-    letter-spacing: .04em;
-    color: var(--fg); cursor: pointer;
-    border: 1px solid var(--line); border-radius: 10px;
-    background: var(--card);
-    transition: background .18s, border-color .18s, box-shadow .18s, transform .06s;
-  }
-  button svg { width: 19px; height: 19px; stroke-width: 1.6; opacity: .82; }
-  button:hover:not(:disabled) {
-    border-color: var(--line-hi);
-    background: hsla(160, 40%, 45%, .085);
-    box-shadow: 0 0 14px var(--glow);
-  }
-  button:hover:not(:disabled) svg { opacity: 1; }
-  button:active:not(:disabled) { transform: translateY(1px); }
-  button:disabled { opacity: .35; cursor: default; }
-  button.primary { border-color: hsla(142, 55%, 45%, .28); }
-  button.primary svg { color: var(--ok); opacity: .9; }
-  button.danger:hover:not(:disabled) {
-    border-color: hsla(0, 70%, 60%, .45);
-    background: hsla(0, 70%, 55%, .09);
-    box-shadow: 0 0 14px hsla(0, 70%, 50%, .1);
-  }
-  button.danger:hover:not(:disabled) svg { color: var(--bad); }
-  button.armed {
-    border-color: hsla(0, 75%, 62%, .6);
-    background: hsla(0, 70%, 55%, .13); color: var(--bad);
-  }
-  button.armed svg { color: var(--bad); opacity: 1; }
-  button.busy { opacity: 1; border-color: var(--line-hi); }
-  button.busy svg { animation: spin 1s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+    def poller(self):
+        status_at = wolf_at = tv_at = 0.0
+        while True:
+            if self.watchers > 0:
+                now = time.monotonic()
+                if now - wolf_at >= EVENTS_WOLF_S:
+                    wolf_at = now
+                    self.publish("wolf", wolf_sessions())
+                if now - tv_at >= EVENTS_TV_S:
+                    tv_at = now
+                    tv = tv_playing()
+                    self.publish("tv", {"ok": tv is not None, "playing": tv or []})
+                if now - status_at >= EVENTS_STATUS_S:
+                    status_at = now
+                    self.publish("status", get_status())
+            else:
+                status_at = wolf_at = tv_at = 0.0
+            if self.wake.wait(1.0):
+                self.wake.clear()
+                status_at = 0.0  # an action finished or a client joined: look now
 
-  /* ── activity log ── */
-  .log-wrap {
-    margin-top: 4px; border: 1px solid var(--line); border-radius: 10px;
-    background: hsla(160, 30%, 50%, .02); overflow: hidden;
-  }
-  .log-head {
-    padding: 8px 13px; font-size: 10px; font-weight: 500;
-    letter-spacing: .09em; text-transform: uppercase; color: var(--dim);
-    border-bottom: 1px solid var(--line);
-  }
-  .log-list { max-height: 148px; overflow-y: auto; }
-  .log-item {
-    display: flex; align-items: baseline; gap: 10px;
-    padding: 7px 13px; font-size: 11.5px; color: var(--dim);
-    border-bottom: 1px solid hsla(160, 30%, 50%, .06);
-  }
-  .log-item:last-child { border-bottom: none; }
-  .log-item .t { flex: none; width: 44px; opacity: .7; }
-  .log-item .m { color: var(--fg); }
-  .log-item.good .m { color: var(--ok); }
-  .log-item.err  .m { color: var(--bad); }
-  .log-empty { padding: 14px 13px; font-size: 11.5px; color: var(--dim); }
 
-  @media (max-width: 560px) {
-    button { height: 64px; gap: 7px; font-size: 11.5px; }
-    .stat { min-height: 76px; padding: 10px 12px; }
-    .stat-v { font-size: 17px; }
-    .head-title { font-size: 15.5px; }
-  }
-</style></head><body>
-<div class="wrap">
-  <div class="head">
-    <div class="head-left">
-      <span class="dot-lg" id="head-dot"></span>
-      <div>
-        <div class="head-title" id="head-title">Connecting&hellip;</div>
-        <div class="head-sub" id="head-sub">&nbsp;</div>
-      </div>
-    </div>
-    <div class="head-right" id="head-time"></div>
-  </div>
+HUB = Hub()
 
-  <div class="alert" id="hint">
-    <span>&#9888;</span><span>Link is up but Kodi is not driving it &mdash; restart Kodi</span>
-  </div>
 
-  <div class="stats" id="stats"></div>
+def run_action(name):
+    entry = ACTIONS.get(name)
+    if not entry:
+        return 400, {"ok": False, "message": "unknown action"}
+    label, fn = entry
+    if not HUB.set_busy(name, True):
+        return 409, {"ok": False, "action": label, "message": label + " is already running"}
+    try:
+        ok, msg = fn()
+    except Exception as exc:  # noqa: BLE001 — report, never kill the handler
+        ok, msg = False, "%s: %s" % (type(exc).__name__, exc)
+    finally:
+        HUB.set_busy(name, False)
+    invalidate_status()
+    HUB.log(label, ok, msg or label)
+    HUB.wake.set()
+    return 200, {"ok": ok, "action": label, "message": msg or label}
 
-  <div class="section-label">Playback</div>
-  <div class="grid">
-    <button class="primary" data-act="restart-kodi">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/>
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-      <span class="lbl">Restart Kodi</span>
-    </button>
-    <button data-act="sync-movies">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/>
-        <line x1="7" y1="3" x2="7" y2="21"/><line x1="17" y1="3" x2="17" y2="21"/>
-        <line x1="2" y1="12" x2="22" y2="12"/></svg>
-      <span class="lbl">Sync Movies</span>
-    </button>
-    <button data-act="sync-shows">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/>
-        <polyline points="17 2 12 7 7 2"/></svg>
-      <span class="lbl">Sync TV Shows</span>
-    </button>
-  </div>
 
-  <div class="section-label">Network &amp; System</div>
-  <div class="grid">
-    <button data-act="jellyfin-toggle" id="jellyfin-btn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><circle cx="12" cy="12" r="10"/>
-        <line x1="2" y1="12" x2="22" y2="12"/>
-        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-      <span class="lbl" id="jellyfin-lbl">Jellyfin: &hellip;</span>
-    </button>
-    <button data-act="speedtest" id="speedtest-btn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><path d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"/>
-        <path d="M12 12 16 8"/><path d="M12 2v2"/><path d="M12 20v2"/>
-        <path d="M4.9 4.9l1.4 1.4"/><path d="M17.7 17.7l1.4 1.4"/></svg>
-      <span class="lbl">Speed Test</span>
-    </button>
-    <button class="danger" data-act="reboot" data-confirm="1">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
-           stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
-        <line x1="12" y1="2" x2="12" y2="12"/></svg>
-      <span class="lbl">Reboot Pi</span>
-    </button>
-  </div>
+_ZEROS = b"\0" * (256 * 1024)
 
-  <div class="log-wrap">
-    <div class="log-head">Activity</div>
-    <div class="log-list" id="log"><div class="log-empty">ready</div></div>
-  </div>
-</div>
-<script>
-var buttons = Array.prototype.slice.call(document.querySelectorAll('button[data-act]'));
-var logHistory = [];
 
-function fmtUptime(s) {
-  if (!s) return '-';
-  var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  if (d) return d + 'd ' + h + 'h';
-  if (h) return h + 'h ' + m + 'm';
-  return m + 'm';
-}
-function fmtMode(s) {
-  if (!s) return null;
-  var m = s.match(/(\d+)x(\d+) @ ([\d.]+)/);
-  return m ? m[1] + '×' + m[2] + ' @ ' + Math.round(parseFloat(m[3])) + 'Hz' : s;
-}
-function fmtClock(d) {
-  var p = function (n) { return (n < 10 ? '0' : '') + n; };
-  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
-}
-function fmtAgo(ts) {
-  if (!ts) return '';
-  var s = Math.max(0, Math.round(Date.now() / 1000 - ts));
-  if (s < 90) return s + 's ago';
-  var m = Math.round(s / 60);
-  if (m < 90) return m + 'm ago';
-  return Math.round(m / 60) + 'h ago';
-}
-function stat(k, v, sub, cls, extra) {
-  return '<div class="stat"><span class="stat-k">' + k + '</span>' +
-         '<span class="stat-v ' + (cls || '') + '">' + v + '</span>' +
-         (extra || '') +
-         '<span class="stat-sub">' + (sub || '&nbsp;') + '</span></div>';
-}
-function gauge(mbps) {
-  var max = 30, pct = Math.max(0, Math.min(100, (mbps || 0) / max * 100));
-  return '<div class="gauge"><i style="left:' + pct + '%"></i></div>';
-}
-var JELLYFIN_NAMES = { lan: 'LAN', remote: 'Tailscale', unknown: '?' };
-function refresh() {
-  fetch('status').then(function (r) { return r.json(); }).then(function (s) {
-    var dot = document.getElementById('head-dot');
-    var title = document.getElementById('head-title');
-    var sub = document.getElementById('head-sub');
-    var stats = document.getElementById('stats');
-    if (!s.reachable) {
-      dot.className = 'dot-lg bad';
-      title.textContent = 'Eclipse unreachable';
-      sub.textContent = s.error || 'no response over SSH';
-      stats.innerHTML = '';
-    } else {
-      dot.className = 'dot-lg ok';
-      title.textContent = 'Eclipse online';
-      sub.textContent = 'up ' + fmtUptime(s.uptime);
+def send_zeros(handler):
+    """Stream the SPEEDTEST_SIZE_MB zero-filled speed-test payload.
 
-      var mode = fmtMode(s.mode);
-      var jf = s.jellyfin_mode || 'unknown';
-      var jfQuality = jf === 'remote' ? 'capped ~8 Mbps' : (jf === 'lan' ? 'uncapped direct play' : 'address unrecognised');
-      var speedCls = '', speedTxt = 'never tested', speedSub = 'tap Speed Test to measure', gaugeHtml = '';
-      if (s.speed_mbps != null) {
-        speedCls = s.speed_mbps >= 20 ? 'ok' : (s.speed_mbps >= 5 ? 'warn' : 'bad');
-        speedTxt = s.speed_mbps.toFixed(1) + ' Mbps';
-        speedSub = 'tested ' + fmtAgo(s.speed_when);
-        gaugeHtml = gauge(s.speed_mbps);
-      }
-
-      stats.innerHTML =
-        stat('Kodi', s.kodi, 'process state', s.kodi === 'active' ? 'ok' : 'bad') +
-        stat('Display', mode || 'not driving', s.hdmi === 'connected' ? 'HDMI connected' : 'HDMI disconnected', mode ? 'ok' : 'warn') +
-        stat('Jellyfin', JELLYFIN_NAMES[jf], jfQuality, jf === 'unknown' ? 'warn' : 'ok') +
-        stat('Speed', speedTxt, speedSub, speedCls, gaugeHtml) +
-        stat('Uptime', fmtUptime(s.uptime), 'since last restart', '');
-
-      var lbl = document.getElementById('jellyfin-lbl');
-      if (lbl && !lbl.closest('button').classList.contains('busy')) {
-        var next = jf === 'remote' ? 'lan' : 'remote';
-        lbl.textContent = 'Jellyfin: switch to ' + JELLYFIN_NAMES[next];
-      }
-    }
-    document.getElementById('hint').className = s.needs_kodi_restart ? 'alert show' : 'alert';
-    document.getElementById('head-time').textContent = 'updated ' + fmtClock(new Date());
-  }).catch(function () {
-    document.getElementById('head-dot').className = 'dot-lg bad';
-    document.getElementById('head-title').textContent = 'Panel offline';
-    document.getElementById('head-sub').textContent = 'cannot reach eclipse-control';
-    document.getElementById('stats').innerHTML = '';
-  });
-}
-function logAdd(text, cls) {
-  logHistory.unshift({ t: fmtClock(new Date()), text: text, cls: cls || '' });
-  logHistory = logHistory.slice(0, 6);
-  document.getElementById('log').innerHTML = logHistory.map(function (e) {
-    return '<div class="log-item ' + e.cls + '"><span class="t">' + e.t + '</span>' +
-           '<span class="m">' + e.text + '</span></div>';
-  }).join('');
-}
-function run(btn) {
-  var name = btn.dataset.act;
-  buttons.forEach(function (b) { if (b !== btn) b.disabled = true; });
-  btn.classList.add('busy');
-  logAdd('running ' + name + '…', '');
-  fetch('act/' + name, { method: 'POST' })
-    .then(function (r) { return r.json(); })
-    .then(function (j) { logAdd(j.message, j.ok ? 'good' : 'err'); })
-    .catch(function (e) { logAdd(String(e), 'err'); })
-    .then(function () {
-      btn.classList.remove('busy');
-      buttons.forEach(function (b) { b.disabled = false; });
-      setTimeout(refresh, 2000);
-    });
-}
-buttons.forEach(function (btn) {
-  btn.addEventListener('click', function () {
-    if (!btn.dataset.confirm) { run(btn); return; }
-    var lbl = btn.querySelector('.lbl');
-    if (btn.classList.contains('armed')) {
-      btn.classList.remove('armed'); lbl.textContent = btn.dataset.label; run(btn); return;
-    }
-    btn.dataset.label = lbl.textContent;
-    btn.classList.add('armed'); lbl.textContent = 'Tap to confirm';
-    setTimeout(function () {
-      if (btn.classList.contains('armed')) {
-        btn.classList.remove('armed'); lbl.textContent = btn.dataset.label;
-      }
-    }, 4000);
-  });
-});
-refresh();
-setInterval(refresh, 10000);
-</script></body></html>
-"""
+    Plain zeros generated on the fly - the point is raw throughput over the
+    path under test, not disk I/O or Jellyfin auth - in fixed chunks, so this
+    never buffers 25MB in RAM. Shared by the Tailscale route on the control port
+    (/speedtest-data) and the LAN-only SpeedtestHandler.
+    """
+    size = SPEEDTEST_SIZE_MB * 1024 * 1024
+    handler.send_response(200)
+    handler.send_header("Content-Type", "application/octet-stream")
+    handler.send_header("Content-Length", str(size))
+    handler.end_headers()
+    sent = 0
+    try:
+        while sent < size:
+            n = min(len(_ZEROS), size - sent)
+            handler.wfile.write(_ZEROS[:n])
+            sent += n
+    except (BrokenPipeError, ConnectionResetError):
+        pass
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    def _cors(self):
+        origin = self.headers.get("Origin")
+        if origin and origin in DASH_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Vary", "Origin")
 
     def _send(self, code, body, ctype):
         raw = body.encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(raw)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if ctype == "application/json":
+            self.send_header("Cache-Control", "no-store")
+        self._cors()
         self.end_headers()
         self.wfile.write(raw)
 
-    def _send_bytes(self, code, raw, ctype, cache=False):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(raw)))
-        if cache:
-            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+    def events(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self._cors()
         self.end_headers()
-        self.wfile.write(raw)
+        sent = {}
+        with HUB.cond:
+            HUB.watchers += 1
+        HUB.wake.set()
+        try:
+            self.wfile.write(b"retry: 3000\n\n")
+            seen, last_write = -1, time.monotonic()
+            while True:
+                with HUB.cond:
+                    if HUB.version == seen:
+                        HUB.cond.wait(timeout=15)
+                    seen = HUB.version
+                    state = dict(HUB.state)
+                for key, value in state.items():
+                    if value is None or sent.get(key) == value:
+                        continue
+                    sent[key] = value
+                    self.wfile.write(("event: %s\ndata: %s\n\n" % (key, json.dumps(value))).encode())
+                    last_write = time.monotonic()
+                if time.monotonic() - last_write >= 15:
+                    # A real event, so the page can notice a half-open link.
+                    self.wfile.write(b"event: ping\ndata: {}\n\n")
+                    last_write = time.monotonic()
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            with HUB.cond:
+                HUB.watchers -= 1
 
     def do_GET(self):
         path = self.path.split("?")[0].strip("/")
-        if path in ("", "index.html"):
-            self._send(200, PAGE, "text/html; charset=utf-8")
-        elif path == "status":
+        if path == "status":
             self._send(200, json.dumps(get_status()), "application/json")
-        elif path in FONTS and FONT_DIR:
-            try:
-                with open(os.path.join(FONT_DIR, FONTS[path]), "rb") as fh:
-                    self._send_bytes(200, fh.read(), "font/woff2", cache=True)
-            except OSError:
-                self._send(404, "font missing", "text/plain")
+        elif path == "events":
+            self.events()
+        elif path == "wolf/sessions":
+            self._send(200, json.dumps(wolf_sessions()), "application/json")
         elif path == "speedtest-data":
-            # Plain zero-filled payload, generated on the fly - the point is
-            # raw throughput over this exact Tailscale path, not disk I/O or
-            # Jellyfin auth. Chunked writes so this doesn't buffer 25MB in RAM.
-            size = SPEEDTEST_SIZE_MB * 1024 * 1024
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(size))
-            self.end_headers()
-            chunk = b"\0" * (256 * 1024)
-            sent = 0
-            try:
-                while sent < size:
-                    n = min(len(chunk), size - sent)
-                    self.wfile.write(chunk[:n])
-                    sent += n
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+            # Raw throughput over this exact Tailscale path (the remote case
+            # in act_speedtest).
+            send_zeros(self)
         else:
             self._send(404, "not found", "text/plain")
 
+    def do_OPTIONS(self):
+        # CORS preflight. Only the dashboards get a yes — which, with the
+        # X-Dash requirement below, is what keeps every other origin out.
+        origin = self.headers.get("Origin")
+        allowed = bool(origin) and origin in DASH_ORIGINS
+        self.send_response(204 if allowed else 403)
+        self._cors()
+        if allowed:
+            self.send_header("Access-Control-Allow-Methods", "GET, POST")
+            self.send_header("Access-Control-Allow-Headers", "X-Dash")
+            self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_POST(self):
         path = self.path.split("?")[0].strip("/")
+        if path.startswith("wolf/stop/"):
+            if self.headers.get("X-Dash") != "1":
+                self._send(403, json.dumps({"ok": False, "error": "missing X-Dash header"}),
+                           "application/json")
+                return
+            sid = path[len("wolf/stop/"):]
+            code, body = wolf_stop(sid)
+            if code == 200 or code == 404:
+                HUB.log("End stream", True, "Wolf stream " + sid + (" ended" if code == 200 else " was already gone"))
+            else:
+                HUB.log("End stream", False, "could not end stream " + sid + ": " + str(body.get("error", code)))
+            HUB.wake.set()
+            self._send(code, json.dumps(body), "application/json")
+            return
         if not path.startswith("act/"):
             self._send(404, json.dumps({"ok": False, "message": "not found"}),
                        "application/json")
             return
-        name = path[4:]
-        entry = ACTIONS.get(name)
-        if not entry:
-            self._send(400, json.dumps({"ok": False, "message": "unknown action"}),
+        # Every action is a body-less POST — a "simple" request that a browser
+        # sends cross-origin WITHOUT asking first. With the old CORS `*`, any web
+        # page open on a tailnet browser could reboot the Pi with one fetch().
+        # Requiring a custom header forces a preflight (do_OPTIONS), which only
+        # the dashboards pass; same-origin callers (this panel's own page,
+        # MarsBar through its serve proxy) just send it.
+        if self.headers.get("X-Dash") != "1":
+            self._send(403, json.dumps({"ok": False, "message": "missing X-Dash header"}),
                        "application/json")
             return
-        label, fn = entry
-        ok, msg = fn()
-        self._send(200, json.dumps({"ok": ok, "action": label, "message": msg or label}),
-                   "application/json")
+        code, body = run_action(path[4:])
+        self._send(code, json.dumps(body), "application/json")
 
     def log_message(self, *args):
         pass
@@ -805,20 +902,7 @@ class SpeedtestHandler(http.server.BaseHTTPRequestHandler):
     """
 
     def do_GET(self):
-        size = SPEEDTEST_SIZE_MB * 1024 * 1024
-        self.send_response(200)
-        self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Length", str(size))
-        self.end_headers()
-        chunk = b"\0" * (256 * 1024)
-        sent = 0
-        try:
-            while sent < size:
-                n = min(len(chunk), size - sent)
-                self.wfile.write(chunk[:n])
-                sent += n
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+        send_zeros(self)
 
     def do_PUT(self):
         """Drain an upload and discard it - the counterpart to do_GET.
@@ -868,8 +952,12 @@ class SpeedtestHandler(http.server.BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    # systemd stops us with SIGTERM; turning it into a normal exit is what lets
+    # atexit remove a mkdtemp() control directory (see _control_dir).
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     threading.Thread(
         target=Server(("0.0.0.0", SPEEDTEST_LAN_PORT), SpeedtestHandler).serve_forever,
         daemon=True,
     ).start()
+    threading.Thread(target=HUB.poller, daemon=True).start()
     Server(("0.0.0.0", PORT), Handler).serve_forever()

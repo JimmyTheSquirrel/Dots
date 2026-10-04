@@ -1,11 +1,12 @@
 # Wolf — multi-session Moonlight server (games-on-whales)
 
 **Status: working end-to-end as of 2026-09-28.** Sisyphus hosts, Eclipse streams.
-Module: `Modules/wolf.nix`. Trial standing *alongside* Sunshine, not a migration.
+Module: `Modules/Gaming/wolf.nix`. Started as a trial alongside Sunshine and is now the **live**
+streaming host. Sunshine stays installed as the fallback, with `autoStart = false`.
 
 > ⚠️ **Wolf and Sunshine cannot run together** — identical Moonlight ports.
 > Wolf is now `autoStart = true` (changed 2026-09-28; this doc said `false` until
-> 2026-10-03). That is only safe because `Modules/sunshine.nix` has
+> 2026-10-03). That is only safe because `Modules/Gaming/sunshine.nix` has
 > `autoStart = false` — a matched pair, never set both true.
 > **Sunshine is a USER unit:** `systemctl --user stop sunshine` (NOT `sudo systemctl`).
 >
@@ -40,7 +41,7 @@ exist, the udev ones never arrive. **Steam is immune because it also scans
 `/dev/input` directly**, which is exactly what makes the symptom so misleading.
 Upstream: [wolf#81](https://github.com/games-on-whales/wolf/issues/81).
 
-**Fix** (`WOLF_DOCKER_FAKE_UDEV_PATH = ""` lives in `Modules/wolf.nix`):
+**Fix** (`WOLF_DOCKER_FAKE_UDEV_PATH = ""` lives in `Modules/Gaming/wolf.nix`):
 
 ```nix
 WOLF_DOCKER_FAKE_UDEV_PATH = "";   # image defaults it to /etc/wolf/fake-udev
@@ -147,7 +148,7 @@ write to the evdev node is accepted and changes nothing. Tried on `event256`
 2026-10-03 — `EVIOCGKEY` read back the same four codes. (It *did* clear the
 derived `event259`.) **A stuck virtual pad has to be destroyed, not released.**
 
-### Fix — `wolf-stuck-pad-reaper` in `Modules/wolf.nix`
+### Fix — `wolf-stuck-pad-reaper` in `Modules/Gaming/wolf.nix`
 
 Detects the harm directly: a `Wolf * virtual *` device that reports held buttons
 via `EVIOCGKEY` **and** emits nothing for a full 60 s window. Both halves matter —
@@ -163,11 +164,16 @@ failures at all** (median 3/min, p90 13) — and a *healthy* stream also hits 3-
 a minute. The spam is bursty, not sustained; no count-per-window threshold
 separates them. This was built that way first and had to be rewritten.
 
-Second, narrower guard in `Modules/steam.nix`:
-`SDL_GAMECONTROLLER_IGNORE_DEVICES = "0x054c/0x0ce6"` on the host Steam package,
-so desktop Steam won't adopt a virtual DualSense even while one is live. Verified
-present and auto-exported (`set -a`) in the built FHS profile, beside the
-known-working `MILLENNIUM_RUNTIME_PATH`.
+Second, narrower guard, set in `Modules/Gaming/wolf.nix` because it only exists
+for Wolf: `my.steam.extraEnv.SDL_GAMECONTROLLER_IGNORE_DEVICES = "0x054c/0x0ce6"`.
+`Modules/Gaming/steam.nix` passes `my.steam.extraEnv` into the host Steam
+package's FHS environment, so desktop Steam won't adopt a virtual DualSense even
+while one is live. RPCS3 and other apps launched outside Steam never see it.
+(It used to sit inside steam.nix's Millennium-only build. The value is unchanged.
+It was verified present and auto-exported (`set -a`) in the built FHS profile,
+next to the known-working `MILLENNIUM_RUNTIME_PATH`.) Because wolf.nix sets an
+option that steam.nix declares, **wolf.nix requires steam.nix**. Every Wolf host
+here is a Steam host, and a missing import fails eval loudly.
 ⚠️ **Not yet verified at runtime** that Steam's bundled SDL honours it for its own
 HIDAPI enumeration as opposed to for games. To check: start a Wolf session, start
 desktop Steam, confirm no new `vid=0x054c` line appears in
@@ -437,7 +443,8 @@ Gaming tile became `game_id=1`. See the skinshortcuts section below for the rebu
 | editing `config.toml` | Wolf **rewrites it on exit** — stop Wolf before editing, or changes are clobbered |
 
 ⚠️ `/etc/wolf` is imperative state created by Docker — against the repo's
-declarative principle. Acceptable for a trial; convert if this graduates.
+declarative principle. It was acceptable for the trial. Wolf is now the live host, so
+converting it is outstanding work.
 ⚠️ `ghcr.io/games-on-whales/wolf:stable` is pulled at runtime, not pinned.
 
 ## Startup race that looks fatal but isn't
@@ -518,7 +525,7 @@ means the encoder is starved of frames, not that the network is struggling.
 Packet loss was **zero throughout** the choppy period, so more bandwidth would
 have achieved nothing. **Check `pp_dpm_sclk` before touching bitrate.**
 
-Automated by `systemd.services.wolf-gpu-perf` in `Modules/wolf.nix`: sets `high`
+Automated by `systemd.services.wolf-gpu-perf` in `Modules/Gaming/wolf.nix`: sets `high`
 while a `Wolf<App>_<uuid>` container runs, reverts to `auto` otherwise (the menu
 container `Wolf-UI_<uuid>` has a hyphen and deliberately doesn't match). Verified
 in the journal: `GPU perf level: high -> auto`. Scoped to sessions because
@@ -675,3 +682,29 @@ keeps `StartupWMClass=Ryujinx`. The gate is now
 app's WM_CLASS.** Any non-SDL shortcut — an emulator, a launcher, a browser —
 will hit this, and the symptom (Big Picture popping back in front on a timer)
 points nowhere near the real cause. Add its class to the gate.
+
+## Session control — `wolf-bridge` (added 2026-10-03)
+
+The Eclipse panel lists Wolf's sessions and can end one (two taps) — on the admin
+Glance AND on MarsBar, which share the panel (`Resources/Glance/eclipse.js`) — the
+fix for the "Wolf never reaps the session" problem above when it happens outside
+the stuck-pad case the reaper catches. Every end is logged in the panel's shared
+activity list, whichever dashboard did it.
+
+- **Service:** `wolf-bridge` on Sisyphus (`Modules/Gaming/wolf.nix`, script
+  `Resources/Wolf-Bridge/wolf-bridge.py`), port **9560**.
+- **API:** `GET /sessions` → `{"wolf":"up"|"down","sessions":[{id, app, client,
+  client_ip, started, video, audio_channels}]}`; `POST /sessions/<id>/stop` with
+  header `X-Dash: 1`; `GET /health`.
+- **Wolf API used** (games-on-whales/wolf `stable`,
+  `src/moonlight-server/api/`): `GET /api/v1/sessions`,
+  `POST /api/v1/sessions/stop {"session_id"}`, `GET /api/v1/apps` for titles.
+  The session's `client_id` field **is the session id**. The list also carries
+  the stream's `aes_key`/`aes_iv` — the bridge never passes those on.
+- **No start time in Wolf's API** — `started` is when the bridge first saw the
+  session (kept in `/run/wolf-bridge`, survives a bridge restart, not a reboot).
+- **Who can call it:** not in the firewall's open ports, so the LAN can't;
+  tailscale0 is trusted, so systemd `IPAddressAllow` + the bridge's own
+  allowlist narrow it to Asgard (`self.lib.tailnet.asgard`) and localhost.
+  Browsers never call it directly — Asgard's eclipse-control proxies it.
+- **Check by hand on Sisyphus:** `curl -s localhost:9560/sessions | jq`.

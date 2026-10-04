@@ -1,9 +1,9 @@
 # Steam Theming (Millennium)
 
-**Module:** `Modules/steam.nix`
+**Module:** `Modules/Gaming/steam.nix`
 **Theme source:** `Resources/Steam-Glass-Theme/`
 **Flake input:** `github:SteamClientHomebrew/Millennium?dir=packages/nix`
-**Used on:** All three desktops (Millennium); the glass effect itself is Niri-only
+**Used on:** Sisyphus (with Millennium) and Kit-Kat (plain Steam, `my.steam.millennium = false`); the glass effect itself is Niri-only
 
 ## The one thing to understand first
 
@@ -37,12 +37,21 @@ Millennium is a CSS/JS injector for the Steam client. It hooks Steam by
 **replacing `libXtst.so.6`**: the bootstrap `.so` re-exports the real libXtst
 symbols and spawns Millennium alongside Steam.
 
-`Modules/steam.nix` does this via three `steam.override` knobs:
+`Modules/Gaming/steam.nix` builds Steam in two layers:
 
-- `extraLibraries` — Millennium + both openssl ABIs, **merged with** the existing
-  `libpulseaudio`/`pipewire` audio fix (see below — don't drop it)
-- `extraEnv` — `MILLENNIUM_RUNTIME_PATH`
-- `extraProfile` — the two `libXtst.so.6` symlinks
+- **`baseSteam`** is what every host gets: `pkgs.steam.override` with the
+  `libpulseaudio`/`pipewire` audio fix in `extraLibraries`, plus
+  `my.steam.extraEnv` (other modules' Steam-only environment. Today that is only
+  `Modules/Gaming/wolf.nix`'s `SDL_GAMECONTROLLER_IGNORE_DEVICES`).
+- **`millenniumSteam`** is `baseSteam.override (prev: …)`, used where
+  `my.steam.millennium` is on. It *extends* `prev` through three knobs:
+  - `extraLibraries`: Millennium + both openssl ABIs, appended to the audio libs
+  - `extraEnv`: `MILLENNIUM_RUNTIME_PATH`
+  - `extraProfile`: the two `libXtst.so.6` symlinks
+
+The audio fix used to exist only inside the Millennium build. Kit-Kat, which
+turns Millennium off, therefore got plain `pkgs.steam` and none of the audio fix.
+Keep it in the base layer.
 
 The symlinks live in `extraProfile` (re-run on *every* Steam launch) rather than
 a home-manager activation script, because Steam's self-updater rewrites
@@ -122,7 +131,7 @@ off XDG. Easy to get wrong.
 
 ## Themes
 
-Three are installed; `activeTheme` in `Modules/steam.nix` picks which renders.
+Three are installed; `activeTheme` in `Modules/Gaming/steam.nix` picks which renders.
 
 | Theme | Source | Role |
 |-------|--------|------|
@@ -140,7 +149,7 @@ is harmless, so switching themes keeps the matugen colours either way.
 
 ### Theme options are forced per theme
 
-`conditionsForced` in `Modules/steam.nix` is keyed by theme name, because each
+`conditionsForced` in `Modules/Gaming/steam.nix` is keyed by theme name, because each
 theme names its options differently — a setting forced for Zehn does nothing
 under SpaceTheme. Currently forced:
 
@@ -239,6 +248,11 @@ works on a Steam release Zehn hasn't caught up with yet. Deliberately minimal.
 
 Files are **copied, not symlinked** — Millennium serves theme files over its own
 HTTP hook, and a dangling store symlink survives a GC worse than a plain copy.
+The copy happens only when it is stale. Each theme folder, and the
+`quickcss-watcher` plugin folder, holds a `.dots-source` file naming the store path
+it was copied from. While that path is unchanged, a switch leaves the folder
+alone. To force a re-copy, delete the folder (its marker goes with it) and
+rebuild.
 
 | File | Purpose |
 |------|---------|
@@ -293,19 +307,20 @@ The parsed values are cached into `config.json` under
 
 ## Quick CSS — the local-tweak layer
 
-`~/.config/millennium/quick.css`, **managed by Nix** (`Modules/steam.nix`,
-via `xdg.configFile`). Millennium injects it into every Steam document on top of
-whatever theme is active.
+`~/.config/millennium/quick.css`, **seeded by Nix** (`Modules/Gaming/steam.nix`)
+as a plain writable file, then owned by matugen. See "quick.css must not be a
+home-manager symlink" below. Millennium injects it into every Steam document on
+top of whatever theme is active.
 
 This is the right layer for local tweaks, confirmed by upstream: Zehn's own
 `custom.css` says *"If you are using Millennium, use the Quick CSS feature
-instead, as Millennium overwrites the Zehn folder during updates"* — and here Nix
-overwrites the theme folder on every rebuild too, so anything put in the theme
-directory is lost.
+instead, as Millennium overwrites the Zehn folder during updates"*. Here Nix
+also replaces a theme folder whenever that theme's pin changes, so anything put
+in the theme directory is lost.
 
 Millennium has a Quick CSS **editor** in its settings UI that writes to this same
-path. Because Nix points it at a read-only store symlink, edits there fail by
-design — Nix owns the file.
+path. Anything typed there is lost on the next wallpaper change, when matugen
+re-renders the file.
 
 ## Zehn has no accent colour on Linux (fixed via Quick CSS)
 
@@ -377,14 +392,14 @@ Steam start, so every iteration needs a full restart.
 Steam follows the wallpaper like btop, noctalia and Spotify. The whole surface is
 **one accent triplet** — Zehn derives ~30 shades from it.
 
-`Modules/steam.nix` uses the same two-instantiation trick as `Modules/btop.nix`,
+`Modules/Gaming/steam.nix` uses the same two-instantiation trick as `Modules/Shell/btop.nix`,
 so the seed and the template can't drift:
 
 | | |
 |---|---|
 | `mkQuickCss` | the shared generator |
 | static seed | literal hex (`fallbackAccent`), written by the activation script |
-| `flake.lib.steam.matugenTemplate` | same file with matugen tokens; installed by `skwd-wall.nix` |
+| `flake.lib.steam.matugenTemplate` | same file with matugen tokens; installed by `Modules/Desktop/skwd.nix` |
 
 **Getting a bare `R, G, B` out of matugen:** use the integer channel accessors —
 
@@ -406,9 +421,9 @@ same hue: `primary_fixed` → `primary_fixed_dim` → `primary` → `inverse_pri
 into `themes.themeColors` and the cache wins over the file, so a matugen-rendered
 `colors.css` is ignored after first run. Quick CSS has no such cache.
 
-**No reload command** — Steam cannot re-read Quick CSS from outside (Millennium's
-watcher is an editor-only toggle), so a new accent applies at the next Steam
-start. Unlike Spicetify, which has CDP injection.
+**No reload command needed.** Steam cannot be told to re-read Quick CSS from
+outside, but the `quickcss-watcher` plugin (see "Live reload" below) turns on
+Millennium's own file watcher at startup. A new accent applies live.
 
 ### TRAP: a rebuild updates the template, NOT the rendered file
 
@@ -416,7 +431,7 @@ This one bit three times in a single session — the border vanishing, the accen
 not applying, and SpaceTheme rendering blue.
 
 `quick.css` is **matugen-owned**. A rebuild copies the new template to
-`~/.config/skwd-wall/data/matugen/templates/steam-quick.css`, but the rendered
+`~/.config/skwd-wall-v2/matugen/templates/steam-quick.css`, but the rendered
 `~/.config/millennium/quick.css` is only rewritten when matugen next runs — i.e.
 **on a wallpaper change**. So edits to the generator look like they did nothing,
 and it is tempting to go debugging CSS that is not actually loaded.
@@ -424,7 +439,7 @@ and it is tempting to go debugging CSS that is not actually loaded.
 Check which is which before assuming anything is broken:
 
 ```bash
-grep -c st-accent ~/.config/skwd-wall/data/matugen/templates/steam-quick.css  # template
+grep -c st-accent ~/.config/skwd-wall-v2/matugen/templates/steam-quick.css    # template
 grep -c st-accent ~/.config/millennium/quick.css                              # rendered
 ```
 
@@ -445,7 +460,7 @@ delete `~/.config/millennium/quick.css` and rebuild.
 
 ## Live reload (working)
 
-`Modules/steam.nix` installs a tiny Millennium plugin, `quickcss-watcher`, whose
+`Modules/Gaming/steam.nix` installs a tiny Millennium plugin, `quickcss-watcher`, whose
 only job is to call `Core_WatchQuickCss` at startup. That registers Millennium's
 file watcher on `quick.css`; on change it runs `UpdateStylesLive`, which walks
 every open Steam window and swaps the stylesheet contents in place. Wallpaper
@@ -524,7 +539,7 @@ modular SCSS + JS tweaks for exactly this area, good source of working selectors
 
 ### flake.lib needed declaring
 
-`Modules/flake-lib.nix` declares `flake.lib` as `lazyAttrsOf raw`. flake-parts
+`Modules/Core/flake-lib.nix` declares `flake.lib` as `lazyAttrsOf raw`. flake-parts
 leaves undeclared flake outputs as `types.raw`, which refuses to merge, so
 `steam.nix` exporting `flake.lib.steam` alongside `btop.nix`'s `flake.lib.btop`
 failed eval with *"Define the value only once"*. Any future module exporting
@@ -542,14 +557,14 @@ sudo nixos-rebuild switch -p Sisyphus --flake .#rock-Sisyphus --option eval-cach
 
 ## TRAP: the hiPrio `steam` wrapper in niri.nix
 
-`Modules/Desktops/niri.nix` puts a `lib.hiPrio (writeShellScriptBin "steam" …)`
+`Modules/Desktop/niri.nix` puts a `lib.hiPrio (writeShellScriptBin "steam" …)`
 in `environment.systemPackages` to add `-no-cef-sandbox`. Because it is hiPrio it
 **wins the `steam` name in the system path**, and the Steam `.desktop` override
 in the same file routes through `steam-open` → `steam`, so *every* launch goes
 through it.
 
 It must wrap **`config.programs.steam.package`**, never `pkgs.steam`. Wrapping
-bare `pkgs.steam` silently discards everything `Modules/steam.nix` configures.
+bare `pkgs.steam` silently discards everything `Modules/Gaming/steam.nix` configures.
 It did exactly that until 2026-08-10, shadowing both the Millennium injection and
 the libpulseaudio/pipewire audio fix.
 

@@ -68,7 +68,7 @@ and skwd needs to write alongside them.
 Nix now **owns** `~/.local/state/noctalia/settings.toml`. All the tables that were
 listed here as GUI-only — `[bar.main]` and its capsule group, `[widget.*]`,
 `[lockscreen_widgets]`, `[shell.*]`, `[location]`, `[lockscreen]`, `[theme]` — are
-declared in `lockedSettings` in `Modules/noctalia.nix` and re-forced on every
+declared in `lockedSettings` in `Modules/Desktop/noctalia.nix` and re-forced on every
 rebuild. A wipe reproduces the bar, widgets and lockscreen geometry.
 
 **Note the approach changed.** The plan recorded here was to copy the tables into
@@ -84,9 +84,8 @@ activation script that forces declared keys and passes undeclared runtime state
 Full mechanism, the re-snapshot workflow, and the `config-reload` verification are in
 `Claude/noctalia.md` → "⚠️ Nix owns `settings.toml`".
 
-**Still open:** `[idle]` remains in `nix-config.toml` rather than the lock, because
-the GUI has never written it. Touching the Idle settings page would move it into
-`settings.toml` permanently; migrate it into `lockedSettings` if that happens.
+✅ **Closed 2026-10-03:** `nix-config.toml` is gone — `[idle]`, `[shell.mpris]` and the
+clock format moved into `lockedSettings`, so they are forced like everything else.
 
 ---
 
@@ -117,7 +116,7 @@ Both halves are now automatic and reproducible. See the *Books* and *Manga* sect
 What it was: Shelfarr had run since June 2026 with `0 acquisition_providers`,
 `0 download_clients`, and **Audiobookshelf had never been initialised at all**
 (`isInit: false` — no root user, no libraries). The "Post-boot (one-time)" comment in
-`Modules/server.nix` was never carried out, so every component showed green on Glance
+the old `server.nix` was never carried out, so every component showed green on Glance
 while nothing was wired *between* them.
 
 Now done by **`books-setup.service`** — idempotent, runs every rebuild, converges a fresh
@@ -141,10 +140,11 @@ Still open, small:
   re-debug FlareSolverr. MangaDex and MangaFire both work and cover the need.
 - **Komga**, only if native Mihon on the tablet is wanted instead of Suwayomi's web UI.
 
-Noticed while checking, unactioned: **group `media` is gid 169, and gid 1001 does not
+✅ FIXED 2026-10-03 (config side): **group `media` is gid 169, and gid 1001 does not
 exist** — yet the book containers run `PGID=1001`, which is why `/data/media/books` and
-`audiobooks` are `0777` where every other media dir is `0775`. `Claude/server-info.md`
-still documents "GID 1001".
+`audiobooks` are `0777` where every other media dir is `0775`. Shelfarr's PGID and tmpfiles now read
+`config.users.groups.media.gid`. Still to do on the box: `chgrp -R media` both dirs, then
+tighten them to `0775`.
 
 ---
 
@@ -153,8 +153,8 @@ still documents "GID 1001".
 - **Is `skwd-music` still on the MPRIS bus under v2?** With `skwd-walld` running
   and a **static** wallpaper, `playerctl --list-all` showed only `spotify`. If v2
   really dropped the inert player, two workarounds can go: the
-  `--ignore-player=skwd-music` flags in `Modules/Desktops/niri.nix` and the
-  `[shell.mpris] blacklist` in `Modules/noctalia.nix`. **Check with a video /
+  `--ignore-player=skwd-music` flags in `Modules/Desktop/niri.nix` and the
+  `[shell.mpris] blacklist` in `Modules/Desktop/noctalia.nix`. **Check with a video /
   Wallpaper Engine wallpaper playing before removing either** — it may only
   register then. Both files carry a warning note.
 - **`Claude/BACKUP.md` is pre-split and heavily stale** (v1 `skwd-daemon`,
@@ -168,9 +168,7 @@ still documents "GID 1001".
   `~/.config/vesktop/themes/noctalia*.css`, `discord-system24.css`.
   The vesktop ones are the only ones with any risk — leaving the opaque
   `noctalia.theme.css` on disk is what someone would re-enable by accident.
-- **Odysseus** is on skwd v1 and the user expects to retire it. Until then it
-  shares `Modules/noctalia.nix`, so check the host import matrix before editing
-  shared modules — see `Claude/skwd-wall.md`.
+- ✅ **Odysseus** was retired 2026-10-03, together with skwd v1.
 
 ---
 
@@ -293,7 +291,7 @@ exactly how every gaming laptop works. **Rendering quality is unaffected.**
 | Input | keyboard + mouse | **none local** — only Sunshine's injected devices |
 | Sunshine | stopped | running, captures this session |
 
-`programs.steam.gamescopeSession.enable = true` is **already set** in `Modules/steam.nix`,
+`programs.steam.gamescopeSession.enable = true` is **already set** in `Modules/Gaming/steam.nix`,
 and SDDM already lists `steam.desktop` alongside `niri.desktop`. `steam-gamescope` is just:
 
 ```bash
@@ -426,7 +424,7 @@ Approach: generate `config.toml` from Nix and place it with an activation script
 or tmpfiles, **but** Wolf rewrites that file at runtime (it stores
 `paired_clients` there), so a naive read-only symlink will break pairing. Needs a
 seed-if-absent + enforce-specific-keys strategy, like the `hevc_mode` handling in
-`Modules/sunshine.nix`.
+`Modules/Gaming/sunshine.nix`.
 
 ⚠️ Also still runtime-pulled and unpinned: `ghcr.io/games-on-whales/wolf:stable`.
 
@@ -444,7 +442,7 @@ Back these up, or land items 1–3 first:
 ```
 
 `~/.local/state/noctalia/settings.toml` no longer needs backing up — item 2 landed
-and `lockedSettings` in `Modules/noctalia.nix` reproduces it.
+and `lockedSettings` in `Modules/Desktop/noctalia.nix` reproduces it.
 
 Plus the off-repo Asgard state in item 6 above — Tailscale ACL policy, the
 `marsbar` machine's key-expiry setting, and the BIOS fan curves.
@@ -498,7 +496,7 @@ verified; what follows is what is genuinely still open.
 - ✅ Her **ssh host key + `&kitkat` age recipient** generated and wired; `apollo-deploy`
   now plants it automatically from `~/.local/share/apollo/<Host>/`.
 - ✅ Her **password** set by her, stored in `Secrets/kit-kat.yaml`.
-- ✅ **Greeter + bootloader**: `sddm-umbrella` (qylock women-umbrella) and
+- ✅ **Greeter + bootloader**: `sddm` with `my.sddm.theme = "women-umbrella"` (qylock) and
   `grub-celeste` (CelesteGRUB 1080p). Both build; greeter verified present in her
   system path with its font.
 - ✅ ISO console fixed (text status page) and SSH fixed (`--ssh` removed).
@@ -506,7 +504,7 @@ verified; what follows is what is genuinely still open.
 ### Known-incomplete, not blocking
 
 7. **Per-host niri outputs.** The wrapped niri config is a `perSystem` package
-   (`Modules/Desktops/niri.nix:626-633`), one store path for every host, so her monitor
+   (`Modules/Desktop/niri.nix:626-633`), one store path for every host, so her monitor
    layout falls through to auto-placement and the `output "DP-2"` / `"HDMI-A-1"` blocks
    and `open-on-output` rules silently no-op on her machine. Fixing it means moving the
    wrapper out of `perSystem` so it can take per-host settings.
@@ -515,7 +513,7 @@ verified; what follows is what is genuinely still open.
 9. **Her wallpaper library starts empty** — same root cause as item 1 at the top of this
    file (`~/Pictures/Wallpapers` is not in the repo). Worth landing that item before she
    first boots, or her first login has a blank wall.
-10. **`rain-effect` on NVIDIA is unverified.** GLES2 `wlr-layer-shell` overlay; expected
+10. ~~**`rain-effect` on NVIDIA is unverified.**~~ Moot: rain-effect was retired 2026-10-03. GLES2 `wlr-layer-shell` overlay; expected
     to work with modesetting on, but nothing has tested it. Nothing depends on it.
 11. **Stale Elektra profile on this disk.** `/nix/var/nix/profiles/system-profiles/elektra`
     still exists and still holds GC roots, but nothing builds it any more. Clean up with
@@ -528,7 +526,7 @@ verified; what follows is what is genuinely still open.
     operationally now that deploys are push-only (her machine never fetches the flake).
 13. **`tailscale-api-key` in sops is referenced by nothing.** It is an admin key that can
     rewrite ACLs and mint auth keys. Rotate or delete it.
-14. **`Modules/sops.nix`'s original module still needs a hand-copied age key** on every
+14. **`Modules/Core/sops.nix`'s original module still needs a hand-copied age key** on every
     new machine (`/home/<user>/.config/sops/age/keys.txt`). The `sops-kitkat` module shows
     the better pattern — `sops.age.sshKeyPaths` against the host's own ssh key. rock's
     hosts have not been migrated.

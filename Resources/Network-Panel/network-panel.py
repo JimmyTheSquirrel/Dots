@@ -2,13 +2,23 @@
 """
 Network panel endpoint for Glance.
 
-Two jobs in one process:
+Three jobs in one process:
 
-  * live throughput — a background thread samples /proc/net/dev once a second and
-    keeps a rolling 60s history, so both the numbers and the sparklines are ready
-    on the very first request rather than filling in over the next minute.
-  * speed test — serves the last result written by speedtest.service, and can
-    trigger a fresh run on demand.
+  * live throughput — a background thread samples /proc/net/dev once a second
+    (the LAN interface AND tailscale0) and keeps a rolling 60s history, so the
+    numbers and sparklines are ready on the very first request.
+  * latency — while a dashboard is watching, a TCP handshake to the internet
+    (1.1.1.1:443) and to the router every 5 s. A handshake rather than ICMP so
+    it needs no raw socket; a refused port answers just as fast as an open one.
+  * speed test — serves the last result written by speedtest.service and the
+    history it appends, and can trigger a fresh run on demand.
+
+Two ways to read it:
+
+  GET /api     one JSON snapshot (MarsBar polls this; its shape is a contract)
+  GET /events  Server-Sent Events for the admin dashboard: everything once on
+               connect, then a `tick` every second, `latency` every 5 s and
+               `speedtest` when a run starts, finishes or lands a new result
 
 This replaced `flow` wrapped in a second read-only ttyd on :7682. That worked,
 but ttyd kills the child whenever the websocket drops — a backgrounded tab, a
@@ -26,6 +36,12 @@ which is why this sends CORS and binds 0.0.0.0 rather than 127.0.0.1. It is
 still tailnet-only: tailscale0 is a trusted firewall interface and 9555 is
 deliberately not in allowedTCPPorts.
 
+CORS goes to the dashboards only (DASH_ORIGINS), never `*`, and POST /run needs
+an `X-Dash: 1` header. Together those stop any other web page open in a tailnet
+browser from kicking off speed tests: without the header a body-less POST is a
+"simple" request the browser sends cross-origin without asking, and with it the
+browser has to pass a preflight that only the dashboards pass.
+
 Units are fixed at Mb/s throughout, deliberately. flow's auto-scaling used to
 drop the panel to Kb/s whenever the link went quiet, which made a glance at the
 dashboard misread by three orders of magnitude.
@@ -34,6 +50,7 @@ dashboard misread by three orders of magnitude.
 import http.server
 import json
 import os
+import socket
 import socketserver
 import subprocess
 import threading
@@ -43,31 +60,65 @@ from collections import deque
 IFACE = os.environ.get("NETPANEL_IFACE", "enp3s0")
 PORT = int(os.environ.get("NETPANEL_PORT", "9555"))
 RESULT = os.environ.get("NETPANEL_RESULT", "/var/lib/speedtest/latest.json")
+RESULTS = os.environ.get("NETPANEL_HISTORY", "/var/lib/speedtest/history.jsonl")
+TS_IFACE = os.environ.get("NETPANEL_TS_IFACE", "tailscale0")
+INTERNET = (os.environ.get("NETPANEL_PROBE", "1.1.1.1"), 443)
 UNIT = os.environ.get("NETPANEL_UNIT", "speedtest.service")
+
+# Mirrors Modules/Server/_origins.nix, which Modules/Server/network.nix passes in
+# as DASH_ORIGINS (comma-separated); this default only applies when run by hand. The admin Glance
+# builds this panel's URL from location.hostname, so each name it is opened by
+# is listed.
+DASH_ORIGINS = frozenset(o.strip() for o in os.environ.get(
+    "DASH_ORIGINS",
+    "http://asgard:8888,http://asgard.tailb54b82.ts.net:8888,"
+    "http://100.126.205.100:8888,http://marsbar:1111,"
+    "http://marsbar.tailb54b82.ts.net:1111",
+).split(",") if o.strip())
 
 SAMPLE_SECONDS = 1.0
 HISTORY = 60  # seconds of sparkline history, at one sample per second
 
-_lock = threading.Lock()
+LATENCY_SECONDS = 5.0
+LATENCY_HISTORY = 36  # 3 minutes of probes
+
+_lock = threading.Condition()   # guards the series; notified once per sample
 _down = deque([0.0] * HISTORY, maxlen=HISTORY)
 _up = deque([0.0] * HISTORY, maxlen=HISTORY)
+_ts_down = deque([0.0] * HISTORY, maxlen=HISTORY)
+_ts_up = deque([0.0] * HISTORY, maxlen=HISTORY)
+_tick = {"n": 0}
+_rtt = {"inet": None, "gw": None, "gw_ip": None, "hist": deque(maxlen=LATENCY_HISTORY)}
+_watchers = {"n": 0}  # open /events streams — the latency probe only runs for them
+_probe_now = threading.Event()  # a new watcher: probe at once, not up to 5 s later
 
 
 def read_counters():
-    """Return (rx_bytes, tx_bytes) for IFACE, or None if it is not present."""
+    """{iface: (rx_bytes, tx_bytes)} for the LAN interface and tailscale0."""
+    out = {}
     with open("/proc/net/dev") as fh:
         for line in fh:
             name, _, rest = line.partition(":")
-            if name.strip() != IFACE:
-                continue
-            f = rest.split()
-            # Receive block is 8 columns wide, so transmit bytes is index 8.
-            return int(f[0]), int(f[8])
-    return None
+            name = name.strip()
+            if name in (IFACE, TS_IFACE):
+                f = rest.split()
+                # Receive block is 8 columns wide, so transmit bytes is index 8.
+                out[name] = (int(f[0]), int(f[8]))
+    return out
+
+
+def rate(now, prev, iface, elapsed):
+    """Mb/s for one interface, or 0.0 across a gap. A counter that went
+    backwards means the NIC counters wrapped or the interface was reset; treat
+    it as a gap rather than a huge spike."""
+    a, b = now.get(iface), prev.get(iface)
+    if not a or not b or elapsed <= 0 or a[0] < b[0] or a[1] < b[1]:
+        return 0.0, 0.0
+    return (a[0] - b[0]) * 8 / elapsed / 1e6, (a[1] - b[1]) * 8 / elapsed / 1e6
 
 
 def sampler():
-    """Convert the kernel's monotonic byte counters into a Mb/s series."""
+    """Convert the kernel's monotonic byte counters into Mb/s series."""
     prev = read_counters()
     prev_at = time.monotonic()
 
@@ -75,32 +126,65 @@ def sampler():
         time.sleep(SAMPLE_SECONDS)
         now = read_counters()
         at = time.monotonic()
-
-        if now is None or prev is None:
-            prev, prev_at = now, at
-            continue
-
         elapsed = at - prev_at
-        # A counter that went backwards means the NIC counters wrapped or the
-        # interface was reset; treat it as a gap rather than a huge spike.
-        if elapsed <= 0 or now[0] < prev[0] or now[1] < prev[1]:
-            prev, prev_at = now, at
-            continue
-
-        down = (now[0] - prev[0]) * 8 / elapsed / 1e6
-        up = (now[1] - prev[1]) * 8 / elapsed / 1e6
-
+        down, up = rate(now, prev, IFACE, elapsed)
+        tdown, tup = rate(now, prev, TS_IFACE, elapsed)
         with _lock:
             _down.append(down)
             _up.append(up)
-
+            _ts_down.append(tdown)
+            _ts_up.append(tup)
+            _tick["n"] += 1
+            _lock.notify_all()
         prev, prev_at = now, at
+
+
+def gateway():
+    """The default route's next hop on IFACE, from /proc/net/route (hex, LE)."""
+    try:
+        with open("/proc/net/route") as fh:
+            for line in fh.readlines()[1:]:
+                f = line.split()
+                if f[0] == IFACE and f[1] == "00000000" and f[2] != "00000000":
+                    return socket.inet_ntoa(int(f[2], 16).to_bytes(4, "little"))
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def handshake_ms(host, port):
+    """Round trip of one TCP handshake, in ms. A refused port is still an
+    answer (the RST came back), so it counts; a timeout is None."""
+    t0 = time.monotonic()
+    try:
+        socket.create_connection((host, port), timeout=2).close()
+    except ConnectionRefusedError:
+        pass
+    except OSError:
+        return None
+    return round((time.monotonic() - t0) * 1000, 1)
+
+
+def prober():
+    """Latency to the internet and the router — only while someone watches."""
+    while True:
+        if _watchers["n"] > 0:
+            gw = gateway()
+            inet = handshake_ms(*INTERNET)
+            gwms = handshake_ms(gw, 80) if gw else None
+            with _lock:
+                _rtt.update(inet=inet, gw=gwms, gw_ip=gw)
+                _rtt["hist"].append(inet)
+        _probe_now.wait(LATENCY_SECONDS)
+        _probe_now.clear()
 
 
 def live():
     with _lock:
         down = list(_down)
         up = list(_up)
+        tdown = list(_ts_down)
+        tup = list(_ts_up)
 
     return {
         "iface": IFACE,
@@ -113,7 +197,37 @@ def live():
         "hist_down": [round(v, 2) for v in down],
         "hist_up": [round(v, 2) for v in up],
         "window": HISTORY,
+        # The tailnet's share (remote Jellyfin, Eclipse away from home, Moonlight).
+        "ts_iface": TS_IFACE,
+        "ts_down": round(tdown[-1], 2),
+        "ts_up": round(tup[-1], 2),
+        "hist_ts_down": [round(v, 2) for v in tdown],
+        "hist_ts_up": [round(v, 2) for v in tup],
     }
+
+
+def latency():
+    with _lock:
+        return {"inet": _rtt["inet"], "gw": _rtt["gw"], "gw_ip": _rtt["gw_ip"],
+                "probe": INTERNET[0], "hist": list(_rtt["hist"])}
+
+
+def results(n=28):
+    """The last n speed tests (7 days at one every 6 h), oldest first."""
+    try:
+        with open(RESULTS) as fh:
+            lines = fh.readlines()[-n:]
+    except OSError:
+        return []
+    out = []
+    for line in lines:
+        try:
+            r = json.loads(line)
+            out.append({"t": r["t"], "down": round(float(r["down"]), 1),
+                        "up": round(float(r["up"]), 1), "ping": round(float(r["ping"]), 1)})
+        except (ValueError, KeyError, TypeError):
+            continue
+    return out
 
 
 def speedtest():
@@ -169,17 +283,70 @@ def running():
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def _cors(self):
+        origin = self.headers.get("Origin")
+        if origin and origin in DASH_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Vary", "Origin")
+
     def _send(self, code, payload):
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._cors()
         self.end_headers()
         self.wfile.write(body)
 
+    def events(self):
+        """The admin dashboard's stream. Everything once, then deltas."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self._cors()
+        self.end_headers()
+
+        def send(event, payload):
+            self.wfile.write(("event: %s\ndata: %s\n\n" % (event, json.dumps(payload, separators=(",", ":")))).encode())
+
+        with _lock:
+            _watchers["n"] += 1
+        _probe_now.set()
+        try:
+            st = (speedtest(), running(), os.path.getmtime(RESULT) if os.path.exists(RESULT) else 0)
+            send("init", {"live": live(), "latency": latency(), "speedtest": st[0],
+                          "running": st[1], "results": results()})
+            self.wfile.flush()
+            seen, n = _tick["n"], 0
+            last_rtt = None
+            while True:
+                with _lock:
+                    _lock.wait_for(lambda: _tick["n"] != seen, timeout=5)
+                    seen = _tick["n"]
+                    d, u, td, tu = _down[-1], _up[-1], _ts_down[-1], _ts_up[-1]
+                    rtt = (_rtt["inet"], _rtt["gw"])
+                send("tick", {"d": round(d, 2), "u": round(u, 2), "td": round(td, 2), "tu": round(tu, 2)})
+                n += 1
+                if rtt != last_rtt:
+                    send("latency", latency())
+                    last_rtt = rtt
+                if n % 2 == 0:  # a finished or started run, within 2 s
+                    now = (None, running(), os.path.getmtime(RESULT) if os.path.exists(RESULT) else 0)
+                    if now[1:] != st[1:]:
+                        st = (speedtest(),) + now[1:]
+                        send("speedtest", {"speedtest": st[0], "running": st[1], "results": results()})
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            with _lock:
+                _watchers["n"] -= 1
+
     def do_GET(self):
+        if self.path.split("?")[0].rstrip("/") == "/events":
+            self.events()
+            return
         if self.path.rstrip("/") in ("", "/api"):
             self._send(200, {
                 "live": live(),
@@ -192,6 +359,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path.rstrip("/") != "/run":
             self._send(404, {"error": "not found"})
+            return
+
+        # See the module docstring: the header is what forces a preflight.
+        if self.headers.get("X-Dash") != "1":
+            self._send(403, {"error": "missing X-Dash header"})
             return
 
         if running():
@@ -211,9 +383,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._send(200, {"running": True, "started": True})
 
     def do_OPTIONS(self):
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        origin = self.headers.get("Origin")
+        allowed = bool(origin) and origin in DASH_ORIGINS
+        self.send_response(204 if allowed else 403)
+        self._cors()
+        if allowed:
+            self.send_header("Access-Control-Allow-Methods", "GET, POST")
+            self.send_header("Access-Control-Allow-Headers", "X-Dash")
+            self.send_header("Access-Control-Max-Age", "600")
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -228,4 +405,5 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 if __name__ == "__main__":
     threading.Thread(target=sampler, daemon=True).start()
+    threading.Thread(target=prober, daemon=True).start()
     Server(("0.0.0.0", PORT), Handler).serve_forever()

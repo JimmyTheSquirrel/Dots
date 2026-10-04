@@ -22,15 +22,9 @@
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
 
-    # --- SKWD Wallpaper Selector (v1 — QuickShell; Elektra, Odysseus) ---
-    # Pinned to an exact rev, not a branch. The repo's default branch is now v2,
-    # so a bare `github:liixini/skwd-wall` resolves to the v2 flake and a routine
-    # `nix flake update` would silently swap v1 out from under two hosts.
-    skwd-wall.url = "github:liixini/skwd-wall/8799dacb8d32b15bd7bb50b72c416159d1a9d763";
-
-    # --- SKWD Wallpaper Selector (v2 — Rust rewrite; Sisyphus) ---
+    # --- SKWD Wallpaper Selector (v2 — Rust; Sisyphus, Kit-Kat) ---
     # Upstream's official NixOS support. Ships prebuilt release binaries plus
-    # nixosModules.default; consumed by Modules/Skwd.nix.
+    # nixosModules.default; consumed by Modules/Desktop/skwd.nix.
     #
     # Deliberately no `inputs.nixpkgs.follows`: the binaries are autoPatchelf'd
     # against upstream's pinned nixpkgs, and matching it is what makes our
@@ -38,26 +32,10 @@
     # channel.json. Overriding it turns every build into a local rebuild.
     skwd-wall-v2.url = "github:liixini/skwd-wall/nix";
 
-    # --- KDE Plasma Manager ---
-    plasma-manager = {
-      url = "github:nix-community/plasma-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.home-manager.follows = "home-manager";
-    };
-
-    # --- Niri ---
-    niri.url = "github:sodiboo/niri-flake";
-
     # --- Wrapper Modules ---
     wrapper-modules.url = "github:BirdeeHub/nix-wrapper-modules";
 
-# --- SDDM Theme ---
-    silentSDDM = {
-      url = "github:uiriansan/SilentSDDM";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    # --- Qylock (NieR: Automata SDDM greeter — Sisyphus) ---
+    # --- Qylock (SDDM greeter themes — Sisyphus nier-automata, Kit-Kat women-umbrella) ---
     qylock = {
       url = "github:Darkkal44/qylock";
       inputs.nixpkgs.follows = "nixpkgs";

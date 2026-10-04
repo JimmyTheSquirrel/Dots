@@ -1,7 +1,7 @@
 # Noctalia — Desktop Shell
 
-**Module:** `Modules/noctalia.nix`
-**Used on:** Sisyphus (Niri) and Odysseus (Hyprland)
+**Module:** `Modules/Desktop/noctalia.nix`
+**Used on:** Sisyphus (Niri), Kit-Kat (Hyprland), and the Apollo ISO's rescue niri session
 
 ## Architecture (v5)
 
@@ -9,14 +9,13 @@ Noctalia v5 is a **native C++ application** (not QuickShell). The binary is **`n
 
 Config loading (merge order, lowest → highest priority):
 1. Built-in defaults
-2. All `*.toml` files in `~/.config/noctalia/` (sorted alphabetically — `nix-config.toml` goes here)
+2. All `*.toml` files in `~/.config/noctalia/` (sorted alphabetically). Nix writes nothing here any more — the `nix-config.toml` it used to write was retired 2026-10-03, see below
 3. `~/.local/state/noctalia/settings.toml` — GUI changes land here, **wins at runtime**
 
 ## Settings Files
 
 | File | Who writes it | What it controls |
 |------|--------------|-----------------|
-| `~/.config/noctalia/nix-config.toml` | Nix (`home.file`) | TOML defaults — merged **under** GUI state, so any key here is a fresh-install default the GUI can override |
 | `~/.local/state/noctalia/settings.toml` | noctalia GUI **and Nix** | TOML runtime state: bar layout, widget slots, capsule groups, theme source, `background_opacity`. Wins the runtime merge — but **every rebuild rewrites it**, see below |
 | `~/.config/noctalia/settings.json` | noctalia GUI | Legacy JSON. Still written, **not read** at startup — see below |
 
@@ -24,12 +23,13 @@ Config loading (merge order, lowest → highest priority):
 
 ### ⚠️ Nix owns `settings.toml` (since 2026-09-30)
 
-The merge order above is upstream's, and it makes `nix-config.toml` structurally unable to control anything the GUI has ever touched — which is *most of the desktop*: bar position, widget slots, capsule groups, lockscreen layout, template lists. Before this, a rebuild changed none of it and a fresh install came up with noctalia's defaults.
+The merge order above is upstream's, and it made the old `nix-config.toml` structurally unable to control anything the GUI has ever touched — which is *most of the desktop*: bar position, widget slots, capsule groups, lockscreen layout, template lists. Before this, a rebuild changed none of it and a fresh install came up with noctalia's defaults.
 
 So `noctalia.nix` stops fighting the merge order and writes `settings.toml` directly:
 
-- **`lockedSettings`** in `Modules/noctalia.nix` is the canonical desktop state.
+- **`lockedSettings`** in `Modules/Desktop/noctalia.nix` is the canonical desktop state.
 - **`home.activation.noctaliaSettingsLock`** deep-merges it *over* the live file on every rebuild — locked keys forced, undeclared keys passed through — then runs `noctalia msg config-reload`.
+- That reload is called **by absolute store path** (`lib.getExe config.programs.noctalia.package`). Home Manager runs activation with an empty PATH (`home.emptyActivationPath`), so the bare `noctalia msg config-reload` it used to be was "command not found" on every switch — hidden by its own `>/dev/null 2>&1 || true`. Fixed 2026-10-03; before that, a rebuild's lock only took effect at the next noctalia start.
 
 **Tune in the GUI freely; the next rebuild reverts it.** That is the intended workflow: GUI for testing, `lockedSettings` for keeping.
 
@@ -50,10 +50,13 @@ Arrays are replaced wholesale, never appended: a locked `start` or `capsule_grou
 
 ### Which file does a given key belong in?
 
-- **Has the GUI ever written it?** → `lockedSettings`. Check with `grep -A5 '\[shell.panel\]' ~/.local/state/noctalia/settings.toml`.
-- **Untouched by the GUI?** → `nix-config.toml` is fine and simpler. `[widget.clock] format`, `[shell.mpris] blacklist` and `[idle]` live there and are live precisely because the GUI has never set them.
-
-Keys may appear in both; `settings.toml` then decides, and Nix controls both sides anyway.
+**`lockedSettings`, always.** There used to be a second home: `nix-config.toml`
+(`home.file`, merged *under* the GUI), meant for keys the GUI had never written.
+By 2026-10-03 half its keys (`[shell.panel] transparency_mode`, `[theme]`,
+`[theme.templates]`, `[plugins]`) were already restated in `lockedSettings`, which
+wins, and the rest (`[widget.clock] format`/`tooltip_format`, `[shell.mpris]
+blacklist`, `[idle]`) were one GUI click away from being silently overridden for
+good. All of it now lives in `lockedSettings` and the file is gone.
 
 ## IPC Commands
 
@@ -73,32 +76,27 @@ noctalia msg caffeine-toggle            # Idle inhibitor on/off (also a bar widg
 and checks config files rather than talking to the running shell. See
 [Verifying](#verifying) under Idle.
 
-**Restarting noctalia:** it is launched by niri via `spawn-at-startup`, not a systemd service. There is no `noctalia.service`. To restart after a hard crash:
+**Restarting noctalia:** it is launched by the compositor (niri's `spawn-at-startup`, Hyprland's `exec-once`), not a systemd service. There is no `noctalia.service`. To restart after a hard crash:
 ```bash
 pkill -f 'noctalia$' && noctalia &
 ```
 
 ## Declarative Config (Nix)
 
-Two mechanisms, and the difference matters — see [Which file does a given key belong in?](#which-file-does-a-given-key-belong-in) above:
+One mechanism: `lockedSettings` in `noctalia.nix`, rendered to TOML and merged
+**over** `~/.local/state/noctalia/settings.toml` on every rebuild (see above).
+Per-host differences go in `my.noctalia.lockedSettingsExtra`, deep-merged over it
+(Kit-Kat's squared-off bottom bar) — restate only what differs; lists replace
+wholesale, so a changed list has to be given in full.
 
-| | `nix-config.toml` (`home.file`) | `lockedSettings` (activation) |
-|---|---|---|
-| Writes | `~/.config/noctalia/nix-config.toml` | `~/.local/state/noctalia/settings.toml` |
-| Precedence | merged **under** the GUI | **overwrites** the GUI each rebuild |
-| Use for | keys the GUI has never set | anything the GUI can touch |
-
-`home.file.".config/noctalia/nix-config.toml"` sets baseline TOML defaults. The GUI (`settings.toml`) overrides any conflicting keys, so a key here is only live while the GUI has not set it.
-
-Current managed keys:
-- `[widget.clock] format` / `tooltip_format` — strftime-style format strings (live; the GUI has not set these)
-- `[shell.panel] transparency_mode` — fresh-install default; GUI already sets the same value
-- `[idle]` + `[idle.behavior.screen-off]` — monitors DPMS off after 5 min idle (see below)
-- `[plugins] enabled` + `[[plugins.source]]` — plugin registry and git sources
+Among the locked keys, the ones that came over from the retired `nix-config.toml`:
+- `widget.clock.format` / `tooltip_format` — strftime-style format strings
+- `shell.mpris.blacklist` — see [MPRIS blacklist](#mpris-blacklist--skwd-music)
+- `idle` + `idle.behavior.screen-off` — monitors DPMS off after 5 min idle (see below)
 
 **Do NOT add a `[plugins."<author>/<name>"]` table** to configure a plugin. Per-plugin subtables are silently dropped: `settings.toml`'s own top-level `[plugins]` wins the merge outright, so the subtable never reaches the plugin's `getConfig()`. TOML has no `~` expansion either. Plugins fall back to their built-in defaults — for the keybind cheatsheet that means `~/.config/niri/config.kdl`, which `niri.nix` generates. See `Claude/niri.md`.
 
-On a fresh install noctalia creates `~/.local/state/noctalia/settings.toml` on first launch. The `nix-config.toml` applies immediately.
+On a fresh install there is no `settings.toml` yet; the lock script starts from an empty document and writes the whole lock out, so noctalia's first launch already comes up with the declared desktop.
 
 **Plugin sources are fetched from GitHub at runtime**, not pinned by the flake — `[[plugins.source]]` points at `noctalia-dev/official-plugins` and `community-plugins` HEAD. This is the one unpinned input in an otherwise fully-pinned config: a fresh install needs network access and gets whatever is current. Pinning would mean vendoring the plugins as a flake input.
 
@@ -157,12 +155,11 @@ Upstream schema: `src/config/schema/config_schema.cpp`, defaults in
 - **Declaring any behaviour replaces the built-in default list** (`lock` 600s,
   `screen-off` 660s, `lock-and-suspend` 900s). All three ship `enabled = false`,
   so nothing is lost. An *empty* list is what restores them.
-- `[idle]` lives in `nix-config.toml`, **not** in `lockedSettings`, because the GUI
-  has never written it. So this is the one area still exposed to the old failure
-  mode: touching the Idle page in the Settings GUI writes `[idle]` into
-  `settings.toml`, which wins, and no rebuild will take it back. If that happens,
-  move the `[idle]` tables into `lockedSettings` rather than trying to fix it in
-  `nix-config.toml`.
+- `[idle]` is in `lockedSettings` (moved from `nix-config.toml` 2026-10-03). It
+  used to be the one area exposed to the old failure mode — touching the Idle page
+  in the Settings GUI would have written `[idle]` into `settings.toml`, which won,
+  and no rebuild could take it back. Now a GUI change there lasts until the next
+  rebuild, like everything else.
 
 ### Verifying
 
@@ -173,22 +170,24 @@ noctalia config export full            # same, including every built-in default
 noctalia msg dpms-off; sleep 5; noctalia msg dpms-on   # prove the DPMS path by hand
 ```
 
-`config validate` takes a **path**, so a rendered file can be checked before any
-rebuild:
+`config validate` takes a **path**. The merged result is the live file, so check
+it after a switch:
 
 ```bash
-nix eval --raw '.#nixosConfigurations.rock-Sisyphus.config.home-manager.users.rock.home.file.".config/noctalia/nix-config.toml".text' > /tmp/probe.toml
-noctalia config validate /tmp/probe.toml
+noctalia config validate ~/.local/state/noctalia/settings.toml
 ```
 
-No re-login needed after a rebuild — noctalia watches `~/.config/noctalia/*.toml`
-with inotify and reloads. (Contrast niri, whose config is baked into the wrapper.)
+(The rendered lock itself is the `*-noctalia-settings-lock.toml` store path named
+in `home.activation.noctaliaSettingsLock.data`, if it needs checking on its own.)
+
+No re-login needed after a rebuild — the lock activation ends with
+`noctalia msg config-reload`. (Contrast niri, whose config is baked into the wrapper.)
 
 ## Bar Configuration
 
-**The bar is locked** — edit `lockedSettings.bar.main` in `Modules/noctalia.nix` and rebuild. GUI changes to the bar survive only until the next rebuild.
+**The bar is locked** — edit `lockedSettings.bar.main` in `Modules/Desktop/noctalia.nix` and rebuild. GUI changes to the bar survive only until the next rebuild.
 
-### Visual settings (TOML — `settings.toml` or `nix-config.toml`)
+### Visual settings (TOML — `settings.toml`, i.e. `lockedSettings`)
 
 ```toml
 [bar.main]
@@ -233,7 +232,7 @@ Widget definitions live in `bar.widgets.left/center/right`. **Noctalia v5 does n
 | `NotificationHistory` | right | Notification bell |
 | `Tray` | right | System tray |
 
-Editing `settings.json` has **no effect**. Change the bar in `lockedSettings.bar.main` (`Modules/noctalia.nix`), or in the GUI if you only want it until the next rebuild.
+Editing `settings.json` has **no effect**. Change the bar in `lockedSettings.bar.main` (`Modules/Desktop/noctalia.nix`), or in the GUI if you only want it until the next rebuild.
 
 Note `jq` is not on the interactive PATH here; use a full store path (`${pkgs.jq}/bin/jq` in Nix, or `nix run nixpkgs#jq` ad hoc).
 
@@ -300,12 +299,10 @@ pw-link -l | grep -A2 '^spotify:output'             # want spotify_tap:playback_
 ## MPRIS blacklist — `skwd-music`
 
 `[shell.mpris] blacklist` (matched on the D-Bus session name) excludes players from noctalia's
-media widget and `noctalia msg media`. `nix-config.toml` sets it to `["skwd-music"]`: skwd-daemon
+media widget and `noctalia msg media`. `lockedSettings` sets it to `["skwd-music"]`: skwd-daemon
 registers an inert `org.mpris.MediaPlayer2.skwd-music` that carries no metadata but claims
 `CanControl`/`CanPlay`/`CanGoNext`, so it can win the active-player pick and swallow commands.
-The niri media keys dodge the same stub with `playerctl --ignore-player` — see `Claude/niri.md`.
-
-The GUI has not written `[shell.mpris]`, so the Nix value is live.
+The niri and Hyprland media keys dodge the same stub with `playerctl --ignore-player` — see `Claude/niri.md`.
 
 ## Clock Format (strftime tokens)
 
@@ -321,7 +318,7 @@ format = "%-I:%M %p"        # 12-hour, no leading zero: 9:34 PM  ← current
 tooltip_format = "%A, %B %d %Y"
 ```
 
-The glibc `-` flag suppresses the leading zero. This is live config — the GUI has not set `[widget.clock] format`, so the Nix value applies (`capsule`/`capsule_opacity` are the only clock keys in `settings.toml`).
+The glibc `-` flag suppresses the leading zero. Locked in `lockedSettings.widget.clock`, next to `capsule`/`capsule_opacity`.
 
 **WRONG formats** (all render literally, not as time):
 - `"hh:mm a"` — not strftime syntax
@@ -331,7 +328,7 @@ The `{:%H:%M}` C++ chrono style also works (noctalia strips `{:` and `}` then pa
 
 ## Color Theming
 
-**Sisyphus: skwd generates, noctalia fans out** (since 2026-09-15). skwd-iris is the only palette generator; noctalia consumes its palette and pushes it to every template it has enabled.
+**skwd generates, noctalia fans out** (Sisyphus since 2026-09-15; Kit-Kat runs the same module). skwd-iris is the only palette generator; noctalia consumes its palette and pushes it to every template it has enabled.
 
 ```
 wallpaper change
@@ -350,12 +347,12 @@ Three traps, all of which fail *silently* because each output file still exists 
 
 ### Templates
 
-`[theme.templates]` in `settings.toml` / `nix-config.toml`:
+`theme.templates` in `lockedSettings`:
 
 | | |
 |---|---|
-| `builtin_ids` | **empty on purpose.** 20 available; the kitty / starship / btop ones write a theme file then run an `apply.sh` that appends an include to the app's main config — but `kitty.conf`, `starship.toml` and `btop.conf` are read-only Nix store symlinks here, so the append cannot land. btop is already covered by skwd's own integration, which renders the `Modules/btop.nix` mapping into the `dots` theme `btop.conf` actually selects. |
-| `community_ids` | `["discord"]` — writes `~/.config/vesktop/themes/noctalia.theme.css`, the theme vesktop has enabled. 65 available, fetched from git at runtime into `~/.local/state/noctalia/community-templates` (same trust model as plugin sources; not pinned by the flake). |
+| `builtin_ids` | **empty on purpose.** 20 available; the kitty / starship / btop ones write a theme file then run an `apply.sh` that appends an include to the app's main config — but `kitty.conf`, `starship.toml` and `btop.conf` are read-only Nix store symlinks here, so the append cannot land. btop is already covered by skwd's own integration, which renders the `Modules/Shell/btop.nix` mapping into the `dots` theme `btop.conf` actually selects. |
+| `community_ids` | **empty too.** The `discord` community template was enabled on 2026-09-15 and pulled the same day: a full opaque redesign layered under Vesktop's transparency quickCss made Discord glitch. Discord gets a colours-only file from skwd instead (`Modules/Apps/discord.nix`). Community templates are fetched from git at runtime into `~/.local/state/noctalia/community-templates` (same trust model as plugin sources; not pinned by the flake). |
 
 **The `spicetify` and `steam` community templates do not fit this host.** spicetify's targets `Themes/Comfy/` + `Themes/Colorful/` and shells out to `spicetify apply` (which fights spicetify-nix); this host uses the `text` theme. steam's targets the SFP `Material-Theme` skin; this host uses Millennium + Zehn. Both stay on their own skwd integrations — see `Claude/steam.md` and `Claude/spicetify.md`.
 
@@ -363,20 +360,18 @@ Noctalia re-renders a template only when the content changes (it content-hashes 
 
 ---
 
-On **Elektra / Odysseus (v1)** the older behaviour still applies: noctalia v5 generates Material You colors from its own **internal wallpaper path** when `[theme] source = "wallpaper"` is set, and does **not** read the `colors.json` matugen writes.
+### `noctalia-sync-wallpaper` — retired
 
-**Critical:** noctalia tracks its own wallpaper path (`[wallpaper.last]` in `settings.toml`), separate from skwd-wall. On a fresh install it defaults to the bundled noctalia wallpaper in the nix store, producing a flat/wrong palette for the bar.
+The older wiring was a `noctalia-sync-wallpaper` script registered as a skwd
+`postProcessing` hook. With `[theme] source = "wallpaper"`, noctalia generates
+its palette from its **own** internal wallpaper path (`[wallpaper.last]`), so the
+script took the new path as `%path%`, ran `noctalia msg wallpaper-set <path>`,
+swapped a `swaybg` overview backdrop, then ran `noctalia msg templates-apply`.
 
-**Fix (v1 hosts only — Odysseus):** `noctalia-sync-wallpaper` runs after each skwd-wall wallpaper change. It lives in **`Modules/skwd-wall.nix`**, the v1 module, beside the `postProcessing` entry that registers it.
-
-1. Takes the wallpaper's **absolute** path as `$1` — skwd's `%path%` placeholder (falls back to `~/.cache/skwd-wall/last-wallpaper.json` only when called manually with no argument)
-2. `noctalia msg wallpaper-set <path>` — points noctalia at the right image so its own generator produces the right palette. Skipped if noctalia is <10s old; `wallpaper-set` blocks rendering ~5s at startup
-3. Swaps the `swaybg` backdrop that niri's overview uses
-4. `noctalia msg templates-apply`
-
-### ⚠️ Sisyphus deleted this script entirely (2026-09-15)
-
-Each of its three jobs disappeared in turn, and it was moved out of `noctalia.nix` — which is **shared with Odysseus** — rather than deleted outright:
+Sisyphus deleted it on 2026-09-15. It lived on in the v1 module
+(`Modules/skwd-wall.nix`) for Odysseus until that host and the v1 module were
+both removed; nothing in the repo now uses it, `postProcessing`, or swaybg.
+Each of its three jobs disappeared in turn:
 
 | call | why it went |
 |---|---|
@@ -384,37 +379,31 @@ Each of its three jobs disappeared in turn, and it was moved out of `noctalia.ni
 | `wallpaper-set` | vestigial under `theme.source = "custom"` (palette comes from skwd) and `[wallpaper] enabled = false` (noctalia paints nothing). Also caused a **visible flicker** — it repainted with the old palette, then `color-scheme-set` repainted with the new one. Reported as the bar "taking on the old colour then changing". |
 | swaybg swap | skwd v2 serves the overview backdrop natively via `skwd-paper-backdrop`. |
 
-**Nothing on Sisyphus uses `postProcessing` any more,** so the `%path%` machinery is gone with it. The one remaining hook takes no arguments.
-
 **Diagnostic note:** counting `settings.toml` mtime changes *under*counts — `wallpaper-set` and `color-scheme-set` both write it, ~150 ms apart, and coalesce under typical polling. To prove `wallpaper-set` is running, check whether `[wallpaper.default] path` tracks the swaps.
 
 ### Wallpaper path: take `%path%`, never parse `skwd status`
 
 **The cache file is not a valid source inside a wallpaper-change hook.** skwd writes `~/.cache/skwd-wall/last-wallpaper.json` *after* running its hooks, so reading it there yields the **previous** wallpaper — which silently put the overview backdrop and noctalia's whole palette one swap behind until 2026-08-16. The path arrives as `%path%` from the `postProcessing` hook instead; `integrations[].reload` commands get no arguments at all, which is why this script no longer lives there. Full measurement in `Claude/skwd-wall.md`.
 
-`~/.cache/skwd-wall/last-wallpaper.json` (`{"path":"/abs/path.jpg","type":"static"}`) remains correct at rest — it was what `wallpaper-restore` read at login (now deleted), and remains the fallback when this script is run by hand on v1.
+`~/.cache/skwd-wall/last-wallpaper.json` (`{"path":"/abs/path.jpg","type":"static"}`, v1's cache) was correct at rest — it was what `wallpaper-restore` read at login (now deleted).
 
 **Do not re-derive it from `skwd status`.** That field is `null` on a fresh session and carries no directory component. A `grep`/`sed` version of this script shipped briefly and mis-parsed the unquoted `null` — sed's pattern didn't match, so it passed the line through and `$WALL` became the literal string `"current_wallpaper": null,`, which then passed the `-n` guard and launched swaybg against a nonexistent path. Use `jq -r '.path // empty'`, which is null-safe.
 
-### swaybg backdrop — v1 hosts only
+### swaybg backdrop — gone
 
-**Gone from Sisyphus (2026-09-15)**, along with `wallpaper-restore` and the `^wallpaper$` layer rule. skwd v2 serves a native `skwd-paper-backdrop` surface with blur/dim/theming instead. See `Claude/skwd-wall.md` and `Claude/niri.md`.
-
-On v1, `noctalia-sync-wallpaper` (in `Modules/skwd-wall.nix`) starts swaybg on every wallpaper change. The swap records existing PIDs, starts the replacement, **then** kills the recorded ones — no black frame, and no risk of a blanket `pkill` racing the new instance.
-
-**Match with `pgrep -f 'swaybg -m fill -i'`, not `pgrep -x swaybg`.** nixpkgs wraps swaybg, so its `comm` is `.swaybg-wrapped` and `-x swaybg` matches nothing — which silently leaves stale instances stacked.
+Retired on Sisyphus 2026-09-15 along with `wallpaper-restore` and the `^wallpaper$` layer rule; skwd v2 serves a native `skwd-paper-backdrop` surface with blur/dim/theming instead. See `Claude/skwd-wall.md` and `Claude/niri.md`. (If swaybg ever comes back: match it with `pgrep -f 'swaybg -m fill -i'`, not `pgrep -x swaybg` — nixpkgs wraps it, so its `comm` is `.swaybg-wrapped`.)
 
 ### Why `home.packages`, and why store paths
 
 The skwd daemon runs reload commands with a trimmed PATH covering `/etc/profiles/per-user/$USER/bin` and `/run/current-system/sw/bin` (so `noctalia` and the `home.packages` scripts resolve), but `pkgs.writeShellScriptBin` sets no PATH of its own — so anything less common (`jq`, `pgrep`, `ps`, `sleep`, `tr`) must be referenced by full store path. Scripts in `~/.local/bin` are not on PATH at all (exit 127); use `home.packages` so the script itself is found, as with `spotify-apply-colors`.
 
-**On v2 that PATH is ours, not upstream's.** NixOS renders `systemd.user.services.<n>.path` as `Environment=PATH=…`, which **replaces** the inherited PATH — upstream's module lists only its own renderer packages, which would drop the user profile entirely and make every reload exit 127. `Modules/Skwd.nix` re-adds both dirs. See `Claude/skwd-wall.md`.
+**On v2 that PATH is ours, not upstream's.** NixOS renders `systemd.user.services.<n>.path` as `Environment=PATH=…`, which **replaces** the inherited PATH — upstream's module lists only its own renderer packages, which would drop the user profile entirely and make every reload exit 127. `Modules/Desktop/skwd.nix` re-adds both dirs. See `Claude/skwd-wall.md`.
 
-This script is wired as a skwd-wall `postProcessing` command — `noctalia-sync-wallpaper %path%` — **not** as the `noctalia` integration's reload command (managed in `skwd-wall.nix`). Only postProcessing substitutes the wallpaper path; see `Claude/skwd-wall.md`.
+## Desktop Clock Plugin — removed
 
-## Desktop Clock Plugin
+**The plugin's files were deleted** (`Resources/Noctalia-Plugins/desktop-clock/` is gone); what follows describes what it was. The Anurati font it used is still packaged (below) and installed via `home.packages`.
 
-Custom plugin at `Resources/Noctalia-Plugins/desktop-clock/`:
+It lived at `Resources/Noctalia-Plugins/desktop-clock/`:
 - `manifest.json` — Plugin metadata
 - `DesktopWidget.qml` — Clock widget showing day, date, and time
 - `Anurati-Regular.otf` — Futuristic geometric display font (bundled with plugin)
@@ -427,7 +416,7 @@ Custom plugin at `Resources/Noctalia-Plugins/desktop-clock/`:
 
 Anurati font is stored locally at `Resources/Fonts/Anurati-Regular.otf` and packaged in `noctalia.nix`:
 ```nix
-anuratiFont = "${self}/Resources/Fonts/Anurati-Regular.otf";
+anuratiFont = ../../Resources/Fonts/Anurati-Regular.otf;
 
 packages.anurati-font = pkgs.stdenvNoCC.mkDerivation {
   pname = "anurati-font";

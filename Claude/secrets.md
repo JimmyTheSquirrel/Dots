@@ -1,6 +1,6 @@
 # Secrets Management — sops-nix
 
-**Module:** `Modules/sops.nix`
+**Module:** `Modules/Core/sops.nix`
 **Flake input:** `sops-nix`
 
 Uses **sops-nix** with age keys. Secrets decrypted at system activation, available at `/run/secrets/`.
@@ -10,7 +10,7 @@ Uses **sops-nix** with age keys. Secrets decrypted at system activation, availab
 - `.sops.yaml` — **at the repo ROOT** (not in `Secrets/`) — age public keys and path rules
 - `Secrets/secrets.yaml` — encrypted secrets, rock's machines (safe to commit)
 - `Secrets/kit-kat.yaml` — Kit-Kat's machine only, its own recipients (see below)
-- `Modules/sops.nix` — sops-nix module config
+- `Modules/Core/sops.nix` — sops-nix module config
 
 ## Key Locations
 
@@ -28,7 +28,9 @@ Uses **sops-nix** with age keys. Secrets decrypted at system activation, availab
    ```
 5. Available at `/run/secrets/my-api-key` after rebuild
 
-**Editor:** `EDITOR` is set to `codium --wait` in `zsh.nix`, so sops opens VSCodium.
+**Editor:** `EDITOR` is `codium --wait` wherever `Modules/Apps/vscodium.nix` is imported
+(Sisyphus, Kit-Kat), so sops opens VSCodium there. Everywhere else it falls back to
+`zsh.nix`'s `lib.mkDefault "nano"`. Asgard edits secrets in nano.
 
 ## Useful Commands
 
@@ -61,7 +63,29 @@ Also: never `git diff` a sops file — the output is noise.
 
 ## Path Fix
 
-`defaultSopsFile` must use `../Secrets/secrets.yaml` (one level up from `Modules/`), NOT `../../` which resolves to `/nix/store/Secrets` and breaks pure evaluation.
+`defaultSopsFile` is a path **relative to the module file**. The module now lives at
+`Modules/Core/sops.nix`, so it is `../../Secrets/secrets.yaml`. If the module moves, the
+path must move with it. One `../` too many resolves outside the flake source
+(`/nix/store/Secrets`) and breaks pure evaluation.
+
+## rock's login password
+
+`Modules/Core/sops.nix` wires `users.users.<activeUser>.hashedPasswordFile` to the
+`user-password-hash` secret (`neededForUsers`), on every host that imports `sops`
+(Sisyphus, Asgard). With `users.mutableUsers` at its default (`true`),
+nixpkgs' `update-users-groups.pl` applies that hash **only when the account is
+created**:
+
+- On an existing machine nothing changes. The current `/etc/shadow` hash is kept,
+  `passwd` still works and survives rebuilds, and editing the secret does **not**
+  change an existing password.
+- On a fresh install the account is born with the secret's password instead of a
+  locked one. That needs the age key in place at first activation; without it the
+  file does not exist and the account gets no password.
+
+A host must not also set `initialPassword`/`password`. nixpkgs warns at eval time
+when a user has more than one password option. `hashedPasswordFile` wins the
+precedence either way.
 
 ## Per-machine secrets (Kit-Kat)
 
@@ -75,7 +99,9 @@ keys). So another person's machine gets its own file:
 - `.sops.yaml` has a **separate creation rule for it, listed FIRST**. sops uses the
   first matching rule, so the `[Ss]ecrets/.*\.yaml$` catch-all would otherwise
   swallow it and encrypt it without her key.
-- `Modules/sops.nix` defines a second module, `sops-kitkat`, pointing at that file.
+- `Modules/Core/sops.nix` defines a second module, `sops-kitkat`, pointing at that file.
+  Both modules import one shared `sopsCommon` (the sops-nix module + the `sops`/`age`
+  CLI). Only the file, the key source and the secrets differ.
 
 Her identity is **derived from the machine's ssh host key**, not a hand-copied age key:
 
@@ -88,7 +114,7 @@ that with `nixos-anywhere --extra-files` planting a **pre-generated** host key d
 the install and sops decrypts on the very first activation — no copying a key by
 hand, no install-then-reinstall. See `Claude/kit-kat.md`.
 
-`Modules/sops.nix`'s original module still uses the old pattern
+`Modules/Core/sops.nix`'s original module still uses the old pattern
 (`age.keyFile = /home/<user>/.config/sops/age/keys.txt`, one shared key copied to every
 machine by hand). The ssh-host-key approach above is the better one; rock's hosts have
 not been migrated to it.

@@ -6,7 +6,7 @@ keys:
   - &apollo age1e7gwwejhck67d36zjak3l0k5jpwlj23eluma9jaku0ae48eypveq9z3qyj
 
   # Kit-Kat's machine. Derived from its ssh host key with `ssh-to-age`, not a
-  # hand-copied age key, so Modules/sops.nix's `sops-kitkat` can decrypt on the
+  # hand-copied age key, so Modules/Core/sops.nix's `sops-kitkat` can decrypt on the
   # very first activation after nixos-anywhere --extra-files plants that host key.
   #
   # Generated 2026-10-02 from her ssh host key, which lives OUTSIDE this repo at
@@ -23,7 +23,7 @@ creation_rules:
   # Her file is deliberately separate from secrets.yaml rather than her key being
   # added to it: sops encrypts a whole file to every recipient, so one shared file
   # would give her machine the mullvad key, the cloudflare tunnel credentials, the
-  # eclipse ssh key and tailscale-api-key (an admin key). See Modules/sops.nix.
+  # eclipse ssh key and tailscale-api-key (an admin key). See Modules/Core/sops.nix.
   - path_regex: '[Ss]ecrets/kit-kat\.yaml$'
     key_groups:
       - age:

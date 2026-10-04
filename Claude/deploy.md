@@ -3,7 +3,7 @@
 One ISO, carried on the Ventoy stick (`Apollo`, exfat, 233 GB), that joins the
 tailnet by itself and then waits. Everything is initiated from Sisyphus.
 
-Built from `Hosts/Rescue/system.nix` — still the rescue disk (full Niri desktop,
+Built from `Hosts/Apollo/system.nix` — still the rescue disk (full Niri desktop,
 gparted, claude-code), now also the deployment target.
 
 ## The whole workflow
@@ -31,15 +31,16 @@ so nothing re-boots mid-install and the SSH session — along with the tailnet l
 carrying it — survives from start to finish. Without that, kexec would drop the
 connection the moment the install began.
 
-`nixos-anywhere` is already in `Modules/base.nix`, so it needs no flake input.
+`nixos-anywhere` is already in `Modules/Desktop/desktop.nix` (Sisyphus, Kit-Kat) and on the
+Apollo ISO, so it needs no flake input.
 
 ## The auth key lives on the stick, not in the ISO
 
 The key file lives at **`<stick>/keys/ts-authkey`** (next to the age backup that was
 already there), and the boot unit also accepts it at the stick root.
 
-`apollo-tailscale-up` (in `Hosts/Rescue/system.nix`, modelled on
-`marsbar-tailscale-up` in `Modules/marsbar.nix`) mounts the stick read-only at boot,
+`apollo-tailscale-up` (in `Hosts/Apollo/system.nix`, modelled on
+`marsbar-tailscale-up` in `Modules/Server/marsbar.nix`) mounts the stick read-only at boot,
 pulls the key out of that file — **skipping comment lines, and requiring at least 8
 characters after `tskey-`** — and runs
 `tailscale up --authkey=file:… --hostname=apollo --ssh`.
@@ -111,7 +112,7 @@ because the flake is public, so the target needs no credentials.
 ## Asgard is not deployable from here
 
 `system-rebuild` refuses `Asgard` without an explicit `--target`. This repo's
-`Modules/server.nix` drifts from the one on Asgard (`Claude/server-info.md`), so a
+`Modules/Server/` can drift from the copy on Asgard (`Claude/server-info.md`), so a
 push would overwrite the live config with a stale copy. Edit it on Asgard.
 
 ## Checking a disk layout before you wipe anything
@@ -177,7 +178,7 @@ tailscale ssh rock@apollo                              # "requires an additional
 It was added here as a belt-and-braces "second way in" and was precisely what removed
 the first way in. The ISO now runs plain
 `tailscale up --authkey=file:… --hostname=apollo`, and access is OpenSSH plus the
-authorized key from `Modules/base.nix`.
+authorized key from `Modules/Core/base.nix`.
 
 ## The console is text, deliberately
 
@@ -187,7 +188,7 @@ screens and no way to tell whether the machine is alive, still booting, or wedge
 which is exactly what happened on the first real boot.
 
 It now autologins to a text console and prints `apollo-status`: tailnet state and IP,
-the exact ssh command, the disk list (which is what `installDisk` needs), the GPU
+the exact ssh command, the disk list (which is what `installDisk` in `Hosts/<Host>/_disko.nix` needs), the GPU
 (which is what `hardware.nvidia.open` needs) and RAM. If the tailnet is down it says
 so in red along with the `journalctl` command and the fix. It prints on ssh login too.
 
@@ -212,20 +213,38 @@ it, all of them still in the boot menu.
 
 ## One command, not six
 
-`system-rebuild` is the single entry point:
+`system-rebuild` is the single entry point — an inline terminal UI (gum menus,
+nom's live build tree, dix's package diff; it draws in normal scrollback and
+never takes over the screen). The home screen shows every machine's tailnet
+state (online / direct or relay / last seen), Sisyphus's current generation and
+the repo's branch, dirty state, ahead/behind and nixpkgs lock age, then:
 
 ```
-  1) Rebuild a system            -> Sisyphus / Odysseus / Kit-Kat, then switch/boot/test
-  2) Deploy onto NEW hardware    -> pick the host, then dry-run / vm-test / INSTALL
-  3) Apollo USB                  -> build+copy ISO / write key / connect
+  Rebuild Sisyphus       switch · boot · build
+  Push to Kit-Kat        waits for her machine if it's offline; asks HER sudo password
+  Asgard                 explains the drift guard; shell on Asgard, or push anyway
+  Update flake inputs    nix flake update + a per-input changelog, then offers a rebuild
+  Git sync / Garbage collect
+  Deploy new hardware    dry-run / vm-test / INSTALL via apollo-deploy
+  Apollo USB             build+copy ISO / write key / connect
 ```
+
+Every rebuild is build → diff → activate: `nom build` of the toplevel, `dix`
+against what's running (over ssh for Kit-Kat), then
+`nixos-rebuild <switch|boot> --store-path <built>` — so the flake is evaluated
+once and activation is still nixos-rebuild's own. Ends in a summary box (time,
+closure size and delta, generation) or a red box saying nothing was activated.
+The look lives in `Resources/Scripts/lib/ui.sh`, prepended to each tool by
+`Modules/Shell/deploy-tools.nix` (Gruvbox brights to match kitty; plain text
+when piped or with `NO_COLOR`).
 
 The `apollo-*` commands still exist and still work standalone — `apollo-connect` in
 particular is worth keeping in muscle memory — they just don't all need to be
-remembered. The navi cheatsheet is down to `system-rebuild`, `nix-gc`, `git-sync`,
+remembered. The navi cheatsheet (`dots.cheat`, shipped by `Modules/Shell/deploy-tools.nix`) is down to `system-rebuild`, `nix-gc`, `git-sync`,
 `sops`, and three SSH targets.
 
-CLI form is unchanged: `system-rebuild USER SYSTEM [--boot] [--target HOST]`.
+CLI form is unchanged: `system-rebuild USER SYSTEM [--boot|--build] [--target HOST]` —
+no menus, same build → diff → activate output.
 
 ## The blank screen on a booted stick — two separate causes
 
@@ -236,7 +255,7 @@ both looked identical from the outside: monitors dark, machine apparently dead.
 (see above). But fixing that alone was not enough.
 
 **2. The display-manager framework claimed tty1 and then had nothing to run.**
-`Modules/Desktops/niri.nix` sets `services.xserver.enable = true`, which switches on
+`Modules/Desktop/niri.nix` sets `services.xserver.enable = true`, which switches on
 `services.displayManager`. That framework reserves tty1 for a display manager. Force
 `sddm` and `greetd` off but leave the framework on, and you get the worst case:
 `display-manager.service` **fails** (nothing to launch) *and* `getty@tty1` is never
@@ -261,7 +280,7 @@ systemd's upstream unit with nothing wanting a getty on it. Verified by checking
 the symlink in the built system:
 
 ```bash
-ls $(nix eval --raw .#nixosConfigurations.rock-Rescue.config.system.build.toplevel)/etc/systemd/system/getty.target.wants/
+ls $(nix eval --raw .#nixosConfigurations.rock-Apollo.config.system.build.toplevel)/etc/systemd/system/getty.target.wants/
 # must list getty@tty1.service
 ```
 

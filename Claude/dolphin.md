@@ -44,7 +44,7 @@ fixing that was built on 2026-09-25 and rejected. Qt is a different story:
 The two skwd templates are the real argument: `~/.config/skwd-wall-v2/matugen/
 templates/{qt6ct-colors.conf,kde-colors.colors}` are seeded by upstream and
 currently unused. Wiring them is one integration entry each, the same shape as
-the `btop` one in `Modules/Skwd.nix`.
+the `btop` one in `Modules/Desktop/skwd.nix`.
 
 ## What has to be true before adopting
 
@@ -77,11 +77,11 @@ Would become `Modules/dolphin.nix`, self-contained like every other module:
 - `home.file.".config/dolphinrc"` — view mode, sidebar, split view, tabs
 - `home.file.".config/kdeglobals"` — colour scheme + icon theme for Qt apps
 - `xdg.mime.defaultApplications`: `inode/directory` → `org.kde.dolphin.desktop`
-  (currently `thunar.desktop`, set in `Modules/thunar.nix`)
+  (currently `thunar.desktop`, set in `Modules/Desktop/thunar.nix`)
 - niri: `Mod+E` currently spawns `lib.getExe pkgs.xfce.thunar`
-  (`Modules/Desktops/niri.nix:59`)
+  (`Modules/Desktop/niri.nix:59`)
 
-⚠️ `Modules/thunar.nix` is imported by **all three hosts**, and Elektra's KDE
+⚠️ `Modules/Desktop/thunar.nix` is imported by **all three hosts**, and Elektra's KDE
 already has Dolphin. Check the host matrix before moving anything shared.
 
 ## Theming — do NOT repeat the GTK mistake
