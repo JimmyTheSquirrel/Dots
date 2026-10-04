@@ -249,9 +249,10 @@ ui_box() {
     ui_vlen_v "$l"
     if (( UI_N <= maxw )); then rows+=("$l"); continue; fi
     # Too long: wrap the plain text (its colour is lost — only ever a command
-    # or a path, where wrapping beats running off the edge).
+    # or a path, where wrapping beats running off the edge). At spaces where
+    # there are any; a store path has none and is cut where it must be.
     l=$(printf '%s' "$l" | sed 's/\x1b\[[0-9;]*m//g')
-    while IFS= read -r piece; do rows+=("$piece"); done < <(LC_ALL=C.UTF-8 fold -w "$maxw" <<<"$l")
+    while IFS= read -r piece; do rows+=("${piece% }"); done < <(LC_ALL=C.UTF-8 fold -s -w "$maxw" <<<"$l")
   done
   for l in "$title" "${rows[@]}"; do ui_vlen_v "$l"; (( UI_N > w )) && w=$UI_N; done
   (( w > maxw )) && w=$maxw

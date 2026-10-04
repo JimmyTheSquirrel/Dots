@@ -252,9 +252,13 @@ no Apollo section. Without a `~/Dots` it builds `github:JimmyTheSquirrel/Dots`
 
 Every rebuild is build → diff → activate: `nom build` of the toplevel, `dix`
 against what's running (over ssh for a remote machine), then
-`nixos-rebuild <switch|boot> --store-path <built>` (`-p sisyphus` for Sisyphus's
-own profile, `--target-host` for a remote) — so the flake is evaluated once and
-activation is still nixos-rebuild's own. Ends in a summary box (time, closure size
+`nixos-rebuild <switch|boot> --no-reexec --store-path <built>` (`-p sisyphus` for
+Sisyphus's own profile, `--target-host` for a remote) — so the flake is evaluated
+once and activation is still nixos-rebuild's own. **`--no-reexec` is load-bearing:**
+before switch/boot, nixos-rebuild-ng rebuilds *itself* from the new config — from
+`--flake` if given, else from `<nixpkgs/nixos>` + `nixos-config` on NIX_PATH, which a
+flake system doesn't have — and it does so even with `--store-path`. Without the flag
+every activation fails with `file 'nixos-config' was not found in the Nix search path`. Ends in a summary box (time, closure size
 and delta, generation) or a red box saying nothing was activated.
 
 **Where things live.** `Resources/Scripts/lib/ui.sh` is the look and the engine:
