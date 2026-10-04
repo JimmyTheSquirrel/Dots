@@ -64,7 +64,12 @@
     growth = pkgs.runCommand "asgard-growth" { } ''
       ${pkgs.python3}/bin/python3 ${../../Resources/Glance/growth.py} $out ${growthVersion}
     '';
-    glanceAssets = pkgs.linkFarm "glance-assets" (assetFiles // runeFiles // { inherit growth; });
+    # Cinzel (card titles, the navigation), from nixpkgs — asgard.css's @font-face.
+    fontFiles = {
+      "fonts/cinzel-bold.ttf" = "${pkgs.cinzel}/share/fonts/truetype/Cinzel-Bold.ttf";
+      "fonts/cinzel-regular.ttf" = "${pkgs.cinzel}/share/fonts/truetype/Cinzel-Regular.ttf";
+    };
+    glanceAssets = pkgs.linkFarm "glance-assets" (assetFiles // runeFiles // fontFiles // { inherit growth; });
 
     # Glance serves /assets/ with a 2h Cache-Control, so a script URL that never
     # changes would keep running the OLD code for up to two hours after a

@@ -23,7 +23,7 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 | Emulators | `Claude/emulators.md` | RPCS3, Ryubing, PS3 game prep |
 | Secrets | `Claude/secrets.md` | sops-nix, adding secrets, key locations |
 | Shell/misc | `Claude/misc.md` | Starship, Fastfetch, btop, Navi, Discord, media viewers, Thunar, audio (PipeWire fixes) |
-| Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Seerr API, Glance, recyclarr. Code is `Modules/Server/`. Glance's **overgrowth is generated at build time** by `Resources/Glance/growth.py` (one row per card) — growth from the top only, no dirt, red never pink |
+| Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Seerr API, Glance, recyclarr. Code is `Modules/Server/`. Glance's **vine frames, overgrowth and forest are generated at build time** by `Resources/Glance/growth.py` (one row per card) — no dirt, red never pink, toned down |
 | Home Assistant | `Claude/home-assistant.md` | Smart plugs on Asgard `:8123`. `extraComponents` gates which integrations exist at all; device pairings are **not** declarative |
 | MarsBar dashboard | `Claude/marsbar.md` | Partner-facing Glance on its **own tailnet node** (`marsbar:1111`) — why a node, not a path. Lights + Jellyfin/Seerr + the **full** Eclipse panel (shared with the admin dashboard). Isolation is a Tailscale **ACL**, not in this repo |
 | Dolphin (rejected) | `Claude/dolphin.md` | Decision record: Dolphin was trialled and rejected — **Thunar stays**. Don't re-propose it |

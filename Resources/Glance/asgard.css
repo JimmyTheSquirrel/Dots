@@ -60,7 +60,24 @@
    under 1.1rem.
    ════════════════════════════════════════════════════════════════════════════ */
 
+/* Cinzel — carved Roman capitals, for card titles and the navigation.
+   Packaged in nixpkgs (pkgs.cinzel) and served from Glance's assets
+   (glance.nix links it in), so nothing is fetched from anywhere else. */
+@font-face {
+  font-family: "Cinzel";
+  src: url("fonts/cinzel-bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cinzel";
+  src: url("fonts/cinzel-regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
+  --ag-title: "Cinzel", "Trajan Pro", Georgia, serif;
   /* ink — fog grey with a whisper of spruce; birch-bark text */
   --ag-page: #191d1b;
   --ag-text: #edeade;
@@ -134,26 +151,40 @@
   --ag-shadow: 0 14px 30px -18px rgb(0 0 0 / 0.78), 0 2px 6px -2px rgb(0 0 0 / 0.38);
 }
 
-/* ── The page: the sky over the wood ──────────────────────────────────────────
-   Grey with a faint spruce cast and a lift of light from above; low down,
-   each page's own sky — dusk red behind the Asgard wood, the eclipse's night
-   over Eclipse, a warm low sun through the oaks on Power. The world tree
-   (ygg-bg.svg) a few percent opaque behind everything, and the page's own
-   forest (--g-trees, growth.py: a ridge furred with trees, two woods with mist
-   between, the near trees, and the forest floor with its log, toadstools,
-   stones and ferns) along the foot of the viewport. Both fixed, so the cards
-   scroll over the forest. Nothing animates and nothing is blurred. */
+/* ── The page: the wood ──────────────────────────────────────────────────────
+   Behind everything, the page's own wood (--g-forest, growth.py: canopy light
+   and soft shafts of it, trunks at three depths in mist, big mossy trunks and
+   hanging vines at the sides, fireflies), fixed, so the cards scroll over it;
+   each page has its own light — dusk red on Asgard, a moonlit night on
+   Eclipse, warm sun on Power, deep shade on Terminal. Over it the world tree
+   (ygg-bg.svg) a few percent opaque, the page's treeline (--g-trees) along the
+   foot, and a few fireflies that slowly glow and fade (html::before/::after —
+   opacity only, so it costs next to nothing; still with reduced motion). */
 body {
-  --sky: rgb(var(--berry-rgb) / 0.09);
-  background:
-    radial-gradient(120% 60% at 50% -10%, rgb(var(--leaf-rgb) / 0.05), transparent 60%),
-    radial-gradient(90% 45% at 50% 108%, var(--sky), transparent 70%),
-    var(--ag-page);
-  background-attachment: fixed;
+  background: var(--g-forest, none) center / cover no-repeat fixed, var(--ag-page);
 }
-html:has(.nav-item-current[href="/eclipse"]) body { --sky: rgb(168 240 160 / 0.05); }
-html:has(.nav-item-current[href="/power"]) body { --sky: rgb(224 176 101 / 0.07); }
-html:has(.nav-item-current[href="/terminal"]) body { --sky: rgb(159 191 182 / 0.05); }
+html::before,
+html::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 7% 62%, rgb(230 255 154 / 0.55) 0 1.5px, rgb(230 255 154 / 0.18) 3px, transparent 9px),
+    radial-gradient(circle at 93% 41%, rgb(230 255 154 / 0.55) 0 1.5px, rgb(230 255 154 / 0.18) 3px, transparent 9px),
+    radial-gradient(circle at 15% 84%, rgb(230 255 154 / 0.5) 0 1.2px, rgb(230 255 154 / 0.15) 3px, transparent 8px),
+    radial-gradient(circle at 88% 77%, rgb(230 255 154 / 0.5) 0 1.2px, rgb(230 255 154 / 0.15) 3px, transparent 8px),
+    radial-gradient(circle at 3% 31%, rgb(230 255 154 / 0.45) 0 1.2px, rgb(230 255 154 / 0.12) 3px, transparent 8px),
+    radial-gradient(circle at 97% 18%, rgb(230 255 154 / 0.45) 0 1.2px, rgb(230 255 154 / 0.12) 3px, transparent 8px);
+  animation: ag-firefly 7s ease-in-out infinite;
+}
+html::after {
+  transform: scale(-1, 1) translateY(-6vh);
+  animation-delay: -3.5s;
+  animation-duration: 9s;
+}
+@keyframes ag-firefly { 0%, 100% { opacity: 0.15; } 50% { opacity: 1; } }
 body::before {
   content: "";
   position: fixed;
@@ -169,10 +200,11 @@ body::after {
   content: "";
   position: fixed;
   left: 0; right: 0; bottom: 0;
-  height: clamp(170px, 30vh, 360px);
+  height: clamp(150px, 24vh, 300px);
   z-index: -1;
   pointer-events: none;
   background: var(--g-trees) center bottom / auto 100% repeat-x;
+  opacity: 0.9;
 }
 ::selection { background: rgb(var(--berry-rgb) / 0.32); color: var(--ag-text); }
 
@@ -202,48 +234,44 @@ body::after {
 .rune-isa     { --rune: url("runes/isa.svg"); }      /* ᛁ ice, stillness — Terminal */
 
 /* ── Cards ────────────────────────────────────────────────────────────────────
-   Solid fog-grey panels, a soft gradient down the card, an inset top
-   highlight, a hairline edge, a breath of the card's colour in its first
-   corner and of the other in the last — and a rowan sprig hanging into the
-   top-right one. It is the ONLY container — see the frame fix below. */
+   Deep green glass over the wood — mostly opaque, so text never fights the
+   forest — a breath of the card's colour in its first corner and of the
+   other in the last, and an inset glow. It is the ONLY container — see the
+   frame fix below.
+
+   Each card is FRAMED in vines (--g-frame, growth.py: a branch with a second
+   one and two green vines twisting round it, leaves, bright moss, berries or
+   a toadstool or a fern at the corners — its own, seeded). It is a 9-slice
+   border-image: the 80px corners drawn once, the edges tiled (`round`) to
+   any size, so one image fits every card. It lies along the card's border,
+   10px out (::before). About half the cards also have something grown down
+   over the top from a corner (--g-top, ::after). Both sit OVER the card's
+   own background and UNDER its content (`isolation` + z-index -1): text
+   always wins. Yggdrasil's card uses its ::before for the rune ring, so its
+   frame is on ::after. */
 .widget {
   position: relative;
-  border: 1px solid var(--ag-line-soft);
+  isolation: isolate;
+  border: 1px solid transparent;
   border-radius: var(--ag-r-card);
-  padding: 18px 18px 20px;
+  padding: 24px 24px 26px;
   background:
     radial-gradient(110% 55% at 0% 0%, color-mix(in srgb, var(--acc) 7%, transparent), transparent 60%),
     radial-gradient(80% 45% at 100% 100%, color-mix(in srgb, var(--acc2) 4%, transparent), transparent 65%),
-    linear-gradient(180deg, var(--ag-card-top), var(--ag-surface) 60%, var(--ag-card-bot));
-  box-shadow: inset 0 1px 0 rgb(214 232 222 / 0.05), var(--ag-shadow);
-  transition: border-color 0.3s ease;
+    linear-gradient(180deg, rgb(20 34 26 / 0.93), rgb(13 24 18 / 0.95));
+  box-shadow: inset 0 0 30px rgb(var(--leaf-rgb) / 0.04), 0 18px 40px -20px rgb(0 0 0 / 0.85);
 }
-@media (hover: hover) {
-  .widget:hover { border-color: var(--ag-line); }
-}
-/* Top edge: the card's colour, woven on into the other one. */
-.widget::after {
+.widget:not(.ygg-widget)::before,
+.widget.ygg-widget::after {
   content: "";
   position: absolute;
-  left: 20px; right: 20px; top: -1px;
-  height: 1px;
+  inset: -10px;
+  z-index: -1;
   pointer-events: none;
-  background: linear-gradient(to right,
-    transparent,
-    color-mix(in srgb, var(--acc) 85%, transparent) 16%,
-    color-mix(in srgb, var(--acc) 40%, transparent) 46%,
-    color-mix(in srgb, var(--acc2) 45%, transparent) 72%,
-    transparent);
+  border: 80px solid transparent;
+  border-image: var(--g-frame, none) 80 / 80px round;
 }
-/* The overgrowth: this card's piece from growth.css (--g-top) — ivy, a
-   mossy bough, rowan, bramble, fern or oak grown down over its top edge from
-   the corner --g-top-at, hung with moss. The pseudo-element reaches 18px
-   above the card, so the growth can come over the edge; never past the sides
-   (no sideways scroll on a phone). `isolation` on the card + z-index -1 puts
-   it OVER the card's own background and border but UNDER its content: text
-   always wins. On a narrow card the piece scales down to fit (min()). */
-.widget { isolation: isolate; }
-.widget:not(.ygg-widget)::before {
+.widget:not(.ygg-widget)::after {
   content: "";
   position: absolute;
   inset: -18px 0 0 0;
@@ -286,10 +314,11 @@ body::after {
   padding: 0;
 }
 
-/* Card titles: the card's rune, filled with its colour running into the
-   other (a mask, so it is drawn, not a font glyph — no device needs a Runic
-   font), then the name. Under it, this card's own tendril (--g-rule): the
-   page's plant — ivy, fern, bramble or root — creeping out and fading. */
+/* Card titles, in Cinzel: the card's rune in a medallion — a dark disc with a
+   ring running from the card's colour into the other and a soft glow; the
+   rune itself a mask (so no device needs a Runic font) glowing in the two —
+   then the name. Under it, this card's own tendril (--g-rule): the page's
+   plant creeping out and fading. */
 .widget-header {
   display: flex;
   align-items: center;
@@ -301,12 +330,44 @@ body::after {
 }
 .widget-header h2,
 .widget-group-title {
-  letter-spacing: 0.16em;
+  font-family: var(--ag-title);
+  letter-spacing: 0.12em;
   font-weight: 700;
-  font-size: 1.25rem;
-  color: rgb(237 234 222 / 0.88);
+  font-size: 1.45rem;
+  color: rgb(237 234 222 / 0.92);
 }
-.widget > .widget-header h2::before,
+.widget > .widget-header h2 {
+  position: relative;
+  padding-left: 3.1rem;
+  min-height: 2.4rem;
+  display: flex;
+  align-items: center;
+}
+.widget > .widget-header h2::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 50%;
+  width: 2.4rem; height: 2.4rem;
+  margin-top: -1.2rem;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 40%, rgb(30 52 38), rgb(12 22 16) 70%) padding-box,
+    linear-gradient(140deg, var(--acc), color-mix(in srgb, var(--acc2) 70%, #000)) border-box;
+  border: 1.5px solid transparent;
+  box-shadow: 0 0 12px -2px color-mix(in srgb, var(--acc) 55%, transparent), inset 0 0 8px rgb(0 0 0 / 0.6);
+}
+.widget > .widget-header h2::after {
+  content: "";
+  position: absolute;
+  left: 0.65rem; top: 50%;
+  width: 1.1rem; height: 1.4rem;
+  margin-top: -0.7rem;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--acc) 70%, #fff), var(--acc) 50%, var(--acc2));
+  -webkit-mask: var(--rune) center / contain no-repeat;
+  mask: var(--rune) center / contain no-repeat;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--acc) 70%, transparent));
+}
 .widget-group-header .widget-group-title-current::before {
   content: "";
   display: inline-block;
@@ -320,32 +381,47 @@ body::after {
 .widget .widget .widget-header { display: none; }
 
 /* ── Page navigation ───────────────────────────────────────────────────────
-   The bar, with the page's own growth (--g-nav) resting along its foot and
-   hanging below it — ivy and rowan on Asgard, a mossy bough with glowing
-   toadstools on Eclipse, bramble on Power, roots on Terminal. Over the cards
-   (z-index), never in the way of a click. The current page underlined in
-   the weave. */
-.header { position: relative; background: rgb(31 36 33 / 0.94) !important; }
+   The bar, darker glass over the wood, with the page's own growth (--g-nav)
+   resting along its foot and hanging below it — ivy and rowan on Asgard,
+   dark vines hung with lichen and foxfire on Eclipse, bramble on Power, roots
+   on Terminal. Over the cards (z-index), never in the way of a click. The
+   pages are pills in Cinzel, edged in green; the current one lit. */
+.header { position: relative; background: rgb(10 20 15 / 0.82) !important; }
 .header::after {
   content: "";
   position: absolute;
-  left: 0; right: 0; bottom: -46px;
+  left: 0; right: 0; bottom: -54px;   /* the vine just under the bar: the pills stay clear */
   height: 58px;
   z-index: 3;
   pointer-events: none;
   background: var(--g-nav) 0 0 / auto 100% repeat-x;
 }
 /* The tree as the logo (branding.logo-url in glance.nix). */
-.logo img { height: 3rem; width: auto; filter: drop-shadow(0 0 6px rgb(var(--leaf-rgb) / 0.3)) drop-shadow(0 2px 8px rgb(var(--berry-rgb) / 0.18)); }
-.nav-item { transition: color 0.2s ease, border-color 0.2s ease; }
+.logo img { height: 3rem; width: auto; filter: drop-shadow(0 0 8px rgb(var(--leaf-rgb) / 0.4)); }
+.nav-item {
+  font-family: var(--ag-title);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.45em 1.15em;
+  margin: 0 3px;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--leaf-rgb) / 0.22) !important;
+  background: linear-gradient(180deg, rgb(26 44 32 / 0.75), rgb(12 22 16 / 0.8));
+  box-shadow: inset 0 1px 0 rgb(var(--leaf-rgb) / 0.08);
+  transition: color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+@media (hover: hover) {
+  .nav-item:hover { border-color: rgb(var(--leaf-rgb) / 0.45) !important; color: var(--ag-text); }
+}
 .nav-item.nav-item-current {
   color: var(--ag-text);
-  border-bottom-color: transparent;
-  background: var(--weave) bottom / 100% 2px no-repeat;
-  text-shadow: 0 0 14px rgb(var(--leaf-rgb) / 0.3);
+  border-color: rgb(var(--leaf-rgb) / 0.6) !important;
+  background: linear-gradient(180deg, rgb(44 80 50 / 0.85), rgb(18 36 24 / 0.9));
+  box-shadow: 0 0 14px -2px rgb(var(--leaf-rgb) / 0.55), inset 0 1px 0 rgb(var(--leaf-rgb) / 0.2);
+  text-shadow: 0 0 10px rgb(var(--leaf-rgb) / 0.4);
 }
 .mobile-navigation {
-  background: rgb(31 36 33 / 0.97);
+  background: rgb(10 20 15 / 0.97);
   border-color: var(--ag-line);
 }
 .mobile-navigation-input:checked + .mobile-navigation-pill,
@@ -1119,7 +1195,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   .nw-trend.ping i b { background-size: 100% 76px; }
 }
 @media (max-width: 550px) {
-  .widget { padding: 15px 13px 17px; border-radius: 18px; }
+  .widget { padding: 20px 18px 22px; border-radius: 18px; }
   .widget-group-header .widget-header { gap: 16px; }
   .widget-group-title { letter-spacing: 0.1em; }
   .ag-light { gap: 12px; padding: 12px 12px 12px 14px; }
@@ -1168,6 +1244,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 /* Phones: the growth covers the far three-quarters of a card at most (the
    title keeps its corner); the nav growth is a little shorter. */
 @media (max-width: 760px) {
-  .widget:not(.ygg-widget)::before { background-size: min(var(--g-top-w, 640px), 76%) auto; }
-  .header::after { bottom: -38px; height: 48px; }
+  .widget:not(.ygg-widget)::after { background-size: min(var(--g-top-w, 640px), 76%) auto; }
+  .nav-item { padding: 0.4em 0.9em; }
+  .header::after { bottom: -45px; height: 48px; }
 }

@@ -6,12 +6,16 @@
 Writes every piece of forest the main Glance dashboard draws (asgard.css):
 
     <rune>-top.svg   what has grown down over each card's top edge — a
-                     different piece on every card: ivy, a mossy bough hung
-                     with old-man's-beard, rowan, bramble, ferns, oak, each
-                     with its own tufts of hanging moss
+                     piece on about half the cards: ivy, rowan, bramble,
+                     ferns, oak, each with its own tufts of hanging moss
+    <rune>-frame.svg the vines framing each card — a 9-slice border image, a
+                     branch with a second one and two green vines twisting
+                     round it, leaves, bright moss, and something at its
+                     corners (berries, a toadstool, a fern)
     <rune>-rule.svg  the tendril under its title
     nav-<page>.svg   the growth along the navigation, one per page
     treeline-<page>.svg  the forest along the foot of the page, one per page
+    forest-<page>.svg    the wood behind the whole page, one per page
     glyph-<page>.svg the section-heading mark, one per page
     growth.css       which card and page wears which — the only place the
                      pieces are named, so this file and the CSS never drift
@@ -20,8 +24,8 @@ Everything grows from the TOP — over the navigation and down over the
 cards' top edges — nothing sits at their feet. Each page has its own wood
 (its navigation growth, its treeline and its section glyph):
     asgard    ivy and rowan — the hall gone back to the forest
-    eclipse   night: a mossy bough, glowing toadstools, the eclipse itself
-              low behind the trees
+    eclipse   night: dark vines hung with lichen and ferns, foxfire glinting,
+              the eclipse itself low behind the trees
     power     bramble and oak
     terminal  roots
 
@@ -42,7 +46,7 @@ TAU = 2 * math.pi
 IVY = ["#1f5a2c", "#24642f", "#2a6b33", "#2f7d3a", "#367f38", "#3d8c3f", "#4a9a44"]
 IVY_YOUNG = ["#5fae4e", "#6dba55", "#7cc05c"]
 FERN = ["#3f8f3c", "#4c9d42", "#5aa948", "#6ab452"]
-MOSS = ["#4d6b2a", "#5d7a34", "#6f8f3a", "#7f9c42", "#8aa84a", "#9db45a"]
+MOSS = ["#5e8f2e", "#6f9f36", "#82b23f", "#95c14c", "#a7cf5a"]
 LICHEN = ["#8fa47a", "#9fb28a", "#aebd97", "#b9c6a0", "#7f9470"]
 AUTUMN = ["#b8342c", "#a5452a", "#c4472f", "#9a2f25", "#b5612f"]
 BERRY = ["#d6302a", "#c42820", "#e2412f", "#b3221c"]
@@ -370,7 +374,7 @@ def moss_mound(cx, cy, w, h, rng, palette=MOSS, sporophytes=0, dots=1.0):
     blobs.sort()
     for y, x, r in blobs:
         depth = (y - (cy - h)) / max(1, h)
-        col = mix(rng.choice(palette), "#10180b", 0.45 * depth)
+        col = mix(rng.choice(palette), "#2f5a22", 0.35 * depth)   # shade to green, never to brown
         out.append('<circle cx="%s" cy="%s" r="%s" fill="%s"/>' % (f(x), f(y), f(r), col))
     for y, x, r in blobs[: max(3, n // 5)]:
         out.append('<circle cx="%s" cy="%s" r="%s" fill="%s" opacity=".55"/>' % (f(x - r * 0.3), f(y - r * 0.35), f(r * 0.45), light(rng.choice(palette), 0.3)))
@@ -829,48 +833,6 @@ def rowan_top(W, H, rng, side="right", keep=210, reach=0.5, clusters=3, autumn=0
     return "".join(back) + "".join(mid) + lich + "".join(front)
 
 
-def bough_top(W, H, rng, side="right", keep=210, reach=0.62, ferns=False):
-    """A dead bough lying along the top edge, thick with moss: cushions of it
-    along the top, curtains of old-man's-beard hanging under, a shelf of
-    bracket fungus, and — with ferns — polypody sprouting from the moss."""
-    pts = edge_path(W, rng, side, W * reach, keep, sag=(2, 10), wrap=False, lift=-5)
-    n = len(pts)
-    back, mid, front = [], [], []
-    # curtains first, behind the wood
-    k = n // 8
-    while k < n - 3:
-        x, y = pts[k]
-        if x > keep:
-            for _ in range(rng.randint(1, 3)):
-                back.append(usnea(x + rng.uniform(-10, 10), y + 3, rng, rng.randint(6, 16), rng.uniform(16, 46),
-                                  spread=rng.uniform(4, 12), sway=rng.uniform(1.2, 2.2)))
-        k += rng.randint(3, n // 6 + 4)
-    mid.append(stem(pts, 11, 4, "#4b3826", rng, knob=0.3))
-    mid.append(bark_lines(pts, 11, 4, rng, "#24190f", n=n // 2))
-    # a broken-off stub and a knot
-    i = rng.randrange(n // 3, 2 * n // 3)
-    stub = turtle(pts[i][0], pts[i][1], heading(pts, i) + rng.choice([-1, 1]) * 0.9 - 0.4, 6, 3, rng=rng)
-    mid.append(stem(stub, 5, 3, "#4b3826", hi=False))
-    mid.append('<ellipse cx="%s" cy="%s" rx="2.4" ry="1.6" fill="#2e2216"/>' % (f(pts[i + 6][0]), f(pts[i + 6][1])))
-    # moss along the top
-    k = 0
-    while k < n - 4:
-        x, y = pts[k]
-        w = rng.uniform(18, 46)
-        front.append(moss_mound(x, y - 2, w, rng.uniform(4, 9), rng, sporophytes=rng.randint(0, 4)))
-        k += max(2, int(w / 3) + rng.randint(-2, 3))
-    # fungus on its flank
-    i = rng.randrange(n // 2, n - 4)
-    if pts[i][0] > keep:
-        front.append(bracket(pts[i][0], pts[i][1] + 3, rng.uniform(9, 14), rng, flip=rng.choice([-1, 1])))
-    if ferns:
-        for _ in range(rng.randint(3, 5)):
-            i = rng.randrange(2, n - 6)
-            x, y = pts[i]
-            front.append(frond(x, y - 5, -math.pi / 2 + rng.uniform(-0.9, 0.9), rng.uniform(26, 44), rng, gravity=0.05, scale=0.55))
-    return "".join(back) + "".join(mid) + "".join(front)
-
-
 def bramble_top(W, H, rng, side="right", keep=210, canes=3):
     """Bramble arching over the corner: thorny red-brown canes, leaves in
     threes, blackberries at every stage and a few white flowers."""
@@ -1016,6 +978,192 @@ def lingonberry(x, y, rng):
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# The frame round each card: a CSS border-image (9-slice). (2FC + TH) ×
+# (2FC + TV): the four FC-square corners drawn once, the edges between them
+# tiled (`round`) to any card size — TH long across the top and bottom, TV
+# down the sides (cards are wide, so the long edges get long tiles and repeat
+# less). Every edge strand is periodic in its tile, and each corner picks up
+# exactly where its two edges leave off (value and slope, by Hermite
+# interpolation round the curve). The strands run along a rounded rectangle
+# FB in from the image's edge, which asgard.css lays on the card's border.
+# Anything on an edge stays inside its tile (a slice clips it).
+# ════════════════════════════════════════════════════════════════════════════
+FC, FB, FR = 80, 10, 24
+FRAME_T = {"full": (300, 120), "small": (150, 120)}
+
+
+def hermite(t, v0, d0, v1, d1, L):
+    t2, t3 = t * t, t * t * t
+    return ((2 * t3 - 3 * t2 + 1) * v0 + (t3 - 2 * t2 + t) * L * d0 + (-2 * t3 + 3 * t2) * v1 + (t3 - t2) * L * d1)
+
+
+def frame(rng, size="full"):
+    TH, TV = FRAME_T[size]
+    C, b, r = FC, FB, FR
+    W, H = 2 * C + TH, 2 * C + TV
+    TL = {"top": TH, "bottom": TH, "left": TV, "right": TV}
+    # strands: the main branch nearly straight; a thinner one, then two green
+    # vines, each twisting round it at its own wavelength
+    strands = [
+        dict(w=7.2, col="#4d3725", hi="#86644a", edge="#1e140c", c=0.0, amp=1.0, wave=150, wood=True),
+        dict(w=3.6, col="#3e2c1e", hi="#6e5038", edge="#170f09", c=0.0, amp=3.4, wave=95, wood=True),
+        dict(w=2.4, col="#3f7a34", hi=None, edge="#1c3a18", c=0.0, amp=4.4, wave=70, wood=False),
+        dict(w=1.6, col="#5f8f36", hi=None, edge=None, c=0.0, amp=4.8, wave=52, wood=False),
+    ]
+    edges = ("top", "right", "bottom", "left")
+    for st in strands:
+        st["f"] = {}
+        for e in edges:
+            T = TL[e]
+            k0 = max(1, round(T / st["wave"]))
+            terms = [(k0, st["amp"] * rng.uniform(0.75, 1.1), rng.uniform(0, TAU)),
+                     (k0 + 1, st["amp"] * rng.uniform(0.2, 0.45), rng.uniform(0, TAU))]
+            V = st["c"] + sum(a * math.sin(ph) for k, a, ph in terms)
+            D = sum(a * TAU * k / T * math.cos(ph) for k, a, ph in terms)
+            st["f"][e] = (terms, V, D)
+
+    def v_edge(st, e, w):
+        terms, _, _ = st["f"][e]
+        return st["c"] + sum(a * math.sin(TAU * k * w / TL[e] + ph) for k, a, ph in terms)
+
+    def edge_pts(st, e, w0=-2, w1=None, step=4):
+        w1 = TL[e] + 2 if w1 is None else w1
+        pts = []
+        w = w0
+        while w <= w1 + 0.01:
+            v = v_edge(st, e, w)
+            pts.append({"top": (C + w, b - v), "bottom": (C + w, H - b + v),
+                        "left": (b - v, C + w), "right": (W - b + v, C + w)}[e])
+            w += step
+        return pts
+
+    def corner_path(name):
+        """Centre line round one corner: [(x, y, nx, ny)] by arc length, and
+        its (start edge, travel sign, end edge, travel sign)."""
+        P = []
+        def line(x0, y0, x1, y1, nx, ny):
+            n = max(2, int(math.dist((x0, y0), (x1, y1)) / 2))
+            for i in range(n):
+                t = i / n
+                P.append((x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, nx, ny))
+        def arc(cx, cy, a0, a1):
+            n = max(4, int(abs(a1 - a0) * r / 2))
+            for i in range(n):
+                a = a0 + (a1 - a0) * i / n
+                P.append((cx + r * math.cos(a), cy + r * math.sin(a), math.cos(a), math.sin(a)))
+        if name == "tl":
+            line(C + 2, b, b + r, b, 0, -1); arc(b + r, b + r, -math.pi / 2, -math.pi); line(b, b + r, b, C + 2, -1, 0)
+            P.append((b, C + 2, -1, 0)); ends = ("top", -1, "left", +1)
+        elif name == "tr":
+            line(C + TH - 2, b, W - b - r, b, 0, -1); arc(W - b - r, b + r, -math.pi / 2, 0); line(W - b, b + r, W - b, C + 2, 1, 0)
+            P.append((W - b, C + 2, 1, 0)); ends = ("top", +1, "right", +1)
+        elif name == "br":
+            line(W - b, C + TV - 2, W - b, H - b - r, 1, 0); arc(W - b - r, H - b - r, 0, math.pi / 2); line(W - b - r, H - b, C + TH - 2, H - b, 0, 1)
+            P.append((C + TH - 2, H - b, 0, 1)); ends = ("right", +1, "bottom", -1)
+        else:
+            line(C + 2, H - b, b + r, H - b, 0, 1); arc(b + r, H - b - r, math.pi / 2, math.pi); line(b, H - b - r, b, C + TV - 2, -1, 0)
+            P.append((b, C + TV - 2, -1, 0)); ends = ("bottom", -1, "left", -1)
+        return P, ends
+
+    def corner_pts(st, name):
+        P, (e0, s0, e1, s1) = corner_path(name)
+        L = sum(math.dist(P[i][:2], P[i + 1][:2]) for i in range(len(P) - 1))
+        _, V0, D0 = st["f"][e0]
+        _, V1, D1 = st["f"][e1]
+        bump = rng.uniform(-0.6, 0.6) * st["amp"]
+        # the slopes, damped: carried the whole way round the curve at full
+        # strength they swing a vine wide into the card
+        k0 = max(-3.0, min(3.0, s0 * D0 * L)) / L
+        k1 = max(-3.0, min(3.0, s1 * D1 * L)) / L
+        out, acc = [], 0.0
+        for i, (x, y, nx, ny) in enumerate(P):
+            if i:
+                acc += math.dist(P[i - 1][:2], (x, y))
+            t = acc / L
+            v = hermite(t, V0, k0, V1, k1, L) + bump * math.sin(math.pi * t) ** 2
+            out.append((x + nx * v, y + ny * v))
+        return out
+
+    layers = []
+    for st in strands:
+        for pts in [edge_pts(st, e) for e in edges] + [corner_pts(st, c) for c in ("tl", "tr", "br", "bl")]:
+            d = smooth_d(pts)
+            if st["edge"]:
+                layers.append('<path d="%s" fill="none" stroke="%s" stroke-width="%s"/>' % (d, st["edge"], f(st["w"] + 1.4)))
+            layers.append('<path d="%s" fill="none" stroke="%s" stroke-width="%s"/>' % (d, st["col"], f(st["w"])))
+            if st["hi"]:
+                layers.append('<path d="%s" fill="none" stroke="%s" stroke-width="%s" opacity=".55"/>' % (
+                    smooth_d([(x, y - st["w"] * 0.2) for x, y in pts]), st["hi"], f(st["w"] * 0.3)))
+    wood = "".join(layers)
+    deco = []
+    br = strands[0]
+    for e in edges:
+        T = TL[e]
+        wood_pts = edge_pts(br, e, 4, T - 4)
+        deco.append(bark_lines(wood_pts, br["w"] * 0.8, br["w"] * 0.8, rng, "#24170d", n=max(4, T // 20)))
+        pts = edge_pts(strands[2], e, 10, T - 10)
+        n = len(pts)
+        out_dir = {"top": -math.pi / 2, "bottom": math.pi / 2, "left": math.pi, "right": 0.0}[e]
+        # leaves, irregularly — some in pairs, some lone, gaps between
+        k = rng.randint(2, 9)
+        while k < n - 3:
+            x, y = pts[k]
+            for _ in range(1 if rng.random() < 0.6 else 2):
+                outward = rng.random() < 0.6
+                a = (out_dir if outward else out_dir + math.pi) + rng.uniform(-1.0, 1.0)
+                L = rng.uniform(9, 14) if outward else rng.uniform(6, 9)
+                if rng.random() < 0.7:
+                    deco.append(ivy_leaf(x, y, a, L, rng, rng.choice(IVY + IVY_YOUNG), lobed=rng.uniform(0.5, 1.0)))
+                else:
+                    deco.append(blade_leaf(x, y, a, L * 1.15, L * 0.3, rng, rng.choice(FERN + IVY_YOUNG), teeth=0.4))
+            k += rng.randint(6, 18)
+        # moss clinging to the branch, lichen hanging off the top and bottom
+        for _ in range(max(1, T // 140)):
+            i = rng.randrange(6, n - 6)
+            x, y = pts[i]
+            horiz = e in ("top", "bottom")
+            deco.append(moss_mound(x, y + 1, rng.uniform(14, 26) if horiz else 9, rng.uniform(3, 5), rng, dots=1.3))
+            if horiz and rng.random() < 0.6:
+                deco.insert(0, usnea(x, y + 3, rng, rng.randint(4, 8), rng.uniform(10, 18) if e == "top" else 12, spread=4))
+        if rng.random() < 0.7:
+            i = rng.randrange(8, n - 8)
+            deco.append(tendril(pts[i][0], pts[i][1], out_dir + rng.uniform(-0.8, 0.8), rng, size=rng.uniform(6, 10), w=0.7))
+    # the corners: one thing each, never two the same
+    feats = ["leaves", "berries", "toadstool", "fern", "moss"]
+    rng.shuffle(feats)
+    for name, feat in zip(("tl", "tr", "br", "bl"), feats):
+        P, _ = corner_path(name)
+        mx, my, nx, ny = P[len(P) // 2]
+        top_corner = name in ("tl", "tr")
+        if feat == "toadstool" and top_corner:
+            feat = "leaves"
+        if feat == "leaves":
+            for _ in range(rng.randint(3, 5)):
+                a = math.atan2(ny, nx) + rng.uniform(-1.3, 1.3)
+                deco.append(ivy_leaf(mx + rng.uniform(-3, 3), my + rng.uniform(-3, 3), a, rng.uniform(11, 16), rng, rng.choice(IVY + IVY_YOUNG), lobed=rng.uniform(0.6, 1)))
+            deco.append(tendril(mx, my, math.atan2(ny, nx), rng, size=10, w=0.7))
+        elif feat == "berries":
+            deco.append(ivy_leaf(mx, my, math.atan2(ny, nx) + 0.8, 13, rng, rng.choice(IVY)))
+            deco.append(ivy_leaf(mx, my, math.atan2(ny, nx) - 0.8, 12, rng, rng.choice(IVY)))
+            deco.append(rowan_berries(mx - nx * 7, my - ny * 7, rng, n=rng.randint(8, 11), spread=6, r0=2.1))
+        elif feat == "toadstool":
+            # growing up off the bottom branch, just inside the card
+            deco.append(toadstool(mx - nx * 5, my - ny * 5 - 2, rng.uniform(12, 15), rng, lean=rng.uniform(-0.15, 0.15)))
+            deco.append(bonnet(mx - nx * 5 + rng.choice([-9, 9]), my - ny * 5 - 2, rng.uniform(7, 10), rng, lean=rng.uniform(-0.3, 0.3)))
+        elif feat == "fern":
+            a = math.atan2(-ny, -nx) + rng.uniform(-0.5, 0.5)
+            deco.append(frond(mx, my, a, rng.uniform(28, 38), rng, gravity=0.03 if top_corner else -0.02, scale=0.6))
+        else:
+            deco.append(moss_mound(mx, my, 22, 6, rng, dots=1.4))
+            if top_corner:
+                deco.insert(0, usnea(mx - nx * 2, my - ny * 2 + 2, rng, rng.randint(5, 9), 18, spread=5))
+    return ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d"><!-- A card frame: a 9-slice border '
+            'image (corners %dpx, edges tiled %dpx across and %dpx down). Generated by growth.py — see its header. -->%s'
+            '<g filter="url(#sh)"><g fill="none" stroke-linecap="butt">%s</g>%s</g></svg>') % (
+            W, H, W, H, FC, TH, TV, DEFS, wood, "".join(deco))
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # The tendril under each card's title — the page's plant, small, fading out.
 # ════════════════════════════════════════════════════════════════════════════
 def rule(kind, rng, W=320, H=22):
@@ -1149,32 +1297,38 @@ def nav_asgard(rng):
 
 
 def nav_eclipse(rng):
-    """The night wood: a long mossy bough along the bar, curtains of lichen
-    under it, polypody ferns along its back, foxfire toadstools glowing."""
-    yf = periodic(rng, NE + 3, 4)
-    pts = strip_path(yf)
+    """The night wood: two dark vines along the bar, curtains of lichen and
+    fern fronds hanging from them, and foxfire — pale green glints — caught
+    among it all."""
     back, mid, front = [], [], []
-    mid.append((NW / 2, stem(pts, 8, 8, "#3f3022", rng, knob=0.3)))
-    mid.append((NW / 2, bark_lines(pts, 8, 8, rng, "#1e160d", n=len(pts) // 3)))
+    for vi, (amp, w) in enumerate(((5, 2.6), (7, 1.6))):
+        yf = periodic(rng, NE + 1 + vi * 2, amp)
+        pts = strip_path(yf)
+        mid.append((NW / 2, stem(pts, w, w, "#2e4a2a" if vi == 0 else "#3f5f2e", rng)))
+        i, sd = 2, 1
+        while i < len(pts) - 2:
+            x, y = pts[i]
+            if 0 <= x < NW and rng.random() < 0.6:
+                a = heading(pts, i) + sd * rng.uniform(0.8, 1.8)
+                front.append((x, ivy_leaf(x, y, a, rng.uniform(8, 14), rng, rng.choice(IVY[:4]), lobed=rng.uniform(0.6, 1))))
+            i += rng.randint(5, 10)
+            sd = -sd
+    yf = periodic(rng, NE + 2, 5)
     x = 0.0
     while x < NW:
         y = yf(x)
-        back.append((x, usnea(x, y + 3, rng, rng.randint(4, 12), rng.uniform(10, NH - y - 4), spread=rng.uniform(4, 10), sway=1.6)))
-        x += rng.uniform(30, 90)
-    x = 0.0
-    while x < NW:
-        w = rng.uniform(16, 44)
-        front.append((x, moss_mound(x, yf(x) - 2.5, w, rng.uniform(3, 6), rng, sporophytes=rng.randint(0, 3))))
-        x += w + rng.uniform(10, 70)
-    for _ in range(16):
-        x = rng.uniform(0, NW)
-        front.append((x, frond(x, yf(x) - 3, -math.pi / 2 + rng.uniform(-1.2, 1.2), rng.uniform(14, 24), rng, gravity=0.03, scale=0.45)))
-    for _ in range(9):
-        x = rng.uniform(0, NW)
-        front.append((x, toadstool(x, yf(x) - 2, rng.uniform(8, 11), rng, lean=rng.uniform(-0.2, 0.2), glow=True)))
+        back.append((x, usnea(x, y + 2, rng, rng.randint(5, 12), rng.uniform(12, NH - y - 6), spread=rng.uniform(4, 9), sway=1.6)))
+        x += rng.uniform(40, 110)
     for _ in range(18):
         x = rng.uniform(0, NW)
-        front.append((x, bonnet(x, yf(x) - 2, rng.uniform(5, 8), rng, lean=rng.uniform(-0.3, 0.3))))
+        back.append((x, frond(x, yf(x) + 1, math.pi / 2 + rng.uniform(-0.7, 0.7), rng.uniform(16, 30), rng, gravity=0.05, scale=0.5)))
+    glow = ""
+    for _ in range(60):
+        x = rng.uniform(0, NW)
+        y = yf(x) + rng.uniform(-6, 30)
+        glow += '<circle cx="%s" cy="%s" r="%s" fill="url(#foxfire)"/><circle cx="%s" cy="%s" r="%s" fill="#d8ffc8" opacity="%s"/>' % (
+            f(x), f(y), f(rng.uniform(4, 7)), f(x), f(y), f(rng.uniform(0.6, 1.1)), f(rng.uniform(0.5, 0.9)))
+    front.append((NW / 2, glow))
     return wrapped(back) + wrapped(mid) + wrapped(front)
 
 
@@ -1221,8 +1375,8 @@ def nav_power(rng):
 
 
 def nav_terminal(rng):
-    """Roots: roots threading along under the bar, moss on them, rootlets
-    trailing."""
+    """Roots: roots threading along under the bar, rootlets trailing,
+    tendrils curling off them."""
     back, mid, front = [], [], []
     for vi in range(3):
         yf = periodic(rng, NE + vi * 3, 6, kmin=3, kmax=22)
@@ -1235,11 +1389,9 @@ def nav_terminal(rng):
         rl = turtle(x, yf(x), math.pi / 2 + rng.uniform(-0.8, 0.8), rng.randint(5, 16), 2.6, wander=0.35, gravity=0.06, rng=rng)
         rl = [(px, min(py, NH - 3)) for px, py in rl]
         back.append((x, stem(rl, rng.uniform(1.0, 2.2), 0.3, "#7a5a3a", hi=False)))
-    for _ in range(16):
+    for _ in range(24):
         x = rng.uniform(0, NW)
-        y = yf(x)
-        w = rng.uniform(14, 34)
-        front.append((x, moss_mound(x, y + 1, w, rng.uniform(3, 5), rng, sporophytes=rng.randint(0, 2))))
+        front.append((x, tendril(x, yf(x), rng.uniform(-math.pi, math.pi), rng, size=rng.uniform(6, 10), col="#7a5a3a", w=0.7)))
     return wrapped(back) + wrapped(mid) + wrapped(front)
 
 
@@ -1521,6 +1673,133 @@ def _treeline(page, rng):
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# The wood behind each page: FW × FH, drawn to cover the viewport (fixed, so
+# the cards scroll over it). Canopy light from above and a few soft shafts of
+# it, trunks at three depths with mist between, big mossy trunks and hanging
+# vines at the sides (where it shows past the cards), fireflies.
+# ════════════════════════════════════════════════════════════════════════════
+FW, FH = 1920, 1080
+FOREST = {
+    #           sky top / bottom        light (shafts)  fog (far trunks)  mid       near     glow low
+    "asgard":   ("#16271f", "#0a120e", "#cfe8c8", "#2c4236", "#1a2a21", "#0e1712", "#c62f27"),
+    "eclipse":  ("#0e1a19", "#060b0a", "#bfe0e0", "#1f3330", "#14221f", "#0a1311", "#86cf86"),
+    "power":    ("#1c2a1d", "#0b120c", "#f2dfa8", "#33452e", "#1e2b1c", "#0f170e", "#d4572f"),
+    "terminal": ("#121e19", "#070c0a", "#bcd2c8", "#24352d", "#16231c", "#0b1410", "#7aa344"),
+}
+
+
+def trunk(x, top, bottom, w0, w1, rng, col, branches=0, leaf=None):
+    """A trunk, tapering up, crooked, roots flaring at its foot — and, if
+    asked, a branch or two reaching out with a clump of foliage on it."""
+    n = 14
+    L, R, mid = [], [], []
+    lean = rng.uniform(-0.06, 0.06)
+    wob, ph = rng.uniform(2, 7), rng.uniform(0, TAU)
+    for i in range(n + 1):
+        t = i / n
+        y = bottom + (top - bottom) * t
+        cx = x + lean * (bottom - y) + wob * math.sin(t * 4 + ph)
+        w = (w0 + (w1 - w0) * t) / 2 * (1 + (0.7 * (1 - t / 0.12) if t < 0.12 else 0))
+        L.append((cx - w, y))
+        R.append((cx + w, y))
+        mid.append((cx, y, w))
+    out = ['<path d="%s" fill="%s"/>' % (poly_d(L + R[::-1]), col)]
+    for _ in range(branches):
+        i = rng.randrange(n // 3, n - 1)
+        cx, y, w = mid[i]
+        sd = rng.choice([-1, 1])
+        pts = turtle(cx + sd * w * 0.6, y, (0 if sd > 0 else math.pi) - sd * rng.uniform(0.3, 0.8), rng.randint(5, 10), 10, wander=0.15, rng=rng)
+        out.append(stem(pts, max(3, w * 0.5), 2, col, hi=False))
+        if leaf:
+            ex, ey = pts[-1]
+            out.append(blob_crown(ex, ey, rng.uniform(30, 60), rng.uniform(16, 30), rng, leaf, n=rng.randint(14, 24), rmin=6, rmax=14))
+    return "".join(out)
+
+
+def forest(page, rng):
+    PREC[0] = 0
+    try:
+        sky0, sky1, light_c, fog, mid, near, low = FOREST[page]
+        out = []
+        out.append('<rect width="%d" height="%d" fill="url(#fsky)"/>' % (FW, FH))
+        out.append('<rect width="%d" height="%d" fill="url(#fcanopy)"/>' % (FW, FH))
+        out.append('<rect width="%d" height="%d" fill="url(#flow)"/>' % (FW, FH))
+        # shafts of light through the canopy
+        for _ in range(rng.randint(5, 7)):
+            x = rng.uniform(150, FW - 150)
+            w = rng.uniform(60, 160)
+            dx = rng.uniform(-260, -120)
+            out.append('<path d="M%s 0L%s 0L%s %dL%s %dZ" fill="url(#fshaft)" opacity="%s"/>' % (
+                f(x), f(x + w), f(x + w + dx + w * 1.6), FH, f(x + dx), FH, f(rng.uniform(0.5, 1.0))))
+        # trunks: far (pale in the fog), mid, then the near ones at the sides —
+        # spaced unevenly, of every girth, leaning a little, some branching
+        xs = sorted(rng.uniform(0, FW) for _ in range(24))
+        for x in xs:
+            w = rng.uniform(6, 22)
+            out.append('<g opacity="%s">%s</g>' % (f(rng.uniform(0.45, 1.0)), trunk(x, -20, FH * rng.uniform(0.68, 0.8), w, w * 0.6, rng, fog,
+                       branches=rng.randint(0, 1), leaf=[fog, mix(fog, light_c, 0.08)])))
+        out.append('<rect y="%d" width="%d" height="%d" fill="url(#fmist)"/>' % (FH * 0.42, FW, FH * 0.38))
+        xs = sorted(rng.uniform(0, FW) for _ in range(12))
+        for x in xs:
+            w = rng.uniform(18, 46)
+            out.append(trunk(x, -20, FH * rng.uniform(0.85, 0.96), w, w * 0.6, rng, mid, branches=rng.randint(0, 2), leaf=[mid, mix(mid, "#2f5a2a", 0.4)]))
+        out.append('<rect y="%d" width="%d" height="%d" fill="url(#fmist)" opacity=".7"/>' % (FH * 0.6, FW, FH * 0.3))
+        for x in (rng.uniform(20, 120), rng.uniform(200, 300), FW - rng.uniform(20, 120), FW - rng.uniform(200, 320)):
+            w = rng.uniform(60, 110)
+            out.append(trunk(x, -40, FH + 20, w, w * 0.7, rng, near))
+            # moss climbing it, and bark lines
+            bl = ""
+            for _ in range(28):
+                y = rng.uniform(0, FH)
+                bl += "M%s %sl%s %s" % (f(x + rng.uniform(-w * 0.4, w * 0.4)), f(y), f(rng.uniform(-2, 2)), f(rng.uniform(20, 60)))
+            out.append('<path d="%s" stroke="#000" stroke-opacity=".35" stroke-width="2" fill="none"/>' % bl)
+            for _ in range(rng.randint(4, 7)):
+                y = rng.uniform(FH * 0.15, FH * 0.95)
+                PREC[0] = 1
+                out.append('<g opacity=".55">%s</g>' % moss_mound(x + rng.uniform(-w * 0.3, w * 0.3), y, w * rng.uniform(0.5, 0.9), rng.uniform(6, 14), rng,
+                                                                palette=["#2f5a22", "#3b6a28", "#4a7a2e"], dots=0.5))
+                PREC[0] = 0
+        # the canopy: dark leaf-masses along the top, lit at their lower edge
+        can = ""
+        for i in range(26):
+            x = i * FW / 25 + rng.uniform(-30, 30)
+            can += blob_crown(x, rng.uniform(-20, 40), rng.uniform(70, 130), rng.uniform(40, 80), rng,
+                              [near, mix(near, "#1d3a22", 0.5), mix(near, "#24452a", 0.6)], n=26, rmin=14, rmax=30, lit=1.3)
+        out.append(can)
+        # vines hanging from the canopy, mostly at the sides
+        for _ in range(16):
+            x = rng.choice([rng.uniform(0, 420), rng.uniform(FW - 420, FW)])
+            L = rng.uniform(160, 520)
+            pts = turtle(x, -10, math.pi / 2 + rng.uniform(-0.15, 0.15), int(L / 12), 12, wander=0.08, gravity=0.1, rng=rng)
+            out.append('<path d="%s" stroke="#1d3320" stroke-width="%s" fill="none"/>' % (smooth_d(pts), f(rng.uniform(2, 4))))
+            PREC[0] = 1
+            for k in range(2, len(pts), 2):
+                a = math.pi / 2 + rng.choice([-1, 1]) * rng.uniform(0.6, 1.3)
+                out.append('<g opacity=".8">%s</g>' % ivy_leaf(pts[k][0], pts[k][1], a, rng.uniform(12, 20), rng, rng.choice(["#1f3a22", "#264528", "#2d4f2c"]), lobed=0.8))
+            PREC[0] = 0
+        # fireflies
+        ff = ""
+        for _ in range(70):
+            x, y = rng.uniform(0, FW), rng.uniform(FH * 0.25, FH * 0.95)
+            ff += '<circle cx="%s" cy="%s" r="%s" fill="url(#ffly)"/>' % (f(x), f(y), f(rng.uniform(5, 11)))
+            ff += '<circle cx="%s" cy="%s" r="1.4" fill="#f3ffd0"/>' % (f(x), f(y))
+        out.append(ff)
+        defs = ('<defs>'
+                '<linearGradient id="fsky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>'
+                '<radialGradient id="fcanopy" cx=".5" cy="-.05" r=".7"><stop offset="0" stop-color="%s" stop-opacity=".16"/><stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>'
+                '<radialGradient id="flow" cx=".5" cy="1.1" r=".6"><stop offset="0" stop-color="%s" stop-opacity=".12"/><stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>'
+                '<linearGradient id="fshaft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s" stop-opacity=".16"/><stop offset=".65" stop-color="%s" stop-opacity=".045"/><stop offset="1" stop-color="%s" stop-opacity="0"/></linearGradient>'
+                '<linearGradient id="fmist" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s" stop-opacity="0"/><stop offset=".5" stop-color="%s" stop-opacity=".07"/><stop offset="1" stop-color="%s" stop-opacity="0"/></linearGradient>'
+                '<radialGradient id="ffly"><stop offset="0" stop-color="#e6ff9a" stop-opacity=".55"/><stop offset="1" stop-color="#e6ff9a" stop-opacity="0"/></radialGradient>'
+                '</defs>') % (sky0, sky1, light_c, light_c, low, low, light_c, light_c, light_c, light_c, light_c, light_c)
+        return ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" preserveAspectRatio="xMidYMid slice">'
+                '<!-- The wood behind the %s page. Generated by growth.py — see its header. -->%s%s%s</svg>') % (
+                FW, FH, FW, FH, page, DEFS, defs, "".join(out))
+    finally:
+        PREC[0] = 1
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Section-heading glyphs, one a page.
 # ════════════════════════════════════════════════════════════════════════════
 GLYPHS = {
@@ -1557,30 +1836,32 @@ def glyph(page):
 #   top    (plant, corner it grows from, extras)
 #   seed   change it and only that card grows differently
 # ════════════════════════════════════════════════════════════════════════════
-TOPS = {"ivy": ivy_top, "rowan": rowan_top, "bough": bough_top, "bramble": bramble_top, "fern": fern_top, "oak": oak_top}
+TOPS = {"ivy": ivy_top, "rowan": rowan_top, "bramble": bramble_top, "fern": fern_top, "oak": oak_top}
 SIZE = {"full": dict(tw=640, th=190), "small": dict(tw=340, th=170)}
 
 CARDS = [
-    # Ivy and moss lead; no two neighbours wear the same thing. Ferns and
-    # bramble only ever come from the right: they hang straight down where
-    # they start, and the title is on the left.
-    # rune      page        size     top                                                           seed
-    ("ansuz",   "asgard",   "full",  ("bough", "right", {}),                                        11),
-    ("othala",  "asgard",   "full",  ("ivy", "left", dict(berries=1)),                              12),
+    # Every card is framed in vines (its own frame, seeded); about half also
+    # have something grown down over the top from a corner — no two
+    # neighbours the same. Ferns and bramble only ever come from the right:
+    # they hang straight down where they start, and the title is on the left.
+    # rune      page        size     top (or None)                                                 seed
+    ("ansuz",   "asgard",   "full",  ("ivy", "right", dict(drop=80, berries=1)),                    11),
+    ("othala",  "asgard",   "full",  None,                                                          12),
     ("raidho",  "asgard",   "full",  ("fern", "right", {}),                                         13),
     ("algiz",   "asgard",   "full",  ("rowan", "right", {}),                                        14),
-    ("jera",    "asgard",   "small", ("ivy", "right", dict(reach=0.85, drop=50)),                   15),
-    ("laguz",   "asgard",   "small", ("bough", "left", dict(reach=0.85)),                           16),
-    ("fehu",    "asgard",   "small", ("bramble", "right", dict(canes=2)),                           17),
+    ("jera",    "asgard",   "small", None,                                                          15),
+    ("laguz",   "asgard",   "small", ("ivy", "right", dict(reach=0.85, second=False)),              16),
+    ("fehu",    "asgard",   "small", None,                                                          17),
+    ("eihwaz",  "asgard",   "small", None,                                                          18),
     ("dagaz",   "eclipse",  "full",  ("ivy", "right", dict(young=0, drop=80)),                      21),
-    ("ehwaz",   "eclipse",  "full",  ("oak", "left", dict(autumn=0.2)),                             22),
+    ("ehwaz",   "eclipse",  "full",  None,                                                          22),
     ("perthro", "eclipse",  "small", ("rowan", "right", dict(reach=0.6, clusters=2)),               23),
-    ("mannaz",  "eclipse",  "small", ("fern", "right", dict(fronds=5)),                             24),
+    ("mannaz",  "eclipse",  "small", None,                                                          24),
     ("kenaz",   "power",    "full",  ("ivy", "right", dict(autumn=0.4, drop=60)),                   31),
     ("sowilo",  "power",    "full",  ("oak", "left", {}),                                           32),
-    ("tiwaz",   "power",    "full",  ("bough", "right", {}),                                        33),
-    ("gebo",    "power",    "small", ("rowan", "right", dict(reach=0.6, clusters=2)),               34),
-    ("uruz",    "power",    "small", ("fern", "right", dict(fronds=5)),                             35),
+    ("tiwaz",   "power",    "full",  None,                                                          33),
+    ("gebo",    "power",    "small", ("bramble", "right", dict(canes=2)),                           34),
+    ("uruz",    "power",    "small", None,                                                          35),
     ("isa",     "terminal", "full",  ("ivy", "right", dict(drop=90, berries=1)),                    41),
 ]
 PAGES = {"asgard": 101, "eclipse": 102, "power": 103, "terminal": 104}
@@ -1600,11 +1881,15 @@ def main(out, ver):
            "   asgard.css draws them (.widget::before, .widget-header, .header::after, body::after, .ag-sec). */"]
     for rune, page, size, top, seed in CARDS:
         z = SIZE[size]
-        kind, side, kw = top
-        rng = random.Random(seed)
-        body = TOPS[kind](z["tw"], z["th"], rng, side=side, keep=KEEP[(size, side)], **kw)
-        open(os.path.join(out, rune + "-top.svg"), "w").write(svg(z["tw"], z["th"], body, "%s over the top of the %s card." % (kind.title(), rune)))
-        props = ["--g-top:" + url(rune + "-top.svg"), "--g-top-at:%s top" % side, "--g-top-w:%dpx" % z["tw"]]
+        props = []
+        open(os.path.join(out, rune + "-frame.svg"), "w").write(frame(random.Random(seed * 31 + 7), size))
+        props.append("--g-frame:" + url(rune + "-frame.svg"))
+        if top:
+            kind, side, kw = top
+            rng = random.Random(seed)
+            body = TOPS[kind](z["tw"], z["th"], rng, side=side, keep=KEEP[(size, side)], **kw)
+            open(os.path.join(out, rune + "-top.svg"), "w").write(svg(z["tw"], z["th"], body, "%s over the top of the %s card." % (kind.title(), rune)))
+            props += ["--g-top:" + url(rune + "-top.svg"), "--g-top-at:%s top" % side, "--g-top-w:%dpx" % z["tw"]]
         open(os.path.join(out, rune + "-rule.svg"), "w").write(rule(page, random.Random(seed * 13 + 5)))
         props.append("--g-rule:" + url(rune + "-rule.svg"))
         css.append(".rune-%s { %s; }" % (rune, "; ".join(props)))
@@ -1612,11 +1897,12 @@ def main(out, ver):
         open(os.path.join(out, "nav-%s.svg" % page), "w").write(nav(page, random.Random(seed)))
         open(os.path.join(out, "treeline-%s.svg" % page), "w").write(treeline(page, random.Random(seed + 50)))
         open(os.path.join(out, "glyph-%s.svg" % page), "w").write(glyph(page))
+        open(os.path.join(out, "forest-%s.svg" % page), "w").write(forest(page, random.Random(seed + 90)))
         sel = 'html:has(.nav-item-current[href="/%s"])' % page
         if page == "asgard":
             sel = ":root, " + sel   # the default, before the page is known
-        css.append('%s { --g-page: %s; --g-nav: %s; --g-trees: %s; --g-glyph: %s; }' % (
-            sel, page, url("nav-%s.svg" % page), url("treeline-%s.svg" % page), url("glyph-%s.svg" % page)))
+        css.append('%s { --g-page: %s; --g-nav: %s; --g-trees: %s; --g-glyph: %s; --g-forest: %s; }' % (
+            sel, page, url("nav-%s.svg" % page), url("treeline-%s.svg" % page), url("glyph-%s.svg" % page), url("forest-%s.svg" % page)))
     open(os.path.join(out, "growth.css"), "w").write("\n".join(css) + "\n")
 
 
