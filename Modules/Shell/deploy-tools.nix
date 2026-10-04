@@ -1,10 +1,15 @@
 # Rock's deploy / admin commands — the control panel for this repo.
 #
 # Split out of Modules/Shell/navi.nix, where these scripts were ~520 of its 708
-# lines and so reached every host that wanted the navi cheatsheet UI — Kit-Kat
-# included, where they `cd ~/Dots` (which does not exist there), decrypt with
-# rock's sops key and ssh in as rock. Import this only on the machine you deploy
-# FROM (Sisyphus).
+# lines and so reached every host that wanted the navi cheatsheet UI.
+#
+# Two tiers, picked by `my.deploy-tools.admin`:
+#   admin = true  (Sisyphus, the machine you deploy FROM): everything below.
+#   admin = false (Kit-Kat): only system-rebuild, git-sync and nix-gc. Run on
+#     her machine, system-rebuild rebuilds it IN PLACE (it matches the hostname)
+#     and builds github:JimmyTheSquirrel/Dots when there is no ~/Dots there.
+#     The Apollo commands stay off it: they decrypt with rock's sops key and
+#     ssh in as rock, and its Apollo section only appears where they exist.
 #
 # Every command is a pkgs.writeShellApplication rather than writeShellScriptBin:
 #   - shellcheck runs at BUILD time, so a finding fails the rebuild instead of
@@ -38,8 +43,10 @@
 # apollo-connect and apollo-deploy share. It is only their runtime input, not a
 # command on PATH.
 { ... }: {
-  flake.nixosModules.deploy-tools = { pkgs, activeUser, ... }:
+  flake.nixosModules.deploy-tools = { config, lib, pkgs, activeUser, ... }:
   let
+    admin = config.my.deploy-tools.admin;
+
     uiLib = builtins.readFile ../../Resources/Scripts/lib/ui.sh;
     uiInputs = [ pkgs.gum pkgs.ncurses pkgs.coreutils ];
 
@@ -69,45 +76,44 @@
     apollo-key = script "apollo-key" [ pkgs.coreutils pkgs.util-linux pkgs.sops ];
     apollo-connect = script "apollo-connect" [ pkgs.coreutils pkgs.openssh apollo-resolve ];
 
+    apollo = [ apollo-iso apollo-key apollo-connect apollo-deploy ];
+
     # The home screen + menus. nom draws the live build tree, dix the package
     # diff; tailscale, nix and nixos-rebuild deliberately come from the system
-    # PATH (see the header) so they match the daemons they talk to.
-    system-rebuild = uiScript "system-rebuild" [
+    # PATH (see the header) so they match the daemons they talk to. Its Apollo
+    # section shows only when apollo-deploy is on its PATH, i.e. with admin.
+    system-rebuild = uiScript "system-rebuild" ([
       pkgs.jq
       pkgs.gawk
       pkgs.gnused
       pkgs.git
       pkgs.openssh
+      pkgs.util-linux        # findmnt: is the Apollo stick mounted
       pkgs.nix-output-monitor
       pkgs.dix
       git-sync
       nix-gc
-      apollo-iso
-      apollo-key
-      apollo-connect
-      apollo-deploy
-    ];
+    ] ++ lib.optionals admin apollo);
 
-    commands = [
-      system-rebuild
-      git-sync
-      nix-gc
-      apollo-iso
-      apollo-key
-      apollo-connect
-      apollo-deploy
-    ];
+    commands = [ system-rebuild git-sync nix-gc ] ++ lib.optionals admin apollo;
   in {
-    home-manager.users.${activeUser} = {
+    options.my.deploy-tools.admin = lib.mkEnableOption ''
+      rock's deployer extras: the Apollo USB commands (rock's sops key, his ssh
+      user) and the navi cheats for them, sops and his ssh aliases. Off, the
+      host still gets system-rebuild (which then rebuilds it in place),
+      git-sync and nix-gc
+    '' // { default = true; };
+
+    config.home-manager.users.${activeUser} = {
       home.packages = commands;
 
       # A second cheat file next to anything Modules/Shell/navi.nix ships: navi
-      # reads every *.cheat under its cheats path. All of these are rock-only —
-      # they drive the commands above, his ~/Dots, his sops key and his ssh
-      # aliases — which is why they moved here with the scripts.
+      # reads every *.cheat under its cheats path. The first three drive the
+      # commands every importer gets; the rest use rock's sops key and ssh
+      # aliases, so they come with admin.
       home.file.".config/navi/cheats/dots.cheat".text = ''
         % Dots
-        # Everything: rebuild a system, deploy new hardware, Apollo USB
+        # Everything: rebuild this machine, deploy the others, repo + store, Apollo USB
         system-rebuild
 
         % Dots
@@ -117,6 +123,7 @@
         % Dots
         # Commit, pull --rebase, push
         git-sync "chore: sync"
+      '' + lib.optionalString admin ''
 
         % Dots
         # Open encrypted secrets (decrypts in editor, re-encrypts on save)

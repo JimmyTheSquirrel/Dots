@@ -19,6 +19,13 @@ apollo-deploy kitkat-Kit-Kat             # first install — ERASES the disk
 system-rebuild kitkat Kit-Kat            # every rebuild after that
 ```
 
+`system-rebuild` is on her machine too (`deploy-tools` with
+`my.deploy-tools.admin = false`), and it knows where it is: run on Sisyphus it
+pushes over the tailnet; run on Kit-Kat — the command above, or Rebuild in the
+menu — it rebuilds Kit-Kat in place. With no `~/Dots` there it builds
+`github:JimmyTheSquirrel/Dots` (main), so push to main first; *Utilities → Get the
+repo* clones one if you want to edit on her machine.
+
 See `Claude/deploy.md` for the Apollo USB side.
 
 ## Before the first install
