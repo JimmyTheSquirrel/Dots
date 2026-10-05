@@ -262,10 +262,22 @@ MACHINES panel: this machine's generation, every other machine's tailnet state
   Utilities   Git sync · Update inputs (changelog, then offers a rebuild) ·
               Garbage collect · Check hosts (the four-host drvPath eval)
   Apollo      Deploy (host → Dry run / VM test / INSTALL) · SSH · Build ISO · Tailnet key
+  Help        a page per section — what every row does — plus Getting around (the
+              home screen, keys, colours), The machines, Command line and Words
 ```
 
 Keys: ↑↓ or j/k, ⏎ (or →/l) to pick, the digit picks directly, esc/←/h goes back,
-q quits. After a job, ⏎ returns to the same menu with the home screen refreshed.
+**? opens the help page for the menu you're in**, q quits. After a job, ⏎ returns to
+the same menu with the home screen refreshed. `system-rebuild help` prints every
+help page (plain text when piped).
+
+**The help pages are `help_*` functions** in `system-rebuild.sh` (the Help section,
+above the menus), written with `hp_head` / `hp_item` / `hp_text` / `hp_note` /
+`hp_cmd` and drawn as a panel in the scrollback, so the page stays readable above
+the menu that comes back after it. **A new menu row needs a line on its section's
+page** — the page is what `?` shows. `?` is the menu engine's (`ui.sh`): a menu
+opts in with `UI_MENU_HELP=1` before `ui_menu`, then gets `UI_CHOICE=help`; the
+`ui_choose` prompts inside jobs don't, so `?` there is just a key.
 
 **Host-aware.** It matches the hostname against its machine list (`DOTS_HOST`
 overrides), so "local" is wherever it runs. On Sisyphus, `system-rebuild kitkat

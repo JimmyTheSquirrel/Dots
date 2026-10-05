@@ -6,6 +6,7 @@
 # build time.
 #
 #   system-rebuild                                    home screen + menus
+#   system-rebuild help                               every menu item, explained
 #   system-rebuild USER SYSTEM [--boot|--build] [--target HOST]
 #
 # WHERE IT RUNS DECIDES WHAT "LOCAL" MEANS. The machine is matched by hostname
@@ -39,6 +40,9 @@
 # one ui_item line plus one case arm calling `job <function> [args]`; a new
 # section is a menu_* function plus its row in menu_main. The engine — keys,
 # drawing, breadcrumbs — is lib/ui.sh. A new machine is one line in host_info.
+# A new job also gets a line on its section's help page (help_* under Help):
+# that page is what `?` shows from the menu, and what `system-rebuild help`
+# prints.
 
 # ── Machines ──────────────────────────────────────────────────────────────────
 HOSTS=(Sisyphus Kit-Kat Asgard Apollo)
@@ -95,6 +99,7 @@ I_SWITCH=$'' I_BOOT=$'' I_BUILD=$'' I_OTHER=$''
 I_SSH=$'' I_PULL=$'' I_PUSH=$'' I_DIFF=$''
 I_GIT=$'' I_UPDATE=$'' I_GC=$'' I_CHECK=$'' I_CLONE=$''
 I_DEPLOY=$'' I_ISO=$'' I_KEY=$'' I_DRY=$'' I_VM=$'' I_WARN=$''
+I_HELP=$'' I_KEYS=$'' I_HOSTS=$'' I_TERM=$'' I_BOOK=$''
 
 # ── Tailnet ───────────────────────────────────────────────────────────────────
 TS_JSON=""
@@ -593,6 +598,253 @@ apollo_run() {
   "$@"
 }
 
+# ── Help ──────────────────────────────────────────────────────────────────────
+# One page per section, plus the basics, the machines, the command line and a
+# glossary. A page is described with hp_* calls and drawn as a panel in the
+# scrollback (so it stays readable above the menu that comes back after it).
+# `?` in a section's menu opens that section's page; Help on the home menu
+# lists them all; `system-rebuild help` prints every page.
+HP_ROWS=() HP_LINES=() HP_ACC="" HP_LAST=""
+HP_BW=$(( UI_WIDTH - 10 ))   # a panel row's body, less a space either side
+HP_LW=17                     # the label column of hp_item
+
+# hp_wrap TEXT WIDTH → HP_LINES: TEXT broken at spaces into lines of at most
+# WIDTH characters (counted as characters, not bytes, so · and → measure 1).
+hp_wrap() {
+  local LC_ALL=C.UTF-8 width="$2" line="" word
+  local -a words
+  read -ra words <<<"$1"
+  HP_LINES=()
+  for word in "${words[@]}"; do
+    if [[ -z "$line" ]]; then line=$word
+    elif (( ${#line} + 1 + ${#word} <= width )); then line+=" $word"
+    else HP_LINES+=("$line"); line=$word; fi
+  done
+  [[ -n "$line" ]] && HP_LINES+=("$line")
+  return 0
+}
+hp_new() { HP_ROWS=(""); HP_ACC=$1; HP_LAST=""; }
+# hp_head TEXT — a heading: ◆ TEXT in the page's colour.
+hp_head() {
+  (( ${#HP_ROWS[@]} > 1 )) && HP_ROWS+=("")
+  HP_ROWS+=(" $(ui_c "$HP_ACC" "◆") $(ui_bold "$(ui_c "$HP_ACC" "$1")")")
+  HP_LAST="head"
+}
+# hp_text TEXT / hp_note TEXT — a paragraph, in the text colour / dimmed. A
+# blank line before it unless it opens the page or follows a heading.
+hp_text() {
+  local l
+  [[ -n "$HP_LAST" && "$HP_LAST" != head ]] && HP_ROWS+=("")
+  hp_wrap "$1" "$HP_BW"
+  for l in "${HP_LINES[@]}"; do HP_ROWS+=(" $(ui_c "${2:-$UI_FG}" "$l")"); done
+  HP_LAST="text"
+}
+hp_note() { hp_text "$1" "$UI_DIM"; }
+# hp_item LABEL TEXT — LABEL in the page's colour, TEXT beside it, wrapped
+# under itself. A label too long for the column gets the line to itself.
+hp_item() {
+  local LC_ALL=C.UTF-8 label="$1" l sp ind first=1
+  printf -v ind '%*s' "$HP_LW" ""
+  hp_wrap "$2" $(( HP_BW - HP_LW ))
+  if (( ${#label} >= HP_LW )); then
+    HP_ROWS+=(" $(ui_bold "$(ui_c "$HP_ACC" "$label")")")
+    first=0
+  fi
+  for l in "${HP_LINES[@]}"; do
+    if (( first )); then
+      printf -v sp '%*s' $(( HP_LW - ${#label} )) ""
+      HP_ROWS+=(" $(ui_bold "$(ui_c "$HP_ACC" "$label")")$sp$(ui_c "$UI_FG" "$l")")
+      first=0
+    else
+      HP_ROWS+=(" $ind$(ui_c "$UI_FG" "$l")")
+    fi
+  done
+  HP_LAST="item"
+}
+# hp_cmd COMMAND TEXT — a command on its own line, what it does under it.
+hp_cmd() {
+  local l
+  HP_ROWS+=(" $(ui_dim "\$") $(ui_c "$HP_ACC" "$1")")
+  hp_wrap "$2" $(( HP_BW - 4 ))
+  for l in "${HP_LINES[@]}"; do HP_ROWS+=("    $(ui_c "$UI_FG" "$l")"); done
+}
+hp_show() { HP_ROWS+=(""); ui_panel "$HP_ACC" "HELP · $1" "${HP_ROWS[@]}"; }
+
+help_basics() {
+  hp_new "$UI_GREEN"
+  hp_head "What this is"
+  hp_text "The control panel for this repo: rebuild the machine you're on, deploy to the others over the tailnet, keep the repo and the Nix store tidy, and drive the Apollo USB. Every job is also a plain command (see Command line)."
+  hp_head "The home screen"
+  hp_item "DOTS line" "Where the repo is up to: the branch; ✔ clean or ● N changed (files not committed yet); ↑ commits waiting to be pushed, ↓ waiting to be pulled; and locked, how long ago the flake inputs were last updated."
+  hp_item "MACHINES" "◆ this machine, and its generation (how many times it has been rebuilt). For the others: ● online, ○ offline (with when it was last seen) or ◌ not on the tailnet; direct or relay is how Tailscale reaches it, then its tailnet IP."
+  hp_head "Keys"
+  hp_item "↑ ↓  j k" "move"
+  hp_item "⏎  →  l" "pick the highlighted row"
+  hp_item "1 – 9" "pick a numbered row straight away"
+  hp_item "esc  ←  h" "back one menu"
+  hp_item "?" "help for the menu you're in"
+  hp_item "q" "quit"
+  hp_note "After a job, ⏎ goes back to the menu (the home screen redrawn) and q leaves. Nothing clears the screen: scroll up to see what happened."
+  hp_head "Colours"
+  hp_item "red rows" "overwrite or erase something you can't easily undo (Push ours…, INSTALL). They always ask before doing anything."
+  hp_item "green box" "the job worked: what it did, how long it took, the new generation."
+  hp_item "red box" "it didn't, and what that left behind. A failed build never activates anything."
+  hp_show "Getting around"
+}
+
+help_rebuild() {
+  hp_new "$UI_AQUA"
+  hp_text "Rebuild works on the machine you're sitting at. Every rebuild is the same three steps: Build (nom draws the build as it happens), Changes (dix lists every package added, removed or updated against what's running now), then Activate. If the build fails, nothing is activated — the running system is untouched."
+  hp_head "This machine"
+  hp_item "Switch" "Build, show the changes, and switch to the new system now. Services restart as needed; no reboot."
+  hp_item "Boot" "Build and show the changes, but only make it the system the NEXT boot starts. For kernel, driver or boot changes, or when you don't want things restarting under you. Sisyphus has its own boot entry: reboot and pick Sisyphus under GRUB's System Select."
+  hp_item "Build" "Build and show the changes, activate nothing. ./result points at the new system. The safe way to see what an edit does."
+  hp_item "Other host" "Build another machine's config here and diff it against what that machine runs. Deploys nothing — a quick check that a change to Kit-Kat or Asgard builds."
+  hp_head "Going back"
+  hp_text "Each Switch or Boot adds a generation, and the boot menu lists them: to undo a bad rebuild, reboot and pick the one before. Garbage collect deletes the old ones."
+  hp_note "No ~/Dots on this machine? It builds GitHub's main instead, and Utilities offers to clone the repo."
+  hp_show "Rebuild"
+}
+
+help_remote() {
+  hp_new "$UI_BLUE"
+  hp_text "Remote deploys to the other machines over Tailscale. The build happens HERE; the finished system is copied across and activated there. It asks for your sudo password on that machine — the password there, not this one's."
+  hp_note "Opening a machine shows it live: online or offline and, asked over ssh, the generation it runs, how long it's been up, and its own ~/Dots if it has one. If it's offline when you pick a job you can wait (power it on — it carries on by itself), try anyway, or cancel."
+  hp_head "Pushed machines — Sisyphus, Kit-Kat"
+  hp_item "Switch" "build here, copy it over, activate now"
+  hp_item "Boot" "the same, but active from its next reboot"
+  hp_item "Build" "build here and diff against what it runs — nothing is deployed"
+  hp_item "SSH" "open a shell on it"
+  hp_head "Managed machines — Asgard"
+  hp_text "Asgard is edited on Asgard: its own ~/Dots is the source of truth and can be ahead of this copy. So these run ON Asgard, from its checkout:"
+  hp_item "Pull & switch" "git pull (fast-forward only) from GitHub, then switch. The normal way to update Asgard once a change is merged to main. If Asgard has uncommitted edits it stops and lists them, changing nothing."
+  hp_item "Switch there" "rebuild Asgard from its ~/Dots as it is, without pulling"
+  hp_item "SSH" "open a shell on Asgard"
+  hp_item "Compare" "build this machine's copy of Asgard's config here and diff it against what Asgard runs — nothing is deployed"
+  hp_item "Push ours…" "overwrite Asgard's live config with THIS machine's copy. Red because it can throw away changes made on Asgard; it explains and asks before doing anything."
+  hp_show "Remote"
+}
+
+help_utils() {
+  hp_new "$UI_YELLOW"
+  hp_item "Git sync" "Commit every change (it asks for a message), pull --rebase, push. Anything it can't commit is stashed and put back. The same as running git-sync."
+  hp_item "Update inputs" "nix flake update: fetch the newest nixpkgs, home-manager and every other input, then list what moved (old → new, and how old each was). flake.lock changes but isn't committed. Then it offers to Switch, Build only (to see the diff), or leave it for later."
+  hp_item "Garbage collect" "Delete every old generation, then everything in the Nix store only they used; hard-link duplicate files; on Sisyphus also prune stopped Docker containers. Frees disk space, but you can't roll back past the current generation afterwards — it asks first."
+  hp_item "Check hosts" "Evaluate all four machines' configs without building anything. A fast \"did my edit break something\" check; a failure shows its error."
+  hp_item "Get the repo" "Only on a machine without ~/Dots (Kit-Kat, usually): clone it, so Git sync and Update inputs work there. Until then, rebuilds use GitHub's main."
+  hp_note "A weekly automatic garbage collect runs anyway; this one is \"do it now, and delete every old generation\"."
+  hp_show "Utilities"
+}
+
+help_apollo() {
+  hp_new "$UI_PURPLE"
+  hp_text "Apollo is the deployer USB stick: a NixOS live system that joins the tailnet by itself when a computer boots from it, so a machine can be installed from here. On the Apollo menu, stick says whether a computer booted from it is on the tailnet, and usb whether the stick is plugged into THIS machine."
+  has_apollo || hp_note "Only on Sisyphus — this machine doesn't have the apollo tools, so there's no Apollo menu here."
+  hp_item "Deploy" "Install one of the machines onto the computer booted from the stick. Pick the machine, then:"
+  hp_item "  Dry run" "print the script that will partition the disks. Read the disk name in it. Changes nothing."
+  hp_item "  VM test" "try that disk layout in a throwaway VM. Changes nothing."
+  hp_item "  INSTALL" "ERASES that computer's disks and installs the machine. You type its name to confirm."
+  hp_item "SSH" "connect to the booted stick (waits for it to appear first)"
+  hp_item "Build ISO" "build the Apollo image and copy it onto the stick"
+  hp_item "Tailnet key" "write the Tailscale auth key onto the stick so it can join the tailnet by itself. Keys expire after 90 days: run this again then."
+  hp_show "Apollo"
+}
+
+help_machines() {
+  hp_new "$UI_FG"
+  local h mode
+  for h in "${HOSTS[@]}"; do
+    host_info "$h"
+    case "$H_MODE" in
+      push)    mode="Pushed: rebuilt from whichever machine runs this (in place when it's this one)." ;;
+      managed) mode="Managed on $h: its own ~/Dots is the source of truth — update it with Remote › $h › Pull & switch." ;;
+      stick)   mode="A USB stick: its image is built (Apollo › Build ISO), never switched to." ;;
+    esac
+    hp_item "$H_ICON  $h" "$H_ROLE$([[ "$h" == "$THIS_HOST" ]] && echo " — this machine"). $mode$([[ "$H_PROFILE" != system && "$H_PROFILE" != - ]] && echo " Keeps its own boot entry ($H_PROFILE) under GRUB's System Select.")"
+  done
+  hp_note "\"This machine\" is whichever one system-rebuild runs on: the same menu on Kit-Kat rebuilds Kit-Kat in place."
+  hp_show "The machines"
+}
+
+help_cli() {
+  hp_new "$UI_FG"
+  hp_cmd "system-rebuild" "the home screen and these menus"
+  hp_cmd "system-rebuild help" "every help page, printed"
+  hp_cmd "system-rebuild rock Sisyphus" "switch Sisyphus — in place on Sisyphus, pushed from anywhere else"
+  hp_cmd "system-rebuild rock Sisyphus --boot" "the same, for the next boot instead"
+  hp_cmd "system-rebuild rock Sisyphus --build" "build and show the changes only"
+  hp_cmd "system-rebuild kitkat Kit-Kat" "push to Kit-Kat (on Kit-Kat: rebuild in place)"
+  hp_cmd "system-rebuild rock Asgard --target asgard" "Push ours… — overwrite Asgard's config with this machine's. Without --target it refuses and points you at Pull & switch."
+  hp_cmd "git-sync [\"message\"]" "commit, pull --rebase, push"
+  hp_cmd "nix-gc" "garbage collect now"
+  if has_apollo; then
+    hp_cmd "apollo-iso · apollo-key · apollo-connect" "build the stick's image · its tailnet key · SSH to it"
+    hp_cmd "apollo-deploy [--dry-run|--vm-test] kitkat-Kit-Kat" "install a machine onto the computer booted from the stick"
+  fi
+  hp_show "Command line"
+}
+
+help_words() {
+  hp_new "$UI_FG"
+  hp_item "generation" "One numbered version of a machine's system. Every Switch or Boot makes a new one, and the boot menu lists them, so an older one can always be booted."
+  hp_item "profile" "A machine's list of generations. Sisyphus keeps its own (sisyphus), which is its own entry under GRUB's System Select."
+  hp_item "switch · boot" "Make the new system live now · from the next reboot."
+  hp_item "closure" "A system plus everything it needs: what gets built, and what's copied to another machine. The summary shows its size, and how much it grew or shrank."
+  hp_item "flake inputs" "The outside sources this repo builds from — nixpkgs, home-manager, noctalia and the rest — pinned to exact versions in flake.lock. Update inputs moves the pins forward."
+  hp_item "tailnet" "The private Tailscale network the machines reach each other over. direct means a straight connection; relay means through Tailscale's relay — it works, just slower."
+  hp_item "store · GC" "/nix/store holds everything ever built; garbage collection deletes whatever no remaining generation uses."
+  hp_item "nom · dix" "nom draws a build as it runs; dix lists the package changes between two systems."
+  hp_show "Words"
+}
+
+HELP_TOPICS=(basics rebuild remote utils apollo machines cli words)
+# help_show TOPIC — one page, then ⏎/esc back to the menu, q to quit.
+help_show() {
+  "help_$1"
+  printf '\n  %s %s   %s %s\n' \
+    "$(ui_pill "$UI_LINE" " ⏎ " "$UI_FG")" "$(ui_dim "back")" \
+    "$(ui_pill "$UI_LINE" " q " "$UI_FG")" "$(ui_dim "quit")"
+  (( UI_INTERACTIVE )) || return 0
+  ui_term_grab
+  ui_read_key
+  ui_term_release
+  [[ "$UI_KEY" == quit || "$UI_KEY" == eof ]] && bye
+  echo
+  return 0
+}
+# help_all — every page, one after another (system-rebuild help).
+help_all() {
+  local t
+  for t in "${HELP_TOPICS[@]}"; do "help_$t"; echo; done
+}
+
+menu_help() {
+  local last=""
+  while :; do
+    ui_menu_new
+    ui_note "$(ui_dim "what everything in system-rebuild does — pick a topic")"
+    ui_gap
+    ui_item basics "$I_KEYS" "Getting around" "the home screen, the keys, the colours"
+    ui_item rebuild "$I_REBUILD" Rebuild "switch · boot · build · other host" "" "$UI_AQUA"
+    ui_item remote "$I_REMOTE" Remote "deploying to the other machines" "" "$UI_BLUE"
+    ui_item utils "$I_UTILS" Utilities "sync · update · garbage collect · check" "" "$UI_YELLOW"
+    ui_item apollo "$I_APOLLO" Apollo "the deployer USB" "$(has_apollo || echo "not on this machine")" "$UI_PURPLE"
+    ui_item machines "$I_HOSTS" "The machines" "who's who, and how each is deployed"
+    ui_item cli "$I_TERM" "Command line" "the same jobs without the menus"
+    ui_item words "$I_BOOK" Words "generation, profile, closure, inputs…"
+    ui_item_back
+    UI_MENU_SEL=$last UI_MENU_HELP=1
+    ui_menu "$UI_GREEN" DOTS Help
+    last=$UI_CHOICE
+    case "$UI_CHOICE" in
+      help) help_show basics ;;
+      quit) bye ;;
+      back) return 0 ;;
+      *)    help_show "$UI_CHOICE" ;;
+    esac
+  done
+}
+
 # ── Menus ─────────────────────────────────────────────────────────────────────
 
 # job FUNC [ARGS] — run a job picked from a menu, then offer the menu back.
@@ -633,8 +885,9 @@ menu_main() {
       if [[ -n "$(apollo_mount)" ]]; then usb=$(ui_c "$UI_GREEN" ✔); else usb=$(ui_dim –); fi
       ui_item apollo "$I_APOLLO" Apollo "the deployer USB" "$(ui_dim stick) $(dot "$P_STATE")  $(ui_dim usb) $usb" "$UI_PURPLE"
     fi
+    ui_item help "$I_HELP" Help "what everything here does" "?" "$UI_GREEN"
     ui_item_quit
-    UI_MENU_SEL=$last
+    UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu grad DOTS
     last=$UI_CHOICE
     case "$UI_CHOICE" in
@@ -642,6 +895,7 @@ menu_main() {
       remote)  menu_remote ;;
       utils)   menu_utilities ;;
       apollo)  menu_apollo ;;
+      help)    menu_help ;;
       *)       bye ;;
     esac
   done
@@ -669,10 +923,11 @@ menu_rebuild() {
     fi
     ui_item other "$I_OTHER" "Other host" "build another machine's config, deploy nothing"
     ui_item_back
-    UI_MENU_SEL=$last
+    UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_AQUA" DOTS Rebuild
     last=$UI_CHOICE
     case "$UI_CHOICE" in
+      help) help_show rebuild ;;
       switch | boot | build) job rebuild "$THIS_HOST" "$UI_CHOICE" ;;
       other) menu_build_other ;;
       quit)  bye ;;
@@ -692,8 +947,10 @@ menu_build_other() {
     ui_item "$h" "$H_ICON" "$h" "$H_ROLE" "$H_USER-$h"
   done
   ui_item_back
+  UI_MENU_HELP=1
   ui_menu "$UI_AQUA" DOTS Rebuild "Other host"
   case "$UI_CHOICE" in
+    help) help_show rebuild ;;
     back) return 0 ;;
     quit) bye ;;
     *)    job rebuild "$UI_CHOICE" build ;;
@@ -714,10 +971,11 @@ menu_remote() {
         "$(case "$P_STATE" in online) ui_c "$UI_GREEN" "● online" ;; offline) ui_c "$UI_RED" "○ offline" ;; missing) ui_dim "◌ not on the tailnet" ;; *) ui_dim "◌ unknown" ;; esac)"
     done
     ui_item_back
-    UI_MENU_SEL=$last
+    UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_BLUE" DOTS Remote
     last=$UI_CHOICE
     case "$UI_CHOICE" in
+      help) help_show remote ;;
       back) return 0 ;;
       quit) bye ;;
       *)    menu_host "$UI_CHOICE" ;;
@@ -754,10 +1012,11 @@ menu_host() {
       ui_item ssh "$I_SSH" SSH "open a shell on $name" "$H_USER@$H_SSH"
     fi
     ui_item_back
-    UI_MENU_SEL=$last
+    UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_BLUE" DOTS Remote "$name"
     last=$UI_CHOICE
     case "$UI_CHOICE" in
+      help) help_show remote ;;
       switch | boot | build) job rebuild "$name" "$UI_CHOICE" ;;
       ssh)   job ssh_to "$name" ;;
       pull)  job on_host "$name" pull ;;
@@ -787,10 +1046,11 @@ menu_utilities() {
       "$(df -h --output=avail /nix/store 2>/dev/null | tail -1 | tr -d ' ') free"
     ui_item check "$I_CHECK" "Check hosts" "evaluate every host, build nothing" "${#HOSTS[@]} hosts"
     ui_item_back
-    UI_MENU_SEL=$last
+    UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_YELLOW" DOTS Utilities
     last=$UI_CHOICE
     case "$UI_CHOICE" in
+      help) help_show utils ;;
       sync)   job sync_repo ;;
       update) job update_inputs ;;
       clone)  job clone_repo ;;
@@ -822,10 +1082,11 @@ menu_apollo() {
     ui_item iso "$I_ISO" "Build ISO" "build it and copy it onto the stick" "apollo-iso"
     ui_item key "$I_KEY" "Tailnet key" "write the auth key onto the stick" "apollo-key"
     ui_item_back
-    UI_MENU_SEL=$last
+    UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_PURPLE" DOTS Apollo
     last=$UI_CHOICE
     case "$UI_CHOICE" in
+      help) help_show apollo ;;
       deploy) menu_apollo_deploy ;;
       ssh)    job apollo_run SSH "the booted stick" apollo-connect ;;
       iso)    job apollo_run ISO "build + copy to the stick" apollo-iso ;;
@@ -848,8 +1109,10 @@ menu_apollo_deploy() {
       ui_item "$h" "$H_ICON" "$h" "$H_ROLE" "$H_USER-$h · disko$([[ -f "$DOTS/Hosts/$h/facter.json" ]] && echo " + facter")"
     done
     ui_item_back
+    UI_MENU_HELP=1
     ui_menu "$UI_PURPLE" DOTS Apollo Deploy
     case "$UI_CHOICE" in
+      help) help_show apollo ;;
       back) return 0 ;;
       quit) bye ;;
       *)    menu_apollo_mode "$UI_CHOICE" ;;
@@ -869,8 +1132,10 @@ menu_apollo_mode() {
   ui_gap
   ui_item install "$I_WARN" "INSTALL" "erase its disks, install $name" "you type $name" "$UI_RED"
   ui_item_back
+  UI_MENU_HELP=1
   ui_menu "$UI_PURPLE" DOTS Apollo Deploy "$name"
   case "$UI_CHOICE" in
+    help)    help_show apollo ;;
     dry)     job apollo_run DRY-RUN "$key" apollo-deploy --dry-run "$key" ;;
     vm)      job apollo_run VM-TEST "$key" apollo-deploy --vm-test "$key" ;;
     install) job apollo_run INSTALL "$key" apollo-deploy "$key" ;;
@@ -883,9 +1148,15 @@ menu_apollo_mode() {
 usage() {
   echo "Usage: system-rebuild USER SYSTEM [--boot|--build] [--target HOST]"
   echo "   or: system-rebuild            (home screen + menus)"
+  echo "   or: system-rebuild help       (what every menu item does)"
   echo "SYSTEM is one of: ${HOSTS[*]}. This machine${THIS_HOST:+ ($THIS_HOST)} rebuilds in place;"
   echo "any other is built here and pushed over the tailnet."
 }
+
+case "${1:-}" in
+  help) help_all; exit 0 ;;
+  -h | --help) usage; exit 0 ;;
+esac
 
 if [[ -z "${1:-}" ]]; then
   FROM_MENU=1
