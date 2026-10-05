@@ -122,6 +122,27 @@
     if (d && d.matches && d.matches("details[data-disk]")) openDisks[d.getAttribute("data-disk")] = d.open;
   }, true);
 
+  // The card opens as an OVERVIEW — the pool, its segments, and one chip per
+  // drive (health dot, name, temperature) — and the arrow beside the chips
+  // drops the full drive rows down. Open or closed is this browser's choice,
+  // kept in localStorage like the HUD colour; the repaint renders from it.
+  var STOR_KEY = "asgard-storage-open";
+  var storOpen = false;
+  try { storOpen = localStorage.getItem(STOR_KEY) === "1"; } catch (e) { /* private window */ }
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest && e.target.closest("[data-stor-toggle]");
+    if (!t) return;
+    storOpen = !storOpen;
+    try { localStorage.setItem(STOR_KEY, storOpen ? "1" : "0"); } catch (err) { /* private window */ }
+    var box = t.closest(".ags-stor");                 // flip it now; the next repaint agrees
+    if (box) {
+      box.classList.toggle("open", storOpen);
+      t.setAttribute("aria-expanded", String(storOpen));
+      var dr = box.querySelector(".ags-drives");
+      if (dr) { if (storOpen) dr.removeAttribute("inert"); else dr.setAttribute("inert", ""); }
+    }
+  });
+
   function num(n) { return n == null ? "–" : Number(n).toLocaleString(); }
   function onFor(h) {
     if (h == null) return "–";
@@ -231,7 +252,19 @@
       : failing.length ? "SMART: " + failing.map(function (d) { return d.label; }).join(", ") + " FAILING"
       : "SMART passed on " + known.length + " of " + disks.length + " · checked " + D.ago(s.smart_at) + " · tap a drive for its details";
 
+    // The overview's chips: a word for anything wrong, never colour alone.
+    var chips = disks.map(function (d, i) {
+      var name = esc(d.label.split(" · ")[0]);
+      if (!d.mounted) return '<span class="ags-chip bad d' + (i % 3) + '"><span class="ags-dot bad"></span>' + name + '<b>offline</b></span>';
+      var hot = d.temp != null && d.temp >= 55;
+      var cls = d.healthy === false ? "bad" : hot ? "warn" : "ok";
+      var val = d.healthy === false ? "failing" : d.temp != null ? Math.round(d.temp) + "°" + (hot ? " hot" : "") : d.state === "standby" ? "asleep" : "–";
+      return '<span class="ags-chip ' + cls + ' d' + (i % 3) + '"><span class="ags-dot ' + cls + (d.state === "standby" ? " asleep" : "") + '"></span>' +
+        name + '<b>' + val + '</b></span>';
+    }).join("");
+
     D.paint(el,
+      '<div class="ags-stor' + (storOpen ? " open" : "") + '">' +
       '<div class="ags-pool">' +
         '<div class="ags-pool-head">' +
           '<div><div class="ags-big">' + (pool.mounted ? D.tb(pool.free) : "offline") + '</div>' +
@@ -240,6 +273,12 @@
         '</div>' +
         '<div class="ags-segs">' + (segs || '<div class="ags-seg-empty">no data disks mounted</div>') + '</div>' +
       '</div>' +
+      '<button type="button" class="ags-drv-tog' + (failing.length ? " bad" : "") + '" data-stor-toggle aria-expanded="' + storOpen + '" aria-controls="ags-drives" ' +
+        'title="' + (storOpen ? "Back to the overview" : "Show every drive") + '">' +
+        '<span class="ags-chips">' + chips + '</span>' +
+        '<span class="ags-drv-sum">' + esc(smart) + '</span>' +
+        '<i class="ags-chev" aria-hidden="true"></i></button>' +
+      '<div class="ags-drives" id="ags-drives"' + (storOpen ? "" : " inert") + '><div class="ags-drives-in">' +
       '<div class="ags-disks">' + disks.map(function (d, i) {
         var open = openDisks[d.id] ? " open" : "";
         var head;
@@ -269,7 +308,7 @@
           '<summary class="ags-disk-sum">' + head + '<i class="ags-chev" aria-hidden="true"></i></summary>' +
           '<div class="ags-dd">' + diskDetails(d) + '</div></details>';
       }).join("") + '</div>' +
-      '<div class="ags-foot ' + (failing.length ? "bad" : "") + '">' + esc(smart) + '</div>');
+      '</div></div></div>');
   }
 
   // ── Now Playing ────────────────────────────────────────────────────────────
