@@ -9,7 +9,7 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 |-------|------|--------|
 | **Architecture** | `Claude/architecture.md` | Folder layout, the module pattern, **the `/_` rule**, `mkHost`, per-host hardware/disko files, GRUB profiles, Plymouth |
 | **Next up / backlog** | `Claude/next-up.md` | Open work. **Read before a fresh install or wipe** |
-| **Deploying / installer USB** | `Claude/deploy.md` | `system-rebuild`'s menus (Rebuild · Remote · Utilities · Apollo · Help — `?` opens the current menu's help page) and how to extend them. The Apollo stick: `apollo-iso` / `apollo-key` / `apollo-connect` / `apollo-deploy`. **nixos-anywhere skips kexec on our ISO, so an SSH-over-tailnet install survives.** Ventoy + Secure Boot caveats |
+| **Deploying / installer USB** | `Claude/deploy.md` | `system-rebuild`'s menus (Rebuild · Remote · Utilities · Apollo · Help — every menu ends with a Help row; `?` opens the same page) and how to extend them. The Apollo stick: `apollo-iso` / `apollo-key` / `apollo-connect` / `apollo-deploy`. **nixos-anywhere skips kexec on our ISO, so an SSH-over-tailnet install survives.** Ventoy + Secure Boot caveats |
 | **Kit-Kat** (her machine) | `Claude/kit-kat.md` | Separate NVIDIA hardware running Hyprland. **Her own sops file**, disko + facter, what was left out |
 | Niri compositor | `Claude/niri.md` | Layout, keybinds, window rules, startup, Spotify/Steam launchers |
 | Noctalia shell | `Claude/noctalia.md` | Bar, IPC, font packaging, **idle/monitor power-save**. **Nix owns `settings.toml`** — the bar/lockscreen/widget layout lives in `lockedSettings` and a rebuild forces it back over any GUI change, so edit Nix, not the GUI |

@@ -267,7 +267,8 @@ MACHINES panel: this machine's generation, every other machine's tailnet state
 ```
 
 Keys: ↑↓ or j/k, ⏎ (or →/l) to pick, the digit picks directly, esc/←/h goes back,
-**? opens the help page for the menu you're in**, q quits. After a job, ⏎ returns to
+q quits. **Every section menu ends with Help** (its page: what each row does) and
+Back — `help_and_back` — and `?` opens the same page from anywhere in the menu. After a job, ⏎ returns to
 the same menu with the home screen refreshed. `system-rebuild help` prints every
 help page (plain text when piped).
 
@@ -275,7 +276,8 @@ help page (plain text when piped).
 above the menus), written with `hp_head` / `hp_item` / `hp_text` / `hp_note` /
 `hp_cmd` and drawn as a panel in the scrollback, so the page stays readable above
 the menu that comes back after it. **A new menu row needs a line on its section's
-page** — the page is what `?` shows. `?` is the menu engine's (`ui.sh`): a menu
+page** — the page is what Help and `?` show. A new section menu ends with
+`help_and_back` and a `help) help_show <topic> ;;` arm. `?` is the menu engine's (`ui.sh`): a menu
 opts in with `UI_MENU_HELP=1` before `ui_menu`, then gets `UI_CHOICE=help`; the
 `ui_choose` prompts inside jobs don't, so `?` there is just a key.
 

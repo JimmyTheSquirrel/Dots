@@ -610,8 +610,10 @@ HP_LW=17                     # the label column of hp_item
 
 # hp_wrap TEXT WIDTH → HP_LINES: TEXT broken at spaces into lines of at most
 # WIDTH characters (counted as characters, not bytes, so · and → measure 1).
+# Every sentence starts a line of its own, so a page reads as separate
+# statements rather than one running block (rock, 2026-10-05).
 hp_wrap() {
-  local LC_ALL=C.UTF-8 width="$2" line="" word
+  local LC_ALL=C.UTF-8 width="$2" line="" word stop='[.!?][)"]?$'
   local -a words
   read -ra words <<<"$1"
   HP_LINES=()
@@ -619,6 +621,7 @@ hp_wrap() {
     if [[ -z "$line" ]]; then line=$word
     elif (( ${#line} + 1 + ${#word} <= width )); then line+=" $word"
     else HP_LINES+=("$line"); line=$word; fi
+    if [[ "$word" =~ $stop ]]; then HP_LINES+=("$line"); line=""; fi
   done
   [[ -n "$line" ]] && HP_LINES+=("$line")
   return 0
@@ -641,11 +644,14 @@ hp_text() {
 }
 hp_note() { hp_text "$1" "$UI_DIM"; }
 # hp_item LABEL TEXT — LABEL in the page's colour, TEXT beside it, wrapped
-# under itself. A label too long for the column gets the line to itself.
+# under itself. A label too long for the column gets the line to itself. A
+# blank line between entries, so a list doesn't read as one block (rock,
+# 2026-10-05); hp_key is the tight version, for a list of one-liners.
 hp_item() {
   local LC_ALL=C.UTF-8 label="$1" l sp ind first=1
   printf -v ind '%*s' "$HP_LW" ""
   hp_wrap "$2" $(( HP_BW - HP_LW ))
+  [[ "$HP_LAST" == item && -z "${HP_TIGHT:-}" ]] && HP_ROWS+=("")
   if (( ${#label} >= HP_LW )); then
     HP_ROWS+=(" $(ui_bold "$(ui_c "$HP_ACC" "$label")")")
     first=0
@@ -661,9 +667,13 @@ hp_item() {
   done
   HP_LAST="item"
 }
-# hp_cmd COMMAND TEXT — a command on its own line, what it does under it.
+hp_key() { local HP_TIGHT=1; hp_item "$@"; }
+# hp_cmd COMMAND TEXT — a command on its own line, what it does under it; a
+# blank line between commands.
 hp_cmd() {
   local l
+  [[ "$HP_LAST" == cmd ]] && HP_ROWS+=("")
+  HP_LAST="cmd"
   HP_ROWS+=(" $(ui_dim "\$") $(ui_c "$HP_ACC" "$1")")
   hp_wrap "$2" $(( HP_BW - 4 ))
   for l in "${HP_LINES[@]}"; do HP_ROWS+=("    $(ui_c "$UI_FG" "$l")"); done
@@ -677,13 +687,14 @@ help_basics() {
   hp_head "The home screen"
   hp_item "DOTS line" "Where the repo is up to: the branch; ✔ clean or ● N changed (files not committed yet); ↑ commits waiting to be pushed, ↓ waiting to be pulled; and locked, how long ago the flake inputs were last updated."
   hp_item "MACHINES" "◆ this machine, and its generation (how many times it has been rebuilt). For the others: ● online, ○ offline (with when it was last seen) or ◌ not on the tailnet; direct or relay is how Tailscale reaches it, then its tailnet IP."
+  hp_text "Every menu ends with Help — what each of its rows does — and Back."
   hp_head "Keys"
-  hp_item "↑ ↓  j k" "move"
-  hp_item "⏎  →  l" "pick the highlighted row"
-  hp_item "1 – 9" "pick a numbered row straight away"
-  hp_item "esc  ←  h" "back one menu"
-  hp_item "?" "help for the menu you're in"
-  hp_item "q" "quit"
+  hp_key "↑ ↓  j k" "move"
+  hp_key "⏎  →  l" "pick the highlighted row"
+  hp_key "1 – 9" "pick a numbered row straight away"
+  hp_key "esc  ←  h" "back one menu"
+  hp_key "?" "help for the menu you're in — or pick its Help row"
+  hp_key "q" "quit"
   hp_note "After a job, ⏎ goes back to the menu (the home screen redrawn) and q leaves. Nothing clears the screen: scroll up to see what happened."
   hp_head "Colours"
   hp_item "red rows" "overwrite or erase something you can't easily undo (Push ours…, INSTALL). They always ask before doing anything."
@@ -862,6 +873,14 @@ job() {
 }
 bye() { echo; exit 0; }
 
+# help_and_back — a section menu's last rows: Help (its page; ? opens the same)
+# and Back.
+help_and_back() {
+  ui_gap
+  ui_item help "$I_HELP" Help "what each of these does" "?" "$UI_GREEN"
+  ui_item back "$UI_I_BACK" Back "" esc "$UI_DIM"
+}
+
 menu_main() {
   local last="" h remotes usb
   while :; do
@@ -922,7 +941,7 @@ menu_rebuild() {
       ui_gap
     fi
     ui_item other "$I_OTHER" "Other host" "build another machine's config, deploy nothing"
-    ui_item_back
+    help_and_back
     UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_AQUA" DOTS Rebuild
     last=$UI_CHOICE
@@ -946,7 +965,7 @@ menu_build_other() {
     host_info "$h"
     ui_item "$h" "$H_ICON" "$h" "$H_ROLE" "$H_USER-$h"
   done
-  ui_item_back
+  help_and_back
   UI_MENU_HELP=1
   ui_menu "$UI_AQUA" DOTS Rebuild "Other host"
   case "$UI_CHOICE" in
@@ -970,7 +989,7 @@ menu_remote() {
       ui_item "$h" "$H_ICON" "$h" "$H_ROLE$([[ "$H_MODE" == managed ]] && echo " · managed there")" \
         "$(case "$P_STATE" in online) ui_c "$UI_GREEN" "● online" ;; offline) ui_c "$UI_RED" "○ offline" ;; missing) ui_dim "◌ not on the tailnet" ;; *) ui_dim "◌ unknown" ;; esac)"
     done
-    ui_item_back
+    help_and_back
     UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_BLUE" DOTS Remote
     last=$UI_CHOICE
@@ -1011,7 +1030,7 @@ menu_host() {
       ui_item build "$I_BUILD" Build "build here and diff — nothing deployed"
       ui_item ssh "$I_SSH" SSH "open a shell on $name" "$H_USER@$H_SSH"
     fi
-    ui_item_back
+    help_and_back
     UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_BLUE" DOTS Remote "$name"
     last=$UI_CHOICE
@@ -1045,7 +1064,7 @@ menu_utilities() {
     ui_item gc "$I_GC" "Garbage collect" "old generations · store · docker" \
       "$(df -h --output=avail /nix/store 2>/dev/null | tail -1 | tr -d ' ') free"
     ui_item check "$I_CHECK" "Check hosts" "evaluate every host, build nothing" "${#HOSTS[@]} hosts"
-    ui_item_back
+    help_and_back
     UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_YELLOW" DOTS Utilities
     last=$UI_CHOICE
@@ -1081,7 +1100,7 @@ menu_apollo() {
     ui_item ssh "$I_SSH" SSH "connect to the booted stick" "apollo-connect"
     ui_item iso "$I_ISO" "Build ISO" "build it and copy it onto the stick" "apollo-iso"
     ui_item key "$I_KEY" "Tailnet key" "write the auth key onto the stick" "apollo-key"
-    ui_item_back
+    help_and_back
     UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_PURPLE" DOTS Apollo
     last=$UI_CHOICE
@@ -1108,7 +1127,7 @@ menu_apollo_deploy() {
       host_info "$h"
       ui_item "$h" "$H_ICON" "$h" "$H_ROLE" "$H_USER-$h · disko$([[ -f "$DOTS/Hosts/$h/facter.json" ]] && echo " + facter")"
     done
-    ui_item_back
+    help_and_back
     UI_MENU_HELP=1
     ui_menu "$UI_PURPLE" DOTS Apollo Deploy
     case "$UI_CHOICE" in
@@ -1131,7 +1150,7 @@ menu_apollo_mode() {
   ui_item vm "$I_VM" "VM test" "apply the layout in a throwaway VM"
   ui_gap
   ui_item install "$I_WARN" "INSTALL" "erase its disks, install $name" "you type $name" "$UI_RED"
-  ui_item_back
+  help_and_back
   UI_MENU_HELP=1
   ui_menu "$UI_PURPLE" DOTS Apollo Deploy "$name"
   case "$UI_CHOICE" in
