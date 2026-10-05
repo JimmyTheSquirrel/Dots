@@ -734,7 +734,24 @@ Glance's own theme picker, which asgard.css hides (its presets fight the HUD's t
 - **Per browser, not per server**: the pick lives in that browser's localStorage. Nothing
   is stored on Asgard and nothing in Nix changes; the default for a fresh browser is
   `data-default` on the script tag in `glance.nix`. A private window still recolours for
-  the visit. MarsBar doesn't load theme.js — it keeps its own look.
+  the visit.
+- **MarsBar has it too** — the same file, `data-profile="marsbar"` (see
+  `Claude/marsbar.md` → Her colour picker). Shared base styles for the button, panel and
+  swatches are in `cards.css`, as weak as CSS allows (`:where()`, and `button:where(…)` for
+  the buttons — Glance's own `button { background: none; border: 0 }` would otherwise
+  blank every swatch); asgard.css restyles them into the HUD and takes the base's
+  rounding back off (`border-radius: 0`; the HUD cuts corners with `clip-path`).
+- **Cats** — the "Just for fun" row: a ginger-and-pink theme (`#ffb36b+#ff9ec4` through
+  the normal palette) that also sets `html[data-cats]` and pulls in
+  `Resources/Glance/cats.css` (`data-cats` on the script tag; fetched only when picked).
+  theme.js then adds a cat to every top-level card (`.cat-perch` — peeking, sitting or
+  loafing on the card's top edge, alternating side and coat; a MutationObserver catches
+  the cards Glance adds after load), a `.cat-walk` that strolls along the foot of the
+  screen now and then (above the phone's bottom bar — `--cat-floor`, measured from
+  `.mobile-navigation-icons`), faint paw prints behind everything (`.cat-paws`), paw
+  glyphs on the section headings, and a cat face for the logo. All `aria-hidden`,
+  `pointer-events: none`; reduced motion stops the walker. Picking anything else removes
+  every one of them.
 
 **The colour system** — the default the picker starts from (table and reasoning at the
 top of `asgard.css`): **mint** `#3be8a8`

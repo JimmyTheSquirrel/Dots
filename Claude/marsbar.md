@@ -255,6 +255,39 @@ the assets dir rather than a URL-encoded string in the CSS. `pointer-events: non
 
 ---
 
+## Her colour picker (and the cats)
+
+She can recolour her dashboard, per browser, from the same picker as Asgard's
+(`Resources/Glance/theme.js`, loaded with `data-profile="marsbar"` — a plain, not
+deferred, script first in `document.head`, so a pick is on screen before the first paint).
+On a phone it is a row at the top of the ☰ menu; on a desktop (no nav bar there —
+`hide-desktop-navigation`) it is a round button in the bottom-right corner (`.hud-pick.fab`,
+shown only while the phone bar is hidden).
+
+- **Lavender is the default** (`#ca99f5`, her `hsl(272, 82%, 78%)`), then Rose, Coral, Peach,
+  Butter, Pistachio, Mint, Aqua, Sky, Periwinkle, Orchid, Berry; the six two-tone themes;
+  **Cats**; Custom; Reset. Stored in `marsbar-colour` (and the redrawn artwork in
+  `marsbar-art`, keyed to `data-art-v` — a hash of vine.svg, bloom.svg and theme.js).
+- **Only hues move.** marsbar.css is written against two numbers: `--mb-h` (her purple,
+  272) and `--mb-h2` (the vine's green, 150) — every colour there is
+  `hsl(var(--mb-h) ± n, …)` or `--mb-h2`. A pick sets those, Glance's own `--bgh`,
+  `--color-primary` and `--color-positive`, and nothing else, so every colour sits as
+  softly on the glass as her purple does. One colour moves the purple; a two-tone pick
+  also moves the vine's green to its second colour. ⚠ **A new colour in marsbar.css must
+  be written the same way** — a literal purple stays purple whatever she picks. Status
+  colours (`--mb-bad`, `--mb-warn`) and the shared data palette don't move.
+- **The vine and the blossom follow.** theme.js fetches vine.svg and bloom.svg once per
+  pick, turns every purple in them (hue 240–345) by the pick and every green (110–175) by
+  the second colour (gold and greys stay), and hands them back as `--mb-vine` /
+  `--mb-bloom` data-URIs. marsbar.css uses `var(--mb-vine, url("/assets/vine.svg"))` — the
+  fallback is absolute on purpose (a relative `url()` inside `var()` can resolve against
+  the page, not the stylesheet).
+- **Cats** put cats all over it — one on the top edge of every card, one strolling along
+  the bottom of the screen above her phone's bar, paw prints behind everything, paw
+  glyphs on the section headings, and kitten faces in place of the blossoms
+  (`html[data-cats][data-dash="marsbar"]` — on Asgard that spot is the Yggdrasil tree).
+  Details in `Claude/server-info.md` → The colour picker.
+
 ## Live lights (no polling)
 
 `Resources/Glance/lights.js` — shared with the admin dashboard — holds one

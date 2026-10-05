@@ -1,39 +1,63 @@
-// theme.js — the HUD's colour, picked per browser.
+// theme.js — the UI colour, picked per browser, on BOTH dashboards.
 //
-// The dashboard ships in mint (asgard.css's tokens; hud.py's artwork). Pick
-// another colour — one of the light presets, a two-tone theme, or any colour
-// at all — and this derives the whole palette from it: the HUD's two lights
-// and its bright, the six data slots, every glow and line (they are all
-// rgb(var(--hud-rgb) / …)). It also redraws the three pieces of artwork that
-// carry colour (the panel frame, the Yggdrasil card, the logo) from the
-// templates hud.py writes (tpl.js).
+// One script, two looks, chosen by data-profile on its <script> tag:
 //
-// It runs in <head>, before the page paints, so there's no flash of mint:
-// the palette is computed from the stored colour, and the redrawn artwork
-// is kept in localStorage beside it (keyed to the HUD's build, so a new
-// build redraws it once). tpl.js is fetched only when a colour is picked —
-// a browser that keeps the default never downloads it.
+//   hud      (Asgard, the default) — the HUD ships in mint (asgard.css's
+//            tokens; hud.py's artwork). A pick derives the whole palette: the
+//            HUD's two lights and its bright, the six data slots, every glow
+//            and line (all rgb(var(--hud-rgb) / …)), and redraws the three
+//            pieces of artwork that carry colour (panel frame, Yggdrasil card,
+//            logo) from the templates hud.py writes (tpl.js, data-tpl).
+//   marsbar  (MarsBar) — her purple and the vine's green are two HUES in
+//            marsbar.css (--mb-h, --mb-h2; every hsl() there is written
+//            against them), so a pick sets those two, Glance's own background
+//            hue and primary colour, and recolours the vine and blossom
+//            artwork (data-art: vine.svg, bloom.svg — their purples turned to
+//            the pick, their greens to the second colour of a two-tone pick).
+//
+// Either way, plus Cats: a ginger-and-pink theme that also puts cats all over
+// the page (cats.css, data-cats — fetched only when someone picks it).
+//
+// It runs in <head>, before the page paints, so there's no flash of the
+// default: the palette is computed from the stored pick, and redrawn artwork
+// is kept in localStorage beside it (keyed to the build, so a new build
+// redraws it once). Templates/artwork are fetched only when a colour is
+// picked — a browser that keeps the default never downloads them.
 //
 // The choice lives in THIS browser (localStorage): a viewer's preference,
 // nothing on the server changes, and Reset goes back to the default. If
 // storage is off (a private window) the picker still works for the visit.
 //
-// The picker replaces Glance's own theme picker (its presets fight
-// asgard.css; asgard.css hides it): a swatch button at the end of the
-// navigation bar, and a row in the phone's menu.
+// The picker replaces Glance's own theme picker (its presets fight these
+// stylesheets; cards.css hides it): a swatch button at the end of the
+// navigation bar — or, where there is no bar (MarsBar on a desktop), a round
+// button in the bottom-right corner — and a row in the phone's ☰ menu.
 (function () {
   "use strict";
 
   var me = document.currentScript;
-  var DEFAULT = (me && me.getAttribute("data-default")) || "#3be8a8";
-  var BUILD = (me && me.getAttribute("data-hud")) || "";
-  var TPL_URL = me && me.getAttribute("data-tpl");
-  var KEY = "asgard-hud-colour", ART = "asgard-hud-art";
-  // Light colours read best on the grey glass (rock, 2026-10-05: the first,
-  // saturated set was "a lot"). A pick is "#rrggbb", or "#rrggbb+#rrggbb" for
-  // a two-tone theme: the first colour is the HUD, the second its other
-  // light — alternate cards, the second series, the frame's accents.
-  var PRESETS = [
+  function attr(k) { return (me && me.getAttribute(k)) || ""; }
+  var MB = attr("data-profile") === "marsbar";
+  var DEFAULT = attr("data-default") || (MB ? "#ca99f5" : "#3be8a8");
+  var BUILD = attr("data-hud") || attr("data-art-v");
+  var TPL_URL = attr("data-tpl");
+  var ART_URLS = attr("data-art").split(",").filter(Boolean);   // marsbar: vine, bloom
+  var CATS_CSS = attr("data-cats");
+  var KEY = MB ? "marsbar-colour" : "asgard-hud-colour";
+  var ART = MB ? "marsbar-art" : "asgard-hud-art";
+  // marsbar.css's own hues — what its artwork is drawn in.
+  var MB_H = 272, MB_H2 = 150;
+
+  // Light colours read best on the dark glass (rock, 2026-10-05: the first,
+  // saturated set was "a lot"). A pick is "#rrggbb", "#rrggbb+#rrggbb" for a
+  // two-tone theme (the first colour is the main one, the second its other
+  // light: alternate cards and the second series on Asgard, the vine's leaves
+  // on MarsBar), or "cats".
+  var PRESETS = MB ? [
+    ["Lavender — her own", DEFAULT], ["Rose", "#ffa6c9"], ["Coral", "#ffa697"], ["Peach", "#ffbf8f"],
+    ["Butter", "#ffdc85"], ["Pistachio", "#c6e891"], ["Mint", "#7eecc0"], ["Aqua", "#7ee0e6"],
+    ["Sky", "#8cc8ff"], ["Periwinkle", "#a4b0ff"], ["Orchid", "#e3a8f5"], ["Berry", "#f28cb8"],
+  ] : [
     ["Mint", "#3be8a8"], ["Aqua", "#7ee0e6"], ["Sky", "#8cc8ff"], ["Periwinkle", "#a4b0ff"],
     ["Lavender", "#bfa8ff"], ["Orchid", "#e3a8f5"], ["Rose", "#ffa6c9"], ["Coral", "#ffa697"],
     ["Peach", "#ffbf8f"], ["Butter", "#ffdc85"], ["Pistachio", "#c6e891"], ["Frost", "#cfd9e6"],
@@ -43,10 +67,14 @@
     ["Fjord", "#86e3e0+#9db4ff"], ["Muspel — the realm of fire", "#ffbf8f+#ff9fb1"],
     ["Midgard — meadow and wheat", "#b9e89a+#ffd98a"], ["Niflheim — mist and ice", "#cfe6ff+#c8b6ff"],
   ];
-  var VALID = /^#[0-9a-f]{6}(\+#[0-9a-f]{6})?$/;
-  var PROPS = ["--hud", "--hud2", "--hud-hot", "--hud-deep", "--hud-rgb", "--hud2-rgb",
-    "--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--h-frame", "--h-ygg"];
+  var CATS = "#ffb36b+#ff9ec4";      // ginger and a pink nose
+  var VALID = /^(cats|#[0-9a-f]{6}(\+#[0-9a-f]{6})?)$/;
+  var PROPS = MB
+    ? ["--mb-h", "--mb-h2", "--bgh", "--color-primary", "--color-positive", "--mb-vine", "--mb-bloom"]
+    : ["--hud", "--hud2", "--hud-hot", "--hud-deep", "--hud-rgb", "--hud2-rgb",
+       "--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--h-frame", "--h-ygg"];
   var root = document.documentElement;
+  if (MB) root.setAttribute("data-dash", "marsbar");
 
   function get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* private window */ } }
@@ -79,21 +107,21 @@
     else if (h < 240) { r = 0; g = x; b = c; } else if (h < 300) { r = x; g = 0; b = c; } else { r = c; g = 0; b = x; }
     return hex([(r + m) * 255, (g + m) * 255, (b + m) * 255]);
   }
+  function hueOf(hex) { return toHsl(rgb(hex))[0]; }
 
-  // The palette from a pick. Lightness is held in a LIGHT band (0.6–0.84) and
-  // saturation capped, so even a custom pick comes out soft on the glass —
-  // and a near-black one doesn't vanish. One colour: the second light and the
-  // other series are its neighbours a fair way round the wheel (+30, +48, and
-  // a paler −34), light enough that none reads as an error. Two-tone: the
-  // second colour is the second light and the second series, and the third
-  // series sits between the two.
+  // HUD. Lightness is held in a LIGHT band (0.6–0.84) and saturation capped,
+  // so even a custom pick comes out soft on the glass — and a near-black one
+  // doesn't vanish. One colour: the second light and the other series are
+  // its neighbours a fair way round the wheel (+30, +48, and a paler −34),
+  // light enough that none reads as an error. Two-tone: the second colour is
+  // the second light and the second series; the third sits between the two.
   function tone(hex) {
     var p = toHsl(rgb(hex));
     return [p[0], Math.min(p[1], 0.9), clamp(p[2], 0.6, 0.84)];
   }
   function between(a, b) { var d = ((b - a + 540) % 360) - 180; return a + d / 2; }
-  function palette(pick) {
-    var parts = pick.split("+"), A = tone(parts[0]), H = A[0], S = A[1], L = A[2];
+  function hudPalette(colours) {
+    var parts = colours.split("+"), A = tone(parts[0]), H = A[0], S = A[1], L = A[2];
     var B = parts[1] ? tone(parts[1]) : [H + 30, S, L * 0.95];
     return {
       "--hud": hsl(H, S, L),
@@ -109,25 +137,38 @@
       "--s6": hsl(B[0], B[1], L * 0.62),
     };
   }
+  // MarsBar. Only HUES move: her lightness and saturation were tuned by eye
+  // for the purple and stay as they are, so every pick sits as softly as hers.
+  // The second hue is the vine's green unless a two-tone pick gives one.
+  function mbPalette(colours) {
+    var parts = colours.split("+"), h = hueOf(parts[0]), h2 = parts[1] ? hueOf(parts[1]) : MB_H2;
+    return {
+      "--mb-h": h.toFixed(1), "--mb-h2": h2.toFixed(1), "--bgh": (h - 4).toFixed(1),
+      "--color-primary": "hsl(" + h.toFixed(1) + ", 82%, 78%)",
+      "--color-positive": "hsl(" + h.toFixed(1) + ", 62%, 68%)",
+      _h: h, _h2: h2,
+    };
+  }
 
   // ── the artwork ─────────────────────────────────────────────────────────────
-  function fill(t, p) {
-    return t.replace(/__A__/g, p["--hud"]).replace(/__H__/g, p["--hud-hot"])
-      .replace(/__B__/g, p["--hud2"]).replace(/__D__/g, "#14181c");
-  }
   function dataUrl(svg) { return "data:image/svg+xml," + encodeURIComponent(svg); }
-  function draw(pick, p) {
-    var T = window.HUD_TPL;
-    if (!T) return null;
-    var art = { b: BUILD, c: pick, frame: dataUrl(fill(T.frame, p)), ygg: dataUrl(fill(T.ygg, p)), logo: dataUrl(fill(T.logo, p)) };
-    set(ART, JSON.stringify(art));
-    return art;
-  }
   function stored(pick) {
     try {
       var a = JSON.parse(get(ART) || "null");
       return a && a.b === BUILD && a.c === pick ? a : null;
     } catch (e) { return null; }
+  }
+  // HUD: hud.py's templates, colours left as __A__/__H__/__B__/__D__.
+  function fill(t, p) {
+    return t.replace(/__A__/g, p["--hud"]).replace(/__H__/g, p["--hud-hot"])
+      .replace(/__B__/g, p["--hud2"]).replace(/__D__/g, "#14181c");
+  }
+  function drawHud(pick, p) {
+    var T = window.HUD_TPL;
+    if (!T) return null;
+    var art = { b: BUILD, c: pick, frame: dataUrl(fill(T.frame, p)), ygg: dataUrl(fill(T.ygg, p)), logo: dataUrl(fill(T.logo, p)) };
+    set(ART, JSON.stringify(art));
+    return art;
   }
   var tplLoading = null;
   function withTemplates(fn) {
@@ -142,13 +183,110 @@
     }
     tplLoading.push(fn);
   }
+  // MarsBar: the real vine.svg and bloom.svg, every purple turned by the pick's
+  // hue and every green by the second colour's. Gold (the blossoms' hearts)
+  // and near-greys stay as they are.
+  function shiftSvg(t, dA, dB) {
+    return t.replace(/#[0-9a-fA-F]{6}\b/g, function (m) {
+      var c = toHsl(rgb(m)), h = c[0];
+      if (c[1] < 0.15) return m;
+      if (h >= 240 && h <= 345) return hsl(h + dA, c[1], c[2]);
+      if (h >= 110 && h <= 175 && dB) return hsl(h + dB, c[1], c[2]);
+      return m;
+    });
+  }
+  function drawMb(pick, p, done) {
+    if (!ART_URLS.length || !window.fetch) return;
+    Promise.all(ART_URLS.map(function (u) { return fetch(u).then(function (r) { return r.text(); }); }))
+      .then(function (texts) {
+        var art = { b: BUILD, c: pick };
+        texts.forEach(function (t, i) { art["a" + i] = dataUrl(shiftSvg(t, p._h - MB_H, p._h2 - MB_H2)); });
+        set(ART, JSON.stringify(art));
+        done(art);
+      })
+      .catch(function () { /* the stylesheet's own artwork stays */ });
+  }
+
+  // ── the cats ────────────────────────────────────────────────────────────────
+  // A face for Asgard's logo (and the Cats swatch, in cards.css).
+  var FACE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 56"><path fill="__C__" fill-rule="evenodd" d="M12 52C6 46 5 36 8 28L6 6L20 15C24 13.6 28 13 32 13C36 13 40 13.6 44 15L58 6L56 28C59 36 58 46 52 52C46 56 18 56 12 52ZM22 31a3.4 4.6 0 1 0 0.01 0ZM42 31a3.4 4.6 0 1 0 0.01 0ZM29.6 41h4.8L32 44Z"/></svg>';
+  var catsOn = false, catObs = null, catKinds = ["peek", "sit", "loaf"];
+  function loadCatsCss() {
+    if (!CATS_CSS || document.querySelector("link[data-cats-css]")) return;
+    var l = document.createElement("link");
+    l.rel = "stylesheet"; l.href = CATS_CSS; l.setAttribute("data-cats-css", "");
+    document.head.appendChild(l);
+  }
+  // One cat per card (a group's tabs are .widgets too — they're skipped),
+  // alternating which cat, which side and which colour; a walker and the paw
+  // prints once per page. Glance adds the cards after load, so an observer
+  // catches them as they arrive.
+  function decorate() {
+    if (!catsOn || !document.body) return;
+    var n = 0;
+    document.querySelectorAll(".widget").forEach(function (w) {
+      if (w.parentElement && w.parentElement.closest(".widget")) return;
+      if (!w.querySelector(":scope > .cat-perch")) {
+        var i = document.createElement("i");
+        i.className = "cat-perch cat-" + catKinds[n % 3] + (n % 2 ? " right" : "") + (n % 4 ? " c" + (n % 4) : "");
+        i.setAttribute("aria-hidden", "true");
+        w.appendChild(i);
+      }
+      n++;
+    });
+    ["cat-walk", "cat-paws"].forEach(function (c) {
+      if (document.querySelector("." + c)) return;
+      var e = document.createElement("i");
+      e.className = c; e.setAttribute("aria-hidden", "true");
+      document.body.appendChild(e);
+    });
+    floor();
+  }
+  // The walker strolls along the bottom of the SCREEN — on a phone, just above
+  // Glance's bottom bar. The bar (its icons row) only: the rest of
+  // .mobile-navigation is the ☰ panel, parked off-screen below it.
+  function floor() {
+    var nav = document.querySelector(".mobile-navigation"), bar = document.querySelector(".mobile-navigation-icons");
+    var h = nav && bar && getComputedStyle(nav).display !== "none" ? bar.getBoundingClientRect().height : 0;
+    root.style.setProperty("--cat-floor", Math.round(h + 4) + "px");
+  }
+  function cats(on) {
+    if (on === catsOn) return;
+    catsOn = on;
+    if (on) {
+      root.setAttribute("data-cats", "");
+      loadCatsCss();
+      var start = function () {
+        decorate();
+        if (!catObs && window.MutationObserver) {
+          var queued = false;
+          catObs = new MutationObserver(function () {
+            if (queued) return;
+            queued = true;
+            requestAnimationFrame(function () { queued = false; decorate(); });
+          });
+          catObs.observe(document.body, { childList: true, subtree: true });
+        }
+      };
+      if (document.body) start(); else document.addEventListener("DOMContentLoaded", start);
+    } else {
+      root.removeAttribute("data-cats");
+      if (catObs) { catObs.disconnect(); catObs = null; }
+      document.querySelectorAll(".cat-perch, .cat-walk, .cat-paws").forEach(function (e) { e.remove(); });
+    }
+  }
 
   // ── applying it ─────────────────────────────────────────────────────────────
-  var current = DEFAULT, logoArt = null;
+  var current = DEFAULT.toLowerCase(), logoArt = null;
   function useArt(a) {
+    if (MB) {
+      if (a.a0) root.style.setProperty("--mb-vine", 'url("' + a.a0 + '")');
+      if (a.a1) root.style.setProperty("--mb-bloom", 'url("' + a.a1 + '")');
+      return;
+    }
     root.style.setProperty("--h-frame", 'url("' + a.frame + '")');
     root.style.setProperty("--h-ygg", 'url("' + a.ygg + '")');
-    logoArt = a.logo;
+    logoArt = catsOn ? logoArt : a.logo;
     paintLogo();
   }
   function paintLogo() {
@@ -163,17 +301,25 @@
     current = pick;
     PROPS.forEach(function (k) { root.style.removeProperty(k); });
     logoArt = null;
-    if (pick === DEFAULT.toLowerCase()) { paintLogo(); return; }   // asgard.css's own palette
-    var p = palette(pick);
-    Object.keys(p).forEach(function (k) { root.style.setProperty(k, p[k]); });
-    root.style.setProperty("--hud-rgb", rgb(p["--hud"]).join(" "));
-    root.style.setProperty("--hud2-rgb", rgb(p["--hud2"]).join(" "));
+    cats(pick === "cats");
+    if (pick === DEFAULT.toLowerCase()) { paintLogo(); return; }   // the stylesheet's own palette
+    var colours = pick === "cats" ? CATS : pick;
+    var p = MB ? mbPalette(colours) : hudPalette(colours);
+    Object.keys(p).forEach(function (k) { if (k.charAt(0) !== "_") root.style.setProperty(k, p[k]); });
+    if (!MB) {
+      root.style.setProperty("--hud-rgb", rgb(p["--hud"]).join(" "));
+      root.style.setProperty("--hud2-rgb", rgb(p["--hud2"]).join(" "));
+      if (catsOn) { logoArt = dataUrl(FACE.replace("__C__", p["--hud"])); paintLogo(); }
+    }
     var a = stored(pick);
-    if (a) useArt(a);
-    else withTemplates(function () { if (current === pick) { var d = draw(pick, p); if (d) useArt(d); } });
+    if (a) { useArt(a); return; }
+    if (MB) drawMb(pick, p, function (d) { if (current === pick) useArt(d); });
+    else withTemplates(function () { if (current === pick) { var d = drawHud(pick, p); if (d) useArt(d); } });
   }
   function choose(pick) {
-    set(KEY, pick && pick.toLowerCase() !== DEFAULT.toLowerCase() ? pick.toLowerCase() : null);
+    var keep = pick && pick.toLowerCase() !== DEFAULT.toLowerCase();
+    set(KEY, keep ? pick.toLowerCase() : null);
+    if (!keep) set(ART, null);                                   // back to the stylesheet's own artwork
     apply(pick);
     sync();
   }
@@ -188,19 +334,21 @@
 
   function swatches(list) {
     return '<div class="hud-sws">' + list.map(function (p) {
-      var c = p[1].split("+");
-      return '<button type="button" class="hud-sw' + (c[1] ? " duo" : "") + '" data-hud-colour="' + p[1] + '" title="' + p[0] +
-        '" aria-label="' + p[0] + '" style="--sw:' + c[0] + (c[1] ? ";--sw2:" + c[1] : "") + '"></button>';
+      var c = p[1] === "cats" ? CATS.split("+") : p[1].split("+");
+      return '<button type="button" class="hud-sw' + (p[1] === "cats" ? " cats" : c[1] ? " duo" : "") + '" data-hud-colour="' + p[1] +
+        '" title="' + p[0] + '" aria-label="' + p[0] + '" style="--sw:' + c[0] + (c[1] ? ";--sw2:" + c[1] : "") + '"></button>';
     }).join("") + '</div>';
   }
   function allSwatches() {
-    return swatches(PRESETS) + '<div class="hud-sub">Two-tone</div>' + swatches(DUOS);
+    return swatches(PRESETS) + '<div class="hud-sub">Two-tone</div>' + swatches(DUOS) +
+      '<div class="hud-sub">Just for fun</div>' + swatches([["Cats — cats everywhere", "cats"]]);
   }
   function sync() {
     document.querySelectorAll(".hud-sw").forEach(function (b) {
       b.setAttribute("aria-pressed", b.getAttribute("data-hud-colour").toLowerCase() === current ? "true" : "false");
     });
-    document.querySelectorAll(".hud-custom").forEach(function (i) { i.value = current.split("+")[0]; });
+    var c = (current === "cats" ? CATS : current).split("+")[0];
+    document.querySelectorAll(".hud-custom").forEach(function (i) { i.value = c; });
   }
   function wire(el) {
     el.addEventListener("click", function (e) {
@@ -213,11 +361,13 @@
       i.addEventListener("change", function () { choose(i.value); });
     });
   }
+  // Under the button — or above it, for the corner button.
   function place() {
     if (!pop || !button) return;
     var r = button.getBoundingClientRect();
-    pop.style.top = Math.round(r.bottom + 10) + "px";
     pop.style.right = Math.round(Math.max(8, window.innerWidth - r.right)) + "px";
+    if (r.top > window.innerHeight / 2) { pop.style.top = "auto"; pop.style.bottom = Math.round(window.innerHeight - r.top + 10) + "px"; }
+    else { pop.style.bottom = "auto"; pop.style.top = Math.round(r.bottom + 10) + "px"; }
   }
   function toggle(open) {
     if (!pop) return;
@@ -226,18 +376,25 @@
     button.setAttribute("aria-expanded", open ? "true" : "false");
     if (open) place();
   }
+  // No visible nav bar (MarsBar hides Glance's on a desktop): the corner
+  // button shows. A phone has the ☰ row instead.
+  function corner() {
+    if (!button || !button.classList.contains("fab")) return;
+    var nav = document.querySelector(".mobile-navigation");
+    root.classList.toggle("hud-fab", !(nav && getComputedStyle(nav).display !== "none"));
+  }
   function build() {
     paintLogo();
     var header = document.querySelector(".header");
-    if (header && !document.querySelector(".hud-pick")) {
+    if (!document.querySelector(".hud-pick")) {
       button = document.createElement("button");
       button.type = "button";
-      button.className = "hud-pick";
+      button.className = "hud-pick" + (header ? "" : " fab");
       button.setAttribute("aria-label", "UI colour");
       button.setAttribute("aria-haspopup", "true");
       button.setAttribute("aria-expanded", "false");
       button.innerHTML = PAL + "<i></i>";
-      header.appendChild(button);
+      (header || document.body).appendChild(button);
       pop = document.createElement("div");
       pop.className = "hud-pop";
       pop.hidden = true;
@@ -251,7 +408,8 @@
       button.addEventListener("click", function (e) { e.stopPropagation(); toggle(); });
       document.addEventListener("click", function (e) { if (!pop.hidden && !pop.contains(e.target)) toggle(false); });
       document.addEventListener("keydown", function (e) { if (e.key === "Escape") toggle(false); });
-      window.addEventListener("resize", place);
+      window.addEventListener("resize", function () { place(); corner(); if (catsOn) floor(); });
+      corner();
     }
     var mob = document.querySelector(".mobile-navigation-actions");
     if (mob && !mob.querySelector(".hud-row")) {
@@ -263,6 +421,7 @@
       wire(row);
     }
     sync();
+    if (catsOn) decorate();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", build);
   else build();

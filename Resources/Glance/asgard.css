@@ -1332,6 +1332,11 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
    same is a row in the menu. The choice is this browser's.
    ════════════════════════════════════════════════════════════════════════════ */
 .theme-picker { display: none !important; }
+/* cards.css gives the picker a soft, rounded base (MarsBar's look); the HUD
+   cuts its corners with clip-path instead, so the rounding and the base's
+   borders are taken back off here. */
+.hud-pick, .hud-pick i, .hud-pop, .hud-sw, .hud-reset { border-radius: 0; }
+.hud-pop, .hud-pop-h { border: none; }
 .hud-pick {
   align-self: center;
   flex: none;

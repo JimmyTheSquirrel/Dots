@@ -5,6 +5,12 @@
    theme colours (purple, set in Modules/Server/marsbar.nix) still drive everything
    Glance draws itself; this file adds the cards, the tiles and the vine.
 
+   Her colour picker (Resources/Glance/theme.js, profile "marsbar") moves two
+   hues — --mb-h (her purple, 272) and --mb-h2 (the vine's green, 150) — so
+   every colour here is written as hsl(var(--mb-h) ± n, …) or --mb-h2. Write
+   new ones the same way; a literal purple would stay purple whatever she picks.
+   Cats (cats.css) are drawn on top of this, from the same picker.
+
    The Eclipse panel, the network card and "On the TV" are NOT styled here:
    they are the admin dashboard's own cards (Resources/Glance/cards.css, loaded
    after this), shared so she has exactly the same controls. cards.css is
@@ -21,28 +27,33 @@
    ════════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  --mb-text: hsl(270, 30%, 96%);
-  --mb-text-dim: hsla(270, 20%, 90%, 0.64);
-  --mb-text-faint: hsla(270, 20%, 90%, 0.44);
-  --mb-accent: hsl(272, 82%, 80%);
-  --mb-accent-strong: hsl(272, 68%, 58%);
-  --mb-glow: hsla(276, 85%, 62%, 0.30);
-  --mb-leaf: hsl(150, 48%, 62%);
+  /* The two hues everything below is written against: her purple and the
+     vine's green. theme.js moves these (her colour picker); nothing else. */
+  --mb-h: 272;
+  --mb-h2: 150;
+
+  --mb-text: hsl(calc(var(--mb-h) - 2), 30%, 96%);
+  --mb-text-dim: hsla(calc(var(--mb-h) - 2), 20%, 90%, 0.64);
+  --mb-text-faint: hsla(calc(var(--mb-h) - 2), 20%, 90%, 0.44);
+  --mb-accent: hsl(var(--mb-h), 82%, 80%);
+  --mb-accent-strong: hsl(var(--mb-h), 68%, 58%);
+  --mb-glow: hsla(calc(var(--mb-h) + 4), 85%, 62%, 0.30);
+  --mb-leaf: hsl(var(--mb-h2), 48%, 62%);
   --mb-bad: hsl(348, 76%, 68%);
   --mb-warn: hsl(38, 88%, 66%);
 
-  --mb-card: hsla(270, 26%, 12%, 0.62);
-  --mb-tile: hsla(270, 26%, 20%, 0.40);
-  --mb-tile-off: hsla(270, 18%, 15%, 0.62);
-  --mb-line: hsla(272, 45%, 66%, 0.22);
-  --mb-line-soft: hsla(272, 35%, 62%, 0.14);
+  --mb-card: hsla(calc(var(--mb-h) - 2), 26%, 12%, 0.62);
+  --mb-tile: hsla(calc(var(--mb-h) - 2), 26%, 20%, 0.40);
+  --mb-tile-off: hsla(calc(var(--mb-h) - 2), 18%, 15%, 0.62);
+  --mb-line: hsla(var(--mb-h), 45%, 66%, 0.22);
+  --mb-line-soft: hsla(var(--mb-h), 35%, 62%, 0.14);
 
   --mb-r-card: 20px;
   --mb-r-tile: 16px;
   --mb-r-small: 12px;
   --mb-gap: 12px;
   --mb-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --mb-shadow: 0 14px 34px -18px hsla(270, 70%, 3%, 0.9), 0 2px 6px -2px hsla(270, 60%, 3%, 0.5);
+  --mb-shadow: 0 14px 34px -18px hsla(calc(var(--mb-h) - 2), 70%, 3%, 0.9), 0 2px 6px -2px hsla(calc(var(--mb-h) - 2), 60%, 3%, 0.5);
 
   /* ── The shared cards' tokens (cards.css), in her colours ──
      The data palette (--s1…--s6) is the admin dashboard's, unchanged: it is
@@ -54,12 +65,12 @@
   --ag-line: var(--mb-line);
   --ag-line-soft: var(--mb-line-soft);
   --ag-tile: var(--mb-tile);
-  --ag-tile-hi: hsla(270, 28%, 22%, 0.46);
-  --ag-tile-lo: hsla(270, 24%, 13%, 0.22);
-  --ag-well: hsla(270, 30%, 8%, 0.5);
-  --ag-pop: hsla(270, 30%, 8%, 0.95);
-  --ag-on-acc: hsl(270, 40%, 12%);
-  --ag-surface: #1f1727;
+  --ag-tile-hi: hsla(calc(var(--mb-h) - 2), 28%, 22%, 0.46);
+  --ag-tile-lo: hsla(calc(var(--mb-h) - 2), 24%, 13%, 0.22);
+  --ag-well: hsla(calc(var(--mb-h) - 2), 30%, 8%, 0.5);
+  --ag-pop: hsla(calc(var(--mb-h) - 2), 30%, 8%, 0.95);
+  --ag-on-acc: hsl(calc(var(--mb-h) - 2), 40%, 12%);
+  --ag-surface: hsl(calc(var(--mb-h) - 2), 26%, 12%);   /* #1f1727 */
   --ag-shadow: var(--mb-shadow);
   --ag-r-tile: var(--mb-r-tile);
   --ag-r-small: var(--mb-r-small);
@@ -82,8 +93,8 @@
    vine's green from the bottom. Fixed, so it does not scroll with the cards. */
 body {
   background-image:
-    radial-gradient(120% 60% at 15% -10%, hsla(280, 70%, 40%, 0.22), transparent 60%),
-    radial-gradient(90% 50% at 110% 110%, hsla(150, 55%, 35%, 0.12), transparent 60%);
+    radial-gradient(120% 60% at 15% -10%, hsla(calc(var(--mb-h) + 8), 70%, 40%, 0.22), transparent 60%),
+    radial-gradient(90% 50% at 110% 110%, hsla(var(--mb-h2), 55%, 35%, 0.12), transparent 60%);
   background-attachment: fixed;
 }
 
@@ -117,8 +128,10 @@ body {
    of the card where the vine starts, breathing gently.
 
    Real SVG files (Resources/MarsBar/vine.svg, bloom.svg — served from Glance's
-   assets dir next to this stylesheet, so the relative url() resolves), not a
-   URL-encoded string in here. vine.svg is ONE seamless 240px tile: the stem
+   assets dir), not a URL-encoded string in here. --mb-vine / --mb-bloom are
+   theme.js's recoloured copies when she has picked a colour; unset, the files
+   themselves. The fallback url()s are absolute on purpose: a relative one
+   inside var() can resolve against the page, not this stylesheet. vine.svg is ONE seamless 240px tile: the stem
    leaves the bottom at exactly the x and slope it entered the top, so it
    repeats with no visible join. Each card starts the pattern at a different
    point (nth-child below), so the cards never look stamped from one mould.
@@ -130,7 +143,7 @@ body {
   width: 36px;
   pointer-events: none;
   opacity: 0.9;
-  background: url("vine.svg") repeat-y 0 0;
+  background: var(--mb-vine, url("/assets/vine.svg")) repeat-y 0 0;
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
 }
@@ -143,13 +156,13 @@ body {
   left: 2px; top: 4px;
   width: 40px; height: 40px;
   pointer-events: none;
-  background: url("bloom.svg") no-repeat center / contain;
-  filter: drop-shadow(0 0 6px hsla(285, 80%, 70%, 0.45));
+  background: var(--mb-bloom, url("/assets/bloom.svg")) no-repeat center / contain;
+  filter: drop-shadow(0 0 6px hsla(calc(var(--mb-h) + 13), 80%, 70%, 0.45));
   animation: mb-bloom 6s ease-in-out infinite alternate;
 }
 @keyframes mb-bloom {
-  from { filter: drop-shadow(0 0 4px hsla(285, 80%, 70%, 0.30)); }
-  to   { filter: drop-shadow(0 0 10px hsla(300, 85%, 75%, 0.60)); }
+  from { filter: drop-shadow(0 0 4px hsla(calc(var(--mb-h) + 13), 80%, 70%, 0.30)); }
+  to   { filter: drop-shadow(0 0 10px hsla(calc(var(--mb-h) + 28), 85%, 75%, 0.60)); }
 }
 
 /* Gradient hairline across the top — purple into green, tying the vine colour
@@ -160,7 +173,7 @@ body {
   left: 18px; right: 18px; top: -1px;
   height: 2px;
   border-radius: 2px;
-  background: linear-gradient(to right, hsl(288, 72%, 68%), hsl(272, 70%, 70%), hsl(150, 50%, 60%), transparent);
+  background: linear-gradient(to right, hsl(calc(var(--mb-h) + 16), 72%, 68%), hsl(var(--mb-h), 70%, 70%), hsl(var(--mb-h2), 50%, 60%), transparent);
 }
 
 .widget-header {
@@ -170,7 +183,7 @@ body {
   letter-spacing: 0.16em;
   font-size: 1.25rem;
   font-weight: 700;
-  color: hsl(272, 60%, 84%);
+  color: hsl(var(--mb-h), 60%, 84%);
 }
 
 /* ── Section headings ─────────────────────────────────────────────────────────
@@ -186,20 +199,20 @@ body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.15em;
-  color: hsl(272, 70%, 87%);
+  color: hsl(var(--mb-h), 70%, 87%);
   padding: 0 2px;
 }
 .mb-sec::before {
   content: "❧";
   font-size: 1.4rem;
   color: var(--mb-leaf);
-  text-shadow: 0 0 10px hsla(150, 60%, 55%, 0.45);
+  text-shadow: 0 0 10px hsla(var(--mb-h2), 60%, 55%, 0.45);
 }
 .mb-sec::after {
   content: "";
   flex: 1;
   height: 1px;
-  background: linear-gradient(to right, hsla(272, 60%, 72%, 0.45), hsla(150, 45%, 60%, 0.18), transparent);
+  background: linear-gradient(to right, hsla(var(--mb-h), 60%, 72%, 0.45), hsla(var(--mb-h2), 45%, 60%, 0.18), transparent);
 }
 * + .mb-sec { margin-top: 10px; }
 
@@ -223,10 +236,10 @@ body {
   background: var(--mb-text-faint);
   transition: background 0.3s ease, box-shadow 0.3s ease;
 }
-html[data-ha-link="live"] .mb-live { color: hsla(150, 40%, 80%, 0.75); }
+html[data-ha-link="live"] .mb-live { color: hsla(var(--mb-h2), 40%, 80%, 0.75); }
 html[data-ha-link="live"] .mb-live i {
   background: var(--mb-leaf);
-  box-shadow: 0 0 10px hsla(150, 60%, 55%, 0.8);
+  box-shadow: 0 0 10px hsla(var(--mb-h2), 60%, 55%, 0.8);
 }
 html[data-ha-link="delayed"] .mb-live i { background: var(--mb-warn); }
 html[data-ha-link="reconnecting"] .mb-live,
@@ -261,7 +274,7 @@ html[data-ha-link="offline"] .mb-live i {
   color: inherit;
   border: 1px solid var(--mb-line-soft);
   background: var(--mb-tile);
-  box-shadow: inset 0 1px 0 hsla(270, 60%, 90%, 0.05);
+  box-shadow: inset 0 1px 0 hsla(calc(var(--mb-h) - 2), 60%, 90%, 0.05);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   transition:
@@ -278,16 +291,16 @@ html[data-ha-link="offline"] .mb-live i {
   outline-offset: 2px;
 }
 @media (hover: hover) {
-  .mb-light:hover { border-color: hsla(272, 60%, 72%, 0.40); }
+  .mb-light:hover { border-color: hsla(var(--mb-h), 60%, 72%, 0.40); }
 }
 
 /* ON — lit and glowing. OFF — flat and clearly dimmed. Four signals change
    together (fill, border, icon, switch) because one subtle tint was not
    readable at a glance, which was the original complaint. */
 .mb-light[data-ha-state="on"] {
-  background: linear-gradient(135deg, hsla(276, 62%, 42%, 0.42), hsla(262, 58%, 34%, 0.30));
-  border-color: hsla(274, 78%, 72%, 0.85);
-  box-shadow: 0 0 0 1px hsla(274, 80%, 70%, 0.15), 0 10px 30px -10px var(--mb-glow), inset 0 1px 0 hsla(280, 90%, 90%, 0.12);
+  background: linear-gradient(135deg, hsla(calc(var(--mb-h) + 4), 62%, 42%, 0.42), hsla(calc(var(--mb-h) - 10), 58%, 34%, 0.30));
+  border-color: hsla(calc(var(--mb-h) + 2), 78%, 72%, 0.85);
+  box-shadow: 0 0 0 1px hsla(calc(var(--mb-h) + 2), 80%, 70%, 0.15), 0 10px 30px -10px var(--mb-glow), inset 0 1px 0 hsla(calc(var(--mb-h) + 8), 90%, 90%, 0.12);
 }
 .mb-light[data-ha-state="off"] {
   background: var(--mb-tile-off);
@@ -318,26 +331,26 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
   border-radius: 18px;
   position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, hsla(288, 46%, 30%, 0.55), hsla(262, 44%, 24%, 0.45));
-  border-color: hsla(288, 50%, 70%, 0.34);
+  background: linear-gradient(135deg, hsla(calc(var(--mb-h) + 16), 46%, 30%, 0.55), hsla(calc(var(--mb-h) - 10), 44%, 24%, 0.45));
+  border-color: hsla(calc(var(--mb-h) + 16), 50%, 70%, 0.34);
 }
 .mb-hero::before {
   content: "";
   position: absolute;
   left: 0; top: 0; bottom: 0;
   width: 4px;
-  background: linear-gradient(to bottom, hsl(288, 80%, 72%), hsl(150, 55%, 62%));
+  background: linear-gradient(to bottom, hsl(calc(var(--mb-h) + 16), 80%, 72%), hsl(var(--mb-h2), 55%, 62%));
 }
 .mb-hero .mb-name { font-size: 1.85rem; }
 .mb-hero .mb-sub { font-size: 1.3rem; }
 .mb-hero .mb-ico { font-size: 2.7rem; width: 2.9rem; }
 .mb-hero[data-ha-state="on"] {
-  background: linear-gradient(135deg, hsla(288, 62%, 44%, 0.50), hsla(266, 58%, 36%, 0.40));
-  border-color: hsl(288, 72%, 74%);
-  box-shadow: 0 0 0 1px hsla(288, 80%, 72%, 0.18), 0 12px 36px -10px hsla(285, 85%, 62%, 0.38);
+  background: linear-gradient(135deg, hsla(calc(var(--mb-h) + 16), 62%, 44%, 0.50), hsla(calc(var(--mb-h) - 6), 58%, 36%, 0.40));
+  border-color: hsl(calc(var(--mb-h) + 16), 72%, 74%);
+  box-shadow: 0 0 0 1px hsla(calc(var(--mb-h) + 16), 80%, 72%, 0.18), 0 12px 36px -10px hsla(calc(var(--mb-h) + 13), 85%, 62%, 0.38);
 }
 .mb-hero[data-ha-state="off"] {
-  background: linear-gradient(135deg, hsla(284, 30%, 20%, 0.6), hsla(262, 26%, 15%, 0.55));
+  background: linear-gradient(135deg, hsla(calc(var(--mb-h) + 12), 30%, 20%, 0.6), hsla(calc(var(--mb-h) - 10), 26%, 15%, 0.55));
 }
 
 .mb-ico {
@@ -346,12 +359,12 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
   width: 2.5rem;
   text-align: center;
   flex: none;
-  color: hsla(272, 25%, 70%, 0.5);
+  color: hsla(var(--mb-h), 25%, 70%, 0.5);
   transition: color 0.28s ease, text-shadow 0.28s ease, transform 0.28s var(--mb-ease);
 }
 .mb-light[data-ha-state="on"] .mb-ico {
-  color: hsl(272, 95%, 86%);
-  text-shadow: 0 0 16px hsla(272, 92%, 74%, 0.95);
+  color: hsl(var(--mb-h), 95%, 86%);
+  text-shadow: 0 0 16px hsla(var(--mb-h), 92%, 74%, 0.95);
   transform: scale(1.06);
 }
 
@@ -392,7 +405,7 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
 .mb-light[data-ha-state="off"] .mb-state::after { content: "Off"; }
 .mb-light[data-ha-state="unavailable"] .mb-state::after { content: "Offline"; }
 .mb-light[data-ha-error] .mb-state::after { content: "Failed"; }
-.mb-light[data-ha-state="on"] .mb-state { color: hsl(272, 95%, 86%); }
+.mb-light[data-ha-state="on"] .mb-state { color: hsl(var(--mb-h), 95%, 86%); }
 .mb-light[data-ha-error] .mb-state { color: var(--mb-bad); }
 
 /* A real sliding switch. The knob physically moves, which reads as on/off
@@ -402,8 +415,8 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
   width: 54px; height: 31px;
   border-radius: 999px;
   flex: none;
-  background: hsla(270, 12%, 48%, 0.26);
-  border: 1px solid hsla(270, 20%, 62%, 0.22);
+  background: hsla(calc(var(--mb-h) - 2), 12%, 48%, 0.26);
+  border: 1px solid hsla(calc(var(--mb-h) - 2), 20%, 62%, 0.22);
   transition: background 0.28s ease, border-color 0.28s ease;
 }
 .mb-sw::after {
@@ -411,13 +424,13 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
   position: absolute; top: 3px; left: 3px;
   width: 23px; height: 23px;
   border-radius: 50%;
-  background: hsl(270, 12%, 70%);
-  box-shadow: 0 2px 5px hsla(270, 60%, 4%, 0.45);
+  background: hsl(calc(var(--mb-h) - 2), 12%, 70%);
+  box-shadow: 0 2px 5px hsla(calc(var(--mb-h) - 2), 60%, 4%, 0.45);
   transition: transform 0.3s var(--mb-ease), background 0.28s ease;
 }
 .mb-light[data-ha-state="on"] .mb-sw {
-  background: linear-gradient(90deg, hsl(282, 66%, 54%), hsl(268, 70%, 60%));
-  border-color: hsl(272, 82%, 76%);
+  background: linear-gradient(90deg, hsl(calc(var(--mb-h) + 10), 66%, 54%), hsl(calc(var(--mb-h) - 4), 70%, 60%));
+  border-color: hsl(var(--mb-h), 82%, 76%);
 }
 .mb-light[data-ha-state="on"] .mb-sw::after {
   transform: translateX(23px);
@@ -438,7 +451,7 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
   padding: 8px 6px;
   transition: background-color 0.2s ease;
 }
-.widget-type-monitor .monitor-site:active { background: hsla(272, 50%, 55%, 0.16); }
+.widget-type-monitor .monitor-site:active { background: hsla(var(--mb-h), 50%, 55%, 0.16); }
 .widget-type-monitor .monitor-site .title,
 .widget-type-monitor .monitor-site a {
   font-size: 1.5rem;
@@ -457,8 +470,8 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
 
 /* ── Motion ───────────────────────────────────────────────────────────────── */
 @keyframes mb-ring {
-  0%   { box-shadow: 0 0 0 0 hsla(272, 90%, 85%, 0.65); }
-  100% { box-shadow: 0 0 0 9px hsla(272, 90%, 85%, 0); }
+  0%   { box-shadow: 0 0 0 0 hsla(var(--mb-h), 90%, 85%, 0.65); }
+  100% { box-shadow: 0 0 0 9px hsla(var(--mb-h), 90%, 85%, 0); }
 }
 @keyframes mb-blink { 50% { opacity: 0.35; } }
 @keyframes mb-shake {
