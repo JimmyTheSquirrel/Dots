@@ -743,15 +743,52 @@ Glance's own theme picker, which asgard.css hides (its presets fight the HUD's t
   rounding back off (`border-radius: 0`; the HUD cuts corners with `clip-path`).
 - **Cats** — the "Just for fun" row: a ginger-and-pink theme (`#ffb36b+#ff9ec4` through
   the normal palette) that also sets `html[data-cats]` and pulls in
-  `Resources/Glance/cats.css` (`data-cats` on the script tag; fetched only when picked).
-  theme.js then adds a cat to every top-level card (`.cat-perch` — peeking, sitting or
-  loafing on the card's top edge, alternating side and coat; a MutationObserver catches
-  the cards Glance adds after load), a `.cat-walk` that strolls along the foot of the
-  screen now and then (above the phone's bottom bar — `--cat-floor`, measured from
-  `.mobile-navigation-icons`), faint paw prints behind everything (`.cat-paws`), paw
-  glyphs on the section headings, and a cat face for the logo. All `aria-hidden`,
-  `pointer-events: none`; reduced motion stops the walker. Picking anything else removes
-  every one of them.
+  `Resources/Glance/cats.css` + `cats.js` (`data-cats` / `data-cats-js` on the script tag;
+  fetched only when picked — theme.js only switches them on and off: `Cats.on()` /
+  `Cats.off()`, and off takes every cat, timer and listener back out). ⚠ theme.js marks
+  the `<script>` it adds with `data-cats-loaded`, not `data-cats-js` — its own tag carries
+  `data-cats-js`, so checking for that would match itself and never load the cats.
+  - **The cats** are inline SVG with their parts rigged (each part drawn round its own
+    pivot, so cats.css can turn an ear about its base, a tail about the rump, a leg
+    about the shoulder; right-hand parts are the left ones under `scale(-1 1)`). One per
+    top-level card, alternating pose, side and coat (ginger, `.coat1` cream, `.coat2`
+    grey, `.coat3` pink): `.cat-peek` (head and paws over the card's top edge — the head
+    is clipped at the edge so it can duck behind it), `.cat-sit` (sitting on the edge,
+    tail hanging down the front), `.cat-loaf` (a sleeper, tail round its paws). A
+    `.cat-walk` strolls along the foot of the screen (above the phone's bottom bar —
+    `--cat-floor`, from `.mobile-navigation-icons`), paw prints sit behind everything,
+    the section headings get paws and the logo a cat face.
+  - **Idle**: CSS keeps them blinking (each its own rhythm), a sitter's tail swishing, a
+    loaf breathing. One ticker (1.1 s, only cats on screen, only in a shown tab) hands
+    out "acts" — a class for as long as its animation runs: ear twitch, head tilt,
+    yawn, a look round, a peeker ducking behind the card and peeking back, kneading, a
+    sitter grooming (paw to mouth, then a face rub), a tail flick, a sleeper stirring or
+    dreaming (paws twitching).
+  - **You**: tap a cat → "mrrp?"/"meow" with a head tilt, or a purr (hearts, and a buzz
+    on Android). Three taps in five seconds → it hides (a peeker ducks behind its card, a
+    sitter jumps off) for 12–22 s. A sleeper stirs and mumbles. Bubbles near the top of
+    the screen go to the side. With a mouse, every cat's eyes follow the pointer (the
+    pupil slides across the iris) and ears perk as it comes close. **Laser pointer**: a
+    double-click on the page itself (not a card or control) — the nearest cat jumps down
+    and a runner in its coat chases the red dot, pouncing when it catches it; Esc, another
+    double-click, the pointer leaving the window or 20 s of stillness sends it home.
+  - **The dashboard** (read from the cards' own markup — no card script knows the cats
+    exist): all-lights switch `off` → the Lights card's cat curls up asleep (a loaf); on →
+    it wakes ("mrrp!") and is its old self (never a loaf while lit). `.ags-play` progress
+    bar (On the TV, Now Playing) → a kitten sits on it with a paw on the playhead,
+    batting while it plays. `#ec-main` going unreachable or rebooting → every cat
+    scatters, then they come home one at a time when it's back (only on a change seen
+    on the page, never as first loaded). `.ags-ring.hue-temp.warn|bad` (Asgard's CPU
+    ≥ 75°) or `.ec-temp b.warn|bad` (the Pi ≥ 70°) → a cat naps on the gauge with heat
+    shimmering off it (above the SoC number, never on it). A name at the top of the
+    Downloads card's Recent list that the page has never shown → a cat trots across the
+    card with a mouse in its mouth.
+  - **Taps never get eaten**: only a cat's painted body takes one (never the tail), and
+    only when `layout()` has found it covers no button/link/toggle (`.tap`) — a cat
+    sitting over a light tile lets the tap through to the light.
+  - Cats only ever go *into* a `.widget` or `<body>` — never inside a `Dash.paint` target,
+    which would morph them away. Reduced motion: no acts, no chase, no scattering (they
+    just vanish), no trotting; they still answer a tap with a word.
 
 **The colour system** — the default the picker starts from (table and reasoning at the
 top of `asgard.css`): **mint** `#3be8a8`

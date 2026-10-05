@@ -16,7 +16,8 @@
 //            the pick, their greens to the second colour of a two-tone pick).
 //
 // Either way, plus Cats: a ginger-and-pink theme that also puts cats all over
-// the page (cats.css, data-cats — fetched only when someone picks it).
+// the page (cats.css + cats.js, data-cats / data-cats-js — fetched only when
+// someone picks it).
 //
 // It runs in <head>, before the page paints, so there's no flash of the
 // default: the palette is computed from the stored pick, and redrawn artwork
@@ -43,6 +44,8 @@
   var TPL_URL = attr("data-tpl");
   var ART_URLS = attr("data-art").split(",").filter(Boolean);   // marsbar: vine, bloom
   var CATS_CSS = attr("data-cats");
+  var CATS_JS = attr("data-cats-js");
+  var FINE = !!(window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches);
   var KEY = MB ? "marsbar-colour" : "asgard-hud-colour";
   var ART = MB ? "marsbar-art" : "asgard-hud-art";
   // marsbar.css's own hues — what its artwork is drawn in.
@@ -210,70 +213,29 @@
   // ── the cats ────────────────────────────────────────────────────────────────
   // A face for Asgard's logo (and the Cats swatch, in cards.css).
   var FACE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 56"><path fill="__C__" fill-rule="evenodd" d="M12 52C6 46 5 36 8 28L6 6L20 15C24 13.6 28 13 32 13C36 13 40 13.6 44 15L58 6L56 28C59 36 58 46 52 52C46 56 18 56 12 52ZM22 31a3.4 4.6 0 1 0 0.01 0ZM42 31a3.4 4.6 0 1 0 0.01 0ZM29.6 41h4.8L32 44Z"/></svg>';
-  var catsOn = false, catObs = null, catKinds = ["peek", "sit", "loaf"];
-  function loadCatsCss() {
-    if (!CATS_CSS || document.querySelector("link[data-cats-css]")) return;
-    var l = document.createElement("link");
-    l.rel = "stylesheet"; l.href = CATS_CSS; l.setAttribute("data-cats-css", "");
-    document.head.appendChild(l);
-  }
-  // One cat per card (a group's tabs are .widgets too — they're skipped),
-  // alternating which cat, which side and which colour; a walker and the paw
-  // prints once per page. Glance adds the cards after load, so an observer
-  // catches them as they arrive.
-  function decorate() {
-    if (!catsOn || !document.body) return;
-    var n = 0;
-    document.querySelectorAll(".widget").forEach(function (w) {
-      if (w.parentElement && w.parentElement.closest(".widget")) return;
-      if (!w.querySelector(":scope > .cat-perch")) {
-        var i = document.createElement("i");
-        i.className = "cat-perch cat-" + catKinds[n % 3] + (n % 2 ? " right" : "") + (n % 4 ? " c" + (n % 4) : "");
-        i.setAttribute("aria-hidden", "true");
-        w.appendChild(i);
-      }
-      n++;
-    });
-    ["cat-walk", "cat-paws"].forEach(function (c) {
-      if (document.querySelector("." + c)) return;
-      var e = document.createElement("i");
-      e.className = c; e.setAttribute("aria-hidden", "true");
-      document.body.appendChild(e);
-    });
-    floor();
-  }
-  // The walker strolls along the bottom of the SCREEN — on a phone, just above
-  // Glance's bottom bar. The bar (its icons row) only: the rest of
-  // .mobile-navigation is the ☰ panel, parked off-screen below it.
-  function floor() {
-    var nav = document.querySelector(".mobile-navigation"), bar = document.querySelector(".mobile-navigation-icons");
-    var h = nav && bar && getComputedStyle(nav).display !== "none" ? bar.getBoundingClientRect().height : 0;
-    root.style.setProperty("--cat-floor", Math.round(h + 4) + "px");
+  // Picking Cats loads cats.css and cats.js (data-cats, data-cats-js) — the
+  // cats themselves, what they do and everything they react to live there;
+  // this only switches them on and off.
+  var catsOn = false;
+  function loadCats() {
+    if (CATS_CSS && !document.querySelector("link[data-cats-css]")) {
+      var l = document.createElement("link");
+      l.rel = "stylesheet"; l.href = CATS_CSS; l.setAttribute("data-cats-css", "");
+      document.head.appendChild(l);
+    }
+    if (window.Cats) { window.Cats.on(); return; }
+    // (A marker of its own: this very <script> tag carries data-cats-js.)
+    if (!CATS_JS || document.querySelector("script[data-cats-loaded]")) return;   // already on its way
+    var s = document.createElement("script");
+    s.src = CATS_JS; s.setAttribute("data-cats-loaded", "");
+    s.onload = function () { if (catsOn && window.Cats) window.Cats.on(); };
+    document.head.appendChild(s);
   }
   function cats(on) {
     if (on === catsOn) return;
     catsOn = on;
-    if (on) {
-      root.setAttribute("data-cats", "");
-      loadCatsCss();
-      var start = function () {
-        decorate();
-        if (!catObs && window.MutationObserver) {
-          var queued = false;
-          catObs = new MutationObserver(function () {
-            if (queued) return;
-            queued = true;
-            requestAnimationFrame(function () { queued = false; decorate(); });
-          });
-          catObs.observe(document.body, { childList: true, subtree: true });
-        }
-      };
-      if (document.body) start(); else document.addEventListener("DOMContentLoaded", start);
-    } else {
-      root.removeAttribute("data-cats");
-      if (catObs) { catObs.disconnect(); catObs = null; }
-      document.querySelectorAll(".cat-perch, .cat-walk, .cat-paws").forEach(function (e) { e.remove(); });
-    }
+    if (on) { root.setAttribute("data-cats", ""); loadCats(); }
+    else { root.removeAttribute("data-cats"); if (window.Cats) window.Cats.off(); }
   }
 
   // ── applying it ─────────────────────────────────────────────────────────────
@@ -341,7 +303,8 @@
   }
   function allSwatches() {
     return swatches(PRESETS) + '<div class="hud-sub">Two-tone</div>' + swatches(DUOS) +
-      '<div class="hud-sub">Just for fun</div>' + swatches([["Cats — cats everywhere", "cats"]]);
+      '<div class="hud-sub">Just for fun</div>' + swatches([["Cats — cats everywhere", "cats"]]) +
+      '<div class="hud-tip">Tap a cat.' + (FINE ? " Double-click an empty bit of page for a laser pointer." : "") + '</div>';
   }
   function sync() {
     document.querySelectorAll(".hud-sw").forEach(function (b) {
@@ -408,7 +371,7 @@
       button.addEventListener("click", function (e) { e.stopPropagation(); toggle(); });
       document.addEventListener("click", function (e) { if (!pop.hidden && !pop.contains(e.target)) toggle(false); });
       document.addEventListener("keydown", function (e) { if (e.key === "Escape") toggle(false); });
-      window.addEventListener("resize", function () { place(); corner(); if (catsOn) floor(); });
+      window.addEventListener("resize", function () { place(); corner(); });
       corner();
     }
     var mob = document.querySelector(".mobile-navigation-actions");
@@ -421,7 +384,6 @@
       wire(row);
     }
     sync();
-    if (catsOn) decorate();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", build);
   else build();

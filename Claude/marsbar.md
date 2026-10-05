@@ -282,11 +282,14 @@ shown only while the phone bar is hidden).
   `--mb-bloom` data-URIs. marsbar.css uses `var(--mb-vine, url("/assets/vine.svg"))` — the
   fallback is absolute on purpose (a relative `url()` inside `var()` can resolve against
   the page, not the stylesheet).
-- **Cats** put cats all over it — one on the top edge of every card, one strolling along
-  the bottom of the screen above her phone's bar, paw prints behind everything, paw
-  glyphs on the section headings, and kitten faces in place of the blossoms
+- **Cats** put cats all over it — living ones: they blink, twitch, yawn, groom, duck
+  behind her cards and peek back, answer a tap with a "mrrp?" or a purr (and hide if she
+  keeps poking them), curl up asleep on the Lights card when every light is off, bat at
+  the playhead on "On the TV", scatter when Eclipse goes down and nap on its SoC
+  temperature when the Pi runs hot. Plus one strolling along the bottom of the screen,
+  paw prints, paw glyphs on the headings, and kitten faces in place of the blossoms
   (`html[data-cats][data-dash="marsbar"]` — on Asgard that spot is the Yggdrasil tree).
-  Details in `Claude/server-info.md` → The colour picker.
+  Details in `Claude/server-info.md` → The colour picker → Cats.
 
 ## Live lights (no polling)
 

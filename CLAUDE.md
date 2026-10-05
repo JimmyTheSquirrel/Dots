@@ -23,7 +23,7 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 | Emulators | `Claude/emulators.md` | RPCS3, Ryubing, PS3 game prep |
 | Secrets | `Claude/secrets.md` | sops-nix, adding secrets, key locations |
 | Shell/misc | `Claude/misc.md` | Starship, Fastfetch, btop, Navi, Discord, media viewers, Thunar, audio (PipeWire fixes) |
-| Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Seerr API, Glance, recyclarr. Code is `Modules/Server/`. Glance's **HUD** (panel frame, grid, pines, line-art Yggdrasil, logo, icons) is **generated at build time** by `Resources/Glance/hud.py`, on a tech-grey ground that tiles down the page so it never runs out. Its colour is the viewer's: **`theme.js`'s picker** recolours it per browser, so **HUD colours must be `var(--hud…)`/`--s*`, never a literal**. The picker's **Cats** theme (`cats.css`) puts cats on both dashboards |
+| Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Seerr API, Glance, recyclarr. Code is `Modules/Server/`. Glance's **HUD** (panel frame, grid, pines, line-art Yggdrasil, logo, icons) is **generated at build time** by `Resources/Glance/hud.py`, on a tech-grey ground that tiles down the page so it never runs out. Its colour is the viewer's: **`theme.js`'s picker** recolours it per browser, so **HUD colours must be `var(--hud…)`/`--s*`, never a literal**. The picker's **Cats** theme (`cats.css` + `cats.js`) puts living cats on both dashboards — they idle, answer taps, chase a laser and react to the cards (lights off, TV playing, Eclipse down, running hot, a download done) |
 | Home Assistant | `Claude/home-assistant.md` | Smart plugs on Asgard `:8123`. `extraComponents` gates which integrations exist at all; device pairings are **not** declarative |
 | MarsBar dashboard | `Claude/marsbar.md` | Partner-facing Glance on its **own tailnet node** (`marsbar:1111`) — why a node, not a path. Lights + Jellyfin/Seerr + the **full** Eclipse panel incl. the controller/subtitle card (shared with the admin dashboard — add new cards to BOTH `glance.nix` and `marsbar.nix` or they drift). Isolation is a Tailscale **ACL**, not in this repo. She has **her own colour picker** (theme.js, `marsbar` profile — marsbar.css colours are `hsl(var(--mb-h)…)`, never a literal) and **Cats** |
 | Dolphin (rejected) | `Claude/dolphin.md` | Decision record: Dolphin was trialled and rejected — **Thunar stays**. Don't re-propose it |
@@ -98,8 +98,8 @@ Modules/
 Resources/                # static files the modules reference:
                           #   Glance/ (asgard.css/js, stats.js, hud.py, tailscale-status.py,
                           #   yggdrasil banner; SHARED with MarsBar: cards.css, dash.js,
-                          #   lights.js, eclipse.js, net.js, theme.js + cats.css (the colour
-                          #   picker)), MarsBar/ (css + vine svgs),
+                          #   lights.js, eclipse.js, net.js, theme.js + cats.css/js (the colour
+                          #   picker)), MarsBar/ (css, vine svgs, garden.js),
                           #   HA-Bridge/, Asgard-Stats/, Eclipse-Control/, Network-Panel/,
                           #   Wolf-Bridge/ (Sisyphus), Scripts/ (deploy-tools + lib/ui.sh),
                           #   Eclipse-Skin/ (Bingie layout overlay + eclipse-skin-push.sh —
