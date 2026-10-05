@@ -269,8 +269,10 @@ it, all of them still in the boot menu.
 
 ## One command, not six
 
-`system-rebuild` is the single entry point — an inline terminal UI that draws in
-normal scrollback and never takes over the screen. The home screen is the DOTS
+`system-rebuild` is the single entry point. **Run with no arguments it opens a
+full-screen app** (2026-10-06, see "The app" below); the command line, `help` and
+the old inline menus (`system-rebuild --classic`) stay in the bash script. The
+menus are the same in both. The home screen is the DOTS
 wordmark (branch, dirty state, ahead/behind, nixpkgs lock age beside it) and a
 MACHINES panel: this machine's generation, every other machine's tailnet state
 (online / direct or relay / last seen). Below it, four sections:
@@ -339,6 +341,51 @@ and, with admin, `sops` and three SSH targets.
 
 CLI form is unchanged: `system-rebuild USER SYSTEM [--boot|--build] [--target HOST]` —
 no menus, same build → diff → activate output.
+
+### The app (`system-rebuild` with no arguments)
+
+A full-screen terminal app — `Resources/Rebuild/rebuild/`, Python + Textual 8,
+packaged as `system-rebuild-tui` by `Modules/Shell/deploy-tools.nix` and exec'd by
+`system-rebuild.sh` when it gets no arguments in a terminal (`--classic` skips it,
+so the inline menus are the fallback if the app ever breaks). Same menus, same
+jobs, same commands underneath; what's different:
+
+- **It owns the screen and animates.** The DOTS wordmark has a shine that sweeps
+  across it; MACHINES refreshes itself every 30 s (and on `r`), its online dots
+  breathe; menus slide in, the highlight glides between rows; a job shows a stage
+  rail (Reach → Build → Changes → Activate) whose stages spin, pop into ✔ and fill
+  the line to the next; it ends in a card that rises into place — a sparkle burst
+  when it worked, a shake when it didn't.
+- **The build is drawn live by the app itself** (`nixmon.py`): `nix build
+  --log-format internal-json -v` parsed into every running derivation (phase,
+  elapsed, last log line), every download (bytes, rate), a gradient progress bar.
+  No `nom`. A failed build shows the failing derivation's last log lines.
+- **Prompts are pop-up boxes.** Every command runs in a pty the app owns, made its
+  controlling terminal (`runner.py`), so `sudo`'s password prompt, nixos-rebuild's
+  `--ask-sudo-password` and ssh's "trust this host?" all land in the app: it shows
+  a box, types the answer into that one command, never shows or keeps it. Esc in
+  the box stops the command.
+- **Waiting is a screen, not a question.** Pushing to an offline machine shows a
+  pulse travelling from here to there, pings it every few seconds and carries on
+  by itself when it answers (`t` tries anyway, esc stops).
+- **Faster where it can be.** Every status lookup (tailscale, git, the ssh probe of
+  a remote machine) is async, so menus never freeze; Check hosts evaluates all four
+  hosts at once.
+- **Stopping.** Esc during a job asks, then stops it (nix gets SIGTERM and a few
+  seconds to wind down). It refuses mid-activation — a half-switched machine is
+  worse than waiting.
+- **Commands that need the real terminal** — SSH, and the apollo-* tools (INSTALL
+  makes you type the host's name) — run with the app stepped aside, then it comes
+  back.
+
+⚠ The app keeps its own copy of the host table (`hosts.py`) and of the rebuild
+pipeline (`jobs.py`) — the bash script is still the command line. A new machine,
+or a change to how a rebuild runs, goes in both. The help pages are in `help.py`
+(the app) and the `help_*` functions (the command line's `system-rebuild help`).
+
+⚠ **Glance-style trap, Textual edition:** Textual won't tween a CSS `offset` (it
+only animates plain numbers and colours), so slides step the offset themselves
+(`ui.slide`). Test headless with `App.run_test()` + `save_screenshot()`.
 
 ## The blank screen on a booted stick — two separate causes
 

@@ -5,9 +5,18 @@
 # through writeShellApplication: errexit/nounset/pipefail on, shellcheck at
 # build time.
 #
-#   system-rebuild                                    home screen + menus
+#   system-rebuild                                    the full-screen app (below)
+#   system-rebuild --classic                          these inline menus instead
 #   system-rebuild help                               every menu item, explained
 #   system-rebuild USER SYSTEM [--boot|--build] [--target HOST]
+#
+# The menus are a full-screen app now — Resources/Rebuild (Python + Textual),
+# installed as system-rebuild-tui: animated, the build drawn live, sudo and
+# ssh prompts as pop-up boxes. With no arguments, in a terminal, this script
+# hands off to it. Everything else stays here: the command line, `help`, and
+# the inline menus below as --classic (the fallback if the app ever breaks).
+# ⚠ The app keeps its own copy of the host table and the rebuild pipeline
+# (rebuild/hosts.py, rebuild/jobs.py): a change to either belongs in both.
 #
 # WHERE IT RUNS DECIDES WHAT "LOCAL" MEANS. The machine is matched by hostname
 # (DOTS_HOST overrides it). On Sisyphus, `system-rebuild kitkat Kit-Kat` pushes
@@ -730,7 +739,8 @@ help_machines() {
 
 help_cli() {
   hp_new "$UI_FG"
-  hp_cmd "system-rebuild" "the home screen and these menus"
+  hp_cmd "system-rebuild" "the full-screen app: the home screen and every menu"
+  hp_cmd "system-rebuild --classic" "these inline menus instead, drawn in the scrollback"
   hp_cmd "system-rebuild help" "every help page, printed"
   hp_cmd "system-rebuild rock Sisyphus" "switch Sisyphus — in place on Sisyphus, pushed from anywhere else"
   hp_cmd "system-rebuild rock Sisyphus --boot" "the same, for the next boot instead"
@@ -1103,20 +1113,26 @@ menu_apollo_mode() {
 # ── Entry ─────────────────────────────────────────────────────────────────────
 usage() {
   echo "Usage: system-rebuild USER SYSTEM [--boot|--build] [--target HOST]"
-  echo "   or: system-rebuild            (home screen + menus)"
+  echo "   or: system-rebuild            (the full-screen app)"
+  echo "   or: system-rebuild --classic  (the inline menus instead)"
   echo "   or: system-rebuild help       (what every menu item does)"
   echo "SYSTEM is one of: ${HOSTS[*]}. This machine${THIS_HOST:+ ($THIS_HOST)} rebuilds in place;"
   echo "any other is built here and pushed over the tailnet."
 }
 
+CLASSIC=""
 case "${1:-}" in
   help) help_all; exit 0 ;;
   -h | --help) usage; exit 0 ;;
+  --classic) CLASSIC=1; shift ;;
 esac
 
 if [[ -z "${1:-}" ]]; then
   FROM_MENU=1
   (( UI_INTERACTIVE )) || { usage; exit 2; }
+  if [[ -z "$CLASSIC" && "${TERM:-dumb}" != dumb ]] && command -v system-rebuild-tui >/dev/null 2>&1; then
+    exec system-rebuild-tui
+  fi
   home_screen
   menu_main
 fi

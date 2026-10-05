@@ -1,0 +1,63 @@
+/* system-rebuild — the app's layout. Colours are in ui.py (they're computed:
+   the gradient, the fades); this is only where things sit. */
+
+Screen {
+    background: #1d2021;
+    color: #ebdbb2;
+}
+
+#body { height: 1fr; }
+
+Machines {
+    margin: 1 2 0 2;
+    padding: 0 1;
+    border: round #504945;
+    border-title-color: #928374;
+    border-title-style: bold;
+}
+
+#notes {
+    height: auto;
+    padding: 0 3;
+    margin: 1 0 0 0;
+}
+
+Menu { margin: 1 1 0 1; }
+
+/* a job */
+#stagebox { height: auto; margin: 1 0 0 0; }
+#journal { height: 1fr; padding: 0 1 1 1; scrollbar-size-vertical: 1; }
+.log {
+    height: auto;
+    max-height: 20;
+    margin: 0 0 0 3;
+    padding: 0 1;
+    border-left: tall #504945;
+    background: #1d2021;
+    scrollbar-size-vertical: 1;
+}
+.diff { max-height: 26; }
+.partial { height: auto; padding: 0 0 0 5; }
+
+#helpbody { padding: 1 4; }
+
+Toast { background: #282828; }
+
+/* scrollbars and inputs in the palette, not Textual's defaults */
+* {
+    scrollbar-background: #1d2021;
+    scrollbar-background-hover: #1d2021;
+    scrollbar-background-active: #1d2021;
+    scrollbar-color: #504945;
+    scrollbar-color-hover: #928374;
+    scrollbar-color-active: #8ec07c;
+    scrollbar-corner-color: #1d2021;
+}
+Input {
+    background: #1d2021;
+    border: tall #504945;
+    color: #ebdbb2;
+}
+Input:focus { border: tall #fabd2f; }
+Input > .input--placeholder { color: #665c54; }
+Input > .input--cursor { background: #fabd2f; color: #1d2021; }

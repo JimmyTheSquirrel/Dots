@@ -30,6 +30,14 @@
 # rather than sourced at runtime, so shellcheck checks library + script as one
 # file and there is no path to get wrong.
 #
+# ── The app ───────────────────────────────────────────────────────────────────
+# `system-rebuild` with no arguments opens a full-screen app (Resources/Rebuild,
+# Python + Textual — see its rebuild/app.py header): the same menus and jobs,
+# animated, with the build drawn live from nix's own JSON log. The bash script
+# hands off to it (`exec system-rebuild-tui`) and keeps everything else: the
+# command line (`system-rebuild rock Asgard --boot`), `system-rebuild help`,
+# and the old inline menus as `system-rebuild --classic`.
+#
 # ── Apollo: the deployer USB ───────────────────────────────────────────────────
 # Hosts/Apollo/system.nix builds the ISO. These four commands are the whole
 # workflow from this side; nothing is ever initiated by the stick itself.
@@ -78,6 +86,29 @@
 
     apollo = [ apollo-iso apollo-key apollo-connect apollo-deploy ];
 
+    # The full-screen app. Only dix, git, ssh and findmnt come from here, in
+    # front of the inherited PATH like a writeShellApplication's inputs, so
+    # sudo, nix, nixos-rebuild and tailscale still resolve to the system's own
+    # (see the header). git-sync and nix-gc are its jobs; the apollo-* tools
+    # are found on PATH, so its Apollo section only shows where they exist.
+    rebuild-tui = pkgs.stdenvNoCC.mkDerivation {
+      pname = "system-rebuild-tui";
+      version = "1";
+      src = ../../Resources/Rebuild;
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      installPhase = let
+        python = pkgs.python3.withPackages (ps: [ ps.textual ]);
+      in ''
+        mkdir -p $out/share/system-rebuild $out/bin
+        cp -r rebuild $out/share/system-rebuild/
+        ${python}/bin/python -m compileall -q $out/share/system-rebuild
+        makeWrapper ${python}/bin/python $out/bin/system-rebuild-tui \
+          --add-flags "-m rebuild" \
+          --prefix PYTHONPATH : $out/share/system-rebuild \
+          --prefix PATH : ${lib.makeBinPath [ pkgs.dix pkgs.git pkgs.openssh pkgs.util-linux git-sync nix-gc ]}
+      '';
+    };
+
     # The home screen + menus. nom draws the live build tree, dix the package
     # diff; tailscale, nix and nixos-rebuild deliberately come from the system
     # PATH (see the header) so they match the daemons they talk to. Its Apollo
@@ -93,6 +124,7 @@
       pkgs.dix
       git-sync
       nix-gc
+      rebuild-tui
     ] ++ lib.optionals admin apollo);
 
     commands = [ system-rebuild git-sync nix-gc ] ++ lib.optionals admin apollo;

@@ -9,7 +9,7 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 |-------|------|--------|
 | **Architecture** | `Claude/architecture.md` | Folder layout, the module pattern, **the `/_` rule**, `mkHost`, per-host hardware/disko files, GRUB profiles, Plymouth |
 | **Next up / backlog** | `Claude/next-up.md` | Open work. **Read before a fresh install or wipe** |
-| **Deploying / installer USB** | `Claude/deploy.md` | `system-rebuild`'s menus (Rebuild · Remote · Utilities · Apollo · Help — every menu ends with a Help row; `?` opens the same page) and how to extend them. The Apollo stick: `apollo-iso` / `apollo-key` / `apollo-connect` / `apollo-deploy`. **nixos-anywhere skips kexec on our ISO, so an SSH-over-tailnet install survives.** Ventoy + Secure Boot caveats |
+| **Deploying / installer USB** | `Claude/deploy.md` | `system-rebuild` — a **full-screen app** (Resources/Rebuild, Textual) with no args, the bash CLI with args — its menus (Rebuild · Remote · Utilities · Apollo · Help — every menu ends with a Help row; `?` opens the same page) and how to extend them. The Apollo stick: `apollo-iso` / `apollo-key` / `apollo-connect` / `apollo-deploy`. **nixos-anywhere skips kexec on our ISO, so an SSH-over-tailnet install survives.** Ventoy + Secure Boot caveats |
 | **Kit-Kat** (her machine) | `Claude/kit-kat.md` | Separate NVIDIA hardware running Hyprland. **Her own sops file**, disko + facter, what was left out |
 | Niri compositor | `Claude/niri.md` | Layout, keybinds, window rules, startup, Spotify/Steam launchers |
 | Noctalia shell | `Claude/noctalia.md` | Bar, IPC, font packaging, **idle/monitor power-save**. **Nix owns `settings.toml`** — the bar/lockscreen/widget layout lives in `lockedSettings` and a rebuild forces it back over any GUI change, so edit Nix, not the GUI |
@@ -53,7 +53,11 @@ nix flake update                        # Update flake inputs
 `system-rebuild`, `git-sync`, `nix-gc` and the `apollo-*` helpers are
 `writeShellApplication`s (shellchecked at build time) from
 `Modules/Shell/deploy-tools.nix`, script bodies in `Resources/Scripts/*.sh`, the
-shared look + menu engine in `Resources/Scripts/lib/ui.sh`. Sisyphus gets all of them;
+shared look + menu engine in `Resources/Scripts/lib/ui.sh`. **`system-rebuild` with
+no arguments opens a full-screen app** — `Resources/Rebuild/` (Python + Textual):
+animated, the build drawn live, sudo/ssh prompts as pop-ups; `--classic` gives the
+old inline menus. It keeps its own host table + rebuild pipeline (`hosts.py`,
+`jobs.py`) — change both. See `Claude/deploy.md` → The app. Sisyphus gets all of them;
 Kit-Kat gets `system-rebuild`/`git-sync`/`nix-gc` (`my.deploy-tools.admin = false`).
 `system-rebuild` is **host-aware**: the machine it runs on rebuilds in place, any other
 is pushed over the tailnet. Sisyphus builds into the named profile `-p sisyphus` (see
@@ -102,6 +106,7 @@ Resources/                # static files the modules reference:
                           #   picker)), MarsBar/ (css, vine svgs, garden.js),
                           #   HA-Bridge/, Asgard-Stats/, Eclipse-Control/, Network-Panel/,
                           #   Wolf-Bridge/ (Sisyphus), Scripts/ (deploy-tools + lib/ui.sh),
+                          #   Rebuild/ (system-rebuild's full-screen app, Python + Textual),
                           #   Eclipse-Skin/ (Bingie layout overlay + eclipse-skin-push.sh —
                           #     re-run after any skin update or her layout reverts),
                           #   Eclipse-Box/ (the Pi's hand-made state: units, addon patches,
