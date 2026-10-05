@@ -1,0 +1,23 @@
+[Unit]
+Description=Tailscale node agent
+Documentation=https://tailscale.com/kb/
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+Environment="PATH=/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStartPre=/storage/tailscale/tailscaled --cleanup
+ExecStart=/storage/tailscale/tailscaled \
+    --statedir=/storage/.config/tailscale \
+    --socket=/run/tailscale/tailscaled.sock \
+    --port=41641
+ExecStopPost=/storage/tailscale/tailscaled --cleanup
+RuntimeDirectory=tailscale
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

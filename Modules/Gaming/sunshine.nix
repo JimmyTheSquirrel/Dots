@@ -3,9 +3,23 @@
     # Sunshine game streaming server — user service, kept as a FALLBACK only.
     #
     # ⚠️ autoStart false since 2026-09-28. Wolf (Modules/Gaming/wolf.nix) is now the
-    # streaming host and auto-starts instead; the two cannot coexist because
-    # they bind the same Moonlight ports. These two autoStart settings are a
-    # matched pair — never set both true.
+    # streaming host and auto-starts instead; the two cannot coexist *while they
+    # share a port base*, because both implement Moonlight. These two autoStart
+    # settings are a matched pair — never set both true as things stand.
+    #
+    # 📌 They COULD both run. Measured 2026-10-05: the overlap is only four ports
+    # (TCP 47984/47989/48010 + UDP 47999). `port` here is a single BASE and every
+    # other port is an offset from it, so port 48989 clears the overlap entirely
+    # and Moonlight reaches it as a second host at <ip>:48989. Not yet done.
+    #
+    # ⚠️ IF YOU DO IT, DO NOT SET services.sunshine.settings.port.
+    # The nixpkgs module appends a /nix/store configFile to ExecStart when
+    # `settings.port != defaultPort` (also when apps are set, or >1 setting is).
+    # Sunshine then reads THAT file and ignores ~/.config/sunshine/sunshine.conf
+    # entirely — which orphans the whole enforce() machinery below, so
+    # output_name / capture / hevc_mode silently stop being applied. Add a
+    # fourth `enforce port 48989` line instead. Note openFirewall would also
+    # still open the 47989-based set, not the shifted one.
     #
     # Turning this off is a win on its own, independent of Wolf: Sunshine
     # creates a virtual "Mouse passthrough (absolute)" uinput device for its

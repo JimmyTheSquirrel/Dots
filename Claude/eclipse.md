@@ -10,6 +10,46 @@
 > re-flashing and redoing these steps by hand — this file is the recipe. Built 2026-08-02,
 > replacing Raspberry Pi OS Trixie (its desktop was too laggy on a TV and had no CEC).
 
+## ⚠️ 2026-10-05 — audit, her UX list, and what is now in the repo
+
+The box was audited and reworked. **Two directories in the repo now mirror it** — nothing here
+is applied automatically, they are what you restore *from*:
+
+| Repo path | What |
+|---|---|
+| `Resources/Eclipse-Skin/` | The Bingie layout overlay + `eclipse-skin-push.sh`. **Re-run that script after any skin update** or her layout reverts. `bingie-history/` holds the 15 superseded `.bak` files. |
+| `Resources/Eclipse-Box/` | Custom units, the Moonlight fork, the three addon patch scripts, keymaps, and the evidence logs. Has its own README explaining each. |
+
+**Fixed:**
+
+- 🔴 **`hdmi-hotplug.service` had never once survived a reboot.** `After=`/`Wants=kodi.service`
+  closed an ordering cycle (`multi-user → hdmi-hotplug → kodi → graphical → multi-user`) and
+  systemd deleted the job from every boot transaction. The unit sat `enabled` + `inactive (dead)`
+  with no failure to notice. Both lines removed; verified across a real reboot.
+- **Playback sluggishness was `filecache.readfactor=2000`** — 20× read-ahead with a 512 MB buffer
+  on a path that is entirely wireless. Now **500** / **160 MB**.
+- **`docker.service` reported `failed` while dockerd ran** — `kodi.target.wants/` held *both*
+  `docker.service` and `service.system.docker.service` pointing at the same unit, which also
+  declares `Alias=docker.service`. Dropped the duplicate; single clean `active (running)`.
+- **`act_reboot` in eclipse-control.py never rebooted the Pi.** `(sleep 1; reboot) &` is killed
+  when sshd SIGHUPs the process group, but ssh exited 0 so the button reported success. Now
+  `systemctl --no-block reboot`.
+- **Her layout:** info panel 600px (55.6%) → **276px (26%)**, grid **12 → 6 posters per row**
+  (tile 131×186 → 279×396), two full rows. Buffer bar → `ff4B2882`.
+- **Removed:** `skin.aeon.tajo` + its helper (which ran 7751-image library scans 22× in 46h with a
+  100% zero-result rate), `skin.arctic.zephyr.mod`, `skin.bello.10`, 11 unused uisounds, the
+  341 MB package cache. **~700 MB; /storage is now 1.5 G.**
+
+**Two things that must NOT be removed**, both verified the hard way:
+
+- `resource.images.studios.coloured` — `skin.bingie/addon.xml:10` has a hard `<import>` on it and
+  `IncludesFooter.xml` draws studio logos from it. Removing it breaks the active skin.
+- **Docker** — the Moonlight addon's first launch is a Docker *build*; there is a
+  `debian:bookworm-slim` image on the box for it.
+
+**New dashboard card** (`#ec-ctl`, both dashboards): controllers, network path, and the subtitle
+default. See *Control panel* below.
+
 ## Access
 
 ```bash
@@ -93,10 +133,39 @@ mount. She has every control he has (`Claude/marsbar.md`).
 |---|---|
 | `GET /events` | SSE: `status`, `tv`, `wolf`, `activity`, `busy` — pushed on change. The Pi is only polled (SSH every 5 s, one channel on the shared ControlMaster) while a page has this open; Wolf every 3 s; Jellyfin every 5 s |
 | `GET /status` | the Pi's state as JSON (cached 5 s, in-flight de-duplicated) |
-| `POST /act/<name>` | `restart-kodi`, `sync-library` (Movies then TV Shows), `sync-movies`, `sync-shows`, `speedtest` (the Pi→Asgard link test), `jellyfin-toggle`, `reboot`. One run per action at a time (409 otherwise); every result lands in the shared activity log |
+| `POST /act/<name>` | `restart-kodi`, `sync-library` (Movies then TV Shows), `sync-movies`, `sync-shows`, `speedtest` (the Pi→Asgard link test), `jellyfin-toggle`, `reboot`, `ctl-scan`, `subs-on`, `subs-off`. One run per action at a time (409 otherwise); every result lands in the shared activity log |
+| `POST /ctl/connect/<MAC>` · `/ctl/disconnect/<MAC>` | Connect or drop a paired controller. The MAC is checked against `MAC_RE` **and** the Pi's own `bluetoothctl devices` list before it reaches a root shell — same precedent as `wolf_stop`'s `isdigit()` |
+| `POST /ctl/sublang/<iso639-2>` | Subtitle language, whitelisted against `SUB_LANGS` |
 | `POST /wolf/stop/<id>` | end a Moonlight stream on Sisyphus, via wolf-bridge (`Claude/wolf.md`) |
 
 Every POST needs `X-Dash: 1`; CORS answers only `_origins.nix`.
+
+### Controllers · `#ec-ctl` (added 2026-10-05)
+
+A `ctl` event on the same `/events` stream (8 s, slower than the rest because it shells out to
+`bluetoothctl`, whose daemon has form for burning CPU). Both dashboards draw it.
+
+⚠️ **`connected` is not the same as working, and this is the whole point of the card.** The
+DualSense here fails to bind its kernel driver with **`-5` (EIO)** often enough to matter — 17
+reconnect cycles and 3 probe failures in the logs. In that state BlueZ reports `Connected: yes`
+while `/proc/bus/input/devices` has no node for it: a bonded device producing **no input at all**.
+So the payload reports `connected` (BlueZ) and `live` (has an input node) separately, and flags
+the combination as `stale`. **A helper that trusted BlueZ alone would show a working controller in
+exactly the broken case.** Recovery from `-5` needs remove + re-pair, not `connect`.
+
+Pairing a *new* pad cannot be fully automated: a DualSense only advertises while physically held
+in **PS + Create**, so Scan is a bounded `bluetoothctl --timeout` window and the card says so.
+Scan also issues `pairable off` in the same breath rather than leaving the Pi open to radio range.
+
+⚠️ Connecting a pad to Eclipse **steals it from Sisyphus** — a DualSense only ever talks to its
+last host — so Connect is arm/confirm like Reboot.
+
+**Subtitles are a Jellyfin USER setting, not a Kodi one.** `jellyfin-kodi` runs `set_audio_subs()`
+~2 s into every playback and calls `showSubtitles(False)` when no track resolves, so anything set
+Kodi-side is overwritten on every single play. The toggle writes `SubtitleMode`
+(`Always`/`Default`) on the user Eclipse logs in as — `JELLYFIN_TV_USER` in `eclipse.nix`.
+Jellyfin wants the **whole** Configuration object back, so it is read-modify-write; POSTing one
+key silently resets the rest.
 
 **Status** now also carries the SoC temperature, `vcgencmd get_throttled` decoded into
 what is wrong *now* and what has happened *since boot* (under-voltage is the Pi 5's classic
@@ -1127,6 +1196,17 @@ and **rewrites `settings.xml` on exit**, so a live edit is silently clobbered. D
 `default="true"` attribute when writing a non-default value.
 
 ## Skin — Bingie (current, since 2026-09-12)
+
+> ⚠️ **Do not hand-edit the skin on the box.** Two files are owned by
+> `Resources/Eclipse-Skin/` in the repo and pushed with `eclipse-skin-push.sh`:
+> `1080i/IncludesBingie.xml` and `1080i/View_526_BingieMainPoster.xml`. A skin update
+> replaces the whole `skin.bingie` tree and reverts them — **re-run the script after
+> any update.** It refuses to push if the installed version is not 2.0.2, validates
+> the XML first (an XML comment may not contain `--`, which bit once), and backs up
+> what it replaces. The 15 superseded `.bak-*` files that used to sit *inside* the
+> live `1080i/` directory are now in `Resources/Eclipse-Skin/bingie-history/` and
+> `/storage/skin-baks-archive/` — Kodi globs `1080i/*.xml`, so one careless rename in
+> there loads a stale window definition and breaks the skin untraceably.
 
 Replaced Arctic Zephyr Mod. Titan Bingie Mod (`skin.bingie`), a Netflix-style skin. Installed via
 `kodi-send --action="InstallAddon(skin.bingie)"` + blind Left+Select confirm dance (matches the

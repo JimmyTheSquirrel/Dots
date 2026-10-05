@@ -1,0 +1,32 @@
+17:28:43 watcher started; waiting for a DualSense in pairing mode (hold Create + PS)
+17:30:09 found A0:FA:9C:18:37:A8 - pairing
+Attempting to pair with A0:FA:9C:18:37:A8
+[[0;92mNEW[0m] Media /org/bluez/hci0 
+	SupportedUUIDs: 0000110a-0000-1000-8000-00805f9b34fb
+	SupportedUUIDs: 0000110b-0000-1000-8000-00805f9b34fb
+hci0 device_flags_changed: A0:FA:9C:18:37:A8 (BR/EDR)
+     supp: 0x00000001  curr: 0x00000000
+hci0 type 7 discovering off
+hci0 A0:FA:9C:18:37:A8 type BR/EDR connected eir_len 36
+[[0;93mCHG[0m] Device A0:FA:9C:18:37:A8 Connected: yes
+hci0 new_link_key A0:FA:9C:18:37:A8 type 0x04 pin_len 0 store_hint 1
+[[0;93mCHG[0m] Device A0:FA:9C:18:37:A8 Bonded: yes
+hci0 device_flags_changed: A0:FA:9C:18:37:A8 (BR/EDR)
+     supp: 0x00000001  curr: 0x00000001
+[[0;93mCHG[0m] Device A0:FA:9C:18:37:A8 WakeAllowed: yes
+[[0;93mCHG[0m] Device A0:FA:9C:18:37:A8 ServicesResolved: yes
+[[0;93mCHG[0m] Device A0:FA:9C:18:37:A8 Paired: yes
+Pairing successful
+[[0;92mNEW[0m] Media /org/bluez/hci0 
+	SupportedUUIDs: 0000110a-0000-1000-8000-00805f9b34fb
+	SupportedUUIDs: 0000110b-0000-1000-8000-00805f9b34fb
+[[0;93mCHG[0m] Device A0:FA:9C:18:37:A8 Trusted: yes
+Changing A0:FA:9C:18:37:A8 trust succeeded
+Attempting to connect to A0:FA:9C:18:37:A8
+[[0;92mNEW[0m] Media /org/bluez/hci0 
+	SupportedUUIDs: 0000110a-0000-1000-8000-00805f9b34fb
+	SupportedUUIDs: 0000110b-0000-1000-8000-00805f9b34fb
+Failed to connect: org.bluez.Error.Failed br-connection-busy
+17:30:23 bluez: Paired: yes Trusted: yes Connected: yes 
+17:30:23 SUCCESS: kernel registered the controller
+17:30:23 input nodes: 0 match(es)

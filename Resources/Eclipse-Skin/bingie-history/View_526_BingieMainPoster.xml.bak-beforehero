@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BINGIE -->
+<includes>
+    <include name="View_526_Bingie_Main_Poster">
+        <control type="group">
+            <include>FullscreenDimensions</include>
+            <visible>Control.IsVisible(526)</visible>
+            <include>animation_view_change</include>
+
+            <include content="Bingie_Main_Spotlight_Section">
+                <param name="id" value="526" />
+            </include>
+
+            <!-- View 526 -->
+            <control type="group">
+				<visible>!Window.IsActive(DialogVideoInfo.xml)</visible>
+				<include>Animation_Right_Home</include>
+                <left>131</left>
+                <top>600</top>
+                <width>1660</width>
+                <!-- Content Header -->
+                <control type="label">
+                    <include condition="Skin.HasSetting(EnableRatings)">FooterON</include>
+					<include condition="!Skin.HasSetting(EnableRatings)">FooterOFF</include>
+                    <height>40</height>
+					<posx>8</posx>
+					<top>-36</top>
+                    <font>Bold31</font>
+                    <align>left</align>
+                    <textcolor>$INFO[Skin.String(BingieHeaderTextColor)]</textcolor>
+                    <label>$VAR[BingieMainContentHeader]</label>
+                    <visible>Integer.IsGreater(Container(526).NumItems,0)</visible>
+					<visible>!Container.Content(episodes) + !Container.Content(seasons)</visible>
+					<visible>!Skin.HasSetting(View526_HideHeader)</visible>
+                </control>				
+				<include content="Bingie_Main_Poster_View">
+                    <param name="containerType" value="panel" />
+                </include>
+            </control>			
+			
+            <!-- scrollbar -->
+            <control type="group">
+                <control type="scrollbar" id="60">
+					<texturesliderbackground border="5" colordiffuse="$INFO[Skin.String(ScrollbarBackgroundColor)]">scrollbar/texturesliderbar_small.png</texturesliderbackground>
+					<texturesliderbar colordiffuse="$INFO[Skin.String(ScrollbarUnfocusedColor)]" border="5">scrollbar/texturesliderbar_small.png</texturesliderbar>
+					<texturesliderbarfocus colordiffuse="$INFO[Skin.String(ScrollbarFocusedColor)]" border="5">scrollbar/texturesliderbar_small.png</texturesliderbarfocus>
+					<textureslidernib colordiffuse="$INFO[Skin.String(ScrollbarUnfocusedColor)]">scrollbar/texturesliderbar_nib.png</textureslidernib>
+					<textureslidernibfocus colordiffuse="$INFO[Skin.String(ScrollbarFocusedColor)]">scrollbar/texturesliderbar_nib.png</textureslidernibfocus>
+                    <visible>Control.IsVisible(526) + Integer.IsGreater(Container.NumItems,0)</visible>
+                    <width>10</width>
+					<height>466</height>
+                    <right>0</right>
+                    <bottom>0</bottom>
+                    <onleft>526</onleft>
+                    <orientation>vertical</orientation>
+                    <animation effect="fade" start="0" end="100" time="400" condition="[Control.HasFocus(60) | String.IsEqual(Skin.String(scrollbar_visibility),always_show)]">Conditional</animation>
+                    <animation effect="fade" start="100" end="0" time="400" condition="![Control.HasFocus(60) | String.IsEqual(Skin.String(scrollbar_visibility),always_show)]">Conditional</animation>
+                </control>
+            </control>
+        </control>
+    </include>
+
+    <!-- Compact poster tile (movies/tv library grid, more rows visible) -->
+    <!-- Local copy of PosterThumbBingieLayout/PosterPanelBingieLayout/-Focus,
+         deliberately without Poster_New_Episodes_Tag_Overlay: that ribbon is a
+         fixed 150px wide (see IncludesViewsLayoutPoster.xml), sized for the
+         skin's default 240px tile, and would overflow onto the next tile at
+         this size. Everything else scales cleanly (WatchedIndicatorLayoutBingie
+         takes width/height as params; the tag-overlay includes below are
+         percentage-width and untouched). -->
+    <include name="PosterThumbBingieLayoutCompact">
+        <control type="image">
+            <description>Normal Poster thumb stretched aspect</description>
+            <texture background="true" diffuse="diffuse/poster3.png" fallback="DefaultVideo.png">$VAR[PosterThumbList]</texture>
+            <aspectratio scalediffuse="true" aligny="center" align="center">stretch</aspectratio>
+            <bordersize>8</bordersize>
+            <visible>[!String.IsEmpty(ListItem.Art(poster)) | !String.IsEmpty(ListItem.Art(tvshow.poster))] + !String.IsEqual(ListItem.Property(tmdb_type),person)</visible>
+        </control>
+        <control type="image">
+            <description>Fallback Poster thumb keep aspect for all other</description>
+            <texture background="true" diffuse="diffuse/poster3.png" fallback="DefaultVideo.png">$VAR[PosterThumbList]</texture>
+            <aspectratio scalediffuse="false" aligny="center" align="center">scale</aspectratio>
+            <bordersize>8</bordersize>
+            <visible>String.IsEmpty(ListItem.Art(poster)) + String.IsEmpty(ListItem.Art(tvshow.poster)) | String.IsEqual(ListItem.Property(tmdb_type),person)</visible>
+        </control>
+    </include>
+    <include name="PosterPanelBingieLayoutCompact">
+        <include>PosterThumbBingieLayoutCompact</include>
+        <control type="group">
+            <right>4</right>
+            <top>4</top>
+            <include content="WatchedIndicatorLayoutBingie">
+                <param name="width" value="44" />
+                <param name="height" value="44" />
+                <param name="font" value="indicator_normal" />
+                <param name="overlay" value="normal" />
+                <param name="overlay_texture" value="diffuse/icon_overlay.png" />
+            </include>
+        </control>
+    </include>
+    <include name="PosterPanelBingieLayoutFocusCompact">
+        <include condition="![Skin.HasSetting(EnableFixedFrameWidgets) + [Window.IsActive(Home) | $EXP[IsBingieHubsActive2] | Window.IsActive(videoosd)]] | [Window.IsActive(DialogVideoInfo.xml) + Skin.HasSetting(UseBingieInfoDialog)] | Window.IsActive(1109) | Window.IsActive(1190)">PosterThumbFOBingie</include>
+        <include>PosterThumbBingieLayoutCompact</include>
+        <control type="group">
+            <right>4</right>
+            <top>4</top>
+            <include content="WatchedIndicatorLayoutBingie">
+                <param name="width" value="44" />
+                <param name="height" value="44" />
+                <param name="font" value="indicator_normal" />
+                <param name="overlay" value="normal" />
+                <param name="overlay_texture" value="diffuse/icon_overlay.png" />
+            </include>
+        </control>
+    </include>
+
+    <!-- Container -->
+    <include name="Bingie_Main_Poster_View">
+        <control type="$PARAM[containerType]" id="526">
+            <viewtype label="31027">Bingie Poster</viewtype>
+            <include content="View_Forced">
+                <param name="viewtype" value="$LOCALIZE[31027]" />
+            </include>
+            <top>6</top>
+            <height>474</height>
+            <width>1674</width>
+            <itemgap>0</itemgap>
+            <orientation>vertical</orientation>
+            <include>ScrollTime</include>
+            <preloaditems>4</preloaditems>
+            <pagecontrol>60</pagecontrol>
+            <onright>60</onright>
+			<onleft>9000</onleft>
+            <onup>526</onup>
+            <ondown>526</ondown>
+			<onback>CancelAlarm(preview_delay,silent)</onback>
+			<onback condition="!Player.HasAudio + $EXP[IsPlayingUnrecognizedContent] + [String.IsEqual(ListItem.DBType,movie) | String.IsEqual(ListItem.DBType,tvshow)] + Skin.HasSetting(View526_DetailsAutoTrailer)">PlayerControl(Stop)</onback>
+            <onback>ClearProperty(HideNowPlaying)</onback>
+		    <itemlayout height="186" width="131">
+                <control type="group">
+                    <width>132</width>
+                    <height>187</height>
+                    <include>PosterPanelBingieLayoutCompact</include>
+					<include>PosterTagOverlayBingieNoOverride</include>
+					<include>PosterTagOverlayBingie</include>
+                </control>
+            </itemlayout>
+            <focusedlayout height="186" width="131">
+                <control type="group">
+                    <width>132</width>
+                    <height>187</height>
+                    <include>PosterPanelBingieLayoutFocusCompact</include>
+					<include>PosterTagOverlayBingieNoOverride</include>
+					<include>PosterTagOverlayBingie</include>
+                    <include>LibraryAutoTrailerStopButton</include>
+						<include content="LibraryAutoTrailerStartButton" condition="Skin.HasSetting(View526_DetailsAutoTrailer)">
+							<param name="interval" value="$INFO[Skin.String(details_auto_trailer_interval)]" />
+						</include>
+                </control>
+            </focusedlayout>
+        </control>
+    </include>
+</includes>

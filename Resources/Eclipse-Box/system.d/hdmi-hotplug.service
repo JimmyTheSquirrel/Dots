@@ -1,0 +1,28 @@
+[Unit]
+Description=Restart Kodi when the HDMI link comes up (Kodi never re-probes)
+# NO After=/Wants=kodi.service here, deliberately. Those two lines closed a
+# systemd ordering cycle and silently disabled this unit at every boot:
+#
+#   multi-user.target --wants--> hdmi-hotplug.service
+#                     --after--> kodi.service
+#                     --after/requires--> graphical.target
+#                     --after/requires--> multi-user.target
+#
+# systemd breaks a cycle by deleting a job from the boot transaction, and the
+# job it chose was this one. The unit therefore sat `enabled` + `inactive (dead)`
+# with no failure to notice. /storage/hdmi-hotplug.log holds exactly ONE
+# "watcher started" line (2026-08-30, a manual start): across every reboot since,
+# this watcher has never run. Found 2026-10-05.
+#
+# The dependency bought nothing: hdmi-hotplug.sh polls the connector in a loop
+# and already handles "kodi is not active (deliberate?)" and "moonlight-qt is
+# running" itself, so it needs no ordering guarantee against kodi.service.
+
+[Service]
+Type=simple
+ExecStart=/storage/hdmi-hotplug.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

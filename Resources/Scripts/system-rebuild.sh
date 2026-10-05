@@ -53,14 +53,13 @@ HOSTS=(Sisyphus Kit-Kat Asgard Apollo)
 #   H_PROFILE  "system", or a named profile (-p). Sisyphus keeps its own, one
 #              entry among GRUB's System Select (Claude/architecture.md)
 #   H_MODE     push     deployed from whichever machine runs this
-#              managed  edited and rebuilt on itself; pushing to it is opt-in
 #              stick    a USB stick: built, never activated from here
 #   H_ROLE, H_ICON — how the menus show it
 host_info() {
   case "$1" in
     Sisyphus) H_USER=rock   H_SSH=sisyphus H_PROFILE=sisyphus H_MODE=push    H_ROLE="rock's desktop" H_ICON=$'' ;;
     Kit-Kat)  H_USER=kitkat H_SSH=kit-kat  H_PROFILE=system   H_MODE=push    H_ROLE="her machine"    H_ICON=$'' ;;
-    Asgard)   H_USER=rock   H_SSH=asgard   H_PROFILE=system   H_MODE=managed H_ROLE="media server"   H_ICON=$'' ;;
+    Asgard)   H_USER=rock   H_SSH=asgard   H_PROFILE=system   H_MODE=push    H_ROLE="media server"   H_ICON=$'' ;;
     Apollo)   H_USER=rock   H_SSH=-        H_PROFILE=-        H_MODE=stick   H_ROLE="deployer USB"   H_ICON=$'' ;;
     *) return 1 ;;
   esac
@@ -96,7 +95,7 @@ find_repo
 # ── Icons (Nerd Font, Font Awesome range) ─────────────────────────────────────
 I_REBUILD=$'' I_REMOTE=$'' I_UTILS=$'' I_APOLLO=$''
 I_SWITCH=$'' I_BOOT=$'' I_BUILD=$'' I_OTHER=$''
-I_SSH=$'' I_PULL=$'' I_PUSH=$'' I_DIFF=$''
+I_SSH=$''
 I_GIT=$'' I_UPDATE=$'' I_GC=$'' I_CHECK=$'' I_CLONE=$''
 I_DEPLOY=$'' I_ISO=$'' I_KEY=$'' I_DRY=$'' I_VM=$'' I_WARN=$''
 I_HELP=$'' I_KEYS=$'' I_HOSTS=$'' I_TERM=$'' I_BOOK=$''
@@ -357,8 +356,18 @@ rebuild() {
     if [[ "$kind" == "local" ]]; then
       cmd=(sudo nixos-rebuild "$action" "${pflag[@]}" --no-reexec --store-path "$out")
     else
-      ui_info "$host will ask for $(ui_bold "$user")'s sudo password — that's the password on $system"
-      cmd=(nixos-rebuild "$action" "${pflag[@]}" --no-reexec --store-path "$out" --target-host "$ssh_target" --ask-sudo-password)
+      # Only ask for a sudo password when the target actually wants one.
+      # --ask-sudo-password used to be unconditional, which prompted even on a
+      # host with passwordless sudo (Asgard) and made any non-interactive push
+      # impossible — it blocks waiting on a terminal that isn't there.
+      local -a sudoflag=(--ask-sudo-password)
+      if ssh -o BatchMode=yes -o ConnectTimeout=5 "$ssh_target" 'sudo -n true' >/dev/null 2>&1; then
+        sudoflag=()
+        ui_info "$host has passwordless sudo — no password needed"
+      else
+        ui_info "$host will ask for $(ui_bold "$user")'s sudo password — that's the password on $system"
+      fi
+      cmd=(nixos-rebuild "$action" "${pflag[@]}" --no-reexec --store-path "$out" --target-host "$ssh_target" "${sudoflag[@]}")
     fi
     if ! "${cmd[@]}"; then
       ui_box "$UI_RED" "✘ Activation failed — $system" \
@@ -431,60 +440,6 @@ ssh_to() {
   ui_banner "$UI_BLUE" SSH "$1" "$H_USER@$H_SSH"
   wait_online "$H_SSH" || { ui_info "nothing done"; return 1; }
   ssh -t "$H_USER@$H_SSH"
-}
-
-# on_host NAME pull|switch — rebuild a managed machine on itself, from its own
-# checkout (pull: fast-forward it to origin first; refuses if it has diverged).
-on_host() {
-  local name="$1" how="$2" cmd shown tag=SWITCH rc=0
-  host_info "$name"
-  local key="$H_USER-$name"
-  cmd="sudo nixos-rebuild switch --flake .#$key"
-  shown="cd ~/Dots && $cmd"
-  if [[ "$how" == pull ]]; then
-    tag=UPDATE
-    shown="cd ~/Dots && git pull --ff-only && $cmd"
-    # Uncommitted edits make `git pull` refuse with a wall of file names. Check
-    # first, list them, and exit 3 so the box below can say what to do.
-    # shellcheck disable=SC2016  # expands on the remote side, by design
-    cmd='if [ -n "$(git status --porcelain --untracked-files=no)" ]; then'
-    cmd+=' echo; echo "~/Dots has uncommitted changes:"; git status --short --untracked-files=no | head -12; exit 3; fi;'
-    cmd+=" git pull --ff-only && sudo nixos-rebuild switch --flake .#$key"
-  fi
-  cmd="cd ~/Dots || exit 1; $cmd"
-  ui_banner "$UI_BLUE" "$tag" "$name" "on $name, from its own ~/Dots" "$key"
-  wait_online "$H_SSH" || { ui_info "nothing done"; return 1; }
-  ui_info "$(ui_dim "$H_USER@$H_SSH \$") $shown"
-  echo
-  ssh -t "$H_USER@$H_SSH" "$cmd" || rc=$?
-  if (( rc == 0 )); then
-    ui_box "$UI_GREEN" "✔ $name switched" "$(kvline host "$name  $(ui_dim "($key)")")" "$(kvline from "$name's ~/Dots$([[ "$how" == pull ]] && echo ", fast-forwarded")")"
-  elif (( rc == 3 )); then
-    ui_box "$UI_YELLOW" "! $name has local edits — nothing pulled or rebuilt" \
-      "Its ~/Dots has uncommitted changes (listed above)." \
-      "To keep them, commit them on $name first." \
-      "To throw them away and take main, run this," \
-      "then Pull & switch again:" "" \
-      "ssh $H_SSH 'cd ~/Dots && git fetch origin && git reset --hard origin/main'"
-    return 1
-  else
-    ui_box "$UI_RED" "✘ $name didn't switch" "Check the output above. A checkout that has diverged from origin" "makes git pull --ff-only refuse, and changes nothing."
-    return 1
-  fi
-}
-
-# push_managed NAME — the opt-in override: overwrite a managed machine's live
-# config with this machine's checkout.
-push_managed() {
-  local name="$1" action
-  host_info "$name"
-  ui_box "$UI_YELLOW" "$name is managed on $name" \
-    "Its checkout of this repo is where its changes are made, and it can be" \
-    "ahead of this one. Pushing from here replaces the live config with" \
-    "whatever this machine has."
-  ui_confirm "Really overwrite $name's live config with this machine's?" default-no || { ui_info "nothing done"; return 1; }
-  action=$(ui_choose "Push to $name — how?" "Switch — activate now:switch" "Boot — on next reboot:boot") || { ui_info "nothing done"; return 1; }
-  rebuild "$name" "$action" "$H_SSH"
 }
 
 # ── Jobs on the repo and the store ────────────────────────────────────────────
@@ -721,18 +676,11 @@ help_remote() {
   hp_new "$UI_BLUE"
   hp_text "Remote deploys to the other machines over Tailscale. The build happens HERE; the finished system is copied across and activated there. It asks for your sudo password on that machine — the password there, not this one's."
   hp_note "Opening a machine shows it live: online or offline and, asked over ssh, the generation it runs, how long it's been up, and its own ~/Dots if it has one. If it's offline when you pick a job you can wait (power it on — it carries on by itself), try anyway, or cancel."
-  hp_head "Pushed machines — Sisyphus, Kit-Kat"
+  hp_head "Every machine is pushed from here"
   hp_item "Switch" "build here, copy it over, activate now"
   hp_item "Boot" "the same, but active from its next reboot"
   hp_item "Build" "build here and diff against what it runs — nothing is deployed"
   hp_item "SSH" "open a shell on it"
-  hp_head "Managed machines — Asgard"
-  hp_text "Asgard is edited on Asgard: its own ~/Dots is the source of truth and can be ahead of this copy. So these run ON Asgard, from its checkout:"
-  hp_item "Pull & switch" "git pull (fast-forward only) from GitHub, then switch. The normal way to update Asgard once a change is merged to main. If Asgard has uncommitted edits it stops and lists them, changing nothing."
-  hp_item "Switch there" "rebuild Asgard from its ~/Dots as it is, without pulling"
-  hp_item "SSH" "open a shell on Asgard"
-  hp_item "Compare" "build this machine's copy of Asgard's config here and diff it against what Asgard runs — nothing is deployed"
-  hp_item "Push ours…" "overwrite Asgard's live config with THIS machine's copy. Red because it can throw away changes made on Asgard; it explains and asks before doing anything."
   hp_show "Remote"
 }
 
@@ -768,7 +716,6 @@ help_machines() {
     host_info "$h"
     case "$H_MODE" in
       push)    mode="Pushed: rebuilt from whichever machine runs this (in place when it's this one)." ;;
-      managed) mode="Managed on $h: its own ~/Dots is the source of truth — update it with Remote › $h › Pull & switch." ;;
       stick)   mode="A USB stick: its image is built (Apollo › Build ISO), never switched to." ;;
     esac
     hp_item "$H_ICON  $h" "$H_ROLE$([[ "$h" == "$THIS_HOST" ]] && echo " — this machine"). $mode$([[ "$H_PROFILE" != system && "$H_PROFILE" != - ]] && echo " Keeps its own boot entry ($H_PROFILE) under GRUB's System Select.")"
@@ -785,7 +732,7 @@ help_cli() {
   hp_cmd "system-rebuild rock Sisyphus --boot" "the same, for the next boot instead"
   hp_cmd "system-rebuild rock Sisyphus --build" "build and show the changes only"
   hp_cmd "system-rebuild kitkat Kit-Kat" "push to Kit-Kat (on Kit-Kat: rebuild in place)"
-  hp_cmd "system-rebuild rock Asgard --target asgard" "Push ours… — overwrite Asgard's config with this machine's. Without --target it refuses and points you at Pull & switch."
+  hp_cmd "system-rebuild rock Asgard" "push to Asgard (every machine is deployed from here now)"
   hp_cmd "git-sync [\"message\"]" "commit, pull --rebase, push"
   hp_cmd "nix-gc" "garbage collect now"
   if has_apollo; then
@@ -986,7 +933,7 @@ menu_remote() {
       host_info "$h"
       [[ "$h" == "$THIS_HOST" || "$H_MODE" == stick ]] && continue
       peer "$h"
-      ui_item "$h" "$H_ICON" "$h" "$H_ROLE$([[ "$H_MODE" == managed ]] && echo " · managed there")" \
+      ui_item "$h" "$H_ICON" "$h" "$H_ROLE" \
         "$(case "$P_STATE" in online) ui_c "$UI_GREEN" "● online" ;; offline) ui_c "$UI_RED" "○ offline" ;; missing) ui_dim "◌ not on the tailnet" ;; *) ui_dim "◌ unknown" ;; esac)"
     done
     help_and_back
@@ -1014,22 +961,11 @@ menu_host() {
     ui_menu_new
     ui_note "$(peer_status)"
     for n in "${probe[@]}"; do ui_note "$n"; done
-    if [[ "$H_MODE" == managed ]]; then
-      ui_note "$(ui_c "$UI_YELLOW" "! managed on $name") $(ui_dim "— its own ~/Dots is the source of truth")"
-      ui_gap
-      ui_item pull "$I_PULL" "Pull & switch" "git pull --ff-only, then switch, on $name"
-      ui_item there "$I_SWITCH" "Switch there" "switch from its ~/Dots as it is"
-      ui_item ssh "$I_SSH" "SSH" "open a shell on $name" "$H_USER@$H_SSH"
-      ui_item build "$I_DIFF" "Compare" "build ours here, diff against what it runs"
-      ui_gap
-      ui_item push "$I_PUSH" "Push ours…" "overwrite its config with ours" "asks first" "$UI_RED"
-    else
-      ui_gap
-      ui_item switch "$I_SWITCH" Switch "build here, push, activate now"
-      ui_item boot "$I_BOOT" Boot "build here, push, activate on its next reboot"
-      ui_item build "$I_BUILD" Build "build here and diff — nothing deployed"
-      ui_item ssh "$I_SSH" SSH "open a shell on $name" "$H_USER@$H_SSH"
-    fi
+    ui_gap
+    ui_item switch "$I_SWITCH" Switch "build here, push, activate now"
+    ui_item boot "$I_BOOT" Boot "build here, push, activate on its next reboot"
+    ui_item build "$I_BUILD" Build "build here and diff — nothing deployed"
+    ui_item ssh "$I_SSH" SSH "open a shell on $name" "$H_USER@$H_SSH"
     help_and_back
     UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_BLUE" DOTS Remote "$name"
@@ -1038,9 +974,6 @@ menu_host() {
       help) help_show remote ;;
       switch | boot | build) job rebuild "$name" "$UI_CHOICE" ;;
       ssh)   job ssh_to "$name" ;;
-      pull)  job on_host "$name" pull ;;
-      there) job on_host "$name" switch ;;
-      push)  job push_managed "$name" ;;
       quit)  bye ;;
       *)     return 0 ;;
     esac
@@ -1203,13 +1136,4 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$system" ]] || { usage; exit 2; }
 host_info "$system" || { ui_err "unknown system '$system' — one of: ${HOSTS[*]}"; exit 2; }
-# A managed machine's live config is edited on it; refuse to overwrite it from
-# elsewhere unless --target says that's deliberate (the menu asks instead).
-if [[ "$H_MODE" == managed && -z "$target" && "$system" != "$THIS_HOST" ]]; then
-  ui_err "$system is managed on $system, not from here."
-  ui_info "update it in place:  system-rebuild → Remote → $system → Pull & switch"
-  ui_info "by hand:             ssh $H_SSH 'cd ~/Dots && sudo nixos-rebuild switch --flake .#$H_USER-$system'"
-  ui_info "push ours anyway:    system-rebuild $H_USER $system --target $H_SSH"
-  exit 1
-fi
 rebuild "$system" "$action" "$target"

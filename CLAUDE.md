@@ -19,13 +19,13 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 | Game streaming | `Claude/streaming.md` | Moonlight clients, Sunshine (installed, not autostarted), Tailscale |
 | **Wolf** (Moonlight server) | `Claude/wolf.md` | The live streaming host on Sisyphus. **True 4K**, seat9 input isolation, Steam library sharing, and the **`fake-udev` gamepad fix** without which pads work in Steam but are invisible to games |
 | Steam theming | `Claude/steam.md` | Millennium injector, SpaceTheme/Zehn, matugen colours, why opacity comes from Niri |
-| Eclipse TV box | `Claude/eclipse.md` | Pi 5 LibreELEC/Kodi, Jellyfin addon, **HEVC-only decode (no H.264 HW)**, **no HDR output**, Dolby Vision, skin menu, CEC, headless workflow |
+| Eclipse TV box | `Claude/eclipse.md` | Pi 5 LibreELEC/Kodi, Jellyfin addon, **HEVC-only decode (no H.264 HW)**, **no HDR output**, Dolby Vision, skin menu, CEC, headless workflow. **Not a Nix host** — `Resources/Eclipse-Skin/` + `Resources/Eclipse-Box/` mirror its hand-made state; DR is an SD card image, not a config push |
 | Emulators | `Claude/emulators.md` | RPCS3, Ryubing, PS3 game prep |
 | Secrets | `Claude/secrets.md` | sops-nix, adding secrets, key locations |
 | Shell/misc | `Claude/misc.md` | Starship, Fastfetch, btop, Navi, Discord, media viewers, Thunar, audio (PipeWire fixes) |
 | Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Seerr API, Glance, recyclarr. Code is `Modules/Server/`. Glance's **HUD** (panel frame, grid, pines, line-art Yggdrasil, logo, icons) is **generated at build time** by `Resources/Glance/hud.py`, on a tech-grey ground that tiles down the page so it never runs out. Its colour is the viewer's: **`theme.js`'s picker** recolours it per browser, so **HUD colours must be `var(--hud…)`/`--s*`, never a literal** |
 | Home Assistant | `Claude/home-assistant.md` | Smart plugs on Asgard `:8123`. `extraComponents` gates which integrations exist at all; device pairings are **not** declarative |
-| MarsBar dashboard | `Claude/marsbar.md` | Partner-facing Glance on its **own tailnet node** (`marsbar:1111`) — why a node, not a path. Lights + Jellyfin/Seerr + the **full** Eclipse panel (shared with the admin dashboard). Isolation is a Tailscale **ACL**, not in this repo |
+| MarsBar dashboard | `Claude/marsbar.md` | Partner-facing Glance on its **own tailnet node** (`marsbar:1111`) — why a node, not a path. Lights + Jellyfin/Seerr + the **full** Eclipse panel incl. the controller/subtitle card (shared with the admin dashboard — add new cards to BOTH `glance.nix` and `marsbar.nix` or they drift). Isolation is a Tailscale **ACL**, not in this repo |
 | Dolphin (rejected) | `Claude/dolphin.md` | Decision record: Dolphin was trialled and rejected — **Thunar stays**. Don't re-propose it |
 
 ## Core Principles
@@ -58,6 +58,11 @@ Kit-Kat gets `system-rebuild`/`git-sync`/`nix-gc` (`my.deploy-tools.admin = fals
 `system-rebuild` is **host-aware**: the machine it runs on rebuilds in place, any other
 is pushed over the tailnet. Sisyphus builds into the named profile `-p sisyphus` (see
 `Claude/architecture.md` → GRUB); the others use the default profile.
+**Every machine is deployed from Sisyphus (2026-10-05).** Asgard used to be
+self-managed (`H_MODE=managed`, *Pull & switch* from its own `~/Dots`) and
+`system-rebuild` refused to push to it; that mode is gone and Asgard is now an
+ordinary push target. **Asgard's `~/Dots` has been deleted** — there is no second
+checkout anywhere, so this repo is the only copy. See `Claude/deploy.md`.
 
 **Check a change evaluates** (all four hosts, no build):
 `nix eval --raw .#nixosConfigurations.<attr>.config.system.build.toplevel.drvPath`
@@ -96,6 +101,10 @@ Resources/                # static files the modules reference:
                           #   lights.js, eclipse.js, net.js), MarsBar/ (css + vine svgs),
                           #   HA-Bridge/, Asgard-Stats/, Eclipse-Control/, Network-Panel/,
                           #   Wolf-Bridge/ (Sisyphus), Scripts/ (deploy-tools + lib/ui.sh),
+                          #   Eclipse-Skin/ (Bingie layout overlay + eclipse-skin-push.sh —
+                          #     re-run after any skin update or her layout reverts),
+                          #   Eclipse-Box/ (the Pi's hand-made state: units, addon patches,
+                          #     the Moonlight fork, keymaps; NOT applied automatically),
                           #   Fonts/, Spicetify-Text-Theme/, Steam-Glass-Theme/, Terminal-Images/
 Secrets/                  # secrets.yaml (rock's hosts), kit-kat.yaml (her machine only)
 Claude/                   # topic docs

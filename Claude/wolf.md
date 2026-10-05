@@ -4,11 +4,24 @@
 Module: `Modules/Gaming/wolf.nix`. Started as a trial alongside Sunshine and is now the **live**
 streaming host. Sunshine stays installed as the fallback, with `autoStart = false`.
 
-> ⚠️ **Wolf and Sunshine cannot run together** — identical Moonlight ports.
+> ⚠️ **Wolf and Sunshine cannot run together *on the default ports*.**
 > Wolf is now `autoStart = true` (changed 2026-09-28; this doc said `false` until
 > 2026-10-03). That is only safe because `Modules/Gaming/sunshine.nix` has
 > `autoStart = false` — a matched pair, never set both true.
 > **Sunshine is a USER unit:** `systemctl --user stop sunshine` (NOT `sudo systemctl`).
+>
+> 📌 **Corrected 2026-10-05 — "cannot run together" is too strong.** Measured with
+> `ss` against a live Wolf: they collide on exactly **four** ports — TCP 47984,
+> 47989, 48010 and UDP 47999. Wolf does **not** bind 47998, 48000 or 47990, so the
+> first two entries in this module's `allowedUDPPorts` are dead weight. Sunshine's
+> `port` key is a single *base* and every other port is an offset from it, so
+> `port = 48989` yields 48984/48989/48990/49010 + UDP 48998/48999/49000/49002/49010
+> — **zero overlap**, and both daemons can run at once. Moonlight supports it: the
+> 6.1.0 binary has `manualaddress`/`manualport` and learns the HTTPS port from
+> `serverinfo`. Offset **Sunshine**, never Wolf — Wolf keeps the defaults every
+> paired client already points at. ⚠️ **Not yet implemented**; see
+> `Claude/next-up.md`. ⚠️ **Do not set `services.sunshine.settings.port`** to do it
+> — see the nixpkgs trap in `Modules/Gaming/sunshine.nix`.
 >
 > ⚠️ **Because Wolf always runs, a left-open session coexists with desktop Steam
 > by default** — which is both the shared-`steamapps` hazard below *and* the

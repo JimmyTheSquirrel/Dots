@@ -30,7 +30,7 @@
   var API = cfg.api || D.api(cfg.apiPort || "9554");
   var JF = cfg.jellyfin || D.api("8096");
   var esc = D.esc, $ = D.$;
-  var S = { status: null, tv: null, wolf: null, activity: [], busy: {}, armed: null, killing: {}, local: {} };
+  var S = { status: null, tv: null, wolf: null, ctl: null, activity: [], busy: {}, armed: null, killing: {}, local: {} };
   var STALE_SECS = 3 * 3600;
   var queued = false;
 
@@ -186,7 +186,87 @@
     D.paint(el, running || done ? '<ul class="lg">' + running + done + '</ul>' : '<div class="lg-empty">Nothing yet — actions from either dashboard show up here.</div>');
   }
 
-  function render() { queued = false; renderMain(); renderTv(); renderWolf(); renderLog(); }
+  // ── controllers + subtitles ───────────────────────────────────────────────
+  // Shown on BOTH dashboards, same as every other card here — she is the one in
+  // front of the TV, so she gets every control (Modules/Server/marsbar.nix).
+  //
+  // The important bit is `live` vs `connected`. BlueZ on this box will report a
+  // DualSense as Connected while its kernel driver has failed to bind with -5,
+  // leaving a bonded device with ZERO input nodes: it looks connected and does
+  // nothing. The backend reports those separately and flags the combination as
+  // `stale`; this card calls that out explicitly rather than showing a green
+  // dot for a pad that cannot move a cursor.
+  function ctlBtn(d) {
+    var off = d.live || d.connected;
+    var key = (off ? "dis:" : "con:") + d.mac;
+    var busy = S.local[key], armed = S.armed === key;
+    var label = armed ? "Tap again" : busy ? "…" : off ? "Disconnect" : "Connect";
+    return '<button type="button" class="ag-btn tiny' + (armed ? " armed" : "") +
+      (busy ? " busy" : "") + '" data-' + (off ? "disconn" : "conn") + '="' + esc(d.mac) + '"' +
+      (anyBusy() && !busy ? " disabled" : "") + (busy ? " disabled" : "") +
+      '><span>' + label + '</span></button>';
+  }
+
+  function renderCtl() {
+    var el = $("ec-ctl"); if (!el) return;
+    var c = S.ctl; if (!c) return;
+    var h = '<div class="ec">';
+
+    if (!c.reachable) {
+      h += '<div class="ec-hero"><span class="ec-orb bad"></span><div><b>Eclipse unreachable</b>' +
+        '<small>' + esc(c.error || "no answer over SSH") + '</small></div></div></div>';
+      D.paint(el, h); return;
+    }
+
+    // Controllers
+    var devs = c.devices || [];
+    h += '<div class="ec-rows">';
+    if (!devs.length) {
+      h += '<div class="ec-row"><span class="ags-sub">No controllers paired yet</span></div>';
+    }
+    devs.forEach(function (d) {
+      var cls = d.stale ? "warn" : d.live ? "ok" : "";
+      var what = d.stale ? "connected but no input — needs re-pairing"
+        : d.live ? "connected and working"
+          : d.connected ? "connecting…" : "off or out of range";
+      h += '<div class="ec-row">' +
+        '<span class="ec-orb ' + (d.stale ? "bad" : d.live ? "good" : "") + '"></span>' +
+        '<div class="ec-row-main"><b>' + esc(d.name) + '</b><small>' + what + '</small></div>' +
+        ctlBtn(d) + '</div>';
+    });
+    h += '</div>';
+
+    // A DualSense only advertises while physically held in pairing mode, so say
+    // so — a Scan button that silently finds nothing reads as broken.
+    h += '<div class="ec-btns">' +
+      btn("ctl-scan", "Scan", ICON.link, "hold PS + Create first") +
+      '</div>';
+
+    // Subtitles — a Jellyfin user setting, not a Kodi one (see eclipse.nix).
+    var sb = c.subs;
+    if (sb) {
+      h += '<div class="ec-rows"><div class="ec-row">' +
+        '<div class="ec-row-main"><b>Subtitles</b><small>default ' +
+        (sb.on ? "on" : "off") + (sb.lang_name ? " · " + esc(sb.lang_name) : "") + '</small></div>' +
+        '<button type="button" class="ag-btn tiny" data-act="' + (sb.on ? "subs-off" : "subs-on") + '"' +
+        (anyBusy() ? " disabled" : "") + '><span>' + (sb.on ? "Turn off" : "Turn on") + '</span></button>' +
+        '</div></div>';
+    }
+
+    // Network path — which link is actually carrying traffic.
+    (c.net || []).forEach(function (n) {
+      h += '<div class="ec-rows"><div class="ec-row">' +
+        '<span class="ec-orb ' + (n.online ? "good" : n.ready ? "good" : "") + '"></span>' +
+        '<div class="ec-row-main"><b>' + esc(n.name) + '</b><small>' + n.kind +
+        (n.online ? " · online" : n.ready ? " · standby, connected" : " · standby, idle") +
+        '</small></div></div></div>';
+    });
+
+    h += '</div>';
+    D.paint(el, h);
+  }
+
+  function render() { queued = false; renderMain(); renderTv(); renderWolf(); renderCtl(); renderLog(); }
   function soon() { if (!queued) { queued = true; requestAnimationFrame(render); } }
 
   // ── input ─────────────────────────────────────────────────────────────────
@@ -206,7 +286,7 @@
   function onClick(e) {
     var t = e.target && e.target.closest ? e.target : null;
     if (!t) return;
-    var b = t.closest("#ec-main [data-act]");
+    var b = t.closest("#ec-main [data-act], #ec-ctl [data-act]");
     if (b && !b.disabled) {
       var name = b.getAttribute("data-act");
       if (name === "reboot" && S.armed !== name) { arm(name); return; }
@@ -222,6 +302,23 @@
       act("jellyfin-toggle");
       return;
     }
+    // Controller connect/disconnect. Connect is armed like reboot is, because
+    // it has a consequence you cannot see from here: a DualSense only ever
+    // talks to ONE host and returns to whichever it used last, so connecting it
+    // to Eclipse STEALS it from whoever is gaming on Sisyphus (Claude/streaming.md).
+    var cd = t.closest("#ec-ctl [data-conn], #ec-ctl [data-disconn]");
+    if (cd && !cd.disabled) {
+      var off = cd.hasAttribute("data-disconn");
+      var mac = cd.getAttribute(off ? "data-disconn" : "data-conn");
+      var ck = (off ? "dis:" : "con:") + mac;
+      if (!off && S.armed !== ck) { arm(ck); return; }
+      S.armed = null;
+      S.local[ck] = true; soon();
+      D.post(API + "/ctl/" + (off ? "disconnect" : "connect") + "/" + encodeURIComponent(mac))
+        .catch(function () {})
+        .then(function () { delete S.local[ck]; soon(); });
+      return;
+    }
     var k = t.closest("#ec-wolf [data-kill]");
     if (k) {
       var id = k.getAttribute("data-kill"), kk = "kill:" + id;
@@ -235,11 +332,12 @@
     }
   }
 
-  D.ready("#ec-main, #ec-tv, #ec-wolf, #ec-log", function () {
+  D.ready("#ec-main, #ec-tv, #ec-wolf, #ec-ctl, #ec-log", function () {
     D.stream(API + "/events", {
       status: function (d) { S.status = d; soon(); },
       tv: function (d) { S.tv = d; soon(); },
       wolf: function (d) { S.wolf = d; soon(); },
+      ctl: function (d) { S.ctl = d; soon(); },
       activity: function (d) { S.activity = d; soon(); },
       busy: function (d) { S.busy = d; soon(); }
     }, "ec-live");

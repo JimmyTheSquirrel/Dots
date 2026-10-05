@@ -14,14 +14,25 @@
   # its own virtual input devices, inside containers. That removes the need for
   # the EDID-injection + multi-seat design in Claude/next-up.md item 7 entirely.
   #
-  # ⚠️ WOLF AND SUNSHINE CANNOT RUN AT THE SAME TIME.
-  # Both implement the Moonlight protocol and therefore bind the SAME ports
-  # (47984/47989 tcp, 47999 udp, 48010 tcp, 48100/48200 udp). Wolf now DOES
-  # auto-start (see autoStart at the bottom of this file), which is only safe
-  # because Modules/Gaming/sunshine.nix has autoStart = false — those two are a
-  # matched pair, never set both true. Wolf's ports are
-  # overridable via WOLF_*_PORT, but Moonlight clients expect the defaults, so
-  # swapping which daemon is running is simpler than re-teaching every client.
+  # ⚠️ WOLF AND SUNSHINE CANNOT RUN AT THE SAME TIME *ON THE DEFAULT PORTS*.
+  # Both implement the Moonlight protocol, so on stock settings they collide and
+  # whichever starts second fails to bind. Wolf now DOES auto-start (see autoStart
+  # at the bottom of this file), which is only safe because
+  # Modules/Gaming/sunshine.nix has autoStart = false — a matched pair, never set
+  # both true while they share a port base.
+  #
+  # Measured 2026-10-05 with `ss -tlnp`/`-ulnp` against a running Wolf, because the
+  # list above was partly wrong: Wolf actually binds TCP 47984, 47989, 48010 and
+  # UDP 47999, 48100, 48200. It does NOT bind 47998, 48000 or 47990 — so the
+  # 47998 and 48000 entries in allowedUDPPorts below are dead weight. The real
+  # overlap with Sunshine is four ports: TCP 47984/47989/48010 + UDP 47999.
+  #
+  # Sunshine's `port` is a single BASE and everything else is an offset from it,
+  # so moving Sunshine to 48989 removes the overlap entirely and both can run at
+  # once (Moonlight takes a manual host:port and learns the HTTPS port from
+  # serverinfo). Offset SUNSHINE, not Wolf: Wolf keeps the defaults that every
+  # already-paired client — including the TV box's one-tap tile, whose host/game
+  # ids are positional indices — is pointed at. Not yet done; see Claude/wolf.md.
   #
   # ⚠️ DOCKER, NOT PODMAN — deliberate divergence from Asgard.
   # `virtualisation.oci-containers.backend` is "podman" in Modules/Server/default.nix,

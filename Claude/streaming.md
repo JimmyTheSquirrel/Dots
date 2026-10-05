@@ -4,7 +4,17 @@
 
 Sisyphus is the game streaming host, reachable remotely via **Tailscale** and streamed to an Android phone or the TV (via the Eclipse Pi) using **Moonlight**.
 
-**Wolf is the live streaming host** (`Modules/Gaming/wolf.nix`, auto-starts, see `Claude/wolf.md`). **Sunshine** (this doc) stays installed as the fallback with `autoStart = false`. The two bind the same Moonlight ports, so only one can run at a time.
+**Wolf is the live streaming host** (`Modules/Gaming/wolf.nix`, auto-starts, see `Claude/wolf.md`). **Sunshine** (this doc) stays installed as the fallback with `autoStart = false`. On the default ports the two collide, so only one can run at a time.
+
+> 📌 **Corrected 2026-10-05.** "They bind the same ports" is only true on stock settings.
+> Measured against a live Wolf, the overlap is **four** ports (TCP 47984/47989/48010 +
+> UDP 47999); Wolf never binds 47998, 48000 or 47990. Sunshine's `port` is a single
+> *base* with everything else offset from it, so `port = 48989` removes the overlap and
+> **both can run at once** — Moonlight takes a manual `host:port` and learns the HTTPS
+> port from `serverinfo`. Offset Sunshine, never Wolf, so already-paired clients keep
+> working. Wanted for *Moonlight into Sisyphus's real desktop* — **not yet built**, see
+> `Claude/next-up.md`. ⚠️ `services.sunshine.settings.port` is **not** the way to do it;
+> `Modules/Gaming/sunshine.nix` explains why.
 
 **Modules (Sisyphus only):**
 - `Modules/Gaming/wolf.nix`: Wolf, the live host

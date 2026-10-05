@@ -40,6 +40,7 @@ import atexit
 import http.server
 import json
 import os
+import re
 import shutil
 import signal
 import socketserver
@@ -134,6 +135,34 @@ KODI_SEND = "/usr/bin/kodi-send"
 EVENTS_STATUS_S = 5.0
 EVENTS_WOLF_S = 3.0
 EVENTS_TV_S = 5.0
+# Controllers + network path. Slower than the rest on purpose: this one shells
+# out to bluetoothctl, which talks DBus to a bluetoothd that has already shown
+# it can burn CPU (21 min over 6 days with one paired, powered-OFF pad).
+EVENTS_CTL_S = 8.0
+
+# A bounded discovery window. bluetoothctl's --timeout makes `scan on` return on
+# its own; without it the scan runs forever and holds an SSH channel open. Keep
+# it short: anyBusy() in eclipse.js greys EVERY button while an action runs, so
+# a long scan freezes the whole panel, not just this card.
+CTL_SCAN_S = int(os.environ.get("CTL_SCAN_SECONDS", "20"))
+
+# Anchored and upper-case. Any MAC from a dashboard is interpolated into a
+# string that ssh() hands to a shell AS ROOT on the Pi, so it is validated here
+# AND checked against the Pi's own device list before it goes near a command.
+# Same precedent as wolf_stop()'s session_id.isdigit().
+MAC_RE = re.compile(r"^([0-9A-F]{2}:){5}[0-9A-F]{2}$")
+
+# Subtitle defaults are a JELLYFIN USER setting, not a Kodi one. The addon runs
+# set_audio_subs() about 2s into every playback and calls showSubtitles(False)
+# when no track index resolves, so anything set Kodi-side is overwritten on
+# every single play. The only durable lever is the server-side preference of
+# the user Eclipse logs in as. See Claude/eclipse.md.
+JELLYFIN_TV_USER = os.environ.get("JELLYFIN_TV_USER", "")
+# Jellyfin's SubtitlePlaybackMode enum. "Always" = subtitles on by default;
+# "Default" = only what the media itself flags as default/forced.
+SUBS_ON, SUBS_OFF = "Always", "Default"
+SUB_LANGS = {"eng": "English", "jpn": "Japanese", "fre": "French",
+             "spa": "Spanish", "ger": "German", "": "No preference"}
 
 # What the TV is playing, from Jellyfin's own session list (its API key comes in
 # as a systemd credential). Asking Kodi itself would need its JSON-RPC, which is
@@ -363,6 +392,217 @@ def _fetch_status():
     return st
 
 
+# ── Controllers and the network path ────────────────────────────────────────
+# WHY THIS IS NOT JUST "is BlueZ connected". The DualSense on this box fails to
+# bind its kernel driver with -5 (EIO) often enough to matter: 17 reconnect
+# cycles and 3 probe failures in the logs, and /storage/dualsense-repair.log
+# records the signature -- BlueZ reporting `Connected: yes` alongside
+# "input nodes: 0 match(es)". In that state the pad is a bonded Bluetooth
+# device producing NO input at all. A card that trusted BlueZ would show a
+# working controller in precisely the broken case, which is worse than useless.
+#
+# So `paired` and `connected` come from BlueZ, but `live` -- the only one the
+# card shows as working -- means an actual node exists in /proc/bus/input.
+CTL_CMD = (
+    "echo \"btpower=$(bluetoothctl show 2>/dev/null | sed -n 's/.*Powered: //p' | head -1)\"; "
+    "bluetoothctl devices 2>/dev/null | sed 's/^Device /dev=/'; "
+    "bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /conn=/'; "
+    "grep '^N: Name=' /proc/bus/input/devices | sed 's/^N: Name=\"/input=/; s/\"$//'; "
+    "connmanctl services 2>/dev/null | head -8 | sed 's/^/net=/'"
+)
+
+
+def _subs_state():
+    """Caitlin's server-side subtitle preference, or None if unreadable.
+
+    This is a Jellyfin USER setting; see JELLYFIN_TV_USER above for why it
+    cannot live on the Kodi side.
+    """
+    if not JELLYFIN_TV_USER:
+        return None
+    cred = os.environ.get("CREDENTIALS_DIRECTORY")
+    try:
+        with open(os.path.join(cred, "jellyfin-api-key")) as fh:
+            key = fh.read().strip()
+    except (OSError, TypeError):
+        return None
+    req = urllib.request.Request(JELLYFIN_URL + "/Users/" + JELLYFIN_TV_USER,
+                                 headers={"X-Emby-Token": key})
+    try:
+        with urllib.request.urlopen(req, timeout=3) as r:
+            cfg = json.load(r).get("Configuration", {})
+    except (OSError, ValueError):
+        return None
+    lang = cfg.get("SubtitleLanguagePreference") or ""
+    return {"on": cfg.get("SubtitleMode") == SUBS_ON,
+            "mode": cfg.get("SubtitleMode", ""),
+            "lang": lang, "lang_name": SUB_LANGS.get(lang, lang)}
+
+
+def _set_subs(mode=None, lang=None):
+    """PATCH the TV user's subtitle preference. Jellyfin wants the WHOLE
+    Configuration object back, so read-modify-write -- POSTing only the changed
+    key silently resets everything else to defaults."""
+    if not JELLYFIN_TV_USER:
+        return False, "no Jellyfin user configured"
+    cred = os.environ.get("CREDENTIALS_DIRECTORY")
+    try:
+        with open(os.path.join(cred, "jellyfin-api-key")) as fh:
+            key = fh.read().strip()
+    except (OSError, TypeError):
+        return False, "no Jellyfin API key"
+    hdr = {"X-Emby-Token": key, "Content-Type": "application/json"}
+    try:
+        req = urllib.request.Request(JELLYFIN_URL + "/Users/" + JELLYFIN_TV_USER, headers=hdr)
+        with urllib.request.urlopen(req, timeout=5) as r:
+            cfg = json.load(r).get("Configuration", {})
+        if mode is not None:
+            cfg["SubtitleMode"] = mode
+        if lang is not None:
+            cfg["SubtitleLanguagePreference"] = lang
+        put = urllib.request.Request(
+            JELLYFIN_URL + "/Users/" + JELLYFIN_TV_USER + "/Configuration",
+            data=json.dumps(cfg).encode(), headers=hdr, method="POST")
+        urllib.request.urlopen(put, timeout=5).read()
+    except (OSError, ValueError) as exc:
+        return False, str(exc)[:160]
+    return True, "subtitles " + ("on" if cfg.get("SubtitleMode") == SUBS_ON else "off") + \
+                 (", " + SUB_LANGS.get(cfg.get("SubtitleLanguagePreference", ""), "?")
+                  if lang is not None else "")
+
+
+def _fetch_ctl():
+    ok, out = ssh(CTL_CMD, timeout=12)
+    st = {"reachable": ok, "bt_powered": False, "devices": [], "net": [],
+          "subs": _subs_state()}
+    if not ok:
+        st["error"] = out
+        return st
+    devs, conn, inputs, nets = [], set(), [], []
+    for line in out.splitlines():
+        k, _, v = line.partition("=")
+        v = v.strip()
+        if k == "btpower":
+            st["bt_powered"] = v == "yes"
+        elif k == "dev":
+            mac, _, name = v.partition(" ")
+            devs.append((mac.upper(), name.strip() or mac))
+        elif k == "conn":
+            conn.add(v.split()[0].upper() if v else "")
+        elif k == "input":
+            inputs.append(v)
+        elif k == "net":
+            nets.append(v)
+    for mac, name in devs:
+        # The liveness test. A DualSense registers two nodes (the pad and its
+        # motion sensors), so a prefix match on the BlueZ name is enough.
+        live = any(name.lower() in i.lower() or i.lower().startswith(name.lower()[:14])
+                   for i in inputs)
+        st["devices"].append({
+            "mac": mac, "name": name, "connected": mac in conn, "live": live,
+            # The case the whole card exists to expose.
+            "stale": mac in conn and not live,
+        })
+    for raw in nets:
+        flags, rest = raw[:3], raw[3:].strip()
+        if not rest:
+            continue
+        sid = rest.split()[-1]
+        name = rest[:-len(sid)].strip() or sid
+        kind = "ethernet" if sid.startswith("ethernet_") else (
+            "wifi" if sid.startswith("wifi_") else "other")
+        nets_entry = {"name": name, "kind": kind,
+                      "online": "O" in flags, "ready": "R" in flags,
+                      "favourite": "*" in flags}
+        # Only the ones that matter: what is carrying traffic, plus any
+        # remembered network. A list of every SSID in range is noise on a TV.
+        if nets_entry["favourite"]:
+            st["net"].append(nets_entry)
+    return st
+
+
+def _last_meaningful(out):
+    """bluetoothctl prefixes its output with D-Bus chatter (SupportedUUIDs and
+    friends). Show the last line that actually says something."""
+    for line in reversed((out or "").splitlines()):
+        line = line.strip()
+        if line and not line.startswith("SupportedUUIDs") and not line.startswith("["):
+            return line[:160]
+    return ""
+
+
+def _known_macs():
+    """MACs the Pi itself reports as known. A dashboard-supplied MAC is checked
+    against this before it is ever interpolated into a root shell command."""
+    ok, out = ssh("bluetoothctl devices 2>/dev/null | sed 's/^Device /dev=/'", timeout=8)
+    if not ok:
+        return set()
+    return {l.partition("=")[2].split()[0].upper()
+            for l in out.splitlines() if l.startswith("dev=") and l.partition("=")[2].strip()}
+
+
+def ctl_connect(mac, disconnect=False):
+    mac = (mac or "").upper()
+    if not MAC_RE.match(mac):
+        return 400, {"ok": False, "error": "bad MAC"}
+    if mac not in _known_macs():
+        return 404, {"ok": False, "error": "not a known device"}
+    verb = "disconnect" if disconnect else "connect"
+    ok, out = ssh("bluetoothctl " + verb + " " + mac + " 2>&1 | tail -4", timeout=25)
+    HUB.wake.set()
+    if not ok:
+        return 502, {"ok": False, "error": (out or "ssh failed")[:200]}
+    # bluetoothctl's exit status is NOT usable here, for two reasons: it is
+    # piped through tail (so the pipeline reports tail's status, always 0), and
+    # in non-interactive mode it exits 0 even when the attempt plainly failed.
+    # Taking it at face value reports a successful connect for a pad that is
+    # switched off -- exactly the false "it's working" this whole card exists to
+    # stop. The output text is the only honest signal.
+    low = (out or "").lower()
+    if "successful" in low:
+        return 200, {"ok": True, "message": "controller " + verb + "ed"}
+    if "failed" in low or "not available" in low:
+        # status 0x04 / br-connection-create-sock is what a powered-off or
+        # out-of-range pad looks like; say that rather than echoing D-Bus.
+        friendly = ("controller is off or out of range"
+                    if ("0x04" in low or "create-sock" in low or "page timeout" in low)
+                    else _last_meaningful(out))
+        return 502, {"ok": False, "error": friendly}
+    return 200, {"ok": True, "message": _last_meaningful(out) or ("controller " + verb + "ed")}
+
+
+def act_ctl_scan():
+    """Bounded discovery. A DualSense only advertises while physically held in
+    pairing mode (PS + Create), so this cannot be fully automated from here --
+    the card tells the user to do that first. `pairable off` is issued in the
+    same breath so the Pi is not left open to anything in radio range."""
+    ok, out = ssh(
+        "bluetoothctl --timeout " + str(CTL_SCAN_S) + " scan on >/dev/null 2>&1; "
+        "bluetoothctl pairable off >/dev/null 2>&1; "
+        "bluetoothctl devices 2>/dev/null | sed 's/^Device /dev=/'",
+        timeout=CTL_SCAN_S + 15)
+    found = [l.partition("=")[2] for l in out.splitlines() if l.startswith("dev=")]
+    return ok, ("found %d device(s): " % len(found)) + ", ".join(
+        f.split(" ", 1)[-1] for f in found[:6]) if found else "no devices found"
+
+
+def _route_sublang(code):
+    """POST /ctl/sublang/<iso639-2>. Whitelisted, so no caller string reaches
+    Jellyfin's config untouched."""
+    if code not in SUB_LANGS:
+        return 400, {"ok": False, "error": "unknown language"}
+    ok, msg = _set_subs(lang=code)
+    return (200 if ok else 502), {"ok": ok, "message": msg} if ok else {"ok": False, "error": msg}
+
+
+def act_subs_on():
+    return _set_subs(mode=SUBS_ON)
+
+
+def act_subs_off():
+    return _set_subs(mode=SUBS_OFF)
+
+
 def act_speedtest():
     """Measure real download throughput from Eclipse's own vantage point.
 
@@ -433,8 +673,16 @@ def act_restart_kodi():
 
 
 def act_reboot():
-    # Fire and forget - the box drops the connection as it goes down.
-    ssh("(sleep 1; reboot) >/dev/null 2>&1 &", timeout=10)
+    # `systemctl --no-block reboot` returns immediately and leaves the job with
+    # systemd, so the box goes down after ssh has hung up.
+    #
+    # It used to be `(sleep 1; reboot) >/dev/null 2>&1 &` and THAT DID NOT WORK:
+    # when the remote command finishes, sshd SIGHUPs the whole process group and
+    # takes the backgrounded subshell with it before the sleep elapses. The
+    # action still reported "reboot issued" because ssh exited 0, so the button
+    # looked like it worked and the Pi simply never rebooted. Verified by hand
+    # 2026-10-05 -- `uptime -s` was unchanged after a "successful" press.
+    ssh("systemctl --no-block reboot", timeout=10)
     return True, "reboot issued"
 
 
@@ -644,6 +892,14 @@ ACTIONS = {
     "sync-shows": ("Sync TV shows", lambda: _sync(SHOWS_ID, "TV Shows")),
     "jellyfin-toggle": ("Switch Jellyfin path", act_jellyfin_toggle),
     "speedtest": ("Link test", act_speedtest),
+    # Controllers + subtitles — both dashboards get all of these. Per-device
+    # connect/disconnect is NOT here: those take a MAC, and every entry in this
+    # table is a zero-argument closure so that no caller-supplied value can ever
+    # reach ssh()'s shell string. They go through ctl_connect() instead, which
+    # validates against MAC_RE and the Pi's own device list.
+    "ctl-scan": ("Scan for controllers", act_ctl_scan),
+    "subs-on": ("Subtitles on", act_subs_on),
+    "subs-off": ("Subtitles off", act_subs_off),
 }
 
 
@@ -662,7 +918,8 @@ class Hub:
     def __init__(self):
         self.cond = threading.Condition()
         self.version = 0
-        self.state = {"status": None, "tv": None, "wolf": None, "activity": [], "busy": {}}
+        self.state = {"status": None, "tv": None, "wolf": None, "ctl": None,
+                      "activity": [], "busy": {}}
         self.watchers = 0
         self.wake = threading.Event()
 
@@ -696,7 +953,7 @@ class Hub:
         return True
 
     def poller(self):
-        status_at = wolf_at = tv_at = 0.0
+        status_at = wolf_at = tv_at = ctl_at = 0.0
         while True:
             if self.watchers > 0:
                 now = time.monotonic()
@@ -710,11 +967,18 @@ class Hub:
                 if now - status_at >= EVENTS_STATUS_S:
                     status_at = now
                     self.publish("status", get_status())
+                if now - ctl_at >= EVENTS_CTL_S:
+                    ctl_at = now
+                    self.publish("ctl", _fetch_ctl())
             else:
-                status_at = wolf_at = tv_at = 0.0
+                status_at = wolf_at = tv_at = ctl_at = 0.0
             if self.wake.wait(1.0):
                 self.wake.clear()
-                status_at = 0.0  # an action finished or a client joined: look now
+                # An action finished or a client joined: look again NOW. ctl_at
+                # must be reset alongside status_at or the card lags a Connect
+                # tap by up to EVENTS_CTL_S even though the action has finished,
+                # which reads as "the button did nothing".
+                status_at = ctl_at = 0.0
 
 
 HUB = Hub()
@@ -863,6 +1127,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 HUB.log("End stream", True, "Wolf stream " + sid + (" ended" if code == 200 else " was already gone"))
             else:
                 HUB.log("End stream", False, "could not end stream " + sid + ": " + str(body.get("error", code)))
+            HUB.wake.set()
+            self._send(code, json.dumps(body), "application/json")
+            return
+        # Per-device controller verbs and the subtitle language. Same shape as
+        # wolf/stop/ above: a caller-supplied value, validated before use.
+        for prefix, handler in (
+            ("ctl/connect/", lambda v: ctl_connect(v)),
+            ("ctl/disconnect/", lambda v: ctl_connect(v, disconnect=True)),
+            ("ctl/sublang/", _route_sublang),
+        ):
+            if not path.startswith(prefix):
+                continue
+            if self.headers.get("X-Dash") != "1":
+                self._send(403, json.dumps({"ok": False, "error": "missing X-Dash header"}),
+                           "application/json")
+                return
+            arg = path[len(prefix):]
+            label = prefix.rstrip("/").replace("ctl/", "").replace("sublang", "Subtitle language")
+            code, body = handler(arg)
+            HUB.log(label.capitalize(), code == 200,
+                    str(body.get("message") or body.get("error") or code)[:160])
             HUB.wake.set()
             self._send(code, json.dumps(body), "application/json")
             return

@@ -372,10 +372,11 @@ there in detail.
   live only as hand-edits**. `hevc_mode` is force-enforced on activation, so an unrelated
   rebuild would silently revert it.
   `sudo nixos-rebuild switch --flake /home/rock/Dots#rock-Sisyphus`
-- **Eclipse stream audio is a live `pactl` hack and dies on reboot.** PulseAudio there has
-  only `auto_null` and never claims the HDMI card. Durable fix: add
-  `--setenv=SDL_AUDIODRIVER=alsa` to the Moonlight launch so it bypasses PulseAudio
-  entirely — the same ALSA path Kodi already proves works.
+- ✅ **~~Eclipse stream audio is a live `pactl` hack~~ — RESOLVED, verified 2026-10-05.**
+  The durable fix landed: the Moonlight launch passes `--setenv=SDL_AUDIODRIVER="alsa"`
+  and writes its own `asoundrc`, bypassing PulseAudio entirely. ⚠️ It keys off Kodi's
+  `audiooutput.audiodevice` starting with `"ALSA"` — switching Kodi to a PULSE device
+  silently takes the other code path.
 - **Stray needs a niri output rule.** It opened on DP-2 while Sunshine captured HDMI-A-1,
   so the TV showed the desktop. `app_id` is a clean `steam_app_1332010`. *Obsoleted by
   item 7 if that gets built.*
@@ -389,6 +390,37 @@ there in detail.
 - **Consider a Kodi-restore safety net.** The bash `trap` in the addon's `start.sh` has
   failed at least once unprovoked. An `ExecStopPost=systemctl start kodi` on the unit would
   make stranding impossible regardless of how Moonlight exits.
+  📌 **Partly addressed 2026-10-05, and the premise was wrong.** The trap's backstop,
+  `hdmi-hotplug.service`, turned out to have **never once survived a reboot** — an
+  ordering cycle made systemd delete its job from every boot transaction while the unit
+  sat `enabled` + `inactive (dead)` with no failure to notice. Fixed and reboot-verified,
+  so the backstop now actually exists. Also: the 2026-10-01 "unprovoked trap failure" was
+  **not** the trap — the crashlog shows Kodi segfaulting on the way *down*, in
+  `XBMCAddon::RetardedAsyncCallbackHandler::~RetardedAsyncCallbackHandler()`, racing
+  Jellyfin's service thread as it exited. `ExecStopPost` is still worth adding.
+
+### ⭐ Open — Moonlight into Sisyphus's real desktop (added 2026-10-05)
+
+Rock wants to reach Sisyphus's actual desktop from his phone. **~90% is already written:**
+Sunshine captures the real seat (`capture = wlr`, `output_name` force-enforced each
+activation), and `sunshine_state.json` already holds five paired clients including his
+phone. It is simply never started.
+
+- **Run it on base port `48989`** so it coexists with Wolf instead of replacing it — the
+  overlap is only four ports. See the corrected note in `Claude/wolf.md`.
+- ⚠️ **Do not set `services.sunshine.settings.port`** — it makes the nixpkgs module feed
+  Sunshine a `/nix/store` config and ignore `~/.config/sunshine/sunshine.conf`, orphaning
+  the `output_name`/`capture`/`hevc_mode` enforcement. Add an `enforce port 48989` line.
+- **Capture DP-2, not HDMI-A-1.** HDMI-A-1 is the mostly-empty 1080p secondary; DP-2 is
+  the 2560x1080 primary where he works. Bonus: the absolute-pointer trap maps to the
+  *captured* output, so capturing DP-2 pins the stray cursor to a monitor already in use.
+- Rock wants to pick the screen at connect time. `output_name` is global, not per-app, so
+  that needs either two instances (two pairings per device) or a dashboard toggle that
+  flips it and restarts — the latter reuses the existing `wolf-bridge` pattern.
+- Clean up while there: `Modules/Desktop/niri.nix` (~918) has an unconditional
+  `^steam_app_` → `open-on-output "HDMI-A-1"` rule that is obsolete under Wolf and becomes
+  actively wrong if capture moves to DP-2. And `wolf.nix`'s `allowedUDPPorts` lists 47998
+  and 48000, which Wolf never binds.
 
 ---
 

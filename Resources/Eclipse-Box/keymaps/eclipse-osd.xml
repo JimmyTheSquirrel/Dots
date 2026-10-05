@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Eclipse:
+     - TV-remote up/down open the player OSD, not seek.
+     - Back/Backspace/Escape STOP playback and return, instead of leaving the
+       video playing behind the menu. When the OSD or seek bar is open, Back is
+       consumed by that dialog first, so this only fires from plain fullscreen. -->
+<keymap>
+    <FullscreenVideo>
+        <remote>
+            <up>OSD</up>
+            <down>OSD</down>
+            <back>Stop</back>
+        </remote>
+        <keyboard>
+            <up>OSD</up>
+            <down>OSD</down>
+            <backspace>Stop</backspace>
+            <escape>Stop</escape>
+        </keyboard>
+    </FullscreenVideo>
+</keymap>

@@ -226,6 +226,7 @@
 #nw .ags-skel { height: 300px; }
 #ec-main .ags-skel { height: 340px; }
 #ec-wolf .ags-skel, #ec-log .ags-skel { height: 64px; }
+#ec-ctl .ags-skel { height: 200px; }
 
 .ags-sub { font-size: 1.2rem; color: var(--ag-text-dim); }
 .ags-sub b { font-weight: inherit; color: var(--ag-text); white-space: nowrap; }

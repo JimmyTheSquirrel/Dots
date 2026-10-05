@@ -233,6 +233,7 @@
                 (liveCard { id = "ec-main"; title = "Eclipse - ( Pi 5 )"; badge = "ec-live"; })
                 (liveCard { id = "ec-tv"; title = "On the TV"; })
                 (liveCard { id = "ec-wolf"; title = "Game streams"; })
+                (liveCard { id = "ec-ctl"; title = "Controllers"; })
                 (liveCard { id = "ec-log"; title = "Activity"; })
               ];
             }

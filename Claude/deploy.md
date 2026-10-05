@@ -136,18 +136,40 @@ on a LAN, several GB over a slow link. `--build-on remote` makes the target fetc
 from `cache.nixos.org` and build there instead — cheaper on bandwidth, and it works
 because the flake is public, so the target needs no credentials.
 
-## Asgard is not deployable from here
+## Every machine is deployed from here (changed 2026-10-05)
 
-`system-rebuild` refuses `Asgard` without an explicit `--target`. This repo's
-`Modules/Server/` can drift from the copy on Asgard (`Claude/server-info.md`), so a
-push would overwrite the live config with a stale copy. Edit it on Asgard.
+**Sisyphus is the only place deploys happen.** Asgard used to be `H_MODE=managed`:
+`system-rebuild` refused to push to it, and the Remote menu instead offered
+*Pull & switch* / *Switch there* / *Push ours…*, all running on Asgard from its
+own `~/Dots`.
 
-What the menu offers instead (Remote → Asgard) runs **on Asgard, from its own
-`~/Dots`**: *Pull & switch* (`git pull --ff-only`, which refuses rather than
-merges if Asgard has diverged, then `nixos-rebuild switch --flake .#rock-Asgard`)
-and *Switch there* (no pull). *Compare* builds this checkout's Asgard locally and
-diffs it against what is live, deploying nothing. *Push ours…* is the old
-override, behind a confirm.
+That is gone. Asgard is now an ordinary push target like Kit-Kat — Remote → Asgard
+gives *Switch · Boot · Build · SSH*, and `system-rebuild rock Asgard` just works.
+The `managed` mode, `on_host()` and `push_managed()` were deleted with it; no host
+used them any more.
+
+**Why it changed.** Two sources of truth meant a change deployed from Sisyphus could
+be silently reverted the next time anyone ran *Pull & switch* on Asgard, because
+Asgard's checkout had not seen it. One deploy path removes the whole class of
+problem.
+
+**Asgard's `~/Dots` was deleted on 2026-10-05**, along with `~/dots-backups` (the
+spent safety net from the September reconciliation). There is no second checkout on
+any machine now — this repo is the only copy, which is the point. Before removing it
+the clone was verified clean: HEAD identical to Sisyphus's, **zero** commits ahead of
+`origin/main`, and the untracked leftovers checked individually (two uncommitted
+`server.nix.bak-*` snapshots held only 14 and 11 unique non-comment lines, all
+superseded dashboard CSS; the `secrets.yaml` backup was a strict subset of the
+repo's, 25 keys against 27). Nothing on Asgard referenced `/home/rock/Dots` at
+runtime, and all services stayed up.
+
+### Remote activation and sudo
+
+`--ask-sudo-password` used to be passed unconditionally for every push. Asgard has
+**passwordless sudo**, so that prompted for a password it did not want, and made any
+non-interactive push impossible — it blocks on a terminal that isn't there. The
+activate step now probes `ssh <target> sudo -n true` first and only asks when the
+target actually requires it.
 
 ## Checking a disk layout before you wipe anything
 
@@ -256,9 +278,8 @@ MACHINES panel: this machine's generation, every other machine's tailnet state
 ```
   Rebuild     this machine: Switch · Boot · Build, or build any Other host here
   Remote      every other machine, live status; per machine its generation,
-              uptime and (Asgard) its checkout, probed over ssh, then
-                Kit-Kat / Sisyphus   Switch · Boot · Build · SSH
-                Asgard               Pull & switch · Switch there · SSH · Compare · Push ours…
+              uptime and its checkout, probed over ssh, then
+                every machine         Switch · Boot · Build · SSH
   Utilities   Git sync · Update inputs (changelog, then offers a rebuild) ·
               Garbage collect · Check hosts (the four-host drvPath eval)
   Apollo      Deploy (host → Dry run / VM test / INSTALL) · SSH · Build ISO · Tailnet key

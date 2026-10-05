@@ -56,6 +56,14 @@
         WOLF_BRIDGE_URL = "http://sisyphus:9560";
         # "On the TV": Jellyfin's session list, filtered to the Kodi addon.
         JELLYFIN_URL = "http://127.0.0.1:8096";
+        # The Jellyfin user Eclipse's Kodi addon logs in as (Caitlin). The
+        # subtitle default is a per-USER server setting, and it has to be the
+        # server's: jellyfin-kodi runs set_audio_subs() ~2s into every playback
+        # and calls showSubtitles(False) when no track resolves, so anything set
+        # on the Kodi side is overwritten on every single play. Not a secret —
+        # an internal Jellyfin GUID, same class as the library ids already in
+        # eclipse-control.py. See Claude/eclipse.md.
+        JELLYFIN_TV_USER = "b725e6a692f44fcd83e104b333f97319";
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${../../Resources/Eclipse-Control/eclipse-control.py}";

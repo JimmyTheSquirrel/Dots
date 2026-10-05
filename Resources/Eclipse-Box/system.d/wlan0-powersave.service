@@ -1,0 +1,15 @@
+[Unit]
+Description=Disable Wi-Fi power save on wlan0 (prevents Kodi playback stalls)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/iw dev wlan0 set power_save off
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

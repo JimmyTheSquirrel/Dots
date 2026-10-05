@@ -204,9 +204,32 @@ Asgard, so she never needs (or gets) anything on Sisyphus. Not hers: the network
   lands on both dashboards, and they can never drift apart again — which is what
   happened to the old hand-built copy here (three actions, a 15 s poll, `marsbar.js`,
   now deleted). Glance's `html` widget does NOT sanitise markup (0.8.5).
+- **Her Eclipse column is `ec-main · ec-tv · ec-wolf · ec-ctl · ec-log`.** ⚠️ The card
+  list in `marsbar.nix` and the one in `glance.nix` are **independent by design** — a
+  new card must be added to BOTH, plus the `D.ready` selector and the `.ags-skel`
+  height list in `cards.css`, or one dashboard gets a collapsing card and the other
+  does not. This is exactly how the two drifted before `2a831da`.
+- **`ec-ctl` — controllers, network path and the subtitle default** (added 2026-10-05).
+  She gets every control he does; `eclipse.js` deliberately has **no** `data-readonly`
+  split (unlike `net.js`, where she has no "Run now" because a speed test pauses
+  SABnzbd). Two things worth knowing about it:
+  - ⚠️ A controller showing BlueZ `Connected: yes` can still be producing **no input
+    at all** — the DualSense here fails to bind its driver with `-5` often enough to
+    matter. The card tests for a real input node and flags that state as `stale`
+    rather than showing a green dot for a dead pad.
+  - ⚠️ **Subtitles are a Jellyfin *user* setting, not a Kodi one**, because the addon
+    overwrites Kodi's on every playback. The toggle writes `SubtitleMode` on the
+    account Eclipse logs in as — so pressing it from *either* dashboard changes the
+    same (her) account.
+- ⚠️ When adding a click handler to a new card, widen the `onClick` selector.
+  It scopes to specific card ids (`#ec-main [data-act], #ec-ctl [data-act]`), so a
+  button in a card that is not listed renders enabled and is simply never matched —
+  presenting exactly like the 2026-09 dead-button bug and taking just as long to find.
 - Streams, not polls: one `EventSource` per backend, opened only on a page with its
   cards, parked after 60 s hidden, reconnected with backoff, watchdogged (dash.js).
-  The Pi is only polled over SSH while some page has the Eclipse stream open.
+  The Pi is only polled over SSH while some page has the Eclipse stream open. A new
+  event type needs its own timer reset in `Hub.poller`'s wake path, or the card lags
+  an action by a full poll interval even though the action has finished.
 - The **Lights** widget keeps `cache: 1s`: its `/states` answer renders each tile's
   real state server-side (no grey flash, no reflow), and the bridge answers from
   memory, so it costs nothing.

@@ -219,28 +219,16 @@ stack), 5000 (Kavita), 25600 (Komga) or 2049/111 (NFS) any more.
   Asgard's `db72868`/`dc228c8` landed, so its `server.nix` sat ~1400 lines behind while looking
   perfectly valid. **Nothing warns you** — it builds fine, it is just the wrong config.
 
-  Verify convergence before touching `Modules/Server/`, rather than trusting this doc (it was a
-  single `server.nix` until 2026-10-03 — compare the whole directory now):
+  ✅ **This whole class of problem was removed on 2026-10-05: Asgard's `~/Dots` is deleted.**
+  Every machine is deployed from Sisyphus, this repo is the only checkout in existence, and the
+  `H_MODE=managed` mode (*Pull & switch* / *Switch there* / *Push ours…*) is gone from
+  `system-rebuild` — see `Claude/deploy.md`. The convergence hash-check that used to live here,
+  the `git remote add asgard asgard:Dots` push dance, and the note about Asgard's invalid
+  `Rock <Rock>` git identity are all obsolete: there is nothing on Asgard to diverge, commit or
+  push from. Deploy with `system-rebuild rock Asgard`.
 
-  ```bash
-  ssh asgard 'cat ~/Dots/Modules/Server/*.nix | sha256sum'
-  cat ~/Dots/Modules/Server/*.nix | sha256sum          # must match
-  ssh asgard 'sudo wc -l /var/lib/recyclarr/recyclarr.yml'   # expect ~566, not ~45
-  ```
-
-  ⚠️ **Asgard cannot push.** Its `origin` is an HTTPS URL with no credentials and there is no user
-  SSH key, so `git push` fails with `could not read Username`. Push its commits *from Sisyphus*:
-
-  ```bash
-  git remote add asgard asgard:Dots     # one-off
-  git fetch asgard main
-  git push origin asgard/main:main      # fast-forward
-  ```
-
-  Asgard's git identity is also `Rock <Rock>` — an invalid email, so its commits do not attribute
-  on GitHub.
-
-  Radarr's live profile is **`Asgard - Movies`** (id 9). See `memory/asgard-clone-diverged.md`.
+  Radarr's live profile is **`Asgard - Movies`** (id 9). The history above is kept because the
+  failure mode is instructive, not because it can recur — see `memory/asgard-clone-diverged.md`.
 
   #### Dolby Vision Profile 5 blocked (2026-09-08)
 
