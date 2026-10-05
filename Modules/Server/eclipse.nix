@@ -77,6 +77,12 @@
         # run commands on the Pi without the key.
         RuntimeDirectory = "eclipse-control";
         RuntimeDirectoryMode = "0700";
+        # /var/lib/eclipse-control ($STATE_DIRECTORY): the names we give
+        # Bluetooth devices ("Rock's pad"), ctl-names.json. Kept on Asgard, not
+        # the Pi — so both dashboards share them and no typed name ever reaches
+        # the Pi's root shell. Runtime state like a pairing, not config.
+        StateDirectory = "eclipse-control";
+        StateDirectoryMode = "0700";
         # For "On the TV" — read from $CREDENTIALS_DIRECTORY, never a shared path.
         LoadCredential = [ "jellyfin-api-key:${config.sops.secrets."jellyfin-api-key".path}" ];
       };

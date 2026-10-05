@@ -209,10 +209,15 @@ Asgard, so she never needs (or gets) anything on Sisyphus. Not hers: the network
   new card must be added to BOTH, plus the `D.ready` selector and the `.ags-skel`
   height list in `cards.css`, or one dashboard gets a collapsing card and the other
   does not. This is exactly how the two drifted before `2a831da`.
-- **`ec-ctl` — controllers, network path and the subtitle default** (added 2026-10-05).
-  She gets every control he does; `eclipse.js` deliberately has **no** `data-readonly`
-  split (unlike `net.js`, where she has no "Run now" because a speed test pauses
-  SABnzbd). Two things worth knowing about it:
+- **`ec-ctl` — the Bluetooth manager, network path and the subtitle default** (added
+  2026-10-05). She gets every control he does — pair, rename, auto-connect, forget, search —
+  and `eclipse.js` deliberately has **no** `data-readonly` split (unlike `net.js`, where she
+  has no "Run now" because a speed test pauses SABnzbd). **It stays in sync with the admin
+  page because nothing is kept in the browser:** device names, a running search and a pair
+  in progress all live in eclipse-control and arrive on both pages as `ctl` / `scan` /
+  `ctlbusy` events, through her `/eclipse-api` serve path (which forwards every `/ctl/…`
+  route — nothing to add there for a new one). See `Claude/eclipse.md` → *Bluetooth*. Things
+  worth knowing about it:
   - ⚠️ A controller showing BlueZ `Connected: yes` can still be producing **no input
     at all** — the DualSense here fails to bind its driver with `-5` often enough to
     matter. The card tests for a real input node and flags that state as `stale`
@@ -222,7 +227,8 @@ Asgard, so she never needs (or gets) anything on Sisyphus. Not hers: the network
     account Eclipse logs in as — so pressing it from *either* dashboard changes the
     same (her) account.
 - ⚠️ When adding a click handler to a new card, widen the `onClick` selector.
-  It scopes to specific card ids (`#ec-main [data-act], #ec-ctl [data-act]`), so a
+  It scopes to specific card ids (`#ec-main [data-act], #ec-ctl [data-act]`, and the
+  `#ec-ctl [data-bt-*]` list for the Bluetooth buttons), so a
   button in a card that is not listed renders enabled and is simply never matched —
   presenting exactly like the 2026-09 dead-button bug and taking just as long to find.
 - Streams, not polls: one `EventSource` per backend, opened only on a page with its

@@ -19,7 +19,7 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 | Game streaming | `Claude/streaming.md` | Moonlight clients, Sunshine (installed, not autostarted), Tailscale |
 | **Wolf** (Moonlight server) | `Claude/wolf.md` | The live streaming host on Sisyphus. **True 4K**, seat9 input isolation, Steam library sharing, and the **`fake-udev` gamepad fix** without which pads work in Steam but are invisible to games |
 | Steam theming | `Claude/steam.md` | Millennium injector, SpaceTheme/Zehn, matugen colours, why opacity comes from Niri |
-| Eclipse TV box | `Claude/eclipse.md` | Pi 5 LibreELEC/Kodi, Jellyfin addon, **HEVC-only decode (no H.264 HW)**, **no HDR output**, Dolby Vision, skin menu, CEC, headless workflow. **Not a Nix host** — `Resources/Eclipse-Skin/` + `Resources/Eclipse-Box/` mirror its hand-made state; DR is an SD card image, not a config push |
+| Eclipse TV box | `Claude/eclipse.md` | Pi 5 LibreELEC/Kodi, Jellyfin addon, **HEVC-only decode (no H.264 HW)**, **no HDR output**, Dolby Vision, skin menu, CEC, headless workflow. **Not a Nix host** — `Resources/Eclipse-Skin/` + `Resources/Eclipse-Box/` mirror its hand-made state; DR is an SD card image, not a config push. Its **Bluetooth manager** (both dashboards' `#ec-ctl`: pair, rename, auto-connect, live search) lives in eclipse-control so the two dashboards stay in sync |
 | Emulators | `Claude/emulators.md` | RPCS3, Ryubing, PS3 game prep |
 | Secrets | `Claude/secrets.md` | sops-nix, adding secrets, key locations |
 | Shell/misc | `Claude/misc.md` | Starship, Fastfetch, btop, Navi, Discord, media viewers, Thunar, audio (PipeWire fixes) |

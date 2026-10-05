@@ -47,8 +47,9 @@ is applied automatically, they are what you restore *from*:
 - **Docker** — the Moonlight addon's first launch is a Docker *build*; there is a
   `debian:bookworm-slim` image on the box for it.
 
-**New dashboard card** (`#ec-ctl`, both dashboards): controllers, network path, and the subtitle
-default. See *Control panel* below.
+**New dashboard card** (`#ec-ctl`, both dashboards): a Bluetooth manager — paired devices with
+names we give them, auto-connect, a live search and Pair — plus the network path and the subtitle
+default. See *Bluetooth* under *Control panel* below.
 
 ## Access
 
@@ -131,34 +132,80 @@ mount. She has every control he has (`Claude/marsbar.md`).
 
 | Endpoint | What |
 |---|---|
-| `GET /events` | SSE: `status`, `tv`, `wolf`, `activity`, `busy` — pushed on change. The Pi is only polled (SSH every 5 s, one channel on the shared ControlMaster) while a page has this open; Wolf every 3 s; Jellyfin every 5 s |
+| `GET /events` | SSE: `status`, `tv`, `wolf`, `ctl`, `scan`, `ctlbusy`, `activity`, `busy` — pushed on change. The Pi is only polled (SSH every 5 s, one channel on the shared ControlMaster) while a page has this open; Wolf every 3 s; Jellyfin every 5 s |
 | `GET /status` | the Pi's state as JSON (cached 5 s, in-flight de-duplicated) |
-| `POST /act/<name>` | `restart-kodi`, `sync-library` (Movies then TV Shows), `sync-movies`, `sync-shows`, `speedtest` (the Pi→Asgard link test), `jellyfin-toggle`, `reboot`, `ctl-scan`, `subs-on`, `subs-off`. One run per action at a time (409 otherwise); every result lands in the shared activity log |
-| `POST /ctl/connect/<MAC>` · `/ctl/disconnect/<MAC>` | Connect or drop a paired controller. The MAC is checked against `MAC_RE` **and** the Pi's own `bluetoothctl devices` list before it reaches a root shell — same precedent as `wolf_stop`'s `isdigit()` |
+| `POST /act/<name>` | `restart-kodi`, `sync-library` (Movies then TV Shows), `sync-movies`, `sync-shows`, `speedtest` (the Pi→Asgard link test), `jellyfin-toggle`, `reboot`, `bt-on`, `subs-on`, `subs-off`. One run per action at a time (409 otherwise); every result lands in the shared activity log |
+| `POST /ctl/connect/<MAC>` · `/ctl/disconnect/<MAC>` | Connect or drop a paired device. The MAC is checked against `MAC_RE` **and** the Pi's own `bluetoothctl devices` list before it reaches a root shell (`_ctl_guard`) — same precedent as `wolf_stop`'s `isdigit()` |
+| `POST /ctl/pair/<MAC>` | Pair + trust + connect a device a search found (stops the search first). The MAC must be one BlueZ knows |
+| `POST /ctl/forget/<MAC>` · `/ctl/trust/<MAC>` · `/ctl/untrust/<MAC>` | `bluetoothctl remove` / `trust` / `untrust` — trust is **Auto-connect** |
+| `POST /ctl/rename/<MAC>?name=…` | Our name for a paired device; empty restores its own. Stored on **Asgard** (`/var/lib/eclipse-control/ctl-names.json`), never sent to the Pi |
+| `POST /ctl/scan` · `/ctl/scan/stop` | Start / stop a background search (`CTL_SCAN_SECONDS`, 45 s) |
 | `POST /ctl/sublang/<iso639-2>` | Subtitle language, whitelisted against `SUB_LANGS` |
 | `POST /wolf/stop/<id>` | end a Moonlight stream on Sisyphus, via wolf-bridge (`Claude/wolf.md`) |
 
 Every POST needs `X-Dash: 1`; CORS answers only `_origins.nix`.
 
-### Controllers · `#ec-ctl` (added 2026-10-05)
+### Bluetooth · `#ec-ctl` (added 2026-10-05, rebuilt the same day as a full manager)
 
-A `ctl` event on the same `/events` stream (8 s, slower than the rest because it shells out to
-`bluetoothctl`, whose daemon has form for burning CPU). Both dashboards draw it.
+The card both dashboards draw ("Controllers & network" on the admin page, "Controllers" on
+MarsBar), from three events on the same `/events` stream. **All of it lives in eclipse-control,
+not the page** — names, a running search, a pair in progress — so a rename on one dashboard, or a
+search started on her phone, shows on every open page within a second or two. That is what keeps
+the two dashboards in sync; nothing is per-browser.
 
-⚠️ **`connected` is not the same as working, and this is the whole point of the card.** The
-DualSense here fails to bind its kernel driver with **`-5` (EIO)** often enough to matter — 17
-reconnect cycles and 3 probe failures in the logs. In that state BlueZ reports `Connected: yes`
-while `/proc/bus/input/devices` has no node for it: a bonded device producing **no input at all**.
-So the payload reports `connected` (BlueZ) and `live` (has an input node) separately, and flags
-the combination as `stale`. **A helper that trusted BlueZ alone would show a working controller in
-exactly the broken case.** Recovery from `-5` needs remove + re-pair, not `connect`.
+- **`ctl`** (every 8 s — slower than the rest because it shells out to `bluetoothctl`, whose
+  daemon has form for burning CPU): the **paired** devices, each with our name for it, BlueZ's
+  name (`model`), a kind (gamepad / audio / keyboard / …), `trusted`, `connected`, `live`, `stale`,
+  battery, plus Bluetooth power, subtitles and the network rows.
+- **`scan`**: a search and what it has found — every device BlueZ sees that is **not** paired,
+  with its signal (RSSI) and icon, controllers first then strongest signal. Nameless devices
+  (BlueZ shows them as their MAC) are counted, not listed. Results stay up 3 minutes after the
+  search ends, so a pad that appeared at the last second can still be paired.
+- **`ctlbusy`**: `{MAC: "pairing" | "connecting" | …}` — a Pair tapped on one dashboard shows
+  "Pairing…" on that device on the other.
 
-Pairing a *new* pad cannot be fully automated: a DualSense only advertises while physically held
-in **PS + Create**, so Scan is a bounded `bluetoothctl --timeout` window and the card says so.
-Scan also issues `pairable off` in the same breath rather than leaving the Pi open to radio range.
+**My devices** — a row per paired device: icon, our name, a status line (dot + "Connected ·
+working" / "Connected, but no input — re-pair it" / "Not connected"), battery, and its one main
+button (Connect / Disconnect / Re-pair). Tap the row to open it: **Name** (field + Save; Enter
+saves, Esc undoes), **Auto-connect** switch, the model and MAC, **Re-pair** and **Forget**. Which
+rows are open survives the repaints; the card does not repaint while someone is typing a name.
+
+**Add a device** — Search runs in the **background** (`start_scan`: `bluetoothctl --timeout 45
+scan on` on its own ssh channel), so it never greys the rest of the panel the way an `/act/` does;
+while it runs the poller pushes what it has found every 3 s. **Pair** stops the search (BlueZ pairs
+badly while discovering), then `pair` → `trust` → checks `info`; the new device lands in My devices
+and its name field opens with the cursor in it. A "how to put it in pairing mode" list sits under
+the search (DualSense: hold **Create + PS** until the light bar flashes).
+
+**Why these and not others:**
+
+- ⚠️ **`connected` is not the same as working, and this is the whole point of the card.** The
+  DualSense here fails to bind its kernel driver with **`-5` (EIO)** often enough to matter — 17
+  reconnect cycles and 3 probe failures in the logs. In that state BlueZ reports `Connected: yes`
+  while `/proc/bus/input/devices` has no node for it: a bonded device producing **no input at all**.
+  So `live` means an input node exists **with this device's MAC as its `Uniq`** (hidp sets it; the
+  DualSense's pad and motion-sensor nodes both carry it) — matching by name alone could not tell
+  two DualSenses apart, and they share a name. The combination connected + not live is `stale`,
+  and the card's fix for it is **Re-pair** (forget, then search with the pad in pairing mode) —
+  `connect` does not recover from `-5`.
+- **Auto-connect = BlueZ `Trusted`.** There is no pairing agent on the Pi, so a device switched on
+  can only reconnect *by itself* when it is trusted. Pairing from the card trusts it.
+- **Names live on Asgard** (`ctl_rename`, `StateDirectory` in `eclipse.nix`). Setting BlueZ's own
+  Alias would need a typed string in the Pi's root shell, `bluetoothctl set-alias` only works on a
+  connected device, and Kodi never shows it anyway. Names are kept when a device is forgotten, so a
+  re-paired pad gets its name back. Typed names are cleaned (`clean_name`: no control characters,
+  24 max) and only ever displayed, escaped.
+- **Stopping a search kills its ssh channel.** BlueZ tracks discovery per D-Bus client, so a second
+  `bluetoothctl scan off` would not stop the first one's; closing the channel makes sshd hang it up,
+  and BlueZ ends a departed client's discovery.
+- **No agent is needed to pair a gamepad.** With none registered, BlueZ pairs "just works" (no PIN),
+  which is what a DualSense / Xbox / Switch Pro pad uses. A device that wants a PIN (some
+  keyboards) will not pair from the card.
+- Battery comes from the kernel (`/sys/class/power_supply/ps-controller-battery-<mac>`, the
+  DualSense driver) or BlueZ's `Battery Percentage` for anything else that reports one.
 
 ⚠️ Connecting a pad to Eclipse **steals it from Sisyphus** — a DualSense only ever talks to its
-last host — so Connect is arm/confirm like Reboot.
+last host — so Connect, Re-pair and Forget are arm/confirm ("Tap to confirm"), like Reboot.
 
 **Subtitles are a Jellyfin USER setting, not a Kodi one.** `jellyfin-kodi` runs `set_audio_subs()`
 ~2 s into every playback and calls `showSubtitles(False)` when no track resolves, so anything set
