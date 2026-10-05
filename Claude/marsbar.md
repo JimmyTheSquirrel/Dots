@@ -291,6 +291,36 @@ shown only while the phone bar is hidden).
   (`html[data-cats][data-dash="marsbar"]` — on Asgard that spot is the Yggdrasil tree).
   Details in `Claude/server-info.md` → The colour picker → Cats.
 
+## The garden (garden.js)
+
+Her vine is alive — always on, whatever colour she has picked (`Resources/MarsBar/garden.js`,
+loaded deferred after dash.js; styles at the end of marsbar.css):
+
+- **Blossoms open and close.** Each card's crowning blossom is redrawn as inline SVG
+  (`.mb-crown` in the `.widget-header`, same spot and drawing as bloom.svg) with its five
+  petals rigged: every crown slowly folds into a bud and opens again on its own 20–28 s
+  cycle, petals a beat apart, swaying on its stem. From **20:00 to 06:00 they stay shut**
+  (`html[data-mb-night]`, re-checked every minute) and ease open in the morning. Once
+  the crowns are in, `html.mb-garden` hides the old `::before` blossom. Colours are
+  `--mb-h`/`--mb-h2` offsets via one hidden `svg.mbg-defs` of gradients, so her picker
+  recolours them live. Cats mode hides the crowns (its kitten faces are on `::before`).
+- **Butterflies.** One at a time, now and then (first ~6–15 s in, then 25–70 s after the
+  last leaves; never in a hidden tab): it flutters in from the left or top, lands on a
+  card's vine rail, fans its wings for 9–22 s, then visits another card or flies off.
+  **Tap it** and it bolts. Six hues off her purple. It sits in `.mb-sky`, a zero-size box
+  at the page origin, placed by transform in page coordinates and only ever crossing the
+  left/top edges — so it can never widen or lengthen the page. If its card disappears
+  (her phone shows one column at a time) or moves, it flies off.
+- **Fireflies** — a dozen drifting, blinking gold dots (`.mb-fireflies`) at night or when
+  every light is off (the All Lights switch reads "off" → `html[data-mb-dark]`).
+- ⚠ **Glance replaces `HTMLElement.prototype.animate`** (templating.js: its own
+  `animate({keyframes, options}, callback)` that returns the element). Called the
+  standard way it throws "callback is not a function" and the animation never
+  finishes — the butterfly never landed. garden.js calls `Element.prototype.animate`,
+  which is still the browser's own. Do the same in any new script that animates an
+  HTML element with the Web Animations API.
+- Reduced motion: crowns stand still, no butterflies or fireflies are ever made.
+
 ## Live lights (no polling)
 
 `Resources/Glance/lights.js` — shared with the admin dashboard — holds one
