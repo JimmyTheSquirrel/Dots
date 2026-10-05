@@ -23,7 +23,7 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 | Emulators | `Claude/emulators.md` | RPCS3, Ryubing, PS3 game prep |
 | Secrets | `Claude/secrets.md` | sops-nix, adding secrets, key locations |
 | Shell/misc | `Claude/misc.md` | Starship, Fastfetch, btop, Navi, Discord, media viewers, Thunar, audio (PipeWire fixes) |
-| Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Seerr API, Glance, recyclarr. Code is `Modules/Server/`. Glance's **vine frames, overgrowth and forest are generated at build time** by `Resources/Glance/growth.py` (one row per card) — no dirt, red never pink, toned down |
+| Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Seerr API, Glance, recyclarr. Code is `Modules/Server/`. Glance's **HUD** (panel frame, grid, pines, line-art Yggdrasil, logo, icons) is **generated at build time** by `Resources/Glance/hud.py`, on a tech-grey ground that tiles down the page so it never runs out. Its colour is the viewer's: **`theme.js`'s picker** recolours it per browser, so **HUD colours must be `var(--hud…)`/`--s*`, never a literal** |
 | Home Assistant | `Claude/home-assistant.md` | Smart plugs on Asgard `:8123`. `extraComponents` gates which integrations exist at all; device pairings are **not** declarative |
 | MarsBar dashboard | `Claude/marsbar.md` | Partner-facing Glance on its **own tailnet node** (`marsbar:1111`) — why a node, not a path. Lights + Jellyfin/Seerr + the **full** Eclipse panel (shared with the admin dashboard). Isolation is a Tailscale **ACL**, not in this repo |
 | Dolphin (rejected) | `Claude/dolphin.md` | Decision record: Dolphin was trialled and rejected — **Thunar stays**. Don't re-propose it |
@@ -91,7 +91,7 @@ Modules/
                           #   _lib.nix / _plugs.nix (the one smart-plug list) / _origins.nix /
                           #   _livecard.nix helpers
 Resources/                # static files the modules reference:
-                          #   Glance/ (asgard.css/js, stats.js, growth.py, tailscale-status.py,
+                          #   Glance/ (asgard.css/js, stats.js, hud.py, theme.js, tailscale-status.py,
                           #   yggdrasil banner; SHARED with MarsBar: cards.css, dash.js,
                           #   lights.js, eclipse.js, net.js), MarsBar/ (css + vine svgs),
                           #   HA-Bridge/, Asgard-Stats/, Eclipse-Control/, Network-Panel/,

@@ -44,6 +44,7 @@
     var r = 30, c = 2 * Math.PI * r, f = D.clamp(frac || 0, 0, 1);
     return '<div class="ags-ring ' + hue + ' ' + state + '" style="--f:' + f.toFixed(3) + '">' +
       '<svg viewBox="0 0 76 76" aria-hidden="true">' +
+        '<circle class="ags-ring-ticks" cx="38" cy="38" r="36.5"></circle>' +
         '<circle class="ags-ring-track" cx="38" cy="38" r="' + r + '"></circle>' +
         '<circle class="ags-ring-fill" cx="38" cy="38" r="' + r + '" style="stroke-dasharray:' +
           (c * f).toFixed(1) + 'px ' + c.toFixed(1) + 'px"></circle>' +
@@ -82,14 +83,14 @@
     var memFrac = s.mem.total ? s.mem.used / s.mem.total : 0;
     var t = s.temps || {};
     var facts = [
-      ["uptime", D.dur(s.uptime)],
-      ["load", s.load.map(function (x) { return x.toFixed(2); }).join("  ")],
-      ["memory", gib(s.mem.used) + " / " + gib(s.mem.total)],
+      ["uptime", D.dur(s.uptime), "uptime"],
+      ["load", s.load.map(function (x) { return x.toFixed(2); }).join("  "), "load"],
+      ["memory", gib(s.mem.used) + " / " + gib(s.mem.total), "memory"],
     ];
-    if (s.mem.swap_total) facts.push(["swap", gib(s.mem.swap_used) + " / " + gib(s.mem.swap_total)]);
-    if (t.nvme != null) facts.push(["nvme", Math.round(t.nvme) + " °C"]);
+    if (s.mem.swap_total) facts.push(["swap", gib(s.mem.swap_used) + " / " + gib(s.mem.swap_total), "swap"]);
+    if (t.nvme != null) facts.push(["nvme", Math.round(t.nvme) + " °C", "nvme"]);
     (s.fans || []).forEach(function (f) {
-      facts.push([/fan/i.test(f.label) ? f.label : f.label + " fan", f.rpm + " rpm"]);
+      facts.push([/fan/i.test(f.label) ? f.label : f.label + " fan", f.rpm + " rpm", "fan"]);
     });
     D.paint(el,
       '<div class="ags-hero">' +
@@ -101,7 +102,8 @@
             : ring(0, "–", "", "CPU temp", "hue-temp", "ok")) +
         '</div>' +
         '<dl class="ags-facts">' + facts.map(function (f) {
-          return '<div><dt>' + esc(f[0]) + '</dt><dd>' + esc(f[1]) + '</dd></div>';
+          // data-k: which icon the dashboard's CSS puts beside it
+          return '<div data-k="' + f[2] + '"><dt>' + esc(f[0]) + '</dt><dd>' + esc(f[1]) + '</dd></div>';
         }).join("") + '</dl>' +
       '</div>' +
       chart(s.cpu.cores || []));

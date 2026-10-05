@@ -598,8 +598,9 @@ API, power from Home Assistant, light state from ha-bridge. For logs, use `journ
 was folded into a live card, Monitoring became Power and took the lights).
 
 **Files:** `Modules/Server/glance.nix` (config + unit) · `Resources/Glance/`:
-`asgard.css` (this dashboard's theme + home/Power cards), `growth.py` (the overgrowth —
-generated at build time, see The look), `ygg-bg.svg` + `runes/` (the Yggdrasil look), `cards.css` (the cards
+`asgard.css` (this dashboard's theme + home/Power cards), `hud.py` (the HUD's artwork and
+icons — generated at build time, see The look), `theme.js` (the **UI colour picker**),
+`cards.css` (the cards
 **shared with MarsBar**: Eclipse panel, network card, now playing), `dash.js` (helpers every
 live card uses: stream lifecycle, DOM morphing, sparklines, hover read-outs), `lights.js`
 (**shared with MarsBar**), `asgard.js` (Power page), `stats.js` (home live cards), `net.js`
@@ -665,104 +666,85 @@ POST carries `X-Dash: 1`; the backends refuse a POST without it and answer CORS 
 **Caches** (server-side, first frame only): Lights 1s and Devices 1s (they render switch
 positions) · Power 30s · Cost Outlook 5m · Plug Health 1m · Yggdrasil 1m · monitors 1m.
 
-#### The look — Overgrown (asgard.css + growth.py)
+#### The look — the HUD (asgard.css + hud.py)
 
-The hall gone back to the forest, framed by Yggdrasil — a toned-down take on rock's
-concept art (cards framed in vines over a deep, misty wood):
-- **every card is framed in vines** — a woody branch with a second one and two green vines
-  twisting round it, leaves, bright clinging moss, lichen, and at its corners berries, a
-  toadstool, a fern or more leaves; each card's frame its own (seeded). A 9-slice CSS
-  `border-image`, so one image fits any card size (`.widget::before`, 10px out from the card);
-- **about half the cards** also have something grown down over the top from a corner — ivy
-  (shoots hanging, tendrils, sometimes rowan berries or a strand down the corner), a rowan
-  bough with berry bunches, bramble, ferns, oak — every one hung with **old-man's-beard**;
-- cards are **deep green glass**; titles are in **Cinzel** (`pkgs.cinzel`, served from Glance's
-  assets) with the card's **rune in a glowing medallion**, and a tendril under the title;
-- the pages are **pills** in Cinzel, the current one lit; under the bar, each page's own
-  **growth** (Asgard ivy + rowan, Eclipse dark vines with lichen and foxfire, Power bramble,
-  Terminal roots);
-- behind everything, **each page's own wood** (`forest-<page>.svg`, fixed): a leafy canopy,
-  shafts of light, trunks at three depths in mist, big mossy trunks and hanging vines at the
-  sides, fireflies — dusk red on Asgard, moonlit night on Eclipse, warm sun on Power, shade on
-  Terminal; plus a few **fireflies that glow and fade** in CSS (`html::before/::after`,
-  opacity only), the world tree faint (`ygg-bg.svg`), and the page's **treeline** along the
-  foot (Eclipse at night, with the eclipse in the sky);
-- each page its own **section glyph** (rowan sprig · fiddlehead · acorn · toadstool);
-- an **Elder Futhark rune** for each card — ᚲ kenaz (torch) Lights, ᚨ ansuz (the gods)
-  Asgard, ᛟ othala (estate) Storage, ᚱ raidho (journey) Network, ᛉ algiz (guardian)
-  Services, ᛃ jera (the year) Clock, ᛚ laguz (flow) Now Playing, ᚠ fehu (wealth)
-  Downloads, ᛇ eihwaz (the yew) Yggdrasil, ᛞ dagaz (day/night) Eclipse, ᛖ ehwaz (the
-  horse) Streams, ᛈ perthro On the TV, ᛗ mannaz Activity, ᛊ sowilo (sun) Power, ᛏ tiwaz
-  Devices, ᚷ gebo Cost, ᚢ uruz Plug health, ᛁ isa Terminal. SVG strokes used as a CSS mask
-  (`Resources/Glance/runes/`), so no device needs a Runic font.
+A tech/cyberpunk heads-up display on a neutral **tech-grey** ground (grey grid, grey pines
+in grey mist), the same on every page — rock's mockup, 2026-10-04, after the
+overgrown-forest themes, which are in git history. It ships **mint**; the **colour picker**
+(below) recolours the whole HUD for whoever is looking. Only the HUD carries colour — the
+ground, the glass and the text stay grey whatever is picked:
+- **every card is a panel**: a chamfered neon outline (top-left and bottom-right corners
+  cut) with bright corner brackets and small readout marks, over dark glass with faint
+  scanlines. The outline is a 9-slice `border-image` (`--h-frame`, 56px corners, straight
+  edges that **stretch**, so any card size is exact) on `.widget::after`; the glass is
+  `.widget::before`, chamfered by `clip-path`. Both sit over the card's box and under its
+  content (`isolation` + `z-index: -1`), so text always wins;
+- each **title**: a boxed line icon, the name in **Orbitron** (`pkgs.orbitron`, served
+  from Glance's assets), a small **tag** after it ("Server overview", "Media pool",
+  "Uplink"…), and a rule under it that starts bright. The card's rune class (`rune-*`, one
+  per card) picks its icon and tag in asgard.css; tags drop in the narrow column;
+- the **host's facts** each sit beside a boxed icon (`stats.js` marks them `data-k`), the
+  **gauges** wear a ring of ticks, inner tiles and controls are squared off and edged in
+  the HUD's colour, buttons and section headings are in Orbitron, numbers stay JetBrains Mono;
+- the **navigation** is a HUD bar of angled tabs, the current page lit solid; the logo is
+  an **angular A** in a shield (also the tab icon; the phone home-screen icon is still
+  `yggdrasil.png`);
+- **Yggdrasil** is line art: a circuit tree with lit nodes at its tips, roots below, in
+  a ticked HUD ring (`--h-ygg`);
+- **the backdrop never runs out**: the ground is a grid with circuit traces (`--h-grid`),
+  one 480px tile **repeated down the page** — it scrolls with the content, so a page of
+  any length is covered. Misty **pines** (`--h-forest`) are pinned to the foot of the
+  *screen* by a `position: fixed` layer (phones honour that; they ignore
+  `background-attachment: fixed`, which is what made the old full-page backdrop "cut
+  off"). A vignette and scanlines over the backdrop; nothing animates.
 
-**rock's calls, don't undo them:** **no dirt** — no soil banks, ground pieces or dark moss
-mounds on a branch (they read as dirt; tried, rejected — moss is bright and clinging);
-growth over a card comes **from the top**; the reds are a **true deep rowan red, never
-pink**; it should feel **chaotic and organic**, not a repeating border (a two-strand braid
-"looks like DNA"); the concept art was "way over the top" — keep it toned down.
+**How it is made — `Resources/Glance/hud.py`.** A seeded generator, run by Nix **at build
+time** (`hud` in `glance.nix`, a `runCommand` linked into the assets as `hud/`), so no
+generated SVG is committed: `frame.svg`, `grid.svg`, `forest.svg`, `ygg.svg`, `logo.svg`,
+`tpl.js` (the coloured pieces as templates, for the picker) and `hud.css` — the URLs (with `?v=<hash of hud.py>`, so Glance's 2 h asset cache never
+serves an old piece) and the **icon set** (`--ic-server`, `--ic-storage`, … `--ic-fan`:
+24px line icons, used as CSS masks). To add a card: give it a rune class and map it to an
+icon and a tag in asgard.css's "Accents, icons and tags". Everything is small — the frame
+1.4 KB, the grid 2 KB, the pines ~80 KB, the tree ~60 KB, `tpl.js` ~65 KB.
 
-**How it is made — `Resources/Glance/growth.py`.** A seeded generator, run by Nix **at build
-time** (`growth` in `glance.nix`, a `runCommand` linked into the assets as `growth/`), so no
-generated SVG is committed. Its header documents every plant. The `CARDS` table says which
-card (keyed by its **rune**) wears which overhang (or none), from which corner, with which
-seed — the frame comes with every card; `NAVS` and `PAGES` do the same for the pages. It
-writes `growth/growth.css`, the only place pieces are named: per card `--g-frame` / `--g-top`
-/ `--g-top-at` / `--g-top-w` / `--g-rule`, per page (via
-`html:has(.nav-item-current[href="/power"])` — Glance marks the page nowhere else) `--g-nav`
-/ `--g-trees` / `--g-glyph` / `--g-forest`. `asgard.css` draws them. URLs carry `?v=<hash of growth.py>`, so
-a new forest is never hidden behind Glance's 2 h asset cache. To change one card: edit its
-row (plant, side, extras) or bump its seed; nothing else moves.
+**The colour picker — `Resources/Glance/theme.js`.** A swatch button at the right end of
+the nav bar (on a phone: a row at the top of the ☰ menu) opens ten presets — Mint (the
+default), Cyan, Ice, Violet, Magenta, Red, Orange, Amber, Lime, Steel — a **Custom**
+colour input, and **Reset**. It replaces Glance's own theme picker, which asgard.css hides
+(its presets fight the HUD's tokens).
+- **One colour in, the whole palette out**: `--hud`, `--hud2` (hue +22), `--hud-hot`,
+  `--hud-deep`, `--hud-rgb`/`--hud2-rgb` and the data slots `--s1…--s6` (the other series
+  are near neighbours — hue +35, and a paler −18 — so a pick stays one family). The
+  lightness is clamped to 0.52–0.74 so a near-black or near-white pick still reads on the
+  panels. Everything else follows because it is written in those tokens: ⚠ **a new rule
+  that colours the HUD must use `var(--hud…)` / `rgb(var(--hud-rgb) / a)` / `--s*`, never
+  a literal mint** (or it stays mint under every other pick). Status colours (good / warn /
+  bad) deliberately don't move.
+- **The artwork** (frame, Yggdrasil, logo — the only SVGs with the HUD's colour in them)
+  is redrawn from `tpl.js`: hud.py writes each with its colours swapped for `__A__` (mint),
+  `__H__` (hot), `__B__` (teal) and `__D__` (the logo's dark), and theme.js fills them in
+  as data-URIs (`--h-frame`, `--h-ygg`, the `.logo img`). Grid and pines are grey, so they
+  never need it. A new coloured piece in hud.py must be added to that loop in `main()`.
+- **No flash**: theme.js is a plain (not deferred) script in `<head>`, so the stored
+  colour's palette is on `:root` before the first paint, and the redrawn artwork is cached
+  in localStorage beside it (`asgard-hud-colour`, `asgard-hud-art`, the latter keyed to the
+  HUD's build so a new hud.py redraws once). `tpl.js` is fetched only when a colour is
+  picked — a browser on the default never downloads it.
+- **Per browser, not per server**: the pick lives in that browser's localStorage. Nothing
+  is stored on Asgard and nothing in Nix changes; the default for a fresh browser is
+  `data-default` on the script tag in `glance.nix`. A private window still recolours for
+  the visit. MarsBar doesn't load theme.js — it keeps its own look.
 
-- **Frames:** `FRAME_T` sets the tile lengths — long tiles across (300px on a full card, 150px
-  on a small one), short ones down the sides (120px) — so `round` barely stretches them and
-  the repeat is hard to see. Each corner continues its two edges exactly (value and slope,
-  Hermite-blended round the curve; the slope is damped so a vine never swings into the card).
-- **Layering:** the frame is `.widget::before`, the overhang `.widget::after` (Yggdrasil's
-  card keeps its `::before` for the rune ring, so its frame is its `::after`), with
-  `isolation: isolate` on the card and `z-index: -1` — **over the card's background, under
-  its content**; text always wins (titles and badges also get a dark text-shadow). Nothing
-  reaches past a card's sides by more than its frame (no sideways scroll on a phone). The
-  nav growth is `.header::after`, just under the bar, `pointer-events: none`.
-- **Keep-out:** nothing hangs down over a title. `KEEP` in growth.py is how far from the
-  title's side a piece may only creep along above the edge; ivy grown from the title's own
-  corner starts on the edge (no corner wrap) and only puts leaves up there. **Ferns and
-  bramble only grow from the right** — they hang straight down where they start. Hanging
-  shoots and lichen stop at about the title row's depth so they don't reach content.
-- **Phones:** a piece covers at most the far ¾ of a card (`min(width, 76%)`), so the title
-  keeps its corner.
-- **Weight:** ⚠️ Glance serves assets **uncompressed** (no gzip). Paths are written in
-  relative coordinates measured from the rounded previous point (no drift), the treeline
-  and the wood in integers, lichen tufts merged into a few paths each: a wood or treeline
-  ~230 KB, a nav strip ~180 KB, a frame ~80 KB, an overhang 15–90 KB — about 1.3 MB the first
-  time a page loads, then cached 2 h. Check sizes after adding detail.
-
-**The colour system** (table and reasoning at the top of `asgard.css`): forest greens and
-one deep red, with bark browns in the growth.
-
-| | Data `--sN` | Lit `--c-*` |
-|---|---|---|
-| greens | `#3d9a50` forest · `#7aa344` moss · `#2f7a5c` pine | `#86cf86` |
-| red | `#c62f27` rowan · `#8f1d1d` oxblood · `#d4572f` rust | `#e24a3f` |
-| bark / birch | — | `#987a59` / `#edeade` text |
-
-- **Cards** alternate `acc-green` / `acc-red` down each column; `--acc` is the card's colour,
-  `--acc2` the other, and the rune, title rule, top edge and corner wash run from one into
-  the other.
-- **Data** — slots alternate green · red · green … with a lightness step between each. A
-  series keeps its colour everywhere: CPU green, memory red (ring, chart, legend); Disk 1
-  green, Disk 2 red; download green, upload red. **Colour-blind safety was deliberately not
-  a constraint** (rock's call). **Ping** is drawn in the **weave** (moss → red, `#ag-weave`,
-  a shared SVG gradient `dash.js` injects): it's the round trip, both directions; its
-  history bars heat up with height. The **CPU-temperature ring** is mixed along the weave by
-  value (oklch, so it ripens through amber, not mud).
-- **Status** (good `#68e099` / warn `#f9b64f` / bad `#ff6a3d`, a hotter orange-red than the
-  berry) is reserved, brighter than any data slot, and always paired with a word.
-
-History: Myrkviðr (pine · fjord · amber · lingonberry …, with a spruce bough per card) read
-as "random colours"; a red + green "Rowan" pass was too pink and its braid looked like DNA.
-Lamps that are **on glow green**. ⚠ **Glance's rem is 10px** (9.4px under 550px): nothing
-read is under 1.1rem.
+**The colour system** — the default the picker starts from (table and reasoning at the
+top of `asgard.css`): **mint** `#3be8a8`
+is the HUD itself, **teal** `#1fc8c4` its second light (`acc-mint` / `acc-teal` cards),
+**lime** `#b8f04a` "the other series". Data `--s1…--s6`: mint, lime, cyan-teal, moss, pale
+mint, deep emerald — one family, told apart by hue/lightness steps and, for the six plugs,
+by a label on each. CPU mint, memory lime; Disk 1 mint, Disk 2 lime; download mint, upload
+lime; **ping** in the weave (mint → teal, `#ag-weave` from `dash.js`). The **CPU-temperature
+ring** runs teal → amber with the heat. **Status** (good `#4dffa6` / warn `#ffc247` / bad
+`#ff4f5e`) is reserved and always paired with a word. ⚠ **Glance's rem is 10px** (9.4px
+under 550px): nothing read is under 1.1rem.
 
 ⚠️ **Glance frames widget content itself** (`.widget-content:not(.widget-content-frameless),
 .widget-content-frame` get a background, border and shadow). Styling `.widget` as a card
@@ -849,8 +831,9 @@ never "average"; see `Claude/home-assistant.md` for why.
 
 ttyd (:7681), sized to the window (`.term-widget`) instead of a fixed 700 px box.
 
-**Theme:** background `hsl(150, 7%, 10%)` (fog grey, spruce cast), primary `hsl(120, 43%, 67%)` (leaf green), positive
-`hsl(144, 66%, 64%)`, negative `hsl(14, 100%, 62%)`. `branding.app-name = "Asgard"`, footer hidden.
+**Theme:** background `hsl(213, 14%, 7%)` (tech grey, a faint blue cast), primary
+`hsl(158, 79%, 57%)` (the default mint — Glance's own uses only; the HUD's colour is the
+picker's), positive `hsl(150, 100%, 65%)`, negative `hsl(355, 100%, 65%)`. `branding.app-name = "Asgard"`, footer hidden.
 
 **Icons:** `sh:` (selfh.st, coloured); a CDN URL where selfh.st has none. Avoid `si:` — monochrome.
 
