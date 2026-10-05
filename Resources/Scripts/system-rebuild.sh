@@ -360,9 +360,13 @@ rebuild() {
       # --ask-sudo-password used to be unconditional, which prompted even on a
       # host with passwordless sudo (Asgard) and made any non-interactive push
       # impossible — it blocks waiting on a terminal that isn't there.
+      # ⚠ Passwordless still needs --sudo: --ask-sudo-password is what turned
+      # sudo ON for the remote side, so dropping it with nothing in its place
+      # ran the activation as the plain user — "Permission denied" setting
+      # /nix/var/nix/profiles/system (2026-10-06, Asgard).
       local -a sudoflag=(--ask-sudo-password)
       if ssh -o BatchMode=yes -o ConnectTimeout=5 "$ssh_target" 'sudo -n true' >/dev/null 2>&1; then
-        sudoflag=()
+        sudoflag=(--sudo)
         ui_info "$host has passwordless sudo — no password needed"
       else
         ui_info "$host will ask for $(ui_bold "$user")'s sudo password — that's the password on $system"
