@@ -599,7 +599,8 @@ was folded into a live card, Monitoring became Power and took the lights).
 
 **Files:** `Modules/Server/glance.nix` (config + unit) · `Resources/Glance/`:
 `asgard.css` (this dashboard's theme + home/Power cards), `hud.py` (the HUD's artwork and
-icons — generated at build time, see The look), `cards.css` (the cards
+icons — generated at build time, see The look), `theme.js` (the **UI colour picker**),
+`cards.css` (the cards
 **shared with MarsBar**: Eclipse panel, network card, now playing), `dash.js` (helpers every
 live card uses: stream lifecycle, DOM morphing, sparklines, hover read-outs), `lights.js`
 (**shared with MarsBar**), `asgard.js` (Power page), `stats.js` (home live cards), `net.js`
@@ -667,8 +668,11 @@ positions) · Power 30s · Cost Outlook 5m · Plug Health 1m · Yggdrasil 1m · 
 
 #### The look — the HUD (asgard.css + hud.py)
 
-A green tech/cyberpunk heads-up display over a dark pine forest, the same on every page
-(rock's mockup, 2026-10-04 — after the overgrown-forest themes, which are in git history):
+A tech/cyberpunk heads-up display on a neutral **tech-grey** ground (grey grid, grey pines
+in grey mist), the same on every page — rock's mockup, 2026-10-04, after the
+overgrown-forest themes, which are in git history. It ships **mint**; the **colour picker**
+(below) recolours the whole HUD for whoever is looking. Only the HUD carries colour — the
+ground, the glass and the text stay grey whatever is picked:
 - **every card is a panel**: a chamfered neon outline (top-left and bottom-right corners
   cut) with bright corner brackets and small readout marks, over dark glass with faint
   scanlines. The outline is a 9-slice `border-image` (`--h-frame`, 56px corners, straight
@@ -681,7 +685,7 @@ A green tech/cyberpunk heads-up display over a dark pine forest, the same on eve
   per card) picks its icon and tag in asgard.css; tags drop in the narrow column;
 - the **host's facts** each sit beside a boxed icon (`stats.js` marks them `data-k`), the
   **gauges** wear a ring of ticks, inner tiles and controls are squared off and edged in
-  mint, buttons and section headings are in Orbitron, numbers stay JetBrains Mono;
+  the HUD's colour, buttons and section headings are in Orbitron, numbers stay JetBrains Mono;
 - the **navigation** is a HUD bar of angled tabs, the current page lit solid; the logo is
   an **angular A** in a shield (also the tab icon; the phone home-screen icon is still
   `yggdrasil.png`);
@@ -697,13 +701,42 @@ A green tech/cyberpunk heads-up display over a dark pine forest, the same on eve
 **How it is made — `Resources/Glance/hud.py`.** A seeded generator, run by Nix **at build
 time** (`hud` in `glance.nix`, a `runCommand` linked into the assets as `hud/`), so no
 generated SVG is committed: `frame.svg`, `grid.svg`, `forest.svg`, `ygg.svg`, `logo.svg`,
-and `hud.css` — the URLs (with `?v=<hash of hud.py>`, so Glance's 2 h asset cache never
+`tpl.js` (the coloured pieces as templates, for the picker) and `hud.css` — the URLs (with `?v=<hash of hud.py>`, so Glance's 2 h asset cache never
 serves an old piece) and the **icon set** (`--ic-server`, `--ic-storage`, … `--ic-fan`:
 24px line icons, used as CSS masks). To add a card: give it a rune class and map it to an
 icon and a tag in asgard.css's "Accents, icons and tags". Everything is small — the frame
-1.4 KB, the grid 1.3 KB, the pines ~80 KB, the tree ~40 KB.
+1.4 KB, the grid 2 KB, the pines ~80 KB, the tree ~60 KB, `tpl.js` ~65 KB.
 
-**The colour system** (table and reasoning at the top of `asgard.css`): **mint** `#3be8a8`
+**The colour picker — `Resources/Glance/theme.js`.** A swatch button at the right end of
+the nav bar (on a phone: a row at the top of the ☰ menu) opens ten presets — Mint (the
+default), Cyan, Ice, Violet, Magenta, Red, Orange, Amber, Lime, Steel — a **Custom**
+colour input, and **Reset**. It replaces Glance's own theme picker, which asgard.css hides
+(its presets fight the HUD's tokens).
+- **One colour in, the whole palette out**: `--hud`, `--hud2` (hue +22), `--hud-hot`,
+  `--hud-deep`, `--hud-rgb`/`--hud2-rgb` and the data slots `--s1…--s6` (the other series
+  are near neighbours — hue +35, and a paler −18 — so a pick stays one family). The
+  lightness is clamped to 0.52–0.74 so a near-black or near-white pick still reads on the
+  panels. Everything else follows because it is written in those tokens: ⚠ **a new rule
+  that colours the HUD must use `var(--hud…)` / `rgb(var(--hud-rgb) / a)` / `--s*`, never
+  a literal mint** (or it stays mint under every other pick). Status colours (good / warn /
+  bad) deliberately don't move.
+- **The artwork** (frame, Yggdrasil, logo — the only SVGs with the HUD's colour in them)
+  is redrawn from `tpl.js`: hud.py writes each with its colours swapped for `__A__` (mint),
+  `__H__` (hot), `__B__` (teal) and `__D__` (the logo's dark), and theme.js fills them in
+  as data-URIs (`--h-frame`, `--h-ygg`, the `.logo img`). Grid and pines are grey, so they
+  never need it. A new coloured piece in hud.py must be added to that loop in `main()`.
+- **No flash**: theme.js is a plain (not deferred) script in `<head>`, so the stored
+  colour's palette is on `:root` before the first paint, and the redrawn artwork is cached
+  in localStorage beside it (`asgard-hud-colour`, `asgard-hud-art`, the latter keyed to the
+  HUD's build so a new hud.py redraws once). `tpl.js` is fetched only when a colour is
+  picked — a browser on the default never downloads it.
+- **Per browser, not per server**: the pick lives in that browser's localStorage. Nothing
+  is stored on Asgard and nothing in Nix changes; the default for a fresh browser is
+  `data-default` on the script tag in `glance.nix`. A private window still recolours for
+  the visit. MarsBar doesn't load theme.js — it keeps its own look.
+
+**The colour system** — the default the picker starts from (table and reasoning at the
+top of `asgard.css`): **mint** `#3be8a8`
 is the HUD itself, **teal** `#1fc8c4` its second light (`acc-mint` / `acc-teal` cards),
 **lime** `#b8f04a` "the other series". Data `--s1…--s6`: mint, lime, cyan-teal, moss, pale
 mint, deep emerald — one family, told apart by hue/lightness steps and, for the six plugs,
@@ -798,8 +831,9 @@ never "average"; see `Claude/home-assistant.md` for why.
 
 ttyd (:7681), sized to the window (`.term-widget`) instead of a fixed 700 px box.
 
-**Theme:** background `hsl(150, 7%, 10%)` (fog grey, spruce cast), primary `hsl(120, 43%, 67%)` (leaf green), positive
-`hsl(144, 66%, 64%)`, negative `hsl(14, 100%, 62%)`. `branding.app-name = "Asgard"`, footer hidden.
+**Theme:** background `hsl(213, 14%, 7%)` (tech grey, a faint blue cast), primary
+`hsl(158, 79%, 57%)` (the default mint — Glance's own uses only; the HUD's colour is the
+picker's), positive `hsl(150, 100%, 65%)`, negative `hsl(355, 100%, 65%)`. `branding.app-name = "Asgard"`, footer hidden.
 
 **Icons:** `sh:` (selfh.st, coloured); a CDN URL where selfh.st has none. Avoid `si:` — monochrome.
 

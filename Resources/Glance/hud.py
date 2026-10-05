@@ -22,10 +22,17 @@ Writes the pieces asgard.css draws the dashboard's tech-HUD look with:
     hud.css      the URLs (with VERSION, so Glance's 2 h asset cache never
                  serves an old piece) and the icon set, as custom properties:
                  --h-frame --h-grid --h-forest --h-ygg, --ic-<name>
+    tpl.js       the three pieces that carry the HUD's colour (the frame,
+                 Yggdrasil, the logo) again, as TEMPLATES — the colours left
+                 as __A__ (the HUD), __H__ (its bright), __B__ (its second
+                 light), __D__ (the logo's dark fill) — for theme.js to redraw
+                 in whatever colour the viewer picks
 
 Every random choice is seeded, so every build draws the same HUD. Colours:
-mint #3be8a8 and teal #1fc8c4 on near-black green.
+the HUD's own pieces in mint #3be8a8 / teal #1fc8c4 (the default — the
+picker recolours them); the ground and the pines in neutral tech grey.
 """
+import json
 import math
 import os
 import random
@@ -33,6 +40,8 @@ import sys
 
 TAU = 2 * math.pi
 MINT, MINT_HOT, TEAL = "#3be8a8", "#8dffd6", "#1fc8c4"
+LOGO_DARK = "#14181c"
+GREY = "#aab4bd"   # the grid's lines: neutral, whatever the HUD's colour
 PREC = [1]
 
 
@@ -115,10 +124,10 @@ def frame():
 # ── the page's ground: grid + circuit traces, one seamless tile ───────────────
 def grid(rng):
     T = 480
-    body = ['<path d="%s" stroke="%s" stroke-width="1" opacity=".045" fill="none"/>' % (
-        "".join("M%d 0V%d" % (x, T) for x in range(0, T, 40)) + "".join("M0 %dH%d" % (y, T) for y in range(0, T, 40)), MINT)]
+    body = ['<path d="%s" stroke="%s" stroke-width="1" opacity=".05" fill="none"/>' % (
+        "".join("M%d 0V%d" % (x, T) for x in range(0, T, 40)) + "".join("M0 %dH%d" % (y, T) for y in range(0, T, 40)), GREY)]
     plus = "".join("M%d %dh6M%d %dv6" % (x - 3, y, x, y - 3) for x in range(40, T, 80) for y in range(40, T, 80) if rng.random() < 0.6)
-    body.append('<path d="%s" stroke="%s" stroke-width="1" opacity=".1"/>' % (plus, MINT))
+    body.append('<path d="%s" stroke="%s" stroke-width="1" opacity=".1"/>' % (plus, GREY))
     # circuit traces: walked on the grid's 8px lattice, right angles and 45s,
     # kept clear of the tile's edge so the tile joins seamlessly
     traces, pads = "", ""
@@ -136,8 +145,8 @@ def grid(rng):
         traces += "M" + "L".join("%d %d" % p for p in pts)
         for px, py in (pts[0], pts[-1]):
             pads += '<circle cx="%d" cy="%d" r="2.2"/>' % (px, py)
-    body.append('<path d="%s" stroke="%s" stroke-width="1" opacity=".06" fill="none"/>' % (traces, MINT))
-    body.append('<g fill="none" stroke="%s" stroke-width="1" opacity=".1">%s</g>' % (MINT, pads))
+    body.append('<path d="%s" stroke="%s" stroke-width="1" opacity=".06" fill="none"/>' % (traces, GREY))
+    body.append('<g fill="none" stroke="%s" stroke-width="1" opacity=".1">%s</g>' % (GREY, pads))
     return doc(T, T, "The page's ground: grid and circuit traces, one seamless tile.", "".join(body))
 
 
@@ -166,7 +175,7 @@ def forest(rng):
     PREC[0] = 0
     try:
         out = []
-        layers = [(40, (110, 180), "#1a5a48", ".5", 11), (26, (170, 270), "#0f3d31", ".8", 8), (14, (260, 380), "#06201a", "1", 7)]
+        layers = [(40, (110, 180), "#3a4148", ".5", 11), (26, (170, 270), "#262b31", ".8", 8), (14, (260, 380), "#15181c", "1", 7)]
         for li, (n, (h0, h1), col, op, tier) in enumerate(layers):
             items = []
             for i in range(n):
@@ -182,7 +191,7 @@ def forest(rng):
             if li < 2:
                 out.append('<rect y="%d" width="%d" height="180" fill="url(#mist)"/>' % (TH - 230 + li * 70, TW))
         defs = ('<linearGradient id="mist" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s" stop-opacity="0"/>'
-                '<stop offset=".55" stop-color="%s" stop-opacity=".13"/><stop offset="1" stop-color="%s" stop-opacity="0"/></linearGradient>') % (MINT, MINT, MINT)
+                '<stop offset=".55" stop-color="%s" stop-opacity=".09"/><stop offset="1" stop-color="%s" stop-opacity="0"/></linearGradient>') % (GREY, GREY, GREY)
         return doc(TW, TH, "Misty pines along the foot of the screen; tiles left-right.", "".join(out), defs,
                    ' preserveAspectRatio="xMidYMax slice"')
     finally:
@@ -252,9 +261,9 @@ def logo():
     a = "M18 47L32 13L46 47M24 36H40"
     chev = "M27 47L32 37L37 47"
     body = ('<g filter="url(#glow)" opacity=".7"><path d="%s" fill="none" stroke="%s" stroke-width="3"/><path d="%s" fill="none" stroke="%s" stroke-width="5"/></g>'
-            '<path d="%s" fill="#06231a" stroke="%s" stroke-width="2.2"/>'
+            '<path d="%s" fill="%s" stroke="%s" stroke-width="2.2"/>'
             '<path d="%s" fill="none" stroke="%s" stroke-width="4.2" stroke-linejoin="miter" stroke-linecap="square"/>'
-            '<path d="%s" fill="none" stroke="%s" stroke-width="2"/>') % (shield, MINT, a, MINT, shield, MINT, a, MINT_HOT, chev, TEAL)
+            '<path d="%s" fill="none" stroke="%s" stroke-width="2"/>') % (shield, MINT, a, MINT, shield, LOGO_DARK, MINT, a, MINT_HOT, chev, TEAL)
     return doc(64, 64, "The angular A: Asgard's logo.", body, GLOW.replace("SD", "2"))
 
 
@@ -307,6 +316,15 @@ def main(out, ver):
     }
     for name, body in files.items():
         open(os.path.join(out, name), "w").write(body)
+    tpl = {}
+    for key in ("frame", "ygg", "logo"):
+        t = files[key + ".svg"]
+        for colour, mark in ((MINT_HOT, "__H__"), (MINT, "__A__"), (TEAL, "__B__"), (LOGO_DARK, "__D__")):
+            t = t.replace(colour, mark)
+        tpl[key] = t
+    open(os.path.join(out, "tpl.js"), "w").write(
+        "// tpl.js — GENERATED by Resources/Glance/hud.py: the HUD's coloured artwork as templates, for theme.js.\n"
+        "window.HUD_TPL = " + json.dumps(tpl, separators=(",", ":")) + ";\n")
     css = ["/* hud.css — GENERATED by Resources/Glance/hud.py: the HUD pieces and the icon set. asgard.css draws them. */",
            ":root {"]
     for var, name in (("frame", "frame.svg"), ("grid", "grid.svg"), ("forest", "forest.svg"), ("ygg", "ygg.svg")):

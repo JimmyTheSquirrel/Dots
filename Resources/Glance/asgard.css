@@ -6,16 +6,17 @@
    things Glance draws itself; everything else is here.
 
    ── The HUD ────────────────────────────────────────────────────────────────
-   A green tech/cyberpunk heads-up display over a dark pine forest, on every
-   page. Each card is a PANEL: a chamfered neon outline (top-left and
+   A tech/cyberpunk heads-up display on a neutral tech-grey ground, on every
+   page; mint unless the viewer picks another colour (theme.js). Each card is a PANEL: a chamfered neon outline (top-left and
    bottom-right corners cut) with bright corner brackets and readout marks,
    over dark glass with faint scanlines. Its title is set in Orbitron beside
    a boxed line icon, with a small tag after it ("Server overview"), and a
    rule under it that starts bright. Inner tiles are squared off and edged in
-   mint; numbers stay monospace. The navigation is a bar of angled tabs.
+   the HUD's colour; numbers stay monospace. The navigation is a bar of angled tabs.
    Behind it all: a faint grid with circuit traces that TILES down the page
    (so a long page never runs out of backdrop), misty pines pinned to the
-   foot of the screen, a dark vignette and scanlines.
+   foot of the screen, a dark vignette and scanlines — all grey, so only the
+   HUD carries colour.
 
    None of the artwork is drawn here: Resources/Glance/hud.py generates it at
    build time (the panel frame, the grid, the pines, Yggdrasil in line art,
@@ -26,7 +27,12 @@
      mint   #3be8a8   the HUD itself: outlines, titles' glow, CPU, download
      teal   #1fc8c4   its second light: alternate cards, the weave's far end
      lime   #b8f04a   memory, upload, the second disk — "the other series"
-     ink    #030d0a page, panels dark glass; text #dcfff1, mint-white
+     ink    tech grey: #101215 page, panels dark grey glass; text #e6ebef
+   The HUD's colour is the VIEWER'S: theme.js derives every token below that
+   carries colour from one picked colour (the picker in the nav bar) and
+   redraws the frame, Yggdrasil and the logo to match. Mint is the default.
+   ⚠ So a rule that colours the HUD uses var(--hud…), rgb(var(--hud-rgb) / a)
+   or --s* — never a literal mint, which would stay mint under every pick.
    DATA — --s1 … --s6: mint, lime, cyan-teal, moss, pale mint, deep emerald.
    One family, so they are told apart by lightness and hue steps within the
    greens and, where six appear (the plugs), by a label on each. A series
@@ -64,20 +70,20 @@
 :root {
   --ag-title: "Orbitron", "Eurostile", "Bank Gothic", sans-serif;
   /* ink */
-  --ag-page: #030d0a;
-  --ag-text: #dcfff1;
-  --ag-text-dim: rgb(214 255 238 / 0.66);
-  --ag-text-faint: rgb(214 255 238 / 0.42);
-  --ag-line: rgb(59 232 168 / 0.24);
-  --ag-line-soft: rgb(59 232 168 / 0.12);
-  --ag-tile: rgb(59 232 168 / 0.035);
+  --ag-page: #101215;
+  --ag-text: #e6ebef;
+  --ag-text-dim: rgb(222 230 236 / 0.66);
+  --ag-text-faint: rgb(222 230 236 / 0.42);
+  --ag-line: rgb(var(--hud-rgb) / 0.24);
+  --ag-line-soft: rgb(var(--hud-rgb) / 0.12);
+  --ag-tile: rgb(var(--hud-rgb) / 0.035);
   --ag-tile-off: rgb(0 0 0 / 0.28);
-  --ag-surface: #06140f;                  /* a panel's glass */
-  --ag-tile-hi: rgb(59 232 168 / 0.055); /* inner panels (cards.css): their gradient */
-  --ag-tile-lo: rgb(59 232 168 / 0.015);
+  --ag-surface: #15181c;                  /* a panel's glass */
+  --ag-tile-hi: rgb(var(--hud-rgb) / 0.055); /* inner panels (cards.css): their gradient */
+  --ag-tile-lo: rgb(var(--hud-rgb) / 0.015);
   --ag-well: rgb(0 0 0 / 0.38);           /* recessed controls: the path switch, End */
-  --ag-pop: rgb(4 20 15 / 0.97);          /* hover read-outs */
-  --ag-on-acc: #02140d;                   /* text on an accent fill */
+  --ag-pop: rgb(18 21 25 / 0.97);         /* hover read-outs */
+  --ag-on-acc: #0b0d10;                   /* text on an accent fill */
 
   /* data palette — one green family, see the header */
   --s1: #3be8a8;   /* mint         */
@@ -143,6 +149,7 @@ body {
     radial-gradient(70% 45% at 12% -8%, rgb(var(--hud-rgb) / 0.08), transparent 70%),
     radial-gradient(60% 40% at 92% -6%, rgb(var(--hud2-rgb) / 0.06), transparent 70%),
     var(--h-grid, none) 0 0 / 480px 480px repeat,
+    linear-gradient(180deg, #15181c, var(--ag-page) 600px),
     var(--ag-page);
 }
 body::before {
@@ -219,7 +226,7 @@ body::after {
     radial-gradient(90% 60% at 0% 0%, color-mix(in srgb, var(--acc) 9%, transparent), transparent 60%),
     linear-gradient(180deg, rgb(var(--hud-rgb) / 0.045), transparent 70px),
     repeating-linear-gradient(0deg, rgb(var(--hud-rgb) / 0.022) 0 1px, transparent 1px 4px),
-    linear-gradient(180deg, rgb(5 22 17 / 0.92), rgb(3 13 10 / 0.95));
+    linear-gradient(180deg, rgb(26 29 34 / 0.93), rgb(17 19 23 / 0.95));
 }
 .widget::after {
   content: "";
@@ -354,7 +361,7 @@ body::after {
    one lit solid. The logo is hud.py's angular A (branding.logo-url). */
 .header {
   position: relative;
-  background: linear-gradient(180deg, rgb(6 26 20 / 0.94), rgb(3 14 11 / 0.94)) !important;
+  background: linear-gradient(180deg, rgb(28 31 36 / 0.95), rgb(17 19 23 / 0.95)) !important;
   border: none !important;
   box-shadow: none !important;
   clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px));
@@ -393,7 +400,7 @@ body::after {
   text-shadow: none;
 }
 .mobile-navigation {
-  background: rgb(3 14 11 / 0.97);
+  background: #111317;                    /* solid: the page must not ghost through the open menu */
   border-color: var(--ag-line);
 }
 .mobile-navigation-input:checked + .mobile-navigation-pill,
@@ -507,7 +514,7 @@ html[data-ha-link="offline"] .ag-live i { background: var(--ag-warn); animation:
 .ag-light[data-ha-state="on"] {
   background:
     radial-gradient(120% 140% at 0% 50%, rgb(var(--hud-rgb) / 0.20), transparent 60%),
-    linear-gradient(135deg, rgb(20 90 66 / 0.6), rgb(8 44 32 / 0.6));
+    linear-gradient(135deg, color-mix(in srgb, var(--hud) 24%, rgb(20 23 27)), color-mix(in srgb, var(--hud) 10%, rgb(16 18 22)));
   border-color: rgb(var(--hud-rgb) / 0.55);
   box-shadow: 0 0 0 1px rgb(var(--hud-rgb) / 0.08), 0 12px 34px -14px rgb(var(--hud-rgb) / 0.5),
               inset 0 1px 0 rgb(var(--hud-rgb) / 0.2);
@@ -560,7 +567,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   transition: color 0.3s ease, text-shadow 0.3s ease, transform 0.3s var(--ag-ease);
 }
 .ag-light[data-ha-state="on"] .ag-ico {
-  color: #eafff6;
+  color: #f2f6f8;
   text-shadow: 0 0 18px rgb(var(--hud-rgb) / 0.9), 0 0 4px rgb(238 251 233 / 0.9);
   transform: scale(1.08);
 }
@@ -647,7 +654,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   box-shadow: 0 0 14px -2px rgb(var(--hud-rgb) / 0.6);
 }
 [data-ha-state="on"] .ag-sw::after,
-.ag-sw[data-ha-state="on"]::after { transform: translateX(20px); background: #eafff6; }
+.ag-sw[data-ha-state="on"]::after { transform: translateX(20px); background: #f2f6f8; }
 /* Optimistic flip in flight (it already moved — this just says "confirming"). */
 [data-ha-pending] .ag-sw::after,
 .ag-sw[data-ha-pending]::after { animation: ag-ring 0.9s ease-out infinite; }
@@ -660,7 +667,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
    running machine's "on" is a dull berry, not a lamp's bright leaf. */
 .ag-sw[aria-disabled="true"] { cursor: not-allowed; opacity: 0.6; }
 [data-ha-state="on"] .ag-sw[aria-disabled="true"] {
-  background: linear-gradient(90deg, #0d4a5a, #146f80);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--hud2) 30%, #15181c), color-mix(in srgb, var(--hud2) 50%, #15181c));
   border-color: rgb(var(--hud2-rgb) / 0.45);
   box-shadow: none;
 }
@@ -722,7 +729,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .pw-chart .pw-cross { stroke: rgb(var(--hud-rgb) / 0.45); stroke-width: 1; vector-effect: non-scaling-stroke; visibility: hidden; }
 .pw-chart .pw-cross.on { visibility: visible; }
 .pw-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; pointer-events: none;
-  background: #eafff6; box-shadow: 0 0 0 3px var(--ag-surface), 0 0 12px rgb(var(--hud-rgb) / 0.8); display: none; }
+  background: #f2f6f8; box-shadow: 0 0 0 3px var(--ag-surface), 0 0 12px rgb(var(--hud-rgb) / 0.8); display: none; }
 .pw-dot.on { display: block; }
 .pw-axis { display: flex; justify-content: space-between; font-size: 1.05rem; letter-spacing: 0.06em; color: var(--ag-text-faint); margin-top: 6px; }
 .pw-ymax { position: absolute; top: -2px; left: 0; font-size: 1rem; color: var(--ag-text-faint); pointer-events: none; }
@@ -1165,7 +1172,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   25% { transform: translateX(-4px); }
   75% { transform: translateX(4px); }
 }
-@keyframes ag-tick { from { color: #eafff6; text-shadow: 0 0 10px rgb(var(--hud-rgb) / 0.6); } }
+@keyframes ag-tick { from { color: #f2f6f8; text-shadow: 0 0 10px rgb(var(--hud-rgb) / 0.6); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -1282,3 +1289,99 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .widget .ag-sec > .ag-sec-end { font-family: "JetBrains Mono", monospace; font-weight: 400; letter-spacing: 0.02em; text-transform: none; }
 /* Only a button's label is set in Orbitron; its small caption stays mono. */
 .widget .ag-btn small { font-family: "JetBrains Mono", monospace; letter-spacing: 0.02em; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   The colour picker (theme.js) — in place of Glance's own theme picker, whose
+   presets fight this stylesheet. A swatch button at the end of the nav bar
+   opens a HUD panel of presets, a custom colour and Reset; on a phone the
+   same is a row in the menu. The choice is this browser's.
+   ════════════════════════════════════════════════════════════════════════════ */
+.theme-picker { display: none !important; }
+.hud-pick {
+  align-self: center;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--ag-text-dim);
+  cursor: pointer;
+  border: none;
+  clip-path: var(--cut-s);
+  background: rgb(var(--hud-rgb) / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(var(--hud-rgb) / 0.4);
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.hud-pick svg { width: 1.8rem; height: 1.8rem; }
+.hud-pick i { width: 1.4rem; height: 1.4rem; background: var(--hud); box-shadow: 0 0 8px var(--hud); clip-path: var(--cut-s); }
+.hud-pick:hover, .hud-pick[aria-expanded="true"] { color: var(--ag-text); background: rgb(var(--hud-rgb) / 0.16); }
+.hud-pick:focus-visible { outline: 2px solid var(--hud); outline-offset: 2px; }
+.hud-pop {
+  position: fixed;
+  z-index: 50;
+  width: 264px;
+  padding: 16px 16px 14px;
+  background:
+    repeating-linear-gradient(0deg, rgb(var(--hud-rgb) / 0.02) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, rgb(30 34 39 / 0.98), rgb(18 20 24 / 0.98));
+  clip-path: var(--cut);
+  box-shadow: inset 0 0 0 1px rgb(var(--hud-rgb) / 0.5), inset 0 0 22px rgb(var(--hud-rgb) / 0.08);
+}
+.hud-pop[hidden] { display: none; }
+.hud-pop-h {
+  font-family: var(--ag-title);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ag-text);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, var(--hud), var(--hud)) 0 100% / 40px 2px no-repeat,
+              linear-gradient(90deg, rgb(var(--hud-rgb) / 0.4), transparent) 0 100% / 100% 1px no-repeat;
+}
+.hud-sws { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.hud-sw {
+  aspect-ratio: 1;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  clip-path: var(--cut-s);
+  background: var(--sw);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.15);
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.hud-sw:hover { transform: translateY(-1px); filter: brightness(1.15); }
+.hud-sw[aria-pressed="true"] { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px rgb(0 0 0 / 0.5); }
+.hud-pop-f, .hud-row-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.hud-pop-f label { display: inline-flex; align-items: center; gap: 8px; font-size: 1.15rem; color: var(--ag-text-dim); cursor: pointer; }
+.hud-custom {
+  width: 34px; height: 26px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.hud-custom::-webkit-color-swatch-wrapper { padding: 0; }
+.hud-custom::-webkit-color-swatch { border: 1px solid rgb(var(--hud-rgb) / 0.5); border-radius: 2px; }
+.hud-custom::-moz-color-swatch { border: 1px solid rgb(var(--hud-rgb) / 0.5); border-radius: 2px; }
+.hud-reset {
+  font-family: var(--ag-title);
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ag-text-dim);
+  padding: 6px 12px;
+  border: 1px solid rgb(var(--hud-rgb) / 0.35);
+  background: rgb(var(--hud-rgb) / 0.05);
+  cursor: pointer;
+}
+.hud-reset:hover { color: var(--ag-text); border-color: var(--hud); }
+/* On a phone: a row at the top of the menu. */
+.hud-row { padding: 4px 16px 14px; margin-bottom: 10px; border-bottom: 1px solid var(--ag-line-soft); }
+.hud-row-h { margin: 0 0 12px; }
+.hud-row-h span { flex: 1; font-family: var(--ag-title); font-size: 1.2rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ag-text-dim); }
+.hud-row .hud-sws { grid-template-columns: repeat(10, 1fr); gap: 6px; }

@@ -48,6 +48,7 @@
       "stats.js" = ../../Resources/Glance/stats.js;
       "net.js" = ../../Resources/Glance/net.js;
       "eclipse.js" = ../../Resources/Glance/eclipse.js;
+      "theme.js" = ../../Resources/Glance/theme.js;
     };
     # The HUD's artwork — the panel frame round every card, the grid that
     # tiles down the page, the misty pines pinned to the foot of the screen,
@@ -656,7 +657,7 @@
         logo-url = "/assets/hud/logo.svg?v=${hudVersion}";
         favicon-url = "/assets/hud/logo.svg?v=${hudVersion}";
         app-icon-url = asset "yggdrasil.png";
-        app-background-color = "hsl(161, 63%, 3%)";
+        app-background-color = "hsl(213, 14%, 7%)";
         hide-footer = true;
       };
 
@@ -669,6 +670,7 @@
       document.head = ''
         <link rel="stylesheet" href="${asset "cards.css"}">
         <link rel="stylesheet" href="/assets/hud/hud.css?v=${hudVersion}">
+        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}"></script>
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "asgard.js"}" data-api-port="${toString bridgePort}" defer></script>
@@ -677,14 +679,15 @@
         <script src="${asset "eclipse.js"}" data-api-port="${toString eclipsePort}" defer></script>
       '';
 
-      # The HUD: a green tech/cyberpunk heads-up display over a dark pine
-      # forest — chamfered neon panels, Orbitron titles with boxed icons,
-      # angled tabs, a grid that tiles down the page. Glance only draws a
+      # The HUD: a tech/cyberpunk heads-up display on tech grey — chamfered
+      # neon panels, Orbitron titles with boxed icons, angled tabs, a grid
+      # that tiles down the page — in mint by default, or whatever colour the
+      # viewer picks (theme.js, a per-browser preference). Glance only draws a
       # little itself (links, the monitor icons); asgard.css carries the real
       # system and hud.py draws its artwork (above). MarsBar stays purple with
       # her vine, so the two are never confused.
       theme = {
-        background-color = "hsl(161, 63%, 3%)";
+        background-color = "hsl(213, 14%, 7%)";
         primary-color = "hsl(158, 79%, 57%)";
         positive-color = "hsl(150, 100%, 65%)";
         negative-color = "hsl(355, 100%, 65%)";
