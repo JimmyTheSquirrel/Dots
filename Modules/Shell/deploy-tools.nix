@@ -108,13 +108,17 @@
       home.packages = commands;
 
       # A second cheat file next to anything Modules/Shell/navi.nix ships: navi
-      # reads every *.cheat under its cheats path. The first three drive the
+      # reads every *.cheat under its cheats path. The first four drive the
       # commands every importer gets; the rest use rock's sops key and ssh
       # aliases, so they come with admin.
       home.file.".config/navi/cheats/dots.cheat".text = ''
         % Dots
         # Everything: rebuild this machine, deploy the others, repo + store, Apollo USB
         system-rebuild
+
+        % Dots
+        # What every system-rebuild menu item does, printed
+        system-rebuild help
 
         % Dots
         # Full cleanup now (delete old generations, optimise store, docker prune)

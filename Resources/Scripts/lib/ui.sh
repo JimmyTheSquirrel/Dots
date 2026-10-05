@@ -335,7 +335,9 @@ ui_panel() {
 # UI_CHOICE is the picked item's KEY, "back" (esc, ←, h, backspace) or "quit"
 # (q). Items are numbered 1–9 in order and the number picks one directly.
 # UI_MENU_SEL=KEY starts the cursor on that item (it is cleared after each
-# menu). ACCENT tints the frame and the cursor; "grad" uses the house gradient.
+# menu). UI_MENU_HELP=1 makes `?` answer "help" (and says so in the footer) —
+# for a menu that has a help page to show; cleared after each menu too.
+# ACCENT tints the frame and the cursor; "grad" uses the house gradient.
 #
 # It draws inline on stderr — stdout stays free for $(ui_choose …) — and
 # erases itself once a choice is made, so the next menu or the job's output
@@ -388,7 +390,8 @@ ui_term_release() {
 
 ui_menu() {
   local accent="$1"; shift
-  local LC_ALL=C.UTF-8
+  local LC_ALL=C.UTF-8 help=${UI_MENU_HELP:-0}
+  UI_MENU_HELP=0
   UI_CHOICE=quit
   if (( ! UI_INTERACTIVE )); then
     ui_err "a choice is needed but this isn't an interactive terminal"; return 0
@@ -472,8 +475,10 @@ ui_menu() {
   local kc="$e_fg" kd="$e_dim"
   foot="     $kc↑↓$kd move   $kc⏎$kd select"
   (( num )) && foot+="   ${kc}1–$num$kd pick"
-  if [[ " ${_UM_K[*]} " == *" back "* ]]; then foot+="   ${kc}esc$kd back   ${kc}q$kd quit$UI_RFG"
-  else foot+="   ${kc}q$kd quit$UI_RFG"; fi
+  if [[ " ${_UM_K[*]} " == *" back "* ]]; then foot+="   ${kc}esc$kd back   ${kc}q$kd quit"
+  else foot+="   ${kc}q$kd quit"; fi
+  (( help )) && foot+="   ${kc}?$kd help"
+  foot+=$UI_RFG
 
   # ── start position
   local pos=0
@@ -504,6 +509,7 @@ ui_menu() {
       enter) UI_CHOICE=${_UM_K[sels[pos]]}; break ;;
       back)  UI_CHOICE=back; break ;;
       quit | eof) UI_CHOICE=quit; break ;;
+      "?") if (( help )); then UI_CHOICE=help; break; fi ;;
       [1-9])
         for k in "${!sels[@]}"; do
           if [[ "${nums[sels[k]]}" == "$UI_KEY" ]]; then pos=$k; UI_CHOICE=${_UM_K[sels[k]]}; break 2; fi

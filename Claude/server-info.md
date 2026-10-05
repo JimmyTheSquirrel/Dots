@@ -687,10 +687,17 @@ ground, the glass and the text stay grey whatever is picked:
   **gauges** wear a ring of ticks, inner tiles and controls are squared off and edged in
   the HUD's colour, buttons and section headings are in Orbitron, numbers stay JetBrains Mono;
 - the **navigation** is a HUD bar of angled tabs, the current page lit solid; the logo is
-  an **angular A** in a shield (also the tab icon; the phone home-screen icon is still
-  `yggdrasil.png`);
-- **Yggdrasil** is line art: a circuit tree with lit nodes at its tips, roots below, in
-  a ticked HUD ring (`--h-ygg`);
+  a **Yggdrasil emblem** — a symmetric tree, forking crown and spread roots with a lit
+  node at every tip, in a ring (also the tab icon; the phone home-screen icon is still
+  `yggdrasil.png`). rock asked for Norse over the first angular "A" (2026-10-05);
+- the **Yggdrasil card** (the tailnet list) carries the full tree (`--h-ygg`, 252px): a
+  trunk of six strands twisting round each other, a dome of arching branches — balanced
+  in mirrored pairs, lit tips, side twigs and leaves filling the canopy, motes and an
+  aura behind it — three great roots through the **three wells**, the **nine realms** as
+  hexagon nodes joined like a network (Asgard at the crown, Midgard on the trunk, Hel
+  below the roots), and a HUD ring banded with the **24 runes of the Elder Futhark**.
+  Branches in the HUD's colour; roots, wells and runes in its second light (so a
+  two-tone theme splits the tree in two);
 - **the backdrop never runs out**: the ground is a grid with circuit traces (`--h-grid`),
   one 480px tile **repeated down the page** — it scrolls with the content, so a page of
   any length is covered. Misty **pines** (`--h-forest`) are pinned to the foot of the
@@ -705,22 +712,28 @@ generated SVG is committed: `frame.svg`, `grid.svg`, `forest.svg`, `ygg.svg`, `l
 serves an old piece) and the **icon set** (`--ic-server`, `--ic-storage`, … `--ic-fan`:
 24px line icons, used as CSS masks). To add a card: give it a rune class and map it to an
 icon and a tag in asgard.css's "Accents, icons and tags". Everything is small — the frame
-1.4 KB, the grid 2 KB, the pines ~80 KB, the tree ~60 KB, `tpl.js` ~65 KB.
+1.4 KB, the grid 2 KB, the pines ~80 KB, the card's tree ~90 KB, `tpl.js` ~95 KB.
 
 **The colour picker — `Resources/Glance/theme.js`.** A swatch button at the right end of
-the nav bar (on a phone: a row at the top of the ☰ menu) opens ten presets — Mint (the
-default), Cyan, Ice, Violet, Magenta, Red, Orange, Amber, Lime, Steel — a **Custom**
-colour input, and **Reset**. It replaces Glance's own theme picker, which asgard.css hides
-(its presets fight the HUD's tokens).
-- **One colour in, the whole palette out**: `--hud`, `--hud2` (hue +22), `--hud-hot`,
-  `--hud-deep`, `--hud-rgb`/`--hud2-rgb` and the data slots `--s1…--s6` (the other series
-  are near neighbours — hue +35, and a paler −18 — so a pick stays one family). The
-  lightness is clamped to 0.52–0.74 so a near-black or near-white pick still reads on the
-  panels. Everything else follows because it is written in those tokens: ⚠ **a new rule
+the nav bar (on a phone: a row at the top of the ☰ menu) opens **twelve light colours** —
+Mint (the default), Aqua, Sky, Periwinkle, Lavender, Orchid, Rose, Coral, Peach, Butter,
+Pistachio, Frost — **six two-tone themes** — Aurora (mint + lavender), Bifröst (sky +
+pink), Fjord (aqua + periwinkle), Muspel (peach + rose), Midgard (sage + wheat), Niflheim
+(ice + lilac) — a **Custom** colour input, and **Reset**. rock found the first, saturated
+set "a lot" and asked for lighter colours with more variation (2026-10-05). It replaces
+Glance's own theme picker, which asgard.css hides (its presets fight the HUD's tokens).
+- **A pick in, the whole palette out**: `--hud`, `--hud2`, `--hud-hot`, `--hud-deep`,
+  `--hud-rgb`/`--hud2-rgb` and the data slots `--s1…--s6`. A pick is `#rrggbb`, or
+  `#rrggbb+#rrggbb` for a two-tone theme (stored as such). One colour: the second light
+  and the other series are neighbours a fair way round the wheel (hue +30, +48 and a
+  paler −34). Two-tone: the second colour is the second light and the second series, the
+  third sits between the two. Lightness is held in a **light band, 0.6–0.84**, and
+  saturation capped at 0.9, so even a custom pick comes out soft on the glass (and a
+  near-black one doesn't vanish). Everything else follows because it is written in those tokens: ⚠ **a new rule
   that colours the HUD must use `var(--hud…)` / `rgb(var(--hud-rgb) / a)` / `--s*`, never
   a literal mint** (or it stays mint under every other pick). Status colours (good / warn /
   bad) deliberately don't move.
-- **The artwork** (frame, Yggdrasil, logo — the only SVGs with the HUD's colour in them)
+- **The artwork** (frame, the Yggdrasil card, logo — the only SVGs with the HUD's colour in them)
   is redrawn from `tpl.js`: hud.py writes each with its colours swapped for `__A__` (mint),
   `__H__` (hot), `__B__` (teal) and `__D__` (the logo's dark), and theme.js fills them in
   as data-URIs (`--h-frame`, `--h-ygg`, the `.logo img`). Grid and pines are grey, so they
@@ -760,7 +773,10 @@ bottom navigation off its tap targets.
 
 Full column: **Asgard** (CPU / memory / CPU-temp rings, facts, per-thread bars, 3-minute CPU +
 memory chart) · **Storage** (pool, a segment per data disk, a row per disk with age, temperature,
-spin state, SMART — **tap a row to open the drive**, below) · **Network** (below) · **Service health** group (All / Media / Downloads /
+spin state, SMART — it opens as an **overview** (the pool, its segments, and one chip
+per drive: health dot, name, temperature, a word if anything's wrong) and **the arrow**
+drops the full rows down, each of which **opens into the drive**, below; open/closed is
+remembered per browser, `asgard-storage-open`) · **Network** (below) · **Service health** group (All / Media / Downloads /
 Arr / Management, generated from `services`; no bookmarks column — rows are clickable).
 
 Small column: Clock · **Now Playing** (every Jellyfin stream, poster from Jellyfin's anonymous

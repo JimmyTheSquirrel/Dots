@@ -18,7 +18,8 @@ Writes the pieces asgard.css draws the dashboard's tech-HUD look with:
                  so phones honour it too), tiles left-right
     ygg.svg      Yggdrasil in line art — a branching circuit tree, roots
                  below, nodes at its tips — inside a ticked HUD ring
-    logo.svg     the angular "A" in a shield: the header logo and tab icon
+    logo.svg     Yggdrasil as an emblem — branches, roots, lit tips — in a
+                 ring: the header logo and tab icon
     hud.css      the URLs (with VERSION, so Glance's 2 h asset cache never
                  serves an old piece) and the icon set, as custom properties:
                  --h-frame --h-grid --h-forest --h-ygg, --ic-<name>
@@ -199,72 +200,300 @@ def forest(rng):
 
 
 # ── Yggdrasil, in line art ────────────────────────────────────────────────────
+# The Elder Futhark, in its order, each rune as strokes in a 6×12 box centred
+# on 0,0 (y down) — the band round Yggdrasil's ring.
+FUTHARK = [
+    "M-2 6V-6M-2 -1L3 -5M-2 3L3 -1",            # ᚠ fehu
+    "M-3 6V-6L3 -2V6",                          # ᚢ uruz
+    "M-2 6V-6M-2 -3L2 0L-2 3",                  # ᚦ thurisaz
+    "M-2 6V-6M-2 -6L3 -3M-2 -2L3 1",            # ᚨ ansuz
+    "M-2 6V-6L2 -3L-2 0L2 6",                   # ᚱ raidho
+    "M2 -5L-2 0L2 5",                           # ᚲ kenaz
+    "M-3 -5L3 5M3 -5L-3 5",                     # ᚷ gebo
+    "M-2 6V-6L2 -3L-2 0",                       # ᚹ wunjo
+    "M-2 6V-6M2 6V-6M-2 -1L2 2",                # ᚺ hagalaz
+    "M0 6V-6M-2 -2L2 2",                        # ᚾ naudiz
+    "M0 6V-6",                                  # ᛁ isa
+    "M-1 -5L-3 -2L-1 1M1 -1L3 2L1 5",           # ᛃ jera
+    "M0 6V-6M0 -6L2 -4M0 6L-2 4",               # ᛇ eihwaz
+    "M-2 6V-6M-2 -6L1 -4L3 -6M-2 6L1 4L3 6",    # ᛈ perthro
+    "M0 6V-6M0 -1L-3 -5M0 -1L3 -5",             # ᛉ algiz
+    "M2 -6L-2 -2L2 2L-2 6",                     # ᛊ sowilo
+    "M0 6V-6M-3 -3L0 -6L3 -3",                  # ᛏ tiwaz
+    "M-2 6V-6L2 -3L-2 0L2 3L-2 6",              # ᛒ berkano
+    "M-3 6V-6L0 -3L3 -6V6",                     # ᛖ ehwaz
+    "M-3 6V-6L3 0M3 6V-6L-3 0",                 # ᛗ mannaz
+    "M-2 6V-6L2 -3",                            # ᛚ laguz
+    "M0 -6L3 0L0 6L-3 0Z",                      # ᛜ ingwaz
+    "M-3 -5L3 5V-5L-3 5Z",                      # ᛞ dagaz
+    "M-3 6L2 0L0 -5L-2 0L3 6",                  # ᛟ othala
+]
+
+
 def ygg(rng):
+    """Yggdrasil, the world tree, for the tailnet card.
+
+    A trunk of six strands twisting round each other, fanning at the top into
+    a dome of forking, arching branches (a lit node at every tip, motes of
+    light among them, an aura behind the crown) and at the foot into three
+    great roots, each through one of the three wells. The NINE REALMS sit on
+    it as hexagon nodes — Asgard at the crown, Midgard on the trunk, Hel
+    below the roots — joined like a network. Round it: the HUD ring, its
+    ticks, and a band of the 24 runes of the Elder Futhark. Branches in the
+    HUD's colour, roots, wells and runes in its second light."""
     W = H = 400
-    cx, cy, R = 200, 200, 186
-    out = []
-    # the ring: two circles, ticks every 3°, longer every 30°, four bracket arcs
+    cx, cy = 200, 200
+    out, glow = [], []
+
+    # ── the ring ──
+    ring = []
+    ring.append('<circle cx="200" cy="200" r="191" fill="none" stroke="%s" stroke-width="1" opacity=".35"/>' % MINT)
+    arcs = ""
+    for k in range(4):
+        a0, a1 = TAU * (k / 4 + 0.035), TAU * (k / 4 + 0.215)
+        arcs += "M%s %sA195 195 0 0 1 %s %s" % (f(cx + 195 * math.cos(a0)), f(cy + 195 * math.sin(a0)), f(cx + 195 * math.cos(a1)), f(cy + 195 * math.sin(a1)))
+    ring.append('<path d="%s" fill="none" stroke="%s" stroke-width="2.6" stroke-linecap="square" opacity=".9"/>' % (arcs, MINT))
+    ring.append('<circle cx="200" cy="200" r="185" fill="none" stroke="%s" stroke-width="1" opacity=".55"/>' % TEAL)
+    ring.append('<circle cx="200" cy="200" r="168" fill="none" stroke="%s" stroke-width="1" opacity=".55"/>' % TEAL)
+    runes = ""
+    for i, r in enumerate(FUTHARK):
+        a = -90 + i * 15 + 7.5
+        x, y = cx + 176.5 * math.cos(math.radians(a)), cy + 176.5 * math.sin(math.radians(a))
+        runes += '<path transform="translate(%s %s) rotate(%s) scale(.82)" d="%s"/>' % (f(x), f(y), f(a + 90), r)
+    ring.append('<g fill="none" stroke="%s" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" opacity=".85">%s</g>' % (TEAL, runes))
+    for i in range(24):                      # a dot between each pair of runes
+        a = math.radians(-90 + i * 15)
+        ring.append('<circle cx="%s" cy="%s" r="1.1" fill="%s" opacity=".7"/>' % (f(cx + 176.5 * math.cos(a)), f(cy + 176.5 * math.sin(a)), TEAL))
     ticks = ""
     for i in range(120):
         a = TAU * i / 120
-        l = 9 if i % 10 == 0 else 4
-        ticks += "M%s %sL%s %s" % (f(cx + (R - 2) * math.cos(a)), f(cy + (R - 2) * math.sin(a)), f(cx + (R - 2 - l) * math.cos(a)), f(cy + (R - 2 - l) * math.sin(a)))
-    out.append('<circle cx="%d" cy="%d" r="%d" fill="none" stroke="%s" stroke-width="1" opacity=".5"/>' % (cx, cy, R, MINT))
-    out.append('<circle cx="%d" cy="%d" r="%d" fill="none" stroke="%s" stroke-width="1" opacity=".25" stroke-dasharray="2 6"/>' % (cx, cy, R - 22, MINT))
-    out.append('<path d="%s" stroke="%s" stroke-width="1.2" opacity=".55"/>' % (ticks, MINT))
-    arcs = ""
-    for k in range(4):
-        a0, a1 = TAU * (k / 4 + 0.03), TAU * (k / 4 + 0.22)
-        arcs += "M%s %sA%d %d 0 0 1 %s %s" % (f(cx + (R + 6) * math.cos(a0)), f(cy + (R + 6) * math.sin(a0)), R + 6, R + 6,
-                                               f(cx + (R + 6) * math.cos(a1)), f(cy + (R + 6) * math.sin(a1)))
-    out.append('<path d="%s" fill="none" stroke="%s" stroke-width="2.4" opacity=".85"/>' % (arcs, MINT))
-    # the tree: branches split as they climb, roots as they sink; strokes taper
-    # with depth; every tip a lit node
-    lines, nodes = {}, []
+        l = 8 if i % 10 == 0 else 3.5
+        ticks += "M%s %sL%s %s" % (f(cx + 163 * math.cos(a)), f(cy + 163 * math.sin(a)), f(cx + (163 - l) * math.cos(a)), f(cy + (163 - l) * math.sin(a)))
+    ring.append('<path d="%s" stroke="%s" stroke-width="1.1" opacity=".5"/>' % (ticks, MINT))
+    out += ring
 
-    def grow(x, y, a, L, w, depth, spread, down=False):
+    # the aura behind the crown, and the horizon the tree stands on (Midgard's)
+    out.append('<ellipse cx="200" cy="160" rx="145" ry="130" fill="url(#aura)"/>')
+    out.append('<path d="M92 271H308" stroke="url(#horizon)" stroke-width="1.4"/>')
+
+    # ── the tree ──
+    lines = {}   # depth → path data
+
+    def seg(depth, d):
+        lines[depth] = lines.get(depth, "") + d
+
+    def curve(x, y, a, L, bend):
         ex, ey = x + L * math.cos(a), y + L * math.sin(a)
-        mx, my = (x + ex) / 2 + rng.uniform(-3, 3), (y + ey) / 2 + rng.uniform(-3, 3)
-        key = round(w, 1)
-        lines[key] = lines.get(key, "") + "M%s %sQ%s %s %s %s" % (f(x), f(y), f(mx), f(my), f(ex), f(ey))
-        if depth == 0:
-            nodes.append((ex, ey))
-            return
-        kids = 3 if (depth > 3 and rng.random() < 0.35) else 2
-        for k in range(kids):
-            off = (k - (kids - 1) / 2) * spread + rng.uniform(-0.12, 0.12)
-            na = a + off
-            if not down:   # a dome: branches arch out and over, never droop below level
-                na = max(-math.pi + 0.22, min(-0.22, na))
-            grow(ex, ey, na, L * rng.uniform(0.7, 0.8), max(0.7, w * 0.7), depth - 1, spread * 0.95, down)
+        nx, ny = -math.sin(a), math.cos(a)
+        mx, my = (x + ex) / 2 + nx * bend * L, (y + ey) / 2 + ny * bend * L
+        return ex, ey, "M%s %sQ%s %s %s %s" % (f(x), f(y), f(mx), f(my), f(ex), f(ey))
 
-    base = cy + 70
-    # trunk: several strands braided up the middle
-    for s in (-6, -2, 2, 6):
-        lines[3.2] = lines.get(3.2, "") + "M%s %sC%s %s %s %s %s %s" % (
-            f(cx + s), f(base), f(cx + s * 1.6), f(base - 40), f(cx - s * 0.6), f(base - 75), f(cx + s * 0.3), f(base - 105))
-    for k, a in enumerate((-math.pi / 2 - 1.15, -math.pi / 2 - 0.6, -math.pi / 2 - 0.05, -math.pi / 2 + 0.55, -math.pi / 2 + 1.12)):
-        grow(cx + (k - 2) * 2, base - 100 + (6 if k in (0, 4) else 0), a, 36 if k in (1, 2, 3) else 30, 2.6, 5, 0.5)
-    for a in (math.pi / 2 - 1.05, math.pi / 2 - 0.4, math.pi / 2 + 0.4, math.pi / 2 + 1.05):
-        grow(cx, base, a, 26, 2.4, 3, 0.7, down=True)
-    for w, d in lines.items():
-        out.append('<path d="%s" fill="none" stroke="%s" stroke-width="%s" stroke-linecap="round" opacity=".9"/>' % (d, MINT, f(w)))
-    node = "".join('<circle cx="%s" cy="%s" r="%s"/>' % (f(x), f(y), f(rng.uniform(1.4, 2.4))) for x, y in nodes if math.hypot(x - cx, y - cy) < R - 26)
-    out.append('<g fill="%s">%s</g>' % (MINT_HOT, node))
-    body = '<g filter="url(#glow)" opacity=".55">%s</g>%s' % ("".join(out), "".join(out))
-    return doc(W, H, "Yggdrasil in line art inside a HUD ring.", body, GLOW.replace("SD", "3"))
+    tips, joints, rtips, motes = [], [], [], []
+    CX, CY, RX, RY = 200, 168, 128, 116          # the crown: a dome, wider than tall
+
+    def inside(x, y):
+        return ((x - CX) / RX) ** 2 + ((y - CY) / RY) ** 2 <= 1
+
+    # Branches and roots grow in MIRRORED PAIRS — each pair from one seed, the
+    # right-hand one reflected — so the tree stands balanced, like the emblem
+    # it is, with a little jitter of its own so it isn't a perfect mirror.
+    def turn(a, m):
+        return a if m > 0 else math.pi - a
+
+    def branch(r, x, y, a, L, depth, spread, m):
+        lo, hi = -math.pi + 0.05, 0.12                       # never droops far below level
+        a = max(lo, min(hi, a))                               # (angles are the left half's; turn() mirrors)
+        ang = turn(a, m) + rng.uniform(-0.03, 0.03)
+        ex, ey = x + L * math.cos(ang), y + L * math.sin(ang)
+        tries = 0
+        while not inside(ex, ey) and tries < 6:              # shorten to stay in the dome
+            L *= 0.8
+            ex, ey = x + L * math.cos(ang), y + L * math.sin(ang)
+            tries += 1
+        if not inside(ex, ey):
+            tips.append((x, y))
+            return
+        ex, ey, d = curve(x, y, ang, L, r.uniform(-0.2, 0.2) * m)
+        seg(depth, d)
+        if depth == 0:
+            tips.append((ex, ey))
+            return
+        if depth <= 3:
+            joints.append((ex, ey))
+        if depth <= 3 and r.random() < 0.55:                   # a side twig: lights INSIDE the canopy, not just round its rim
+            side = 1 if r.random() < 0.5 else -1
+            ta = turn(max(lo, min(hi, a + side * r.uniform(0.7, 1.1))), m)
+            tx, ty, td = curve(ex, ey, ta, L * r.uniform(0.3, 0.5), r.uniform(-0.2, 0.2))
+            if inside(tx, ty):
+                seg(0, td)
+                tips.append((tx, ty))
+        if depth <= 2 and r.random() < 0.12:                   # and some branches simply end early
+            tips.append((ex, ey))
+            return
+        kids = 3 if depth >= 3 and r.random() < 0.3 else 2
+        for k in range(kids):
+            off = (k - (kids - 1) / 2) * spread + r.uniform(-0.1, 0.1)
+            branch(r, ex, ey, a + off, L * r.uniform(0.72, 0.82), depth - 1, spread * 0.92, m)
+
+    def root(r, x, y, a, L, depth, spread, m):
+        a = max(0.15, min(math.pi - 0.15, a))
+        ang = turn(a, m) + rng.uniform(-0.03, 0.03)
+        ex, ey, d = curve(x, y, ang, L, r.uniform(-0.25, 0.25) * m)
+        if math.hypot(ex - cx, ey - cy) > 152:
+            return
+        lines["r%d" % depth] = lines.get("r%d" % depth, "") + d
+        if depth == 0:
+            rtips.append((ex, ey))
+            return
+        for k in (-1, 1):
+            root(r, ex, ey, a + k * spread + r.uniform(-0.12, 0.12), L * r.uniform(0.7, 0.8), depth - 1, spread * 0.9, m)
+
+    # the trunk: six strands, twisting round each other as they climb
+    top, base = 176, 270
+    strands = []
+    for s in range(6):
+        ph = s * TAU / 6
+        pts = []
+        for i in range(31):
+            t = i / 30
+            y = base - (base - top) * t
+            w = 15 - 8 * math.sin(math.pi * t) + 2 * t          # waisted: wide at the foot, flaring at the crown
+            pts.append((cx + w * math.sin(ph + t * TAU * 0.9), y))
+        strands.append(pts)
+        d = "M" + " L".join("%s %s" % (f(px), f(py)) for px, py in pts)
+        seg(6, d)
+    # each strand's top grows into a limb; each strand's foot into a root
+    # limbs, left half (angles measured on the left; the right mirrors them)
+    order = sorted(range(6), key=lambda s: strands[s][-1][0])
+    for k, (deg, L) in enumerate(((-168, 32), (-136, 36), (-108, 38))):
+        seed = rng.random()
+        for m, s in ((1, order[k]), (-1, order[5 - k])):
+            x, y = strands[s][-1]
+            branch(random.Random(seed), x, y, math.radians(deg), L, 5, 0.46, m)
+    # four strands' feet become the three great roots (the middle pair meet)
+    wells = []
+    order = sorted(range(6), key=lambda s: strands[s][0][0])
+    for k, (deg, L) in enumerate(((150, 30), (104, 34))):
+        seed = rng.random()
+        for m, s in ((1, order[[0, 2][k]]), (-1, order[[5, 3][k]])):
+            x, y = strands[s][0]
+            ang = turn(math.radians(deg), m)
+            ex, ey, d = curve(x, y, ang, L, 0.12 * m)
+            lines["r4"] = lines.get("r4", "") + d
+            if k == 0 or m > 0:
+                wells.append((ex, ey) if k == 0 else (cx, ey + 4))
+            for j in (-1, 1):
+                root(random.Random(seed + j), ex, ey, math.radians(deg) + j * 0.5, 22, 3, 0.55, m)
+
+    # motes of light in the crown
+    for _ in range(90):
+        r = math.sqrt(rng.random()) * 0.95
+        a = rng.uniform(-math.pi + 0.05, -0.05)
+        motes.append((CX + RX * r * math.cos(a), CY + RY * r * math.sin(a)))
+
+    widths = {6: ("2.2", ".95"), 5: ("3", ".95"), 4: ("2.3", ".92"), 3: ("1.7", ".88"), 2: ("1.25", ".82"), 1: (".95", ".75"), 0: (".75", ".65"),
+              "r4": ("2.6", ".9"), "r3": ("1.9", ".85"), "r2": ("1.4", ".8"), "r1": ("1", ".72"), "r0": (".8", ".6")}
+    tree = []
+    for k in [6, 5, 4, 3, 2, 1, 0, "r4", "r3", "r2", "r1", "r0"]:
+        if k not in lines:
+            continue
+        w, o = widths[k]
+        colour = TEAL if str(k).startswith("r") else MINT
+        tree.append('<path d="%s" fill="none" stroke="%s" stroke-width="%s" stroke-linecap="round" opacity="%s"/>' % (lines[k], colour, w, o))
+        if k in (6, 5, 4, "r4", "r3"):
+            glow.append('<path d="%s" fill="none" stroke="%s" stroke-width="%s"/>' % (lines[k], colour, f(float(w) + 2)))
+
+    # ── the nine realms: hexagons, joined like a network ──
+    realms = {
+        "asgard": (200, 52), "alfheim": (124, 84), "vanaheim": (276, 84),
+        "jotunheim": (68, 214), "muspelheim": (332, 214), "midgard": (200, 222),
+        "svartalfheim": (110, 312), "niflheim": (290, 312), "hel": (200, 350),
+    }
+    links = [("asgard", "alfheim"), ("asgard", "vanaheim"), ("alfheim", "jotunheim"), ("vanaheim", "muspelheim"),
+             ("asgard", "midgard"), ("jotunheim", "midgard"), ("muspelheim", "midgard"), ("midgard", "svartalfheim"),
+             ("midgard", "niflheim"), ("svartalfheim", "hel"), ("niflheim", "hel")]
+    net = "".join("M%s %sL%s %s" % (realms[a] + realms[b]) for a, b in links)
+    out.append('<path d="%s" stroke="%s" stroke-width="1" stroke-dasharray="2 4" opacity=".45"/>' % (net, TEAL))
+    out += tree
+    hexes, cores, halos = "", "", ""
+    for name, (x, y) in realms.items():
+        r = 8.5 if name in ("asgard", "midgard") else 6.5
+        pts = " ".join("%s,%s" % (f(x + r * math.cos(math.radians(60 * i - 90))), f(y + r * math.sin(math.radians(60 * i - 90)))) for i in range(6))
+        hexes += '<polygon points="%s"/>' % pts
+        cores += '<circle cx="%s" cy="%s" r="%s"/>' % (f(x), f(y), "3" if r > 7 else "2.2")
+        halos += '<circle cx="%s" cy="%s" r="%s"/>' % (f(x), f(y), f(r * 2))
+    for x, y in wells:                                        # the three wells: rings on the roots
+        halos += '<circle cx="%s" cy="%s" r="11"/>' % (f(x), f(y))
+        hexes += '<circle cx="%s" cy="%s" r="5.5"/><circle cx="%s" cy="%s" r="9" stroke-dasharray="2 2.6"/>' % (f(x), f(y), f(x), f(y))
+        cores += '<circle cx="%s" cy="%s" r="2"/>' % (f(x), f(y))
+    out.append('<g fill="%s" opacity=".14">%s</g>' % (MINT, halos))
+    out.append('<g fill="#14181c" fill-opacity=".85" stroke="%s" stroke-width="1.5">%s</g>' % (MINT_HOT, hexes))
+    out.append('<g fill="%s">%s</g>' % (MINT_HOT, cores))
+    glow.append('<g fill="%s">%s</g>' % (MINT_HOT, cores))
+
+    # tips, leaves and motes
+    dots = "".join('<circle cx="%s" cy="%s" r="%s"/>' % (f(x), f(y), f(rng.uniform(1.3, 2.3))) for x, y in tips)
+    leaves = ""                                               # leaves round the tips and the last forks: a canopy, not a fringe
+    for x, y in tips + joints:
+        for _ in range(2 if rng.random() < 0.5 else 1):
+            a, r = rng.uniform(0, TAU), rng.uniform(3, 8)
+            if inside(x + r * math.cos(a), y + r * math.sin(a)):
+                leaves += '<circle cx="%s" cy="%s" r="%s"/>' % (f(x + r * math.cos(a)), f(y + r * math.sin(a)), f(rng.uniform(0.6, 1.2)))
+    mote = "".join('<circle cx="%s" cy="%s" r="%s" opacity="%s"/>' % (f(x), f(y), f(rng.uniform(0.5, 1.1)), f(rng.uniform(0.25, 0.6))) for x, y in motes)
+    rdots = "".join('<circle cx="%s" cy="%s" r="%s"/>' % (f(x), f(y), f(rng.uniform(1, 1.7))) for x, y in rtips)
+    out.append('<g fill="%s">%s</g><g fill="%s" opacity=".6">%s</g><g fill="%s">%s</g><g fill="%s" opacity=".85">%s</g>' % (
+        MINT_HOT, dots, MINT, leaves, MINT_HOT, mote, TEAL, rdots))
+    glow.append('<g fill="%s">%s</g>' % (MINT_HOT, dots))
+
+    defs = GLOW.replace("SD", "3") + (
+            '<radialGradient id="aura"><stop offset="0" stop-color="%s" stop-opacity=".2"/><stop offset=".6" stop-color="%s" stop-opacity=".06"/>'
+            '<stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>'
+            '<linearGradient id="horizon"><stop offset="0" stop-color="%s" stop-opacity="0"/><stop offset=".5" stop-color="%s" stop-opacity=".7"/>'
+            '<stop offset="1" stop-color="%s" stop-opacity="0"/></linearGradient>') % (MINT, MINT, MINT, MINT, MINT, MINT)
+    body = '<g filter="url(#glow)" opacity=".6">%s</g>%s' % ("".join(glow), "".join(out))
+    return doc(W, H, "Yggdrasil, the nine realms and the Elder Futhark, inside a HUD ring.", body, defs)
 
 
 # ── the logo ──────────────────────────────────────────────────────────────────
 def logo():
-    shield = "M32 3L58 14V34C58 47 46 57 32 61C18 57 6 47 6 34V14Z"
-    a = "M18 47L32 13L46 47M24 36H40"
-    chev = "M27 47L32 37L37 47"
-    body = ('<g filter="url(#glow)" opacity=".7"><path d="%s" fill="none" stroke="%s" stroke-width="3"/><path d="%s" fill="none" stroke="%s" stroke-width="5"/></g>'
-            '<path d="%s" fill="%s" stroke="%s" stroke-width="2.2"/>'
-            '<path d="%s" fill="none" stroke="%s" stroke-width="4.2" stroke-linejoin="miter" stroke-linecap="square"/>'
-            '<path d="%s" fill="none" stroke="%s" stroke-width="2"/>') % (shield, MINT, a, MINT, shield, LOGO_DARK, MINT, a, MINT_HOT, chev, TEAL)
-    return doc(64, 64, "The angular A: Asgard's logo.", body, GLOW.replace("SD", "2"))
+    """Yggdrasil as an emblem: a dome of forking branches over the trunk, the
+    roots spread below, a lit node at every tip (the Yggdrasil card's circuit
+    tree, drawn bold enough to read at 34px), in a ring. Symmetric — an
+    emblem, not a sketch — so nothing here is random."""
+    lines, nodes = [], []
+
+    def grow(x, y, a, length, depth, fork, k):
+        x2, y2 = x + length * math.cos(a), y + length * math.sin(a)
+        lines.append((x, y, x2, y2, min(depth + 1, 3)))
+        if depth == 0:
+            nodes.append((x2, y2))
+            return
+        for da in fork:
+            grow(x2, y2, a + math.radians(da), length * k, depth - 1, fork, k)
+
+    up, down = -math.pi / 2, math.pi / 2
+    lines.append((32, 45, 32, 28, 3))                       # the trunk
+    for da in (-44, 0, 44):                                 # the crown: three limbs, forking twice
+        grow(32, 28, up + math.radians(da), 7.5, 2, (-27, 27), 0.7)
+    for da in (-72, 72):                                    # the low boughs
+        grow(32, 34, up + math.radians(da), 8.5, 1, (-22, 22), 0.72)
+    for da in (-70, -30, 30, 70):                           # the roots
+        grow(32, 45, down + math.radians(da), 5.5, 1, (-26, 26), 0.75)
+
+    width = {3: "3.4", 2: "2.4", 1: "1.9"}
+    by = {}
+    for x, y, x2, y2, w in lines:
+        by.setdefault(w, []).append("M%s %sL%s %s" % (f(x), f(y), f(x2), f(y2)))
+    tree = "".join('<path d="%s" stroke="%s" stroke-width="%s"/>' % ("".join(d), MINT_HOT, width[w]) for w, d in sorted(by.items()))
+    glow = "".join("".join(d) for d in by.values())
+    dots = "".join('<circle cx="%s" cy="%s" r="1.6"/>' % (f(x), f(y)) for x, y in nodes)
+    body = ('<g filter="url(#glow)" opacity=".7"><circle cx="32" cy="32" r="28.5" fill="none" stroke="%s" stroke-width="3"/>'
+            '<path d="%s" stroke="%s" stroke-width="4"/></g>'
+            '<circle cx="32" cy="32" r="28.5" fill="%s" stroke="%s" stroke-width="2.4"/>'
+            '<circle cx="32" cy="32" r="25.3" fill="none" stroke="%s" stroke-width="1" opacity=".7" stroke-dasharray="1.5 2.6"/>'
+            '<g fill="none" stroke-linecap="round" stroke-linejoin="round">%s</g><g fill="%s">%s</g>') % (
+        MINT, glow, MINT, LOGO_DARK, MINT, TEAL, tree, MINT, dots)
+    return doc(64, 64, "Yggdrasil: Asgard's logo.", body, GLOW.replace("SD", "2"))
 
 
 # ── icons: 24×24 strokes, used as CSS masks ───────────────────────────────────

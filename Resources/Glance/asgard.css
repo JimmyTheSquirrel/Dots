@@ -356,9 +356,10 @@ body::after {
 .widget .widget .widget-header { display: none; }
 
 /* ── Page navigation ───────────────────────────────────────────────────────
-   A HUD bar: dark glass, its bottom corners cut, a mint line along its foot
-   that fades at the ends. The pages are angled tabs in Orbitron; the current
-   one lit solid. The logo is hud.py's angular A (branding.logo-url). */
+   A HUD bar: dark glass, its bottom corners cut, a line in the HUD's colour
+   along its foot that fades at the ends. The pages are angled tabs in
+   Orbitron; the current one lit solid. The logo is hud.py's Yggdrasil emblem
+   (branding.logo-url). */
 .header {
   position: relative;
   background: linear-gradient(180deg, rgb(28 31 36 / 0.95), rgb(17 19 23 / 0.95)) !important;
@@ -866,15 +867,16 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 /* ════════════════════════════════════════════════════════════════════════════
    Yggdrasil — the tree banner over the tailnet device list
    ════════════════════════════════════════════════════════════════════════════ */
-.widget.ygg-widget { padding-top: 250px; }
-/* hud.py's Yggdrasil — a circuit tree, roots below, lit nodes at its tips,
-   inside a ticked HUD ring — hung off the header (a card's own ::before and
-   ::after are its glass and frame). */
+.widget.ygg-widget { padding-top: 276px; }
+/* hud.py's Yggdrasil — a braided trunk, a dome of lit branches, three roots
+   through the three wells, the nine realms joined like a network, inside a
+   HUD ring banded with the Elder Futhark — hung off the header (a card's own
+   ::before and ::after are its glass and frame). */
 .ygg-widget > .widget-header::before {
   content: "";
   position: absolute;
-  top: 18px; left: 50%;
-  width: 226px; height: 226px;
+  top: 16px; left: 50%;
+  width: 252px; height: 252px;
   transform: translateX(-50%);
   pointer-events: none;
   background: var(--h-ygg, none) center / contain no-repeat;
@@ -1086,6 +1088,39 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .ags-disk-side span { font-size: 1.05rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ag-text-faint); }
 .ags-foot { margin-top: 12px; font-size: 1.1rem; letter-spacing: 0.06em; color: var(--ag-text-faint); }
 .ags-foot.bad { color: var(--ag-bad); }
+/* Storage opens as an OVERVIEW: pool, segments, and a bar of drive chips
+   with the arrow. The arrow drops the full rows down (0fr → 1fr) and the bar
+   swaps its chips for the SMART line; open/closed is per browser (stats.js). */
+.ags-stor .ags-segs { margin-bottom: 12px; }
+.ags-drv-tog {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  margin: 0; padding: 10px 12px;
+  font: inherit; color: var(--ag-text-dim); text-align: left; cursor: pointer;
+  border: none; clip-path: var(--cut-s);
+  background: rgb(var(--hud-rgb) / 0.04);
+  box-shadow: inset 0 0 0 1px var(--ag-line-soft);
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+@media (hover: hover) { .ags-drv-tog:hover { background: rgb(var(--hud-rgb) / 0.08); box-shadow: inset 0 0 0 1px var(--ag-line); } }
+.ags-drv-tog:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--hud); }
+.ags-chips { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.ags-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 1.2rem; color: var(--ag-text-dim); white-space: nowrap; }
+.ags-chip .ags-dot { width: 7px; height: 7px; }
+.ags-chip b { font-weight: 600; color: var(--ag-text); font-variant-numeric: tabular-nums; }
+.ags-chip.warn b { color: var(--ag-warn); }
+.ags-chip.bad b { color: var(--ag-bad); font-size: 1.05rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.ags-drv-sum { display: none; flex: 1; min-width: 0; font-size: 1.1rem; letter-spacing: 0.06em; color: var(--ag-text-faint); }
+.ags-drv-tog.bad .ags-drv-sum { color: var(--ag-bad); }
+.ags-drv-tog .ags-chev { flex: none; margin: -4px 4px 0 0; transform: rotate(45deg); border-color: var(--ag-text-dim); }
+.ags-stor.open .ags-drv-tog .ags-chev { margin-top: 4px; transform: rotate(-135deg); border-color: var(--hud); }
+.ags-stor.open .ags-chips { display: none; }
+.ags-stor.open .ags-drv-sum { display: block; }
+.ags-drives { display: grid; grid-template-rows: 0fr; opacity: 0;
+  transition: grid-template-rows 0.35s var(--ag-ease), opacity 0.25s ease; }
+.ags-stor.open .ags-drives { grid-template-rows: 1fr; opacity: 1; }
+.ags-drives-in { min-height: 0; overflow: hidden; }
+.ags-drives-in > .ags-disks { padding-top: 10px; }
 /* ── downloads ── */
 .dl { display: flex; flex-direction: column; gap: 12px; --c: var(--s3); }
 .dl-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
@@ -1342,7 +1377,11 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   background: linear-gradient(90deg, var(--hud), var(--hud)) 0 100% / 40px 2px no-repeat,
               linear-gradient(90deg, rgb(var(--hud-rgb) / 0.4), transparent) 0 100% / 100% 1px no-repeat;
 }
-.hud-sws { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.hud-sws { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+/* A two-tone theme's swatch: both colours, split on the diagonal. */
+.hud-sw.duo { background: linear-gradient(135deg, var(--sw) 0 50%, var(--sw2) 50% 100%); }
+.hud-sub { margin: 12px 0 8px; font-family: var(--ag-title); font-size: 1.1rem; font-weight: 500;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ag-text-faint); }
 .hud-sw {
   aspect-ratio: 1;
   border: none;
@@ -1384,4 +1423,4 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .hud-row { padding: 4px 16px 14px; margin-bottom: 10px; border-bottom: 1px solid var(--ag-line-soft); }
 .hud-row-h { margin: 0 0 12px; }
 .hud-row-h span { flex: 1; font-family: var(--ag-title); font-size: 1.2rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ag-text-dim); }
-.hud-row .hud-sws { grid-template-columns: repeat(10, 1fr); gap: 6px; }
+.hud-row .hud-sws { grid-template-columns: repeat(6, 34px); justify-content: space-between; gap: 8px 0; }
