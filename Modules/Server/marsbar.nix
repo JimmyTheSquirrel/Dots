@@ -59,6 +59,13 @@
       "lights.js" = ../../Resources/Glance/lights.js;
       "eclipse.js" = ../../Resources/Glance/eclipse.js;
       "net.js" = ../../Resources/Glance/net.js;
+      # her colour picker (the "marsbar" profile of Asgard's own picker) and the
+      # cats it can put all over the page
+      "theme.js" = ../../Resources/Glance/theme.js;
+      "cats.css" = ../../Resources/Glance/cats.css;
+      "cats.js" = ../../Resources/Glance/cats.js;
+      # her vine, alive: blossoms that open and close, butterflies, fireflies
+      "garden.js" = ../../Resources/MarsBar/garden.js;
     };
     marsbarAssets = pkgs.linkFarm "glance-marsbar-assets" assetFiles;
 
@@ -68,6 +75,11 @@
     # URL. (custom-css-file needs no help: Glance stamps that one itself.)
     asset = name:
       "/assets/${name}?v=${builtins.substring 0 10 (builtins.hashFile "sha256" assetFiles.${name})}";
+
+    # theme.js keeps her recoloured vine and blossom in localStorage, keyed to
+    # this; a change to either drawing (or to how it is recoloured) redraws them.
+    artVersion = builtins.substring 0 10 (builtins.hashString "sha256"
+      (lib.concatMapStrings (f: builtins.hashFile "sha256" assetFiles.${f}) [ "vine.svg" "bloom.svg" "theme.js" ]));
 
     # ── Lights ──────────────────────────────────────────────────────────────
     # Generated from Modules/Server/_plugs.nix — the same inventory that builds
@@ -179,12 +191,17 @@
       # through the serve proxy below: data-api is a path, not a port.
       # Posters load from Jellyfin directly — asgard:8096 is in her ACL grant
       # (it is the Jellyfin she watches).
+      #
+      # theme.js is the one script NOT deferred: it sets her picked colour
+      # before the page paints, so a pick never flashes purple first.
       document.head = ''
         <link rel="stylesheet" href="${asset "cards.css"}">
+        <script src="${asset "theme.js"}" data-profile="marsbar" data-default="#ca99f5" data-art="${asset "vine.svg"},${asset "bloom.svg"}" data-art-v="${artVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}"></script>
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api="/ha" defer></script>
         <script src="${asset "eclipse.js"}" data-api="/eclipse-api" data-jellyfin="http://asgard:8096" defer></script>
         <script src="${asset "net.js"}" data-api="/net-api" data-readonly defer></script>
+        <script src="${asset "garden.js"}" defer></script>
       '';
 
       # ONE page, three COLUMNS — Home · Eclipse · Network. On a phone Glance

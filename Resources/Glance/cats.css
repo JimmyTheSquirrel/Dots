@@ -1,0 +1,393 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   cats.css — the Cats theme, on BOTH dashboards. Loaded only when someone
+   picks Cats in the colour picker (theme.js adds the <link>, sets
+   html[data-cats] and loads cats.js); nobody else ever downloads it.
+
+   cats.js puts the cats in the page and decides what they do; this file is
+   how they look and move. A cat (.cat) is an inline SVG whose parts are
+   rigged: every part is drawn round its own pivot, so a transform here turns
+   an ear about its base, a tail about the rump, a leg about the shoulder.
+     .cat-peek  head and paws over a card's top edge (the head can duck)
+     .cat-sit   sitting on the edge, tail hanging down the card's front
+     .cat-loaf  a sleeper on the edge, tail curled round its paws
+   State is classes on the cat: an act while it runs (.a-yawn, .a-groom …),
+   .happy, .purr, .perk (the pointer is near), .awake (a loaf with its eyes
+   open), .startle, .ducked, .away / .back. Coats: ginger, or .coat1 cream,
+   .coat2 grey, .coat3 pink.
+
+   Section headings get a paw, MarsBar's crowning blossoms become kitten
+   faces, Asgard's logo a cat face (theme.js). Nothing takes a tap except a
+   cat's painted body, and only when cats.js has cleared it (.tap).
+   ════════════════════════════════════════════════════════════════════════════ */
+html[data-cats] {
+  --cat-walk: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 160 48%22%3E%3Cpath d=%22M18.5 23C18.5 17 28 14.5 42 14.5C52 14.5 56.5 13 60.5 15.5L62.5 10.5L64.5 3.5L68.5 8.5C69.6 8.3 70.6 8.4 71.6 8.8L75.5 4L75.6 11C77.2 13.4 77.6 16.4 76.6 19C75.4 22.6 71.6 24.6 67.4 24C64.8 26.6 62 30 58 31.5C52 33.6 34 33.6 27 33C21 32.4 18.5 28 18.5 23Z%22/%3E%3Cpath d=%22M19.5 22C11 20.5 8.5 11 13.5 4.5%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%224%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M27 31L23 45%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%224.2%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M33 31L37 45%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%224.2%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M52 31L49 45%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%224.2%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M58 31L62 45%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%224.2%22 stroke-linecap=%22round%22/%3E%3Cg transform=%22translate(80 0)%22%3E%3Cpath d=%22M18.5 23C18.5 17 28 14.5 42 14.5C52 14.5 56.5 13 60.5 15.5L62.5 10.5L64.5 3.5L68.5 8.5C69.6 8.3 70.6 8.4 71.6 8.8L75.5 4L75.6 11C77.2 13.4 77.6 16.4 76.6 19C75.4 22.6 71.6 24.6 67.4 24C64.8 26.6 62 30 58 31.5C52 33.6 34 33.6 27 33C21 32.4 18.5 28 18.5 23Z%22/%3E%3Cpath d=%22M19.5 22C11 20.5 8.5 11 13.5 4.5%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%224%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M27 31L31 45%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%224.2%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M33 31L29 45%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%224.2%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M52 31L56 45%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%224.2%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M58 31L54 45%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%224.2%22 stroke-linecap=%22round%22/%3E%3C/g%3E%3C/svg%3E");
+  --cat-paws: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 240 240%22%3E%3Cg transform=%22translate(36 40) rotate(-18) scale(0.9)%22%3E%3Cpath d=%22M0 4C-5 4-7.5 9-6 12.4C-4.6 15.4 4.6 15.4 6 12.4C7.5 9 5 4 0 4Z%22/%3E%3Cellipse cx=%22-7.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3Cellipse cx=%22-2.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%222.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%227.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3C/g%3E%3Cg transform=%22translate(70 78) rotate(-8) scale(0.9)%22%3E%3Cpath d=%22M0 4C-5 4-7.5 9-6 12.4C-4.6 15.4 4.6 15.4 6 12.4C7.5 9 5 4 0 4Z%22/%3E%3Cellipse cx=%22-7.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3Cellipse cx=%22-2.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%222.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%227.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3C/g%3E%3Cg transform=%22translate(150 150) rotate(24) scale(0.8)%22%3E%3Cpath d=%22M0 4C-5 4-7.5 9-6 12.4C-4.6 15.4 4.6 15.4 6 12.4C7.5 9 5 4 0 4Z%22/%3E%3Cellipse cx=%22-7.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3Cellipse cx=%22-2.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%222.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%227.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3C/g%3E%3Cg transform=%22translate(186 118) rotate(34) scale(0.8)%22%3E%3Cpath d=%22M0 4C-5 4-7.5 9-6 12.4C-4.6 15.4 4.6 15.4 6 12.4C7.5 9 5 4 0 4Z%22/%3E%3Cellipse cx=%22-7.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3Cellipse cx=%22-2.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%222.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%227.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3C/g%3E%3Cg transform=%22translate(200 210) rotate(-40) scale(0.7)%22%3E%3Cpath d=%22M0 4C-5 4-7.5 9-6 12.4C-4.6 15.4 4.6 15.4 6 12.4C7.5 9 5 4 0 4Z%22/%3E%3Cellipse cx=%22-7.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3Cellipse cx=%22-2.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%222.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%227.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3C/g%3E%3Cg transform=%22translate(96 200) rotate(12) scale(0.6)%22%3E%3Cpath d=%22M0 4C-5 4-7.5 9-6 12.4C-4.6 15.4 4.6 15.4 6 12.4C7.5 9 5 4 0 4Z%22/%3E%3Cellipse cx=%22-7.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3Cellipse cx=%22-2.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%222.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%227.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3C/g%3E%3C/svg%3E");
+  --cat-paw: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Cg transform=%22translate(16 15)%22%3E%3Cpath d=%22M0 4C-5 4-7.5 9-6 12.4C-4.6 15.4 4.6 15.4 6 12.4C7.5 9 5 4 0 4Z%22/%3E%3Cellipse cx=%22-7.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3Cellipse cx=%22-2.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%222.8%22 cy=%22-5%22 rx=%222.5%22 ry=%223.2%22/%3E%3Cellipse cx=%227.4%22 cy=%22-1%22 rx=%222.4%22 ry=%223%22/%3E%3C/g%3E%3C/svg%3E");
+  --cat-face: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 56%22%3E%3Cpath fill-rule=%22evenodd%22 d=%22M12 52C6 46 5 36 8 28L6 6L20 15C24 13.6 28 13 32 13C36 13 40 13.6 44 15L58 6L56 28C59 36 58 46 52 52C46 56 18 56 12 52ZM22 31a3.4 4.6 0 1 0 0.01 0ZM42 31a3.4 4.6 0 1 0 0.01 0ZM29.6 41h4.8L32 44Z%22/%3E%3C/svg%3E");
+  --cat-squig: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 6 14%22%3E%3Cpath d=%22M3 13.5C0.6 11.6 5.4 9.4 3 7C0.6 4.6 5.4 2.4 3 0.5%22 fill=%22none%22 stroke=%22%23000%22 stroke-width=%221.4%22 stroke-linecap=%22round%22/%3E%3C/svg%3E");
+  --cat-ginger: #ffb36b;
+}
+
+/* ── Coats ── */
+html[data-cats] .cat, html[data-cats] .cat-runner, html[data-cats] .cat-carry {
+  --coat: #ffb36b; --coat-dk: #d9823e; --eye: #a6dd6e;
+}
+html[data-cats] .coat1 { --coat: #f6dcb4; --coat-dk: #d3a873; --eye: #86c6f0; }
+html[data-cats] .coat2 { --coat: #aaa3ba; --coat-dk: #7c7491; --eye: #f2c35a; }
+html[data-cats] .coat3 { --coat: #ffa6c9; --coat-dk: #df78a3; --eye: #7eecc0; }
+
+/* ── The drawing ── */
+html[data-cats] .cat {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.38));
+}
+html[data-cats] .cat > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.cat-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.cat .f { fill: var(--coat); }
+.cat .lt { fill: color-mix(in srgb, var(--coat), #fff 42%); }
+.cat .in { fill: color-mix(in srgb, var(--coat), #ff6f96 45%); }
+.cat .st, .cat .toe { fill: none; stroke: var(--coat-dk); stroke-width: 1.2; stroke-linecap: round; }
+.cat .toe { stroke-width: 0.7; }
+.cat .tl { fill: none; stroke: var(--coat); stroke-width: 4.6; stroke-linecap: round; }
+.cat .tl.dk { stroke: var(--coat-dk); stroke-width: 4; }
+.cat .iris { fill: var(--eye); }
+.cat .pupil { fill: #1b110b; }
+.cat .glint { fill: #fff; }
+.cat .lid { fill: none; stroke: #4a2a1c; stroke-width: 1.1; stroke-linecap: round; opacity: 0; }
+.cat .nose { fill: #ee7d98; }
+.cat .mouth { fill: none; stroke: #5b3022; stroke-width: 0.7; stroke-linecap: round; }
+.cat .mo { fill: #6e2236; }
+.cat .tongue { fill: #ff8fb0; }
+.cat .wh { fill: none; stroke: rgb(255 255 255 / 0.55); stroke-width: 0.5; stroke-linecap: round; }
+.cat .blush { fill: #ff7aa2; opacity: 0.25; transition: opacity 0.3s ease; }
+
+/* Parts that change shape in place squash about their own middle. */
+.cat .eye-i, .cat .pupil, .cat .yawn { transform-box: fill-box; transform-origin: center; }
+.cat .yawn { transform: scale(0); }
+.cat .ear { transition: transform 0.25s ease; }
+.cat .pupil { transition: transform 0.35s ease; }
+.cat .look { transform: translate(calc(var(--lx, 0) * 1px), calc(var(--ly, 0) * 1px)); transition: transform 0.3s ease-out; }
+
+/* Taps: only the painted body, only once cats.js has said it covers no button. */
+html[data-cats] .cat.tap svg * { pointer-events: visiblePainted; cursor: pointer; }
+html[data-cats] .cat.tap .tl, html[data-cats] .cat.tap .wh, html[data-cats] .cat.away svg * { pointer-events: none; }
+
+/* ── Perched on the cards ── */
+html[data-cats] .cat-perch.cat-peek { width: 64px; height: 52px; top: -46px; left: 38px; }
+html[data-cats] .cat-perch.cat-sit  { width: 48px; height: 92px; top: -60px; right: 22%; }
+html[data-cats] .cat-perch.cat-loaf { width: 76px; height: 46px; top: -45px; left: 42%; }
+html[data-cats] .cat-perch.right { left: auto; right: 38px; }
+html[data-cats] .cat-perch.cat-sit.right { right: auto; left: 30%; }
+/* Head-room over the first row, or its cats are only a pair of ears at the
+   top edge of the screen (MarsBar has no nav bar above them). */
+html[data-cats] .page-columns { padding-top: 32px; }
+
+/* ── Always: blinking, a tail swishing, a sleeper breathing ── */
+.cat .eye-i { animation: cat-blink var(--bl, 5s) var(--bd, 0s) infinite; }
+@keyframes cat-blink { 0%, 94%, 100% { transform: none; } 96.5% { transform: scaleY(0.1); } }
+.cat-sit .tail { animation: cat-swish var(--sw, 3.6s) ease-in-out infinite; }
+@keyframes cat-swish { 25% { transform: rotate(-7deg); } 75% { transform: rotate(9deg); } }
+.cat-loaf .breathe { animation: cat-breathe 3.8s ease-in-out infinite; }
+.cat-loaf .head { animation: cat-breathe-head 3.8s ease-in-out infinite; }
+@keyframes cat-breathe { 50% { transform: scale(1.012, 1.05); } }
+@keyframes cat-breathe-head { 50% { transform: translateY(-0.7px); } }
+/* A loaf sleeps unless something woke it. */
+.cat-loaf:not(.awake) .eye-i { opacity: 0; animation: none; }
+.cat-loaf:not(.awake) .lid-s { opacity: 1; }
+.cat-loaf.awake .cat-z { display: none; }
+
+/* ── Acts (cats.js hands them out, one at a time) ── */
+.cat.a-twitchL .el, .cat.a-twitchR .er { animation: cat-twitch 0.5s ease-out; }
+@keyframes cat-twitch { 25% { transform: rotate(-16deg); } 55% { transform: rotate(5deg); } }
+
+.cat.a-tilt .head { animation: cat-tilt 2.6s ease-in-out; }
+@keyframes cat-tilt { 25%, 70% { transform: rotate(-9deg); } }
+
+.cat.a-yawn .yawn { animation: cat-yawn 2.6s ease-in-out; }
+.cat.a-yawn .eye-i { animation: cat-shut 2.6s ease-in-out; }
+.cat.a-yawn .head { animation: cat-yawn-head 2.6s ease-in-out; }
+.cat.a-yawn .ear { animation: cat-ears-back 2.6s ease-in-out; }
+@keyframes cat-yawn { 0%, 100% { transform: scale(0); } 30%, 72% { transform: scale(1, 1.15); } }
+@keyframes cat-shut { 22%, 78% { transform: scaleY(0.12); } }
+@keyframes cat-yawn-head { 30%, 72% { transform: translateY(-1.5px) rotate(-3deg); } }
+@keyframes cat-ears-back { 30%, 72% { transform: rotate(-18deg); } }
+
+.cat.a-look .look { animation: cat-look 3s ease-in-out; }
+@keyframes cat-look { 18%, 42% { transform: translateX(-1.3px); } 58%, 82% { transform: translateX(1.3px); } }
+
+/* Peeking: duck behind the card, then just the eyes, then all of it. */
+.cat.a-duck .head { animation: cat-duck 4.6s ease-in-out; }
+@keyframes cat-duck { 14%, 62% { transform: translateY(40px); } 74%, 86% { transform: translateY(8px); } }
+.cat.a-knead .pw-l { animation: cat-knead 0.55s ease-in-out 4 alternate; }
+.cat.a-knead .pw-r { animation: cat-knead 0.55s ease-in-out 0.275s 4 alternate; }
+@keyframes cat-knead { to { transform: translateY(-2.4px) scaleY(0.92); } }
+
+/* Sitting: a paw up to the mouth for a few licks, then a rub of the face. */
+.cat.a-groom .lg-r { animation: cat-groom-leg 5.6s ease-in-out; }
+.cat.a-groom .head { animation: cat-groom-head 5.6s ease-in-out; }
+@keyframes cat-groom-leg {
+  12% { transform: rotate(160deg); } 20% { transform: rotate(150deg); } 28% { transform: rotate(160deg); }
+  36% { transform: rotate(150deg); } 44% { transform: rotate(160deg); } 56%, 76% { transform: rotate(166deg); }
+  88%, 100% { transform: none; }
+}
+@keyframes cat-groom-head {
+  12%, 44% { transform: rotate(5deg) translateY(1.4px); } 20%, 36% { transform: rotate(7deg) translateY(2px); }
+  56% { transform: rotate(-9deg); } 66% { transform: rotate(8deg); } 76% { transform: rotate(-5deg); }
+}
+.cat-sit.a-flick .tail { animation: cat-flick 0.7s ease-in-out; }
+@keyframes cat-flick { 30% { transform: rotate(-22deg); } 60% { transform: rotate(8deg); } }
+
+/* Sleeping: lift the head and settle, a tail-tip flick, dreaming paws. */
+.cat-loaf.a-stir .head { animation: cat-stir 3.2s ease-in-out; }
+.cat-loaf.a-stir .yawn { animation: cat-yawn 3.2s ease-in-out; }
+@keyframes cat-stir { 20%, 60% { transform: translateY(-2.5px) rotate(-4deg); } 75% { transform: translateY(-1px) rotate(3deg); } }
+.cat-loaf.a-flick .tip { animation: cat-flick-tip 0.7s ease-in-out; }
+@keyframes cat-flick-tip { 30% { transform: rotate(-38deg); } 60% { transform: rotate(10deg); } }
+.cat.a-dream .pw-l { animation: cat-dream 0.2s ease-in-out 6 alternate; }
+.cat.a-dream .pw-r { animation: cat-dream 0.2s ease-in-out 0.1s 6 alternate; }
+@keyframes cat-dream { to { transform: translate(1.2px, -0.8px); } }
+
+/* Grooming and kneading are happy work: eyes squeezed shut. */
+.cat:is(.a-groom, .a-knead, .happy) .eye-i { opacity: 0; }
+.cat:is(.a-groom, .a-knead, .happy) .lid-h { opacity: 1; }
+.cat:is(.a-groom, .a-knead, .happy) .lid-s { opacity: 0; }
+.cat.happy .blush { opacity: 0.6; }
+
+/* ── Reactions ── */
+.cat.perk .ear { transform: rotate(6deg) translateY(-0.6px); }
+.cat.perk .pupil { transform: scale(1.9, 1.05); }
+.cat.startle .ear { transform: rotate(-24deg); }
+.cat.startle .pupil { transform: scale(2.3, 1.1); }
+.cat.purr > svg { animation: cat-purr 0.12s linear 18; }
+@keyframes cat-purr { 25% { transform: translate(0.5px, -0.3px); } 75% { transform: translate(-0.5px, 0.3px); } }
+/* Tapped too much: a peeking cat ducks behind its card for a while … */
+.cat-peek .head, .cat-peek .paw { transition: transform 0.35s ease-in; }
+.cat-peek.ducked .head { transform: translateY(42px); }
+.cat-peek.ducked .paw { transform: translateY(9px); }
+.cat-peek.rise .head, .cat-peek.rise .paw { transition: transform 1.6s ease-out; }
+/* … anyone else jumps off (and so does everyone when Eclipse goes down). */
+html[data-cats] .cat.away { animation: cat-leave 0.55s ease-in forwards; }
+@keyframes cat-leave {
+  0% { transform: none; opacity: 1; visibility: visible; }
+  35% { transform: translate(calc(var(--jx, 80px) * 0.35), -18px) rotate(calc(var(--jr, 12deg) * 0.4)); opacity: 1; visibility: visible; }
+  99% { visibility: visible; }
+  100% { transform: translate(var(--jx, 80px), 14px) rotate(var(--jr, 12deg)); opacity: 0; visibility: hidden; }
+}
+html[data-cats] .cat.back { animation: cat-arrive 0.75s cubic-bezier(0.3, 1.4, 0.5, 1); }
+@keyframes cat-arrive {
+  0% { transform: translateY(-26px); opacity: 0; }
+  55% { transform: translateY(2px) scale(1.05, 0.95); opacity: 1; }
+}
+
+/* Speech bubbles, hearts, zzz. */
+html[data-cats] .cat-say {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 4px);
+  z-index: 2;
+  translate: -50% 0;
+  padding: 3px 8px 4px;
+  border-radius: 10px;
+  white-space: nowrap;
+  font: 700 11px/1.2 system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  color: #3b2316;
+  background: #fff7ef;
+  box-shadow: 0 4px 12px -4px rgb(0 0 0 / 0.55);
+  pointer-events: none;
+  transform-origin: 50% 100%;
+  animation: cat-say var(--say, 1.8s) ease-out forwards;
+}
+html[data-cats] .cat-say::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 100%;
+  translate: -50% 0;
+  border: 5px solid transparent;
+  border-top-color: #fff7ef;
+}
+html[data-cats] .cat-say.side { left: calc(100% - 6px); bottom: 34%; translate: 0 0; transform-origin: 0 50%; }
+html[data-cats] .cat-say.side::after { left: -9px; top: 50%; translate: 0 -50%; border-top-color: transparent; border-right-color: #fff7ef; }
+@keyframes cat-say {
+  0% { transform: scale(0.4); opacity: 0; }
+  10% { transform: scale(1.08); opacity: 1; }
+  18% { transform: none; }
+  82% { transform: none; opacity: 1; }
+  100% { transform: translateY(-6px); opacity: 0; }
+}
+html[data-cats] .cat-heart {
+  position: absolute;
+  bottom: 62%;
+  font: 13px/1 system-ui, sans-serif;
+  color: #ff7aa8;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  pointer-events: none;
+  opacity: 0;
+  animation: cat-heart 2s ease-out forwards;
+}
+@keyframes cat-heart {
+  0% { transform: scale(0.5); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translate(var(--hx, 0px), -36px) scale(1.15); opacity: 0; }
+}
+html[data-cats] .cat-z { position: absolute; left: 62%; top: 10px; pointer-events: none; }
+html[data-cats] .cat-z i {
+  position: absolute;
+  font: italic 700 9px/1 system-ui, sans-serif;
+  color: rgb(255 255 255 / 0.85);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  opacity: 0;
+  animation: cat-z 3.6s ease-out infinite;
+}
+html[data-cats] .cat-z i:nth-child(2) { animation-delay: 1.2s; font-size: 11px; }
+html[data-cats] .cat-z i:nth-child(3) { animation-delay: 2.4s; font-size: 13px; }
+@keyframes cat-z {
+  0% { transform: translate(0, 0); opacity: 0; }
+  20% { opacity: 0.9; }
+  100% { transform: translate(14px, -26px); opacity: 0; }
+}
+
+/* ── On the dashboard ── */
+/* A kitten on a progress bar, its paw on the playhead. */
+html[data-cats] .cat-batter { width: 36px; height: 29px; z-index: 4; }
+.cat-batter.batting .pw-l { animation: cat-bat 2.6s ease-in-out infinite; }
+.cat-batter.batting .look { transform: translate(-1.2px, 1px); }
+@keyframes cat-bat {
+  0%, 52%, 100% { transform: none; }
+  60% { transform: translate(1px, -9px) rotate(-28deg); }
+  67% { transform: translate(-2px, 1px); }
+  73% { transform: translate(0, -4px) rotate(-12deg); }
+  80% { transform: translate(-1px, 1px); }
+  88% { transform: none; }
+}
+/* A napper on a warm gauge, heat shimmering off it. */
+html[data-cats] .cat-nap { width: 48px; height: 29px; z-index: 4; }
+html[data-cats] .cat-nap .cat-z { top: 4px; }
+html[data-cats] .cat-heat { position: absolute; left: 50%; bottom: 72%; width: 30px; height: 18px; translate: -50% 0; pointer-events: none; }
+html[data-cats] .cat-heat i {
+  position: absolute;
+  bottom: 0;
+  width: 6px; height: 12px;
+  background: #ffb36b;
+  -webkit-mask: var(--cat-squig) center / contain no-repeat;
+  mask: var(--cat-squig) center / contain no-repeat;
+  opacity: 0;
+  animation: cat-heat 2.4s ease-out infinite;
+}
+html[data-cats] .cat-heat i:nth-child(1) { left: 2px; }
+html[data-cats] .cat-heat i:nth-child(2) { left: 12px; animation-delay: 0.8s; }
+html[data-cats] .cat-heat i:nth-child(3) { left: 22px; animation-delay: 1.6s; }
+@keyframes cat-heat {
+  0% { transform: translateY(4px); opacity: 0; }
+  30% { opacity: 0.75; }
+  100% { transform: translateY(-14px); opacity: 0; }
+}
+
+/* The two-frame running sprite: the stroller, the laser chaser and the cat
+   carrying off a download. */
+html[data-cats] :is(.cat-walk, .cat-runner, .cat-carry) b {
+  display: block;
+  width: 80px; height: 48px;
+  background: var(--coat);
+  -webkit-mask: var(--cat-walk) 0 0 / 160px 48px no-repeat;
+  mask: var(--cat-walk) 0 0 / 160px 48px no-repeat;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.4));
+}
+@keyframes cat-step { from { -webkit-mask-position: 0 0; mask-position: 0 0; } to { -webkit-mask-position: -80px 0; mask-position: -80px 0; } }
+
+/* A cat strolling along the bottom of the screen, now and then. */
+html[data-cats] .cat-walk {
+  position: fixed;
+  left: 0;
+  bottom: var(--cat-floor, 4px);
+  z-index: 40;
+  width: 80px; height: 48px;
+  pointer-events: none;
+  background: var(--cat-ginger);
+  -webkit-mask: var(--cat-walk) 0 0 / 160px 48px no-repeat;
+  mask: var(--cat-walk) 0 0 / 160px 48px no-repeat;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.4));
+  transform: translateX(-120px);
+  animation: cat-step 0.5s steps(2, jump-none) infinite, cat-stroll 38s linear 3s infinite;
+}
+@keyframes cat-stroll {
+  0%   { transform: translateX(-120px); }
+  42%  { transform: translateX(calc(100vw + 40px)); }
+  100% { transform: translateX(calc(100vw + 40px)); }
+}
+
+/* The laser pointer and the cat after it. */
+html[data-cats] .cat-laser {
+  position: fixed;
+  left: 0; top: 0;
+  z-index: 42;
+  width: 10px; height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: #ff2a3c;
+  box-shadow: 0 0 6px 2px rgb(255 40 60 / 0.8), 0 0 18px 6px rgb(255 40 60 / 0.35);
+  pointer-events: none;
+}
+html.cat-lasering, html.cat-lasering * { cursor: none !important; }
+html[data-cats] .cat-runner { position: fixed; left: 0; top: 0; z-index: 41; width: 80px; height: 48px; pointer-events: none; will-change: transform; }
+html[data-cats] .cat-runner.run b { animation: cat-step 0.22s steps(2, jump-none) infinite; }
+html[data-cats] .cat-runner.pounce b { animation: cat-pounce 0.42s ease-out; }
+@keyframes cat-pounce { 40% { transform: translateY(-16px) rotate(-8deg); } }
+
+/* A download done: a cat trots across the card with it in its mouth. */
+html[data-cats] .cat-carry {
+  position: absolute;
+  left: 0;
+  z-index: 4;
+  width: 80px; height: 48px;
+  pointer-events: none;
+  animation: cat-carry 6.2s linear forwards;
+}
+html[data-cats] .cat-carry > span { display: block; position: relative; transform: scaleX(-1); }
+html[data-cats] .cat-carry b { animation: cat-step 0.4s steps(2, jump-none) infinite; }
+html[data-cats] .cat-mouse { position: absolute; left: 70px; top: 17px; width: 28px; height: 13px; transform: rotate(28deg); transform-origin: 0 40%; filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.4)); }
+@keyframes cat-carry {
+  0% { transform: translateX(var(--from, 200px)); opacity: 0; }
+  8%, 90% { opacity: 1; }
+  100% { transform: translateX(-30px); opacity: 0; }
+}
+
+/* ── Paw prints behind everything ── */
+html[data-cats] .cat-paws {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--cat-ginger);
+  opacity: 0.07;
+  -webkit-mask: var(--cat-paws) 0 0 / 240px 240px repeat;
+  mask: var(--cat-paws) 0 0 / 240px 240px repeat;
+}
+
+/* ── Paws for section headings, kitten faces for MarsBar's blossoms ── */
+html[data-cats] :is(.ag-sec, .mb-sec)::before {
+  content: "";
+  width: 1.1em; height: 1.1em;
+  flex: none;
+  font-size: inherit;
+  background: var(--cat-ginger);
+  -webkit-mask: var(--cat-paw) center / contain no-repeat;
+  mask: var(--cat-paw) center / contain no-repeat;
+  text-shadow: none;
+}
+/* MarsBar only (theme.js sets data-dash): on Asgard that spot is the Yggdrasil tree. */
+html[data-cats][data-dash="marsbar"] .widget > .widget-header::before {
+  background: var(--cat-ginger);
+  -webkit-mask: var(--cat-face) center / contain no-repeat;
+  mask: var(--cat-face) center / contain no-repeat;
+}
+
+/* Reduced motion: the cats sit still (a jumped-off cat is simply gone), and
+   nothing runs or strolls. Bubbles still answer a tap. */
+@media (prefers-reduced-motion: reduce) {
+  html[data-cats] .cat, html[data-cats] .cat * { animation: none !important; transition: none !important; }
+  html[data-cats] .cat.away { visibility: hidden; }
+  html[data-cats] :is(.cat-walk, .cat-runner, .cat-carry, .cat-laser) { display: none; }
+}

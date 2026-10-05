@@ -226,7 +226,7 @@
 #nw .ags-skel { height: 300px; }
 #ec-main .ags-skel { height: 340px; }
 #ec-wolf .ags-skel, #ec-log .ags-skel { height: 64px; }
-#ec-ctl .ags-skel { height: 200px; }
+#ec-ctl .ags-skel { height: 260px; }
 
 .ags-sub { font-size: 1.2rem; color: var(--ag-text-dim); }
 .ags-sub b { font-weight: inherit; color: var(--ag-text); white-space: nowrap; }
@@ -404,11 +404,215 @@
   .wf-kill { grid-column: 1 / -1; justify-content: center; }
 }
 
+/* ── Bluetooth (#ec-ctl, eclipse.js) ──────────────────────────────────────────
+   My devices: one row per paired device — an icon box, the name WE gave it,
+   a status line (a dot, "Connected · working", battery) and its one main
+   button; tapping the row opens it: name, auto-connect switch, model, Re-pair
+   and Forget. Add a device: a search bar that becomes a live radar while it
+   runs, the devices it finds (signal bars, Pair), and how to put a pad in
+   pairing mode. Every control is ≥38px tall and the name field is 16px text,
+   so a phone neither mis-taps nor zooms. */
+.bt { gap: 12px; }
+.bt-list { display: grid; gap: 8px; }
+.bt-dev, .bt-found, .bt-scan, .bt-line.solo {
+  border: 1px solid var(--ag-line-soft); border-radius: var(--ag-r-small, 12px); background: var(--ag-tile);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.bt-sum, .bt-found, .bt-scan { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 10px 12px; }
+.bt-sum { list-style: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.bt-sum::-webkit-details-marker { display: none; }
+.bt-sum::marker { content: ""; }
+.bt-sum:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+.bt-ico { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; flex: none;
+  color: var(--acc); background: color-mix(in srgb, var(--acc) 12%, transparent); border: 1px solid color-mix(in srgb, var(--acc) 28%, transparent); }
+.bt-ico svg { width: 22px; height: 22px; }
+.bt-main { display: grid; gap: 3px; min-width: 0; }
+.bt-name { font-size: 1.45rem; font-weight: 600; color: var(--ag-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Inline, not flex: a long status wraps as text, the dot staying beside its
+   first word (as flex items the dot was left alone on its own line). */
+.bt-state { display: block; font-size: 1.15rem; line-height: 1.45; color: var(--ag-text-dim); }
+.bt-dot { display: inline-block; width: 8px; height: 8px; margin: 0 7px 1px 0; vertical-align: middle; border-radius: 50%; background: var(--ag-text-faint); flex: none; }
+.bt-state .bt-bat { margin-left: 10px; vertical-align: middle; white-space: nowrap; }
+.bt-dev.ok .bt-dot, .bt-dot.ok { background: var(--ag-good); box-shadow: 0 0 8px color-mix(in srgb, var(--ag-good) 60%, transparent); }
+.bt-dev.ok .bt-state { color: color-mix(in srgb, var(--ag-good) 65%, var(--ag-text)); }
+.bt-dev.bad { border-color: color-mix(in srgb, var(--ag-bad) 42%, transparent); background: color-mix(in srgb, var(--ag-bad) 6%, var(--ag-tile)); }
+.bt-dev.bad .bt-dot { background: var(--ag-bad); }
+.bt-dev.bad .bt-state { color: var(--ag-bad); }
+.bt-dev.busy .bt-dot { background: var(--ag-warn); animation: ag-blink 1s ease-in-out infinite; }
+.bt-dev.busy .bt-state { color: var(--ag-warn); }
+.bt-dev.off .bt-ico { color: var(--ag-text-faint); background: transparent; border-color: var(--ag-line-soft); }
+.bt-dev[open] { border-color: color-mix(in srgb, var(--acc) 38%, transparent); }
+@media (hover: hover) { .bt-dev:hover, .bt-found:hover, button.bt-scan:hover:not(:disabled) { border-color: color-mix(in srgb, var(--acc) 30%, transparent); } }
+.bt-chev { width: 8px; height: 8px; margin: -4px 4px 0 2px; border-right: 2px solid var(--ag-text-faint); border-bottom: 2px solid var(--ag-text-faint);
+  transform: rotate(45deg); transition: transform 0.25s var(--ag-ease), border-color 0.2s; }
+.bt-dev[open] .bt-chev { margin-top: 4px; transform: rotate(-135deg); border-color: var(--acc); }
+.bt-chev.go { margin: 0 6px 0 0; transform: rotate(-45deg); }
+
+/* Buttons: compact, but a real tap target. */
+.bt-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 14px;
+  font: inherit; font-size: 1.2rem; font-weight: 600; letter-spacing: 0.03em; white-space: nowrap; color: var(--ag-text);
+  border: 1px solid var(--ag-line); border-radius: 10px; background: var(--ag-well); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s;
+}
+@media (hover: hover) { .bt-btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--acc) 50%, transparent); } }
+.bt-btn.go { color: var(--ag-on-acc); background: var(--acc); border-color: transparent; }
+.bt-btn.warn { color: var(--ag-warn); border-color: color-mix(in srgb, var(--ag-warn) 50%, transparent); background: color-mix(in srgb, var(--ag-warn) 10%, transparent); }
+.bt-btn.danger { color: var(--ag-bad); border-color: color-mix(in srgb, var(--ag-bad) 38%, transparent); }
+.bt-btn.armed { color: var(--ag-bad); border-color: var(--ag-bad); background: color-mix(in srgb, var(--ag-bad) 14%, transparent); }
+.bt-btn:disabled { opacity: 0.5; cursor: progress; }
+.bt-spin { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: ag-spin 0.8s linear infinite; }
+
+/* Battery: a little cell filled to the level. */
+.bt-bat { display: inline-flex; align-items: center; gap: 5px; font-size: 1.1rem; color: var(--ag-text-dim); font-variant-numeric: tabular-nums; }
+.bt-bat i { position: relative; width: 18px; height: 9px; border: 1.5px solid currentColor; border-radius: 2px; }
+.bt-bat i::before { content: ""; position: absolute; left: 1px; top: 1px; bottom: 1px; width: max(1px, calc(var(--p) - 2px)); border-radius: 1px; background: currentColor; }
+.bt-bat i::after { content: ""; position: absolute; right: -4px; top: 2px; width: 2px; height: 3px; border-radius: 0 1px 1px 0; background: currentColor; }
+.bt-bat.low { color: var(--ag-warn); }
+.bt-bat.chg { color: var(--ag-good); }
+
+/* The opened row. */
+.bt-more { display: grid; gap: 14px; padding: 12px 14px 14px 66px; border-top: 1px solid var(--ag-line-soft); }
+.bt-field { display: grid; gap: 6px; }
+.bt-field > span:first-child { font-size: 1.05rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ag-text-faint); }
+.bt-inrow { display: flex; gap: 8px; }
+.bt-input { flex: 1; min-width: 0; min-height: 40px; padding: 8px 12px; font: inherit; font-size: 1.6rem; color: var(--ag-text);
+  border: 1px solid var(--ag-line); border-radius: 10px; background: var(--ag-well); }
+.bt-input::placeholder { color: var(--ag-text-faint); }
+.bt-input:focus { outline: none; border-color: var(--acc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 20%, transparent); }
+.bt-field small, .bt-line small { font-size: 1.1rem; color: var(--ag-text-faint); overflow-wrap: anywhere; }
+.bt-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bt-line > span:first-child { display: grid; gap: 2px; min-width: 0; }
+.bt-line b { display: inline-flex; align-items: center; gap: 8px; font-size: 1.3rem; font-weight: 600; color: var(--ag-text); }
+.bt-line.solo { padding: 10px 12px; }
+.bt-pair { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+/* A switch: auto-connect, subtitles. */
+.bt-switch { position: relative; flex: none; width: 48px; height: 28px; padding: 0; border: 1px solid var(--ag-line); border-radius: 99px;
+  background: var(--ag-well); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background 0.2s, border-color 0.2s; }
+.bt-switch i { position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; border-radius: 50%; background: var(--ag-text-faint);
+  transition: transform 0.22s var(--ag-ease), background 0.2s, box-shadow 0.2s; }
+.bt-switch.on { border-color: color-mix(in srgb, var(--acc) 60%, transparent); background: color-mix(in srgb, var(--acc) 26%, transparent); }
+.bt-switch.on i { transform: translateX(20px); background: var(--acc); box-shadow: 0 0 10px color-mix(in srgb, var(--acc) 60%, transparent); }
+.bt-switch:disabled { opacity: 0.5; cursor: progress; }
+
+/* Searching. Idle, a wide button; running, a radar ping, the countdown, Stop,
+   and a bar draining along its foot. */
+button.bt-scan { width: 100%; font: inherit; text-align: left; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button.bt-scan:disabled { opacity: 0.5; cursor: default; }
+.bt-scan { position: relative; overflow: hidden; }
+.bt-scan b { font-size: 1.4rem; font-weight: 600; color: var(--ag-text); }
+.bt-scan.on { border-color: color-mix(in srgb, var(--acc) 42%, transparent); background: color-mix(in srgb, var(--acc) 6%, var(--ag-tile)); }
+.bt-radar { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
+  color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, transparent); }
+.bt-radar svg { width: 20px; height: 20px; }
+.bt-radar i { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--acc); animation: bt-ping 1.6s ease-out infinite; }
+@keyframes bt-ping { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(1.7); opacity: 0; } }
+.bt-left { color: var(--acc); font-variant-numeric: tabular-nums; }
+.bt-prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: color-mix(in srgb, var(--acc) 12%, transparent); }
+.bt-prog i { display: block; height: 100%; background: var(--acc); transition: width 1s linear; }
+.bt-scan.on { grid-template-columns: auto minmax(0, 1fr) auto; }
+
+/* What a search found: signal bars and Pair. */
+.bt-found.busy { border-color: color-mix(in srgb, var(--ag-warn) 45%, transparent); }
+.bt-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+.bt-bars i { width: 4px; border-radius: 1px; background: var(--ag-line); }
+.bt-bars i:nth-child(1) { height: 5px; } .bt-bars i:nth-child(2) { height: 9px; } .bt-bars i:nth-child(3) { height: 14px; }
+.bt-bars.s1 i:nth-child(1), .bt-bars.s2 i:nth-child(-n+2), .bt-bars.s3 i { background: var(--acc); }
+
+.bt-empty, .bt-note { padding: 2px 4px; font-size: 1.2rem; color: var(--ag-text-faint); }
+.bt-howto { font-size: 1.2rem; color: var(--ag-text-dim); }
+.bt-howto summary { display: inline-flex; align-items: center; gap: 8px; padding: 4px; list-style: none; cursor: pointer; color: var(--ag-text-dim); }
+.bt-howto summary::-webkit-details-marker { display: none; }
+.bt-howto summary::before { content: ""; width: 6px; height: 6px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform 0.2s; }
+.bt-howto[open] summary::before { transform: rotate(45deg); }
+.bt-howto ul { display: grid; gap: 6px; margin: 6px 0 8px; padding-left: 22px; }
+.bt-howto li b { color: var(--ag-text); font-weight: 600; }
+.bt-howto small { display: block; padding: 0 4px; font-size: 1.1rem; color: var(--ag-text-faint); }
+
+/* A result, at the top of the card, for a few seconds. */
+.bt-msg { padding: 9px 12px; font-size: 1.25rem; border-radius: 10px;
+  color: color-mix(in srgb, var(--ag-good) 75%, var(--ag-text)); border: 1px solid color-mix(in srgb, var(--ag-good) 35%, transparent);
+  background: color-mix(in srgb, var(--ag-good) 8%, transparent); }
+.bt-msg.bad { color: var(--ag-bad); border-color: color-mix(in srgb, var(--ag-bad) 40%, transparent); background: color-mix(in srgb, var(--ag-bad) 8%, transparent); }
+.ec-alert.bt-off { align-items: center; justify-content: space-between; }
+
+/* A phone: the chevron goes (the whole row is the target), the opened row
+   uses the full width, and found devices drop the bars for their words. */
+@media (max-width: 550px) {
+  .bt-sum { grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; padding: 10px; }
+  .bt-sum .bt-chev { display: none; }
+  .bt-found { grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; padding: 10px; }
+  .bt-found .bt-bars { display: none; }
+  .bt-more { padding: 12px 12px 14px; }
+  .bt-ico, .bt-radar { width: 36px; height: 36px; }
+  .bt-line:not(.solo) { flex-wrap: wrap; }
+  .bt-pair { width: 100%; justify-content: stretch; }
+  .bt-pair .bt-btn { flex: 1; }
+}
+
+/* ── The colour picker (theme.js) — its base look, both dashboards ─────────────
+   In place of Glance's own theme picker (hidden: its presets fight these
+   stylesheets). Kept as weak as it can be so a dashboard restyles it freely
+   (asgard.css squares it into the HUD; MarsBar keeps this rounded version in
+   her colours): :where() costs nothing, and the buttons carry exactly one
+   type selector — `button:where(…)` — because Glance's own `button { border:
+   0; background: none }` would otherwise win and blank every swatch. A swatch button at the end of the nav bar — or, with no bar
+   (MarsBar on a desktop), a round button in the bottom-right corner (.fab) —
+   opens presets, two-tone themes, Cats, a custom colour and Reset; on a
+   phone the same is a row in the ☰ menu. */
+.theme-picker { display: none !important; }
+button:where(.hud-pick) {
+  align-self: center; flex: none; display: inline-flex; align-items: center; gap: 8px;
+  margin-left: 12px; padding: 6px 10px; font: inherit; color: var(--ag-text-dim); cursor: pointer;
+  border: 1px solid var(--ag-line); border-radius: 999px; background: var(--ag-well);
+  -webkit-tap-highlight-color: transparent; transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+button:where(.hud-pick) svg { width: 1.8rem; height: 1.8rem; }
+button:where(.hud-pick) i { width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--color-primary); box-shadow: 0 0 8px var(--color-primary); }
+button:where(.hud-pick:hover, .hud-pick[aria-expanded="true"]) { color: var(--ag-text); border-color: var(--color-primary); }
+button:where(.hud-pick.fab) { display: none; position: fixed; right: 22px; bottom: 22px; z-index: 45; margin: 0; padding: 11px 15px;
+  background: var(--ag-pop); box-shadow: 0 14px 34px -14px rgb(0 0 0 / 0.8); }
+button:where(html.hud-fab .hud-pick.fab) { display: inline-flex; }
+:where(.hud-pop) {
+  position: fixed; z-index: 50; width: 264px; padding: 16px 16px 14px;
+  border: 1px solid var(--ag-line); border-radius: 16px; background: var(--ag-pop);
+  box-shadow: 0 18px 44px -14px rgb(0 0 0 / 0.75);
+}
+:where(.hud-pop-h) { font-size: 1.15rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ag-text);
+  padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid var(--ag-line-soft); }
+:where(.hud-sws) { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+button:where(.hud-sw) { aspect-ratio: 1; border: none; padding: 0; cursor: pointer; border-radius: 8px; background: var(--sw);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.15); transition: transform 0.15s ease, filter 0.15s ease; }
+button:where(.hud-sw:hover) { transform: translateY(-1px); filter: brightness(1.12); }
+button:where(.hud-sw.duo) { background: linear-gradient(135deg, var(--sw) 0 50%, var(--sw2) 50% 100%); }
+button:where(.hud-sw[aria-pressed="true"]) { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px rgb(0 0 0 / 0.5); }
+/* Cats: a ginger swatch with a cat's face on it. */
+.hud-sw.cats { position: relative; }
+.hud-sw.cats::after { content: ""; position: absolute; inset: 17% 15% 13%; background: #6b3a12;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 56%22%3E%3Cpath fill-rule=%22evenodd%22 d=%22M12 52C6 46 5 36 8 28L6 6L20 15C24 13.6 28 13 32 13C36 13 40 13.6 44 15L58 6L56 28C59 36 58 46 52 52C46 56 18 56 12 52ZM22 31a3.4 4.6 0 1 0 0.01 0ZM42 31a3.4 4.6 0 1 0 0.01 0ZM29.6 41h4.8L32 44Z%22/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 56%22%3E%3Cpath fill-rule=%22evenodd%22 d=%22M12 52C6 46 5 36 8 28L6 6L20 15C24 13.6 28 13 32 13C36 13 40 13.6 44 15L58 6L56 28C59 36 58 46 52 52C46 56 18 56 12 52ZM22 31a3.4 4.6 0 1 0 0.01 0ZM42 31a3.4 4.6 0 1 0 0.01 0ZM29.6 41h4.8L32 44Z%22/%3E%3C/svg%3E") center / contain no-repeat; }
+:where(.hud-tip) { margin-top: 8px; font-size: 1.05rem; line-height: 1.4; color: var(--ag-text-faint); }
+:where(.hud-sub) { margin: 12px 0 8px; font-size: 1.1rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ag-text-faint); }
+:where(.hud-pop-f, .hud-row-h) { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+:where(.hud-pop-f label) { display: inline-flex; align-items: center; gap: 8px; font-size: 1.15rem; color: var(--ag-text-dim); cursor: pointer; }
+:where(.hud-custom) { width: 34px; height: 26px; padding: 0; border: none; background: none; cursor: pointer; }
+:where(.hud-custom)::-webkit-color-swatch-wrapper { padding: 0; }
+:where(.hud-custom)::-webkit-color-swatch { border: 1px solid var(--ag-line); border-radius: 6px; }
+:where(.hud-custom)::-moz-color-swatch { border: 1px solid var(--ag-line); border-radius: 6px; }
+button:where(.hud-reset) { font: inherit; font-size: 1.05rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ag-text-dim); padding: 6px 12px; border-radius: 10px; border: 1px solid var(--ag-line); background: var(--ag-well); cursor: pointer; }
+button:where(.hud-reset:hover) { color: var(--ag-text); border-color: var(--color-primary); }
+:where(.hud-row) { padding: 4px 16px 14px; margin-bottom: 10px; border-bottom: 1px solid var(--ag-line-soft); }
+:where(.hud-row-h) { margin: 0 0 12px; }
+:where(.hud-row-h span) { flex: 1; font-size: 1.2rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ag-text-dim); }
+:where(.hud-row .hud-sws) { grid-template-columns: repeat(6, 34px); justify-content: space-between; gap: 8px 0; }
+
 @keyframes ag-blink { 50% { opacity: 0.35; } }
 @keyframes ag-spin { to { transform: rotate(360deg); } }
 @keyframes ag-pulse { from { opacity: 0.9; transform: scale(1); } to { opacity: 0; transform: scale(1.35); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .ags-skel, .ags-live::before, .wf-ico::after, .ag-btn.busy svg, .lg li.run i { animation: none !important; }
+  .ags-skel, .ags-live::before, .wf-ico::after, .ag-btn.busy svg, .lg li.run i, .bt-radar i, .bt-spin, .bt-dev.busy .bt-dot { animation: none !important; }
   .ags-bar i, .ec-gauge i, .wf-row { transition: none !important; }
 }

@@ -1246,7 +1246,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
    ════════════════════════════════════════════════════════════════════════════ */
 .widget :is(.nw-cell, .ec-stat, .ec-alert, .ag-btn, .wf-row, .wf-ico, .wf-ico::after, .wf-kill, .ags-disk, .ag-light,
   .ag-card, .nw-hist-note, .ags-dd-verdict, .nw-trend-empty, .ag-ts-node, .ags-poster, .ags-skel, .ags-seg, .ags-seg-empty,
-  .monitor-site) {
+  .monitor-site, .bt-dev, .bt-found, .bt-scan, .bt-line.solo, .bt-btn, .bt-input, .bt-ico, .bt-msg, .bt-switch, .bt-switch i) {
   border-radius: 2px;
 }
 .widget :is(.ag-pill, .nw-chips, .nw-chip, .nw-more, .ec-seg, .ec-seg button, .ags-badge, .pw-chip, .nw-run-x em) {
@@ -1259,7 +1259,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .widget .nw-trend i b { border-radius: 1px 1px 0 0; }
 .ag-tip { border-radius: 2px; border-color: var(--ag-line); box-shadow: 0 0 18px -6px rgb(var(--hud-rgb) / 0.5); }
 .widget :is(.nw-cell, .ec-stat, .ag-btn, .wf-row, .ags-disk) { border-color: var(--ag-line); }
-.widget :is(.ag-pill, .ag-btn, .nw-chip, .ec-seg button) { font-family: var(--ag-title); letter-spacing: 0.12em; }
+.widget :is(.ag-pill, .ag-btn, .nw-chip, .ec-seg button, .bt-btn) { font-family: var(--ag-title); letter-spacing: 0.12em; }
 .widget .ag-pill { font-size: 1.05rem; }
 
 /* The host's facts, each beside a boxed icon (stats.js marks them data-k). */
@@ -1332,6 +1332,11 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
    same is a row in the menu. The choice is this browser's.
    ════════════════════════════════════════════════════════════════════════════ */
 .theme-picker { display: none !important; }
+/* cards.css gives the picker a soft, rounded base (MarsBar's look); the HUD
+   cuts its corners with clip-path instead, so the rounding and the base's
+   borders are taken back off here. */
+.hud-pick, .hud-pick i, .hud-pop, .hud-sw, .hud-reset { border-radius: 0; }
+.hud-pop, .hud-pop-h { border: none; }
 .hud-pick {
   align-self: center;
   flex: none;

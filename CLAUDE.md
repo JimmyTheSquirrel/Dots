@@ -19,13 +19,13 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 | Game streaming | `Claude/streaming.md` | Moonlight clients, Sunshine (installed, not autostarted), Tailscale |
 | **Wolf** (Moonlight server) | `Claude/wolf.md` | The live streaming host on Sisyphus. **True 4K**, seat9 input isolation, Steam library sharing, and the **`fake-udev` gamepad fix** without which pads work in Steam but are invisible to games |
 | Steam theming | `Claude/steam.md` | Millennium injector, SpaceTheme/Zehn, matugen colours, why opacity comes from Niri |
-| Eclipse TV box | `Claude/eclipse.md` | Pi 5 LibreELEC/Kodi, Jellyfin addon, **HEVC-only decode (no H.264 HW)**, **no HDR output**, Dolby Vision, skin menu, CEC, headless workflow. **Not a Nix host** — `Resources/Eclipse-Skin/` + `Resources/Eclipse-Box/` mirror its hand-made state; DR is an SD card image, not a config push |
+| Eclipse TV box | `Claude/eclipse.md` | Pi 5 LibreELEC/Kodi, Jellyfin addon, **HEVC-only decode (no H.264 HW)**, **no HDR output**, Dolby Vision, skin menu, CEC, headless workflow. **Not a Nix host** — `Resources/Eclipse-Skin/` + `Resources/Eclipse-Box/` mirror its hand-made state; DR is an SD card image, not a config push. Its **Bluetooth manager** (both dashboards' `#ec-ctl`: pair, rename, auto-connect, live search) lives in eclipse-control so the two dashboards stay in sync |
 | Emulators | `Claude/emulators.md` | RPCS3, Ryubing, PS3 game prep |
 | Secrets | `Claude/secrets.md` | sops-nix, adding secrets, key locations |
 | Shell/misc | `Claude/misc.md` | Starship, Fastfetch, btop, Navi, Discord, media viewers, Thunar, audio (PipeWire fixes) |
-| Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Seerr API, Glance, recyclarr. Code is `Modules/Server/`. Glance's **HUD** (panel frame, grid, pines, line-art Yggdrasil, logo, icons) is **generated at build time** by `Resources/Glance/hud.py`, on a tech-grey ground that tiles down the page so it never runs out. Its colour is the viewer's: **`theme.js`'s picker** recolours it per browser, so **HUD colours must be `var(--hud…)`/`--s*`, never a literal** |
+| Asgard server | `Claude/server-info.md` | Ports, nixflix quirks, Seerr API, Glance, recyclarr. Code is `Modules/Server/`. Glance's **HUD** (panel frame, grid, pines, line-art Yggdrasil, logo, icons) is **generated at build time** by `Resources/Glance/hud.py`, on a tech-grey ground that tiles down the page so it never runs out. Its colour is the viewer's: **`theme.js`'s picker** recolours it per browser, so **HUD colours must be `var(--hud…)`/`--s*`, never a literal**. The picker's **Cats** theme (`cats.css` + `cats.js`) puts living cats on both dashboards — they idle, answer taps, chase a laser and react to the cards (lights off, TV playing, Eclipse down, running hot, a download done) |
 | Home Assistant | `Claude/home-assistant.md` | Smart plugs on Asgard `:8123`. `extraComponents` gates which integrations exist at all; device pairings are **not** declarative |
-| MarsBar dashboard | `Claude/marsbar.md` | Partner-facing Glance on its **own tailnet node** (`marsbar:1111`) — why a node, not a path. Lights + Jellyfin/Seerr + the **full** Eclipse panel incl. the controller/subtitle card (shared with the admin dashboard — add new cards to BOTH `glance.nix` and `marsbar.nix` or they drift). Isolation is a Tailscale **ACL**, not in this repo |
+| MarsBar dashboard | `Claude/marsbar.md` | Partner-facing Glance on its **own tailnet node** (`marsbar:1111`) — why a node, not a path. Lights + Jellyfin/Seerr + the **full** Eclipse panel incl. the controller/subtitle card (shared with the admin dashboard — add new cards to BOTH `glance.nix` and `marsbar.nix` or they drift). Isolation is a Tailscale **ACL**, not in this repo. She has **her own colour picker** (theme.js, `marsbar` profile — marsbar.css colours are `hsl(var(--mb-h)…)`, never a literal), **Cats**, and a living vine (**garden.js**: blossoms that open and close, butterflies, fireflies). ⚠ Glance overrides `HTMLElement.prototype.animate` — use `Element.prototype.animate` |
 | Dolphin (rejected) | `Claude/dolphin.md` | Decision record: Dolphin was trialled and rejected — **Thunar stays**. Don't re-propose it |
 
 ## Core Principles
@@ -96,9 +96,10 @@ Modules/
                           #   _lib.nix / _plugs.nix (the one smart-plug list) / _origins.nix /
                           #   _livecard.nix helpers
 Resources/                # static files the modules reference:
-                          #   Glance/ (asgard.css/js, stats.js, hud.py, theme.js, tailscale-status.py,
+                          #   Glance/ (asgard.css/js, stats.js, hud.py, tailscale-status.py,
                           #   yggdrasil banner; SHARED with MarsBar: cards.css, dash.js,
-                          #   lights.js, eclipse.js, net.js), MarsBar/ (css + vine svgs),
+                          #   lights.js, eclipse.js, net.js, theme.js + cats.css/js (the colour
+                          #   picker)), MarsBar/ (css, vine svgs, garden.js),
                           #   HA-Bridge/, Asgard-Stats/, Eclipse-Control/, Network-Panel/,
                           #   Wolf-Bridge/ (Sisyphus), Scripts/ (deploy-tools + lib/ui.sh),
                           #   Eclipse-Skin/ (Bingie layout overlay + eclipse-skin-push.sh —

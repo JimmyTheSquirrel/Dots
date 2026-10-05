@@ -49,6 +49,9 @@
       "net.js" = ../../Resources/Glance/net.js;
       "eclipse.js" = ../../Resources/Glance/eclipse.js;
       "theme.js" = ../../Resources/Glance/theme.js;
+      # the picker's Cats theme: how the cats look, and what they do (fetched only when picked)
+      "cats.css" = ../../Resources/Glance/cats.css;
+      "cats.js" = ../../Resources/Glance/cats.js;
     };
     # The HUD's artwork — the panel frame round every card, the grid that
     # tiles down the page, the misty pines pinned to the foot of the screen,
@@ -670,7 +673,7 @@
       document.head = ''
         <link rel="stylesheet" href="${asset "cards.css"}">
         <link rel="stylesheet" href="/assets/hud/hud.css?v=${hudVersion}">
-        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}"></script>
+        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}"></script>
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "asgard.js"}" data-api-port="${toString bridgePort}" defer></script>

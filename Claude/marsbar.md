@@ -209,10 +209,15 @@ Asgard, so she never needs (or gets) anything on Sisyphus. Not hers: the network
   new card must be added to BOTH, plus the `D.ready` selector and the `.ags-skel`
   height list in `cards.css`, or one dashboard gets a collapsing card and the other
   does not. This is exactly how the two drifted before `2a831da`.
-- **`ec-ctl` — controllers, network path and the subtitle default** (added 2026-10-05).
-  She gets every control he does; `eclipse.js` deliberately has **no** `data-readonly`
-  split (unlike `net.js`, where she has no "Run now" because a speed test pauses
-  SABnzbd). Two things worth knowing about it:
+- **`ec-ctl` — the Bluetooth manager, network path and the subtitle default** (added
+  2026-10-05). She gets every control he does — pair, rename, auto-connect, forget, search —
+  and `eclipse.js` deliberately has **no** `data-readonly` split (unlike `net.js`, where she
+  has no "Run now" because a speed test pauses SABnzbd). **It stays in sync with the admin
+  page because nothing is kept in the browser:** device names, a running search and a pair
+  in progress all live in eclipse-control and arrive on both pages as `ctl` / `scan` /
+  `ctlbusy` events, through her `/eclipse-api` serve path (which forwards every `/ctl/…`
+  route — nothing to add there for a new one). See `Claude/eclipse.md` → *Bluetooth*. Things
+  worth knowing about it:
   - ⚠️ A controller showing BlueZ `Connected: yes` can still be producing **no input
     at all** — the DualSense here fails to bind its driver with `-5` often enough to
     matter. The card tests for a real input node and flags that state as `stale`
@@ -222,7 +227,8 @@ Asgard, so she never needs (or gets) anything on Sisyphus. Not hers: the network
     account Eclipse logs in as — so pressing it from *either* dashboard changes the
     same (her) account.
 - ⚠️ When adding a click handler to a new card, widen the `onClick` selector.
-  It scopes to specific card ids (`#ec-main [data-act], #ec-ctl [data-act]`), so a
+  It scopes to specific card ids (`#ec-main [data-act], #ec-ctl [data-act]`, and the
+  `#ec-ctl [data-bt-*]` list for the Bluetooth buttons), so a
   button in a card that is not listed renders enabled and is simply never matched —
   presenting exactly like the 2026-09 dead-button bug and taking just as long to find.
 - Streams, not polls: one `EventSource` per backend, opened only on a page with its
@@ -248,6 +254,72 @@ the assets dir rather than a URL-encoded string in the CSS. `pointer-events: non
   grid (`auto-fill, minmax(250px, 1fr)`) under a `width: slim` page.
 
 ---
+
+## Her colour picker (and the cats)
+
+She can recolour her dashboard, per browser, from the same picker as Asgard's
+(`Resources/Glance/theme.js`, loaded with `data-profile="marsbar"` — a plain, not
+deferred, script first in `document.head`, so a pick is on screen before the first paint).
+On a phone it is a row at the top of the ☰ menu; on a desktop (no nav bar there —
+`hide-desktop-navigation`) it is a round button in the bottom-right corner (`.hud-pick.fab`,
+shown only while the phone bar is hidden).
+
+- **Lavender is the default** (`#ca99f5`, her `hsl(272, 82%, 78%)`), then Rose, Coral, Peach,
+  Butter, Pistachio, Mint, Aqua, Sky, Periwinkle, Orchid, Berry; the six two-tone themes;
+  **Cats**; Custom; Reset. Stored in `marsbar-colour` (and the redrawn artwork in
+  `marsbar-art`, keyed to `data-art-v` — a hash of vine.svg, bloom.svg and theme.js).
+- **Only hues move.** marsbar.css is written against two numbers: `--mb-h` (her purple,
+  272) and `--mb-h2` (the vine's green, 150) — every colour there is
+  `hsl(var(--mb-h) ± n, …)` or `--mb-h2`. A pick sets those, Glance's own `--bgh`,
+  `--color-primary` and `--color-positive`, and nothing else, so every colour sits as
+  softly on the glass as her purple does. One colour moves the purple; a two-tone pick
+  also moves the vine's green to its second colour. ⚠ **A new colour in marsbar.css must
+  be written the same way** — a literal purple stays purple whatever she picks. Status
+  colours (`--mb-bad`, `--mb-warn`) and the shared data palette don't move.
+- **The vine and the blossom follow.** theme.js fetches vine.svg and bloom.svg once per
+  pick, turns every purple in them (hue 240–345) by the pick and every green (110–175) by
+  the second colour (gold and greys stay), and hands them back as `--mb-vine` /
+  `--mb-bloom` data-URIs. marsbar.css uses `var(--mb-vine, url("/assets/vine.svg"))` — the
+  fallback is absolute on purpose (a relative `url()` inside `var()` can resolve against
+  the page, not the stylesheet).
+- **Cats** put cats all over it — living ones: they blink, twitch, yawn, groom, duck
+  behind her cards and peek back, answer a tap with a "mrrp?" or a purr (and hide if she
+  keeps poking them), curl up asleep on the Lights card when every light is off, bat at
+  the playhead on "On the TV", scatter when Eclipse goes down and nap on its SoC
+  temperature when the Pi runs hot. Plus one strolling along the bottom of the screen,
+  paw prints, paw glyphs on the headings, and kitten faces in place of the blossoms
+  (`html[data-cats][data-dash="marsbar"]` — on Asgard that spot is the Yggdrasil tree).
+  Details in `Claude/server-info.md` → The colour picker → Cats.
+
+## The garden (garden.js)
+
+Her vine is alive — always on, whatever colour she has picked (`Resources/MarsBar/garden.js`,
+loaded deferred after dash.js; styles at the end of marsbar.css):
+
+- **Blossoms open and close.** Each card's crowning blossom is redrawn as inline SVG
+  (`.mb-crown` in the `.widget-header`, same spot and drawing as bloom.svg) with its five
+  petals rigged: every crown slowly folds into a bud and opens again on its own 20–28 s
+  cycle, petals a beat apart, swaying on its stem. From **20:00 to 06:00 they stay shut**
+  (`html[data-mb-night]`, re-checked every minute) and ease open in the morning. Once
+  the crowns are in, `html.mb-garden` hides the old `::before` blossom. Colours are
+  `--mb-h`/`--mb-h2` offsets via one hidden `svg.mbg-defs` of gradients, so her picker
+  recolours them live. Cats mode hides the crowns (its kitten faces are on `::before`).
+- **Butterflies.** One at a time, now and then (first ~6–15 s in, then 25–70 s after the
+  last leaves; never in a hidden tab): it flutters in from the left or top, lands on a
+  card's vine rail, fans its wings for 9–22 s, then visits another card or flies off.
+  **Tap it** and it bolts. Six hues off her purple. It sits in `.mb-sky`, a zero-size box
+  at the page origin, placed by transform in page coordinates and only ever crossing the
+  left/top edges — so it can never widen or lengthen the page. If its card disappears
+  (her phone shows one column at a time) or moves, it flies off.
+- **Fireflies** — a dozen drifting, blinking gold dots (`.mb-fireflies`) at night or when
+  every light is off (the All Lights switch reads "off" → `html[data-mb-dark]`).
+- ⚠ **Glance replaces `HTMLElement.prototype.animate`** (templating.js: its own
+  `animate({keyframes, options}, callback)` that returns the element). Called the
+  standard way it throws "callback is not a function" and the animation never
+  finishes — the butterfly never landed. garden.js calls `Element.prototype.animate`,
+  which is still the browser's own. Do the same in any new script that animates an
+  HTML element with the Web Animations API.
+- Reduced motion: crowns stand still, no butterflies or fireflies are ever made.
 
 ## Live lights (no polling)
 

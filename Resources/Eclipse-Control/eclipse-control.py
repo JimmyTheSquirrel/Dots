@@ -49,7 +49,9 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ECLIPSE = os.environ.get("ECLIPSE_HOST", "100.80.62.3")
@@ -141,10 +143,22 @@ EVENTS_TV_S = 5.0
 EVENTS_CTL_S = 8.0
 
 # A bounded discovery window. bluetoothctl's --timeout makes `scan on` return on
-# its own; without it the scan runs forever and holds an SSH channel open. Keep
-# it short: anyBusy() in eclipse.js greys EVERY button while an action runs, so
-# a long scan freezes the whole panel, not just this card.
-CTL_SCAN_S = int(os.environ.get("CTL_SCAN_SECONDS", "20"))
+# its own; without it the scan runs forever and holds an SSH channel open. It
+# runs in the BACKGROUND (start_scan) and is not an /act/ action, so it never
+# greys the rest of the panel; while it runs, what it finds is pushed every
+# EVENTS_SCAN_S as a `scan` event, to every open dashboard.
+CTL_SCAN_S = int(os.environ.get("CTL_SCAN_SECONDS", "45"))
+EVENTS_SCAN_S = 3.0
+# How long the last search's results stay up after it ends, so a device found
+# in the last seconds can still be tapped.
+CTL_SCAN_KEEP_S = 180
+# The most unpaired devices a search lists (and asks `info` about): a block of
+# flats can show dozens of phones and TVs.
+CTL_SCAN_MAX = 24
+# Names WE give devices ("Rock's pad"), kept on Asgard — they never touch the
+# Pi, so no caller string goes near its root shell. Both dashboards read them
+# from here, so a rename on one shows on the other.
+CTL_NAME_MAX = 24
 
 # Anchored and upper-case. Any MAC from a dashboard is interpolated into a
 # string that ssh() hands to a shell AS ROOT on the Pi, so it is validated here
@@ -403,13 +417,112 @@ def _fetch_status():
 #
 # So `paired` and `connected` come from BlueZ, but `live` -- the only one the
 # card shows as working -- means an actual node exists in /proc/bus/input.
+# One look at everything, every EVENTS_CTL_S while a page is watching:
+#   adapter=  bluetoothctl show (Powered, Discovering, Pairable)
+#   dev=      every device BlueZ knows (paired, and anything a search found)
+#   flag=     Paired / Trusted / Connected membership (bluetoothctl's filters)
+#   btbat=    BlueZ's Battery1 percentage, for connected devices that have one
+#   input=    /proc/bus/input/devices names AND Uniq — for a Bluetooth HID
+#             device Uniq is its MAC, so `live` matches the exact pad, not
+#             just one with the same name (two DualSenses share a name)
+#   bat=      kernel power_supply: hid-playstation's ps-controller-battery-<mac>
+#   net=      connman's services, for the network rows
+# Generic "Key: value" seds + filtering in Python: LibreELEC's sed is busybox.
 CTL_CMD = (
-    "echo \"btpower=$(bluetoothctl show 2>/dev/null | sed -n 's/.*Powered: //p' | head -1)\"; "
-    "bluetoothctl devices 2>/dev/null | sed 's/^Device /dev=/'; "
-    "bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /conn=/'; "
-    "grep '^N: Name=' /proc/bus/input/devices | sed 's/^N: Name=\"/input=/; s/\"$//'; "
+    "bluetoothctl show 2>/dev/null | sed -n 's/^[[:space:]]*\\([A-Za-z]*\\): /adapter=\\1=/p'; "
+    "bluetoothctl devices 2>/dev/null | sed -n 's/^Device /dev=/p'; "
+    "for f in Paired Trusted Connected; do bluetoothctl devices $f 2>/dev/null"
+    " | sed -n \"s/^Device \\([0-9A-Fa-f:]*\\).*/flag=$f \\1/p\"; done; "
+    "for m in $(bluetoothctl devices Connected 2>/dev/null | awk '{print $2}'); do"
+    " bluetoothctl info \"$m\" 2>/dev/null"
+    " | sed -n \"s/^[[:space:]]*Battery Percentage: .*(\\([0-9]*\\)).*/btbat=$m \\1/p\"; done; "
+    "grep -E '^(N: Name|U: Uniq)=' /proc/bus/input/devices 2>/dev/null | sed 's/^/input=/'; "
+    "for b in /sys/class/power_supply/*; do [ -r \"$b/capacity\" ] &&"
+    " echo \"bat=${b##*/} $(cat \"$b/capacity\" 2>/dev/null) $(cat \"$b/status\" 2>/dev/null)\"; done; "
     "connmanctl services 2>/dev/null | head -8 | sed 's/^/net=/'"
 )
+
+# What a running search has found: every device BlueZ knows that is NOT paired
+# (a pad in pairing mode, a phone…), each with its signal and icon. Devices
+# with no name yet (BlueZ shows those as their MAC) skip the `info` call.
+SCAN_CMD = (
+    "p=$(bluetoothctl devices Paired 2>/dev/null | awk '{print $2}'); "
+    "bluetoothctl devices 2>/dev/null | head -" + str(CTL_SCAN_MAX * 2) + " | while read -r _ m name; do"
+    " case \" $p \" in *\"$m\"*) continue;; esac;"
+    " echo \"found=$m $name\";"
+    " case \"$name\" in ??-??-??-??-??-??) continue;; esac;"
+    " bluetoothctl info \"$m\" 2>/dev/null | sed -n"
+    " -e \"s/^[[:space:]]*RSSI: \\(.*\\)/fi=$m rssi \\1/p\""
+    " -e \"s/^[[:space:]]*Icon: \\(.*\\)/fi=$m icon \\1/p\"; done"
+)
+
+_UNNAMED = re.compile(r"^([0-9A-F]{2}[-:]){5}[0-9A-F]{2}$", re.I)
+
+
+def _kind(name, icon=""):
+    """gamepad / audio / keyboard / mouse / remote / phone / other — from
+    BlueZ's Icon when it has one, else the name."""
+    n, i = (name or "").lower(), (icon or "").lower()
+    if i.startswith("input-gaming") or any(w in n for w in (
+            "controller", "dualsense", "dualshock", "gamepad", "xbox", "joy-con",
+            "8bitdo", "stadia", "joystick")):
+        return "gamepad"
+    if i.startswith("audio") or any(w in n for w in (
+            "buds", "airpods", "headphone", "headset", "speaker", "soundbar", "wh-", "wf-")):
+        return "audio"
+    if i == "input-keyboard" or "keyboard" in n:
+        return "keyboard"
+    if i in ("input-mouse", "input-tablet") or "mouse" in n or "trackpad" in n:
+        return "mouse"
+    if "remote" in n:
+        return "remote"
+    if i == "phone" or any(w in n for w in ("iphone", "galaxy", "pixel", "phone")):
+        return "phone"
+    return "other"
+
+
+def _rssi(v):
+    """'0xffffffc4 (-60)' on newer BlueZ, '-60' on older: the signed dBm."""
+    m = re.search(r"\((-?\d+)\)", v or "") or re.match(r"^\s*(-?\d+)\s*$", v or "")
+    return int(m.group(1)) if m else None
+
+
+# ── Our names for devices ────────────────────────────────────────────────────
+_STATE_DIR = os.environ.get("STATE_DIRECTORY", "").split(":")[0]
+NAMES_FILE = os.environ.get("CTL_NAMES_FILE") or (
+    os.path.join(_STATE_DIR, "ctl-names.json") if _STATE_DIR else "")
+_names_lock = threading.Lock()
+
+
+def _load_names():
+    try:
+        with open(NAMES_FILE) as fh:
+            raw = json.load(fh)
+        return {k.upper(): str(v)[:CTL_NAME_MAX] for k, v in raw.items()
+                if MAC_RE.match(k.upper()) and str(v).strip()}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {}
+
+
+NAMES = _load_names()
+
+
+def _save_names():
+    if not NAMES_FILE:
+        return
+    tmp = NAMES_FILE + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(NAMES, fh, indent=1, sort_keys=True)
+    os.replace(tmp, NAMES_FILE)
+
+
+def clean_name(raw):
+    """A name a person typed: whitespace collapsed, no control or format
+    characters, at most CTL_NAME_MAX characters. It is only ever shown (escaped
+    by the page) and stored here — never sent to the Pi."""
+    s = unicodedata.normalize("NFC", raw or "")
+    s = "".join(ch for ch in s if unicodedata.category(ch)[0] not in "CZ" or ch == " ")
+    return " ".join(s.split())[:CTL_NAME_MAX].strip()
 
 
 def _subs_state():
@@ -472,39 +585,75 @@ def _set_subs(mode=None, lang=None):
 
 
 def _fetch_ctl():
-    ok, out = ssh(CTL_CMD, timeout=12)
+    ok, out = ssh(CTL_CMD, timeout=15)
     st = {"reachable": ok, "bt_powered": False, "devices": [], "net": [],
           "subs": _subs_state()}
     if not ok:
         st["error"] = out
         return st
-    devs, conn, inputs, nets = [], set(), [], []
+    adapter, known, flags, btbat, inputs, bats, nets = {}, {}, {}, {}, [], {}, []
+    cur = None
     for line in out.splitlines():
         k, _, v = line.partition("=")
         v = v.strip()
-        if k == "btpower":
-            st["bt_powered"] = v == "yes"
+        if k == "adapter":
+            key, _, val = v.partition("=")
+            adapter[key] = val.strip()
         elif k == "dev":
             mac, _, name = v.partition(" ")
-            devs.append((mac.upper(), name.strip() or mac))
-        elif k == "conn":
-            conn.add(v.split()[0].upper() if v else "")
+            if MAC_RE.match(mac.upper()):
+                known[mac.upper()] = name.strip() or mac.upper()
+        elif k == "flag":
+            f, _, mac = v.partition(" ")
+            flags.setdefault(mac.strip().upper(), set()).add(f)
+        elif k == "btbat":
+            mac, _, pct = v.partition(" ")
+            if pct.strip().isdigit():
+                btbat[mac.upper()] = int(pct)
         elif k == "input":
-            inputs.append(v)
+            # N: then U: per input device, in that order.
+            if v.startswith("N: Name="):
+                cur = {"name": v[8:].strip().strip('"'), "uniq": ""}
+                inputs.append(cur)
+            elif v.startswith("U: Uniq=") and cur is not None:
+                cur["uniq"] = v[8:].strip().upper()
+        elif k == "bat":
+            parts = v.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                bats[parts[0].lower()] = (int(parts[1]), " ".join(parts[2:]).lower())
         elif k == "net":
             nets.append(v)
-    for mac, name in devs:
-        # The liveness test. A DualSense registers two nodes (the pad and its
-        # motion sensors), so a prefix match on the BlueZ name is enough.
-        live = any(name.lower() in i.lower() or i.lower().startswith(name.lower()[:14])
-                   for i in inputs)
+    st["bt_powered"] = adapter.get("Powered") == "yes"
+    uniqs = {i["uniq"] for i in inputs if i["uniq"]}
+    for mac, model in known.items():
+        f = flags.get(mac, set())
+        if "Paired" not in f:
+            continue                       # found by a search, not ours: that's the scan list
+        connected = "Connected" in f
+        # The liveness test: an input node carrying THIS MAC. Only for a node
+        # with no Uniq at all, fall back to the name (a DualSense registers the
+        # pad and its motion sensors, so a prefix is enough).
+        live = mac in uniqs or any(
+            not i["uniq"] and (model.lower() in i["name"].lower()
+                               or i["name"].lower().startswith(model.lower()[:14]))
+            for i in inputs)
+        live = live and connected
+        battery, charging = btbat.get(mac), False
+        for sup, (pct, status) in bats.items():
+            if mac.lower() in sup:
+                battery, charging = pct, status in ("charging", "full")
+        custom = NAMES.get(mac, "")
         st["devices"].append({
-            "mac": mac, "name": name, "connected": mac in conn, "live": live,
+            "mac": mac, "name": custom or model, "model": model, "custom": bool(custom),
+            "kind": _kind(model), "trusted": "Trusted" in f, "connected": connected,
+            "live": live,
             # The case the whole card exists to expose.
-            "stale": mac in conn and not live,
+            "stale": connected and not live,
+            "battery": battery if connected else None, "charging": charging,
         })
+    st["devices"].sort(key=lambda d: (not d["live"], not d["connected"], d["name"].lower()))
     for raw in nets:
-        flags, rest = raw[:3], raw[3:].strip()
+        flags_, rest = raw[:3], raw[3:].strip()
         if not rest:
             continue
         sid = rest.split()[-1]
@@ -512,8 +661,8 @@ def _fetch_ctl():
         kind = "ethernet" if sid.startswith("ethernet_") else (
             "wifi" if sid.startswith("wifi_") else "other")
         nets_entry = {"name": name, "kind": kind,
-                      "online": "O" in flags, "ready": "R" in flags,
-                      "favourite": "*" in flags}
+                      "online": "O" in flags_, "ready": "R" in flags_,
+                      "favourite": "*" in flags_}
         # Only the ones that matter: what is carrying traffic, plus any
         # remembered network. A list of every SSID in range is noise on a TV.
         if nets_entry["favourite"]:
@@ -531,59 +680,298 @@ def _last_meaningful(out):
     return ""
 
 
-def _known_macs():
-    """MACs the Pi itself reports as known. A dashboard-supplied MAC is checked
-    against this before it is ever interpolated into a root shell command."""
-    ok, out = ssh("bluetoothctl devices 2>/dev/null | sed 's/^Device /dev=/'", timeout=8)
+def _known_macs(paired_only=False):
+    """MACs the Pi itself reports — every known device, or only the paired
+    ones. A dashboard-supplied MAC is checked against this before it is ever
+    interpolated into a root shell command."""
+    ok, out = ssh("bluetoothctl devices" + (" Paired" if paired_only else "") +
+                  " 2>/dev/null | sed -n 's/^Device /dev=/p'", timeout=8)
     if not ok:
         return set()
     return {l.partition("=")[2].split()[0].upper()
             for l in out.splitlines() if l.startswith("dev=") and l.partition("=")[2].strip()}
 
 
+def _display(mac):
+    """What to call a device in the activity log: our name, else BlueZ's."""
+    if NAMES.get(mac):
+        return NAMES[mac]
+    for d in (HUB.state.get("ctl") or {}).get("devices", []):
+        if d["mac"] == mac:
+            return d["name"]
+    for d in (HUB.state.get("scan") or {}).get("found", []):
+        if d["mac"] == mac:
+            return d["name"]
+    return mac
+
+
+def _ctl_guard(mac, paired_only=True):
+    """Validate a dashboard-supplied MAC: shape, then the Pi's own list."""
+    mac = (mac or "").upper()
+    if not MAC_RE.match(mac):
+        return mac, (400, {"ok": False, "error": "bad MAC"})
+    if mac not in _known_macs(paired_only):
+        return mac, (404, {"ok": False, "error": "not a known device" if paired_only
+                                  else "not found — search again"})
+    return mac, None
+
+
+def _with_ctl_busy(mac, what, fn):
+    """Run fn() with `mac` marked busy (`what`: pairing, connecting…) on every
+    open dashboard; one operation per device at a time."""
+    if not HUB.set_ctlbusy(mac, what):
+        return 409, {"ok": False, "error": _display(mac) + " is busy"}
+    try:
+        return fn()
+    finally:
+        HUB.set_ctlbusy(mac, None)
+        HUB.wake.set()
+
+
 def ctl_connect(mac, disconnect=False):
+    mac, bad = _ctl_guard(mac)
+    if bad:
+        return bad
+    verb = "disconnect" if disconnect else "connect"
+
+    def go():
+        ok, out = ssh("bluetoothctl " + verb + " " + mac + " 2>&1 | tail -4", timeout=25)
+        if not ok:
+            return 502, {"ok": False, "error": (out or "ssh failed")[:200]}
+        # bluetoothctl's exit status is NOT usable here, for two reasons: it is
+        # piped through tail (so the pipeline reports tail's status, always 0),
+        # and in non-interactive mode it exits 0 even when the attempt plainly
+        # failed. Taking it at face value reports a successful connect for a pad
+        # that is switched off -- exactly the false "it's working" this whole
+        # card exists to stop. The output text is the only honest signal.
+        low = (out or "").lower()
+        if "successful" in low:
+            return 200, {"ok": True, "message": _display(mac) + " " + verb + "ed"}
+        if "failed" in low or "not available" in low:
+            # status 0x04 / br-connection-create-sock is what a powered-off or
+            # out-of-range pad looks like; say that rather than echoing D-Bus.
+            friendly = ("it's off or out of range — switch it on (PS button) and try again"
+                        if ("0x04" in low or "create-sock" in low or "page timeout" in low
+                            or "page-timeout" in low or "host is down" in low)
+                        else _last_meaningful(out))
+            return 502, {"ok": False, "error": _display(mac) + ": " + friendly}
+        return 200, {"ok": True, "message": _last_meaningful(out) or (_display(mac) + " " + verb + "ed")}
+
+    return _with_ctl_busy(mac, verb + "ing", go)
+
+
+def ctl_trust(mac, on=True):
+    """Auto-connect. BlueZ only lets a device connect BY ITSELF (switch the pad
+    on, it reconnects) when it is Trusted — there is no agent on the Pi to
+    authorise it otherwise."""
+    mac, bad = _ctl_guard(mac)
+    if bad:
+        return bad
+
+    def go():
+        ok, out = ssh("bluetoothctl " + ("trust " if on else "untrust ") + mac + " 2>&1 | tail -2", timeout=12)
+        if ok and "succeeded" in (out or "").lower():
+            return 200, {"ok": True, "message": _display(mac) + (
+                ": auto-connect on — it connects when switched on" if on else ": auto-connect off")}
+        return 502, {"ok": False, "error": _last_meaningful(out) or "no answer"}
+
+    return _with_ctl_busy(mac, "saving", go)
+
+
+def ctl_forget(mac):
+    """Remove the pairing. Our name for it is kept, so re-pairing the same pad
+    (the -5 recovery) gets its name back."""
+    mac, bad = _ctl_guard(mac)
+    if bad:
+        return bad
+
+    def go():
+        name = _display(mac)
+        ok, out = ssh("bluetoothctl remove " + mac + " 2>&1 | tail -2", timeout=15)
+        if ok and "removed" in (out or "").lower():
+            return 200, {"ok": True, "message": name + " forgotten — pair it again to use it"}
+        return 502, {"ok": False, "error": _last_meaningful(out) or "no answer"}
+
+    return _with_ctl_busy(mac, "forgetting", go)
+
+
+def ctl_pair(mac):
+    """Pair, trust (auto-connect) and connect a device a search found. Pairing
+    stops the search first: BlueZ pairs badly while it is still discovering.
+    No agent is needed — a gamepad pairs "just works" (no PIN), which is what
+    BlueZ does by itself when there is none."""
+    mac, bad = _ctl_guard(mac, paired_only=False)
+    if bad:
+        return bad
+
+    def go():
+        name = _display(mac)
+        stop_scan(quiet=True)
+        ok, out = ssh(
+            "bluetoothctl pairable on >/dev/null 2>&1; "
+            "bluetoothctl --timeout 30 pair " + mac + " 2>&1 | tail -6; "
+            "bluetoothctl trust " + mac + " >/dev/null 2>&1; "
+            "sleep 2; "
+            "bluetoothctl info " + mac + " 2>/dev/null | grep -E 'Paired:|Connected:'; "
+            "bluetoothctl pairable off >/dev/null 2>&1",
+            timeout=55)
+        low = (out or "").lower()
+        if ok and "paired: yes" in low:
+            with SCAN_LOCK:
+                SCAN["found"] = [d for d in SCAN["found"] if d["mac"] != mac]
+            _publish_scan()
+            return 200, {"ok": True, "mac": mac, "message": name + " paired" + (
+                " and connected" if "connected: yes" in low else " — switch it on to connect")}
+        why = _last_meaningful(out.replace("Paired: no", "").replace("Connected: no", "")) if out else ""
+        if "authenticationfailed" in low.replace(" ", "") or "authentication" in low:
+            why = "it stopped pairing — hold the buttons again until the light flashes, then Pair"
+        elif "not available" in low or "does not exist" in low:
+            why = "it's gone from range — search again"
+        return 502, {"ok": False, "error": name + ": " + (why or "pairing failed")}
+
+    return _with_ctl_busy(mac, "pairing", go)
+
+
+def ctl_rename(mac, name):
+    """Our name for a paired device; empty puts its own name back. Stored on
+    Asgard (NAMES_FILE); nothing is sent to the Pi."""
     mac = (mac or "").upper()
     if not MAC_RE.match(mac):
         return 400, {"ok": False, "error": "bad MAC"}
-    if mac not in _known_macs():
-        return 404, {"ok": False, "error": "not a known device"}
-    verb = "disconnect" if disconnect else "connect"
-    ok, out = ssh("bluetoothctl " + verb + " " + mac + " 2>&1 | tail -4", timeout=25)
-    HUB.wake.set()
+    paired = {d["mac"] for d in (HUB.state.get("ctl") or {}).get("devices", [])}
+    if mac not in paired:
+        return 404, {"ok": False, "error": "not a paired device"}
+    name = clean_name(name)
+    with _names_lock:
+        old = NAMES.get(mac, "")
+        if name:
+            NAMES[mac] = name
+        else:
+            NAMES.pop(mac, None)
+        try:
+            _save_names()
+        except OSError as exc:
+            return 500, {"ok": False, "error": "could not save: " + str(exc)[:80]}
+    # Show it now, on every dashboard, without waiting for the next poll.
+    ctl = HUB.state.get("ctl")
+    if ctl:
+        devs = []
+        for d in ctl.get("devices", []):
+            d = dict(d)
+            if d["mac"] == mac:
+                d["name"], d["custom"] = (name or d["model"]), bool(name)
+            devs.append(d)
+        HUB.publish("ctl", dict(ctl, devices=devs))
+    model = next((d["model"] for d in (ctl or {}).get("devices", []) if d["mac"] == mac), mac)
+    return 200, {"ok": True, "message": (old or model) + (" is now " + name if name else " shows its own name again")}
+
+
+# ── Searching: a background discovery window, pushed live ────────────────────
+SCAN_LOCK = threading.Lock()
+SCAN = {"proc": None, "active": False, "started": 0, "ends": 0, "ended": 0,
+        "found": [], "unnamed": 0}
+
+
+def _scan_state():
+    with SCAN_LOCK:
+        if not SCAN["active"] and not SCAN["found"] and not SCAN["ended"]:
+            return {"active": False, "found": [], "unnamed": 0}
+        if not SCAN["active"] and time.time() - SCAN["ended"] > CTL_SCAN_KEEP_S:
+            SCAN["found"], SCAN["unnamed"], SCAN["ended"] = [], 0, 0
+            return {"active": False, "found": [], "unnamed": 0}
+        return {"active": SCAN["active"], "ends": SCAN["ends"], "ended": SCAN["ended"],
+                "found": list(SCAN["found"]), "unnamed": SCAN["unnamed"]}
+
+
+def _publish_scan():
+    HUB.publish("scan", _scan_state())
+
+
+def _fetch_scan():
+    """One look at what the running search has found."""
+    ok, out = ssh(SCAN_CMD, timeout=20)
     if not ok:
-        return 502, {"ok": False, "error": (out or "ssh failed")[:200]}
-    # bluetoothctl's exit status is NOT usable here, for two reasons: it is
-    # piped through tail (so the pipeline reports tail's status, always 0), and
-    # in non-interactive mode it exits 0 even when the attempt plainly failed.
-    # Taking it at face value reports a successful connect for a pad that is
-    # switched off -- exactly the false "it's working" this whole card exists to
-    # stop. The output text is the only honest signal.
-    low = (out or "").lower()
-    if "successful" in low:
-        return 200, {"ok": True, "message": "controller " + verb + "ed"}
-    if "failed" in low or "not available" in low:
-        # status 0x04 / br-connection-create-sock is what a powered-off or
-        # out-of-range pad looks like; say that rather than echoing D-Bus.
-        friendly = ("controller is off or out of range"
-                    if ("0x04" in low or "create-sock" in low or "page timeout" in low)
-                    else _last_meaningful(out))
-        return 502, {"ok": False, "error": friendly}
-    return 200, {"ok": True, "message": _last_meaningful(out) or ("controller " + verb + "ed")}
+        return
+    found, info = {}, {}
+    for line in out.splitlines():
+        k, _, v = line.partition("=")
+        if k == "found":
+            mac, _, name = v.strip().partition(" ")
+            if MAC_RE.match(mac.upper()):
+                found[mac.upper()] = name.strip()
+        elif k == "fi":
+            mac, _, rest = v.strip().partition(" ")
+            key, _, val = rest.partition(" ")
+            info.setdefault(mac.upper(), {})[key] = val.strip()
+    named, unnamed = [], 0
+    for mac, name in found.items():
+        if not name or _UNNAMED.match(name):
+            unnamed += 1
+            continue
+        i = info.get(mac, {})
+        named.append({"mac": mac, "name": name, "kind": _kind(name, i.get("icon")),
+                      "rssi": _rssi(i.get("rssi"))})
+    # Controllers first, then the strongest signal: the pad in your hand.
+    named.sort(key=lambda d: (d["kind"] != "gamepad",
+                              -(d["rssi"] if d["rssi"] is not None else -999), d["name"].lower()))
+    with SCAN_LOCK:
+        SCAN["found"], SCAN["unnamed"] = named[:CTL_SCAN_MAX], unnamed
 
 
-def act_ctl_scan():
-    """Bounded discovery. A DualSense only advertises while physically held in
-    pairing mode (PS + Create), so this cannot be fully automated from here --
-    the card tells the user to do that first. `pairable off` is issued in the
-    same breath so the Pi is not left open to anything in radio range."""
-    ok, out = ssh(
-        "bluetoothctl --timeout " + str(CTL_SCAN_S) + " scan on >/dev/null 2>&1; "
-        "bluetoothctl pairable off >/dev/null 2>&1; "
-        "bluetoothctl devices 2>/dev/null | sed 's/^Device /dev=/'",
-        timeout=CTL_SCAN_S + 15)
-    found = [l.partition("=")[2] for l in out.splitlines() if l.startswith("dev=")]
-    return ok, ("found %d device(s): " % len(found)) + ", ".join(
-        f.split(" ", 1)[-1] for f in found[:6]) if found else "no devices found"
+def start_scan():
+    global _inflight
+    with SCAN_LOCK:
+        if SCAN["active"]:
+            return 200, {"ok": True, "message": "already searching"}
+        # `power on` first: searching is the moment someone clearly wants
+        # Bluetooth on. The ssh channel lives as long as the search, on the
+        # shared master; _inflight counts it so _drop_master() never cuts it.
+        cmd = ("bluetoothctl power on >/dev/null 2>&1; "
+               "bluetoothctl --timeout " + str(CTL_SCAN_S) + " scan on >/dev/null 2>&1")
+        try:
+            proc = subprocess.Popen(SSH_BASE + [cmd], stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+        except OSError as exc:
+            return 502, {"ok": False, "error": str(exc)[:120]}
+        now = time.time()
+        SCAN.update(proc=proc, active=True, started=now, ends=now + CTL_SCAN_S, ended=0,
+                    found=[], unnamed=0)
+    with _inflight_lock:
+        _inflight += 1
+    threading.Thread(target=_scan_wait, args=(proc,), daemon=True).start()
+    _publish_scan()
+    HUB.wake.set()
+    return 200, {"ok": True, "message": "searching for %ds" % CTL_SCAN_S}
+
+
+def _scan_wait(proc):
+    global _inflight
+    try:
+        proc.wait(timeout=CTL_SCAN_S + 20)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    finally:
+        with _inflight_lock:
+            _inflight -= 1
+    _fetch_scan()
+    with SCAN_LOCK:
+        if SCAN["proc"] is proc:
+            SCAN.update(proc=None, active=False, ended=time.time())
+    _publish_scan()
+    HUB.wake.set()
+
+
+def stop_scan(quiet=False):
+    """End the search now. Discovery belongs to the bluetoothctl that started
+    it (BlueZ tracks it per D-Bus client), so a second `scan off` would not
+    stop it: closing that process's ssh channel does — sshd hangs it up, and
+    BlueZ ends a departed client's discovery."""
+    with SCAN_LOCK:
+        proc = SCAN["proc"]
+    if proc is None:
+        return 200, {"ok": True, "message": "not searching"}
+    proc.terminate()
+    return 200, {"ok": True, "message": "search stopped"}
 
 
 def _route_sublang(code):
@@ -893,11 +1281,12 @@ ACTIONS = {
     "jellyfin-toggle": ("Switch Jellyfin path", act_jellyfin_toggle),
     "speedtest": ("Link test", act_speedtest),
     # Controllers + subtitles — both dashboards get all of these. Per-device
-    # connect/disconnect is NOT here: those take a MAC, and every entry in this
-    # table is a zero-argument closure so that no caller-supplied value can ever
-    # reach ssh()'s shell string. They go through ctl_connect() instead, which
-    # validates against MAC_RE and the Pi's own device list.
-    "ctl-scan": ("Scan for controllers", act_ctl_scan),
+    # connect/disconnect/pair/forget/trust are NOT here: those take a MAC, and
+    # every entry in this table is a zero-argument closure so that no
+    # caller-supplied value can ever reach ssh()'s shell string. They go through
+    # the /ctl/ routes instead, which validate against MAC_RE and the Pi's own
+    # device list (_ctl_guard). Searching is /ctl/scan, in the background.
+    "bt-on": ("Turn Bluetooth on", lambda: ssh("bluetoothctl power on 2>&1 | tail -1", timeout=12)),
     "subs-on": ("Subtitles on", act_subs_on),
     "subs-off": ("Subtitles off", act_subs_off),
 }
@@ -912,6 +1301,10 @@ ACTIONS = {
 #             tapped on MarsBar shows up on the admin page too, and the log
 #             survives a reload
 #   busy      actions running right now — every open page greys that button
+#   ctl       paired Bluetooth devices, our names for them, network path
+#   scan      a running (or just-finished) search: what it has found
+#   ctlbusy   {MAC: "pairing" | "connecting" | …} — so a Pair tapped on one
+#             dashboard shows "Pairing…" on that device on the other too
 # The poller sleeps while nobody is connected.
 
 class Hub:
@@ -919,7 +1312,8 @@ class Hub:
         self.cond = threading.Condition()
         self.version = 0
         self.state = {"status": None, "tv": None, "wolf": None, "ctl": None,
-                      "activity": [], "busy": {}}
+                      "scan": {"active": False, "found": [], "unnamed": 0},
+                      "activity": [], "busy": {}, "ctlbusy": {}}
         self.watchers = 0
         self.wake = threading.Event()
 
@@ -952,8 +1346,23 @@ class Hub:
             self.cond.notify_all()
         return True
 
+    def set_ctlbusy(self, mac, what):
+        """Mark one device busy (`what`) or free (None); False if it already is."""
+        with self.cond:
+            busy = dict(self.state["ctlbusy"])
+            if what:
+                if mac in busy:
+                    return False
+                busy[mac] = what
+            else:
+                busy.pop(mac, None)
+            self.state["ctlbusy"] = busy
+            self.version += 1
+            self.cond.notify_all()
+        return True
+
     def poller(self):
-        status_at = wolf_at = tv_at = ctl_at = 0.0
+        status_at = wolf_at = tv_at = ctl_at = scan_at = 0.0
         while True:
             if self.watchers > 0:
                 now = time.monotonic()
@@ -970,6 +1379,12 @@ class Hub:
                 if now - ctl_at >= EVENTS_CTL_S:
                     ctl_at = now
                     self.publish("ctl", _fetch_ctl())
+                if SCAN["active"] and now - scan_at >= EVENTS_SCAN_S:
+                    scan_at = now
+                    _fetch_scan()
+                    _publish_scan()
+                elif not SCAN["active"] and SCAN["ended"]:
+                    _publish_scan()        # ages the last results out
             else:
                 status_at = wolf_at = tv_at = ctl_at = 0.0
             if self.wake.wait(1.0):
@@ -1130,12 +1545,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
             HUB.wake.set()
             self._send(code, json.dumps(body), "application/json")
             return
+        # Bluetooth. Searching takes no argument; every other verb takes a
+        # MAC (validated against MAC_RE and the Pi's own list before it goes
+        # near a shell) — rename also a ?name=, which never leaves Asgard.
+        if path in ("ctl/scan", "ctl/scan/stop"):
+            if self.headers.get("X-Dash") != "1":
+                self._send(403, json.dumps({"ok": False, "error": "missing X-Dash header"}),
+                           "application/json")
+                return
+            code, body = start_scan() if path == "ctl/scan" else stop_scan()
+            if path == "ctl/scan" and code == 200 and body.get("message", "").startswith("searching"):
+                HUB.log("Search", True, "searching for Bluetooth devices")
+            self._send(code, json.dumps(body), "application/json")
+            return
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         # Per-device controller verbs and the subtitle language. Same shape as
         # wolf/stop/ above: a caller-supplied value, validated before use.
-        for prefix, handler in (
-            ("ctl/connect/", lambda v: ctl_connect(v)),
-            ("ctl/disconnect/", lambda v: ctl_connect(v, disconnect=True)),
-            ("ctl/sublang/", _route_sublang),
+        for prefix, label, handler in (
+            ("ctl/connect/", "Connect", lambda v: ctl_connect(v)),
+            ("ctl/disconnect/", "Disconnect", lambda v: ctl_connect(v, disconnect=True)),
+            ("ctl/pair/", "Pair", ctl_pair),
+            ("ctl/forget/", "Forget", ctl_forget),
+            ("ctl/trust/", "Auto-connect", lambda v: ctl_trust(v, True)),
+            ("ctl/untrust/", "Auto-connect", lambda v: ctl_trust(v, False)),
+            ("ctl/rename/", "Rename", lambda v: ctl_rename(v, (query.get("name") or [""])[0])),
+            ("ctl/sublang/", "Subtitle language", _route_sublang),
         ):
             if not path.startswith(prefix):
                 continue
@@ -1143,10 +1577,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(403, json.dumps({"ok": False, "error": "missing X-Dash header"}),
                            "application/json")
                 return
-            arg = path[len(prefix):]
-            label = prefix.rstrip("/").replace("ctl/", "").replace("sublang", "Subtitle language")
+            arg = urllib.parse.unquote(path[len(prefix):])
             code, body = handler(arg)
-            HUB.log(label.capitalize(), code == 200,
+            HUB.log(label, code == 200,
                     str(body.get("message") or body.get("error") or code)[:160])
             HUB.wake.set()
             self._send(code, json.dumps(body), "application/json")
