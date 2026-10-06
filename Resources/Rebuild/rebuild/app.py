@@ -356,7 +356,7 @@ class MenuScreen(Screen):
         event.stop()
         if event.key == "back":
             self.app.pop_screen()
-        elif event.key == "help":
+        elif event.key == "help" and not self.home:      # home's Help row is the Help menu
             self.app.push_screen(HelpPage(self.topic))
         elif event.key == "quit":
             self.app.exit()
@@ -416,6 +416,21 @@ class HomeScreen(MenuScreen):
         for card in self.query(PN.MachineCard):
             card.refresh()
         super().rebuild()
+
+    def on_resize(self, event: events.Resize) -> None:
+        super().on_resize(event)
+        self._fit(event.size.width, event.size.height)
+
+    def _fit(self, width: int, height: int) -> None:
+        # what the cards have to leave room for: the header, the menu (and its
+        # gap), the hints
+        header = 7 if width - 5 >= Header.BIG_FROM else 4
+        menu = self.query_one(Menu).get_content_height(None, None, width) if self.is_mounted else 7
+        self.query_one(PN.MachineStrip).fit(width, height, header + 1 + menu + 1)
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self._fit(self.size.width, self.size.height)
 
     def on_machine_card_picked(self, event: PN.MachineCard.Picked) -> None:
         h = H.BY_NAME[event.name]
@@ -663,7 +678,7 @@ class ApolloDeployMenu(MenuScreen):
             if repo.path and (repo.path / "Hosts" / h.name / "_disko.nix").is_file():
                 facter = (repo.path / "Hosts" / h.name / "facter.json").is_file()
                 items.append(Item(h.name, h.icon, h.name, h.role, Text(f"{h.key} · disko{' + facter' if facter else ''}", DIM), PURPLE,
-                                  preview=lambda h=h: Group(
+                                  preview=lambda h=h, facter=facter: Group(
                                       Text(f"Install {h.name} onto the machine booted from the stick: disko partitions "
                                            f"its disks{', facter.json describes its hardware' if facter else ''}, then "
                                            "nixos-anywhere installs it.", FG), Text(""),
@@ -906,7 +921,7 @@ class JobScreen(Screen):
         self.pty: PtyRun | None = None
         self.try_anyway: asyncio.Event | None = None
         self.nixlog = None
-        self.kind, self.host, self.tag, self.title = "", "", "", ""
+        self.kind, self.host, self.tag, self.job_title = "", "", "", ""
         self.stats: dict = {}
         self.outcome: tuple[bool, str] | None = None
         self.accent = AQUA
@@ -992,7 +1007,7 @@ class JobScreen(Screen):
     # what jobs call ───────────────────────────────────────────────────────────
     def begin(self, stages: list[str], accent: str, tag: str, title: str, sub: str, right: str,
               kind: str = "", host: str = "") -> None:
-        self.accent, self.kind, self.host, self.tag, self.title = accent, kind, host, tag, title
+        self.accent, self.kind, self.host, self.tag, self.job_title = accent, kind, host, tag, title
         usual = HIST.typical(host, (kind,)) if host and kind else None
         self.query_one(Banner).set(tag, title, sub, right, accent, usual)
         self.stages = Stages(stages, accent)
@@ -1003,7 +1018,7 @@ class JobScreen(Screen):
         if self.stages and name in self.stages.names:
             self.stages.set(self.stages.names.index(name), state)
             if state == "running":
-                self.app.set_title(f"⋯ {self.tag} {self.title} · {name} — system-rebuild")
+                self.app.set_title(f"⋯ {self.tag} {self.job_title} · {name} — system-rebuild")
 
     async def add(self, widget: Widget) -> Widget:
         await self.journal.mount(widget)
@@ -1124,14 +1139,14 @@ class JobScreen(Screen):
         return await fut
 
     async def ask(self, kind: str, text: str, where: str = ""):
-        self.app.set_title(f"? {self.title} wants an answer — system-rebuild")
-        self.app.alert(f"{self.title} is waiting on you", text)   # a password or a question
+        self.app.set_title(f"? {self.job_title} wants an answer — system-rebuild")
+        self.app.alert(f"{self.job_title} is waiting on you", text)   # a password or a question
         if kind == "password":
             r = await self.modal(PasswordModal(text, f"for the command running on {where}" if where else ""))
         else:
             r = await self.modal(ChoiceModal(text, [("yes", "Yes"), ("no", "No")], self.accent))
         run = self.stages.running() if self.stages else None
-        self.app.set_title(f"⋯ {self.tag} {self.title}{f' · {run}' if run else ''} — system-rebuild")
+        self.app.set_title(f"⋯ {self.tag} {self.job_title}{f' · {run}' if run else ''} — system-rebuild")
         return r
 
     async def choose(self, question: str, choices: list[tuple[str, str]], detail: str = "", danger: bool = False):

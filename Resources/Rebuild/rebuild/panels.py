@@ -140,6 +140,7 @@ class MachineCard(Widget):
 
     DEFAULT_CSS = """
     MachineCard { height: 6; border: round #504945; padding: 0 1; }
+    MachineCard.compact { height: 3; }
     MachineCard:hover { background: #282828; }
     """
 
@@ -239,6 +240,8 @@ class MachineCard(Widget):
                 lines.append(Text(""))
         last = HIST.last(h.name, ("switch", "boot", "build"))
         lines.append(run_line(last, "the USB stick" if h.mode == "stick" and not last else "nothing from here yet"))
+        if self.has_class("compact"):           # a short terminal: just how it is right now
+            lines = lines[:1]
         out = Text()
         for i, l in enumerate(lines):
             l.truncate(w, overflow="ellipsis")
@@ -252,7 +255,8 @@ class MachineCard(Widget):
 
 
 class MachineStrip(Grid):
-    """The cards side by side — four across when there's room, else two."""
+    """The cards side by side — four across when there's room, else two; on a
+    short terminal they shrink to one line each so the menu still fits."""
 
     DEFAULT_CSS = """
     MachineStrip { height: auto; grid-size: 4; grid-gutter: 0 1; margin: 1 2 0 2; grid-rows: 6; }
@@ -262,10 +266,19 @@ class MachineStrip(Grid):
         for h in H.HOSTS:
             yield MachineCard(h)
 
-    def on_resize(self, event: events.Resize) -> None:
-        cols = 4 if event.size.width >= 4 * 30 else 2 if event.size.width >= 2 * 28 else 1
+    def fit(self, width: int, height: int, other_rows: int) -> None:
+        """WIDTH × HEIGHT is the screen; OTHER_ROWS what everything else on it needs."""
+        inner = width - 4
+        cols = 4 if inner >= 4 * 30 else 2 if inner >= 2 * 28 else 1
+        rows = -(-len(H.HOSTS) // cols)
+        compact = height < other_rows + 1 + rows * 6
         if self.styles.grid_size_columns != cols:
             self.styles.grid_size_columns = cols
+        if compact != getattr(self, "compact", None):
+            self.compact = compact
+            self.styles.grid_rows = "3" if compact else "6"
+            for card in self.query(MachineCard):
+                card.set_class(compact, "compact")
 
 
 # ── previews: the home screen ─────────────────────────────────────────────────
@@ -382,7 +395,7 @@ def pv_action(app, h: H.Host, action: str, local: bool) -> Group:
         if local:
             parts.append(cmd(f"sudo nixos-rebuild {action}{pflag} --store-path …", accent))
         else:
-            parts.append(cmd(f"nixos-rebuild {action} --store-path … --target-host {h.target}", accent))
+            parts.append(cmd(f"nixos-rebuild {action}{pflag} --store-path … --target-host {h.target}", accent))
     return Group(*parts)
 
 

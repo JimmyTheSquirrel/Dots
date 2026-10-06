@@ -306,10 +306,17 @@ class Hints(Widget):
     keys: reactive[tuple] = reactive(())
 
     def render(self) -> Text:
-        t = Text()
-        for k, what in self.keys:
+        for gap in ("   ", " "):
+            t = Text()
+            for k, what in self.keys:
+                t.append_text(pill(f" {k} "))
+                t.append(f" {what}{gap}", DIM)
+            if t.cell_len <= self.size.width:
+                return t
+        t = Text()                               # still too wide: just the keys
+        for k, _ in self.keys:
             t.append_text(pill(f" {k} "))
-            t.append(f" {what}   ", DIM)
+            t.append(" ")
         return t
 
 
@@ -345,7 +352,7 @@ class Menu(Widget, can_focus=True):
             super().__init__()
             self.item, self.moved = item, moved
 
-    def __init__(self, items: list[Item] | None = None, compact: bool = False, **kw):
+    def __init__(self, items: list[Item] | None = None, compact: bool = False, rows: int | None = None, **kw):
         super().__init__(**kw)
         self.items: list[Item] = items or []
         self.index = 0
@@ -353,6 +360,8 @@ class Menu(Widget, can_focus=True):
         self.t_moved = 0.0
         self.anim = None
         self.compact = compact      # no description column (a preview panel says it instead)
+        self.rows = rows            # show at most this many, scrolling with the highlight (no gaps then)
+        self.top = 0
 
     # contents ────────────────────────────────────────────────────────────────
     def set_items(self, items: list[Item], keep: str | None = None) -> None:
@@ -365,7 +374,21 @@ class Menu(Widget, can_focus=True):
         self.post_message(self.Highlighted(self.items[self.index] if self.items else None, False))
 
     def get_content_height(self, container, viewport, width) -> int:
+        if self.rows:
+            return max(1, min(self.rows, len(self.items)))
         return sum(2 if i.gap_before else 1 for i in self.items)
+
+    def _window(self) -> range:
+        """The rows on screen: all of them, or a window that keeps the highlight in view."""
+        if not self.rows or len(self.items) <= self.rows:
+            self.top = 0
+            return range(len(self.items))
+        self.top = max(0, min(self.top, len(self.items) - self.rows))
+        if self.index < self.top:
+            self.top = self.index
+        elif self.index >= self.top + self.rows:
+            self.top = self.index - self.rows + 1
+        return range(self.top, self.top + self.rows)
 
     @property
     def current(self) -> str | None:
@@ -417,6 +440,9 @@ class Menu(Widget, can_focus=True):
         event.stop()
 
     def _row_at(self, y: int) -> int | None:
+        if self.rows:
+            n = self.top + y
+            return n if 0 <= y < self.rows and n < len(self.items) else None
         top = 0
         for n, it in enumerate(self.items):
             top += 2 if it.gap_before else 1
@@ -446,11 +472,14 @@ class Menu(Widget, can_focus=True):
         out = Text()
         num = 0
         lw = max([len(i.label) for i in self.items] + [8]) + 2
+        shown = self._window()
         for n, it in enumerate(self.items):
-            if it.gap_before:
-                out.append("\n")
             if it.numbered:
                 num += 1
+            if n not in shown:
+                continue
+            if it.gap_before and not self.rows:
+                out.append("\n")
             sel, was = n == self.index, n == self.prev
             hl = ease if sel else (1 - ease if was else 0.0)
             row = Text()
@@ -474,8 +503,13 @@ class Menu(Widget, can_focus=True):
                 row.stylize(f"on {HL}", 0, max(1, round(width * ease)))
             elif was and hl > 0.01:              # the old one fades
                 row.stylize(f"on {mix(BG, HL, hl)}")
+            if self.rows and len(self.items) > self.rows and n in (shown.start, shown.stop - 1):
+                more = shown.start if n == shown.start else len(self.items) - shown.stop
+                if more:                             # a hint that there's more above / below
+                    row.right_crop(2)
+                    row.append("↑ " if n == shown.start else "↓ ", f"bold {DIM}")
             out.append_text(row)
-            if n < len(self.items) - 1:
+            if n < shown.stop - 1:
                 out.append("\n")
         return out
 
@@ -1035,7 +1069,7 @@ class JumpModal(_Modal):
     DEFAULT_CSS = """
     JumpModal { align: center top; background: #1d2021 45%; }
     JumpModal > Vertical { width: 84; margin-top: 3; border: round #83a598; }
-    JumpModal Menu { max-height: 16; }
+    JumpModal Menu { height: auto; }
     """
 
     def __init__(self, actions: list[Action]):
@@ -1045,7 +1079,7 @@ class JumpModal(_Modal):
     def compose(self):
         with Vertical():
             yield Input(placeholder=f"{I_SEARCH}  jump to…  (switch asgard · update · gc · help remote)")
-            yield Menu(id="hits")
+            yield Menu(id="hits", rows=14)
             yield Static(Text("\n↑↓ move   ⏎ go   esc close", DIM), classes="hint")
 
     def on_mount(self) -> None:
@@ -1062,9 +1096,9 @@ class JumpModal(_Modal):
         hits.sort(key=lambda p: p[0])
         menu = self.query_one(Menu)
         menu.set_items([Item(a.key, a.icon, a.label, a.desc, Text(a.where, DIM), a.accent, numbered=False)
-                        for _, a in hits[:40]])
-        menu.index = 0
-        menu.refresh()
+                        for _, a in hits])
+        menu.index = menu.top = 0
+        menu.refresh(layout=True)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._filter(event.value)

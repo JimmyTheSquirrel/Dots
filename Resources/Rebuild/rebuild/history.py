@@ -71,16 +71,27 @@ def load() -> list[Run]:
         return hit[1]
     runs: list[Run] = []
     try:
-        for line in p.read_text().splitlines():
-            try:
-                d = json.loads(line)
-                runs.append(Run(**{k: v for k, v in d.items() if k in Run.__dataclass_fields__}))
-            except (ValueError, TypeError):
-                continue
+        text = p.read_text(errors="replace")
     except OSError:
         return []
+    for line in text.splitlines():
+        try:
+            runs.append(_run(json.loads(line)))
+        except (ValueError, TypeError, AttributeError):
+            continue                     # a hand edit or a torn write: skip the line, keep the rest
     _cache["all"] = (m, runs)
     return runs
+
+
+def _run(d: dict) -> Run:
+    """A Run from one line, every field the type the app expects."""
+    if not isinstance(d, dict):
+        raise TypeError("not an object")
+    num = lambda k: float(d.get(k) or 0)
+    return Run(kind=str(d.get("kind") or "?"), host=str(d.get("host") or ""), ok=bool(d.get("ok")),
+               t=num("t"), took=num("took"), build=num("build"), result=str(d.get("result") or ""),
+               closure=int(num("closure")), changed=int(num("changed")), built=int(num("built")),
+               extra=d.get("extra") if isinstance(d.get("extra"), dict) else {})
 
 
 def last(host: str = "", kinds: tuple[str, ...] = (), ok: bool | None = None) -> Run | None:
