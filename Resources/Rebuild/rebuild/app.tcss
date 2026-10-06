@@ -1,0 +1,70 @@
+/* system-rebuild — the app's layout. Colours are in ui.py (they're computed:
+   the gradient, the fades); this is only where things sit. */
+
+Screen {
+    background: #1d2021;
+    color: #ebdbb2;
+}
+
+#body { height: 1fr; }
+
+#notes {
+    height: auto;
+    padding: 0 3;
+    margin: 1 0 0 0;
+}
+
+/* the rows on the left, the preview of the highlighted one on the right */
+#main { height: auto; margin: 1 1 0 1; }
+#main > Menu { width: 1fr; margin: 0 1 0 0; }
+#main > Preview { width: 46%; min-width: 44; max-width: 76; }
+
+/* a job */
+#rail { margin: 0 0 0 0; }
+#stagebox { height: auto; margin: 1 0 0 0; }
+#journal { height: 1fr; padding: 0 1 1 1; scrollbar-size-vertical: 1; }
+.log {
+    height: auto;
+    max-height: 20;
+    margin: 0 0 0 3;
+    padding: 0 1;
+    border-left: tall #504945;
+    background: #1d2021;
+    scrollbar-size-vertical: 1;
+}
+.diff { max-height: 26; }
+.partial { height: auto; padding: 0 0 0 5; }
+
+#helpbody { padding: 1 4; }
+
+/* notifications: a panel with its severity down the left edge */
+Toast {
+    background: #282828;
+    color: #ebdbb2;
+    border-left: outer #8ec07c;
+    padding: 0 1;
+}
+Toast.-warning { border-left: outer #fabd2f; }
+Toast.-error { border-left: outer #fb4934; }
+Toast > .toast--title { color: #ebdbb2; text-style: bold; }
+
+/* scrollbars and inputs in the palette, not Textual's defaults */
+* {
+    scrollbar-background: #1d2021;
+    scrollbar-background-hover: #1d2021;
+    scrollbar-background-active: #1d2021;
+    scrollbar-color: #504945;
+    scrollbar-color-hover: #928374;
+    scrollbar-color-active: #8ec07c;
+    scrollbar-corner-color: #1d2021;
+}
+Input {
+    background: #1d2021;
+    border: tall #504945;
+    color: #ebdbb2;
+}
+Input:focus { border: tall #fabd2f; }
+Input > .input--placeholder { color: #665c54; }
+Input > .input--cursor { background: #fabd2f; color: #1d2021; }
+JumpModal Input:focus { border: tall #83a598; }
+JumpModal Input > .input--cursor { background: #83a598; }

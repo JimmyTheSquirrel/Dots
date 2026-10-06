@@ -269,8 +269,10 @@ it, all of them still in the boot menu.
 
 ## One command, not six
 
-`system-rebuild` is the single entry point — an inline terminal UI that draws in
-normal scrollback and never takes over the screen. The home screen is the DOTS
+`system-rebuild` is the single entry point. **Run with no arguments it opens a
+full-screen app** (2026-10-06, see "The app" below); the command line, `help` and
+the old inline menus (`system-rebuild --classic`) stay in the bash script. The
+menus are the same in both. The home screen is the DOTS
 wordmark (branch, dirty state, ahead/behind, nixpkgs lock age beside it) and a
 MACHINES panel: this machine's generation, every other machine's tailnet state
 (online / direct or relay / last seen). Below it, four sections:
@@ -339,6 +341,82 @@ and, with admin, `sops` and three SSH targets.
 
 CLI form is unchanged: `system-rebuild USER SYSTEM [--boot|--build] [--target HOST]` —
 no menus, same build → diff → activate output.
+
+### The app (`system-rebuild` with no arguments)
+
+A full-screen terminal app — `Resources/Rebuild/rebuild/`, Python + Textual 8,
+packaged as `system-rebuild-tui` by `Modules/Shell/deploy-tools.nix` and exec'd by
+`system-rebuild.sh` when it gets no arguments in a terminal (`--classic` skips it,
+so the inline menus are the fallback if the app ever breaks). Same menus, same
+jobs, same commands underneath; what's different:
+
+- **It owns the screen and animates.** The home screen is the DOTS wordmark
+  (figlet "ANSI Shadow", the gradient, drawn in from the left the first time,
+  then a shine every 10 s) with six lines beside it — host, repo, inputs, a store
+  bar, the last run — and a **card per machine**: online/offline, its generation
+  (remote ones probed over ssh in batch mode every 5 min) and its last deploy —
+  no sparkline (removed 2026-10-06: it read as decoration there; the rebuild-time
+  bars live in the previews and History). A card flashes when its machine changes state,
+  an online one pings every few seconds, and clicking one goes to it. Narrow
+  terminals (< 96 cols) get the small logo and the cards two by two.
+- **A preview beside every menu** (≥ 110 cols, `panels.py`): what ⏎ will do on the
+  highlighted row — the steps, the exact command, the target machine and how its
+  last run went ("✔ switched 2h ago · 3m 12s", "usually ~2m 56s ▂▅▃"). It
+  cross-fades as you move; the highlight wipes in from the left; the mouse
+  highlights on hover.
+- **ctrl+p (or `/`) jumps to anything** (`ui.JumpModal`): type "sw asg", ⏎ —
+  every rebuild of every machine, SSH, the utilities, the Apollo tools, every help
+  page. It's the app's own palette (Textual's is switched off).
+- **A job** has a ticking clock in its banner ("usually 3m" from the history), a
+  progress rail edge to edge (the build's own fraction from nixmon while it
+  builds), stage chips with each stage's time under it, chips counting the
+  package changes (+added −removed ↑upgraded) above the dix diff, and it ends in a
+  card with **tiles** — took, built, changes, closure (+delta), generation —
+  confetti when it worked, a shake when it didn't.
+- **History** (`history.py`): every job the app runs is a line in
+  `~/.local/state/system-rebuild/history.jsonl` (a log, not config — delete it and
+  the app just forgets). Utilities › History shows them by day with each machine's
+  rebuild times. Only the app writes it; the bash command line doesn't.
+- **It tells you when you've wandered off.** The terminal's title follows the job
+  ("⋯ SWITCH Asgard · Build", "✔ Asgard switched"; the old title comes back on
+  exit). If you're in another window when a job of 15 s+ finishes — or when a
+  password or a yes/no is wanted — it rings the bell and sends a desktop
+  notification (`notify-send`, so Noctalia shows it).
+- **The build is drawn live by the app itself** (`nixmon.py`): `nix build
+  --log-format internal-json -v` parsed into every running derivation (phase,
+  elapsed, last log line), every download (bytes, rate), a gradient progress bar.
+  No `nom`. A failed build shows the failing derivation's last log lines.
+- **Prompts are pop-up boxes.** Every command runs in a pty the app owns, made its
+  controlling terminal (`runner.py`), so `sudo`'s password prompt, nixos-rebuild's
+  `--ask-sudo-password` and ssh's "trust this host?" all land in the app: it shows
+  a box, types the answer into that one command, never shows or keeps it. Esc in
+  the box stops the command.
+- **Waiting is a screen, not a question.** Pushing to an offline machine shows a
+  pulse travelling from here to there, pings it every few seconds and carries on
+  by itself when it answers (`t` tries anyway, esc stops).
+- **Faster where it can be.** Every status lookup (tailscale, git, the ssh probe of
+  a remote machine) is async, so menus never freeze; Check hosts evaluates all four
+  hosts at once. Idle, it redraws only for the pings and the shine (~4 % of a core
+  in focus, ~1 % in another window — every idle animation pauses when the terminal
+  loses focus). A border restyle relayouts the screen, so nothing animates a border
+  continuously: the cards only flash on a state change.
+- **Stopping.** Esc during a job asks, then stops it (nix gets SIGTERM and a few
+  seconds to wind down). It refuses mid-activation — a half-switched machine is
+  worse than waiting.
+- **Commands that need the real terminal** — SSH, and the apollo-* tools (INSTALL
+  makes you type the host's name) — run with the app stepped aside, then it comes
+  back.
+
+⚠ The app keeps its own copy of the host table (`hosts.py`) and of the rebuild
+pipeline (`jobs.py`) — the bash script is still the command line. A new machine,
+or a change to how a rebuild runs, goes in both. The help pages are in `help.py`
+(the app) and the `help_*` functions (the command line's `system-rebuild help`).
+
+⚠ **Glance-style trap, Textual edition:** Textual won't tween a CSS `offset` (it
+only animates plain numbers and colours), so slides step the offset themselves
+(`ui.slide`). And `offset`, `size`, `region`, `name` are Widget attributes — a
+widget's own field with one of those names breaks it. Test headless with
+`App.run_test()` + `save_screenshot()`.
 
 ## The blank screen on a booted stick — two separate causes
 
