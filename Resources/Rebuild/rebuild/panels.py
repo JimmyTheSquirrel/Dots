@@ -135,8 +135,9 @@ def peer_rows(app, h: H.Host) -> list[tuple[str, Text | str]]:
 # ── the machine cards ─────────────────────────────────────────────────────────
 class MachineCard(Widget):
     """One machine: how it is right now, what it runs, how its last deploy
-    went. Its border breathes while it's online and flashes when its state
-    changes; click it to go to it."""
+    went. It pings while it's online and its border flashes when its state
+    changes; click it to go to it. (Its rebuild times are in the previews and
+    History, not here.)"""
 
     DEFAULT_CSS = """
     MachineCard { height: 6; border: round #504945; padding: 0 1; }
@@ -185,13 +186,6 @@ class MachineCard(Widget):
             self._border = colour
             self.styles.border = ("round", colour)
             self.styles.border_title_color = {"here": AQUA, "online": FG}.get(st, DIM)
-        self.n = getattr(self, "n", -1) + 1
-        if self.n % 50 == 0:                      # the history sparkline: every 5s is plenty
-            hist = HIST.durations(self.host.name, 10)
-            sub = sparkline(hist).plain if len(hist) >= 2 else ""
-            if sub != self.border_subtitle:
-                self.border_subtitle = sub
-                self.styles.border_subtitle_color = DIM
         # An online machine pings: its dot swells and settles every few
         # seconds — a handful of frames, then nothing until the next one
         # (and none while you're in another window).

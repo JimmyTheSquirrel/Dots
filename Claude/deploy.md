@@ -354,8 +354,9 @@ jobs, same commands underneath; what's different:
   (figlet "ANSI Shadow", the gradient, drawn in from the left the first time,
   then a shine every 10 s) with six lines beside it — host, repo, inputs, a store
   bar, the last run — and a **card per machine**: online/offline, its generation
-  (remote ones probed over ssh in batch mode every 5 min), its last deploy and a
-  sparkline of its rebuild times. A card flashes when its machine changes state,
+  (remote ones probed over ssh in batch mode every 5 min) and its last deploy —
+  no sparkline (removed 2026-10-06: it read as decoration there; the rebuild-time
+  bars live in the previews and History). A card flashes when its machine changes state,
   an online one pings every few seconds, and clicking one goes to it. Narrow
   terminals (< 96 cols) get the small logo and the cards two by two.
 - **A preview beside every menu** (≥ 110 cols, `panels.py`): what ⏎ will do on the

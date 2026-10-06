@@ -24,7 +24,7 @@ BASICS = [
     ("item", "the cards", "One per machine. ◆ this machine and its generation. The others: ● online (direct or "
              "relay is how Tailscale reaches it), ○ offline with when it was last seen, ◌ not on the tailnet — and "
              "once the app has asked it over ssh, the generation it runs and how long it's been up. The bottom line "
-             "is its last deploy from here; the bars on the border are its recent rebuild times. A card flashes "
+             "is its last deploy from here. A card flashes "
              "when its machine comes or goes; click one to go to it. They refresh by themselves every half minute."),
     ("item", "the preview", "On a wide terminal, the panel beside every menu says what ⏎ will do on the "
              "highlighted row: the steps, the command it runs, the machine it's for, and how it went last time."),
