@@ -18,24 +18,31 @@ BASICS = [
              "tailnet, keep the repo and the Nix store tidy, and drive the Apollo USB. Every job is also a "
              "plain command (see Command line)."),
     ("head", "The home screen"),
-    ("item", "DOTS line", "Where the repo is up to: the branch; ✔ clean or ● N changed (files not committed "
-             "yet); ↑ commits waiting to be pushed, ↓ waiting to be pulled; and locked, how long ago the flake "
-             "inputs were last updated."),
-    ("item", "MACHINES", "◆ this machine, and its generation (how many times it has been rebuilt). For the "
-             "others: ● online, ○ offline (with when it was last seen) or ◌ not on the tailnet; direct or relay "
-             "is how Tailscale reaches it, then its tailnet IP. It refreshes by itself every half minute."),
+    ("item", "beside DOTS", "This machine and you; where the repo is up to — the branch, ✔ clean or ● N changed "
+             "(files not committed yet), ↑ commits waiting to be pushed, ↓ waiting to be pulled; how long ago the "
+             "flake inputs were locked; how full the Nix store is; and the last job the app ran."),
+    ("item", "the cards", "One per machine. ◆ this machine and its generation. The others: ● online (direct or "
+             "relay is how Tailscale reaches it), ○ offline with when it was last seen, ◌ not on the tailnet — and "
+             "once the app has asked it over ssh, the generation it runs and how long it's been up. The bottom line "
+             "is its last deploy from here; the bars on the border are its recent rebuild times. A card flashes "
+             "when its machine comes or goes; click one to go to it. They refresh by themselves every half minute."),
+    ("item", "the preview", "On a wide terminal, the panel beside every menu says what ⏎ will do on the "
+             "highlighted row: the steps, the command it runs, the machine it's for, and how it went last time."),
     ("text", "Every menu ends with Help — what each of its rows does — and Back."),
     ("head", "Keys"),
-    ("key", "↑ ↓  j k", "move"),
-    ("key", "⏎  →  l", "pick the highlighted row"),
+    ("key", "↑ ↓  j k", "move (or just point with the mouse)"),
+    ("key", "⏎  →  l", "pick the highlighted row (or click it)"),
     ("key", "1 – 9", "pick a numbered row straight away"),
+    ("key", "ctrl+p  /", "jump to anything: type a few letters — \"sw asg\", \"gc\", \"help remote\" — and ⏎"),
     ("key", "esc  ←  h", "back one menu"),
     ("key", "?", "help for the menu you're in — or pick its Help row"),
     ("key", "r", "refresh the machines and the repo now"),
     ("key", "q", "quit"),
-    ("note", "A job takes the screen while it runs: the build drawn live, then the package changes, then the "
-             "activation's own output. When it's done, ⏎ or esc goes back to the menu and q leaves. The mouse "
-             "works too: click a row, scroll a log."),
+    ("note", "A job takes the screen while it runs: a clock (and how long it usually takes), a progress rail, "
+             "each stage's time, the build drawn live, the package changes, then the activation's own output. It "
+             "ends in a card with the numbers. ⏎ or esc goes back to the menu and q leaves. The terminal's title "
+             "follows along, and if you're in another window when it finishes — or when it wants a password — it "
+             "rings the bell and sends a desktop notification."),
     ("head", "Passwords and questions"),
     ("text", "When sudo wants a password, or ssh asks whether to trust a machine it hasn't met, a box pops up "
              "and asks you instead — the password is typed straight into that one command, never shown, logged "
@@ -43,7 +50,8 @@ BASICS = [
     ("head", "Colours"),
     ("item", "red rows", "overwrite or erase something you can't easily undo (INSTALL). They always ask before "
              "doing anything."),
-    ("item", "green card", "the job worked: what it did, how long it took, the new generation."),
+    ("item", "green card", "the job worked: how long it took, what was built, what changed, the closure size, "
+             "the new generation."),
     ("item", "red card", "it didn't, and what that left behind. A failed build never activates anything."),
 ]
 
@@ -95,6 +103,10 @@ UTILS = [
              "edit break something\" check; a failure shows its error."),
     ("item", "Get the repo", "Only on a machine without ~/Dots (Kit-Kat, usually): clone it, so Git sync and "
              "Update inputs work there. Until then, rebuilds use GitHub's main."),
+    ("item", "History", "Every job this app has run, by day: what, which machine, how it went, how long it "
+             "took — and each machine's rebuild times as a sparkline. Kept in "
+             "~/.local/state/system-rebuild/history.jsonl; delete it and the app just forgets. Rebuilds run from "
+             "the command line (system-rebuild rock Asgard) aren't in it."),
     ("note", "A weekly automatic garbage collect runs anyway; this one is \"do it now, and delete every old "
              "generation\"."),
 ]

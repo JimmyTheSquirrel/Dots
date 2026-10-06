@@ -63,8 +63,9 @@ async def rebuild(job, system: H.Host, action: str, target: str | None = None) -
     stages = (["Reach"] if reach else []) + ["Build", "Changes"] + ([] if action == "build" else ["Activate"])
     job.begin(stages, accent, action.upper(), system.name,
               "this machine" if local else ("built here · nothing deployed" if action == "build" else f"→ {ssh_target}"),
-              system.key)
+              system.key, kind=action, host=system.name)
     started = time.monotonic()
+    gen_before = H.generation(system.profile)[0] if local else None
     if repo.flake != ".":
         await job.add(info(f"no checkout here — building {repo.flake} (main)"))
 
@@ -155,24 +156,44 @@ async def rebuild(job, system: H.Host, action: str, target: str | None = None) -
                        "active after the next reboot" if local else f"active after {system.name}'s next reboot")
 
         # summary ──────────────────────────────────────────────────────────────
-        rows: list[tuple[str, Text | str]] = [("host", kv(system.name, system.key))]
-        if not local and host:
-            rows.append(("target", ssh_target))
-        rows.append(("took", P.duration(time.monotonic() - started)))
+        # The numbers go in tiles across the card; the words under them.
+        st = job.stats
+        tiles = [("took", P.duration(time.monotonic() - started), f"build {P.duration(st.get('build', 0))}")]
+        fetched = st.get("fetched", 0)
+        tiles.append(("built", str(st.get("built", 0)),
+                      f"{fetched} fetched" + (f" · {P.human_bytes(st['fetched_bytes'])}" if st.get("fetched_bytes") else "")))
+        if same:
+            tiles.append(("changes", "0", "identical to what runs"))
+        elif "diff" in st:
+            sym = {"upgraded": "↑", "added": "+", "removed": "−", "downgraded": "↓", "changed": "~"}
+            tiles.append(("changes", str(st.get("changed", 0)),
+                          "  ".join(f"{sym[k]}{n}" for k, n in st["diff"].items()) or "configuration only"))
         new_size, old_size = await sizes
         if new_size:
+            st["closure"] = new_size
             delta = ""
             if isinstance(old_size, int):
                 d = new_size - old_size
                 delta = ("+" if d >= 0 else "−") + P.human_bytes(abs(d))
-            rows.append(("closure", kv(P.human_bytes(new_size), delta)))
+            tiles.append(("closure", P.human_bytes(new_size), delta or "the whole system"))
         if local and action != "build":
             gen, _ = H.generation(system.profile)
             if gen:
-                rows.append(("generation", str(gen)))
+                tiles.append(("generation", str(gen), f"was {gen_before}" if gen_before and gen_before != gen else "unchanged"))
+        elif action != "build" and target is None and not same:
+            # Ask it what it runs now: the tile, and its card on the home screen.
+            before = job.app.probes.get(system.name)
+            r = await P.remote_probe(system)
+            if r.ok:
+                job.app.probes[system.name] = r
+                was = before.generation if before and before.ok else ""
+                tiles.append(("generation", r.generation, f"was {was}" if was and was != r.generation else "on " + system.name))
+        rows: list[tuple[str, Text | str]] = [("host", kv(system.name, system.key))]
+        if not local and host:
+            rows.append(("target", ssh_target))
         if nxt:
             rows.append(("next", nxt))
-        job.card(True, f"{system.name} {verb}", rows)
+        job.card(True, f"{system.name} {verb}", rows, tiles)
         return True
     finally:
         if tmp:
@@ -183,7 +204,8 @@ async def rebuild(job, system: H.Host, action: str, target: str | None = None) -
 async def check_hosts(job) -> bool:
     """Every host's toplevel evaluates (the drvPath check) — all four at once."""
     repo = job.app.repo
-    job.begin(["Evaluate"], YELLOW, "CHECK", "every host evaluates", "nothing is built", repo.label)
+    job.begin(["Evaluate"], YELLOW, "CHECK", "every host evaluates", "nothing is built", repo.label, kind="check")
+    t_all = time.monotonic()
     job.stage("Evaluate", "running")
     sec = await job.section(f"{len(H.HOSTS)} hosts, in parallel", YELLOW, "")
     rows = {h.name: await job.spin_line(sec, f"evaluating {h.key}…") for h in H.HOSTS}
@@ -205,16 +227,19 @@ async def check_hosts(job) -> bool:
     results = await asyncio.gather(*(one(h) for h in H.HOSTS))
     fails = results.count(False)
     job.stage("Evaluate", "failed" if fails else "done")
+    tiles = [("hosts", f"{len(H.HOSTS) - fails}/{len(H.HOSTS)}", "evaluate"),
+             ("took", P.duration(time.monotonic() - t_all), "all at once")]
     if fails:
-        job.card(False, f"{fails} of {len(H.HOSTS)} hosts don't evaluate", [("", "The errors are above; nothing was built or changed.")])
+        job.card(False, f"{fails} of {len(H.HOSTS)} hosts don't evaluate",
+                 [("", "The errors are above; nothing was built or changed.")], tiles)
         return False
-    job.card(True, f"all {len(H.HOSTS)} hosts evaluate", [("flake", repo.label)])
+    job.card(True, f"all {len(H.HOSTS)} hosts evaluate", [("flake", repo.label)], tiles)
     return True
 
 
 async def update_inputs(job) -> bool:
     repo = job.app.repo
-    job.begin(["Fetch", "Changelog"], YELLOW, "UPDATE", "flake inputs", "nix flake update", repo.label)
+    job.begin(["Fetch", "Changelog"], YELLOW, "UPDATE", "flake inputs", "nix flake update", repo.label, kind="update")
     lock = repo.path / "flake.lock"
     before = P.lock_table(lock)
     job.stage("Fetch", "running")
@@ -229,6 +254,7 @@ async def update_inputs(job) -> bool:
     after = P.lock_table(lock)
     moved = [(n, rev, mod) for n, (rev, mod) in after.items() if rev != before.get(n, ("", 0))[0]]
     changed = len(moved)
+    job.stats["changed"] = changed
     if moved:
         sec = await job.section("What moved", YELLOW, "")
         for name, rev, mod in moved:
@@ -239,8 +265,10 @@ async def update_inputs(job) -> bool:
     if not changed:
         job.card(True, "everything was already up to date", [("flake", repo.label)])
         return True
+    newest = max((mod for _, _, mod in moved), default=0)
     job.card(True, f"{changed} input{'s' if changed > 1 else ''} updated",
-             [("flake.lock", "changed, not committed")])
+             [("flake.lock", "changed, not committed")],
+             [("moved", str(changed), f"of {len(after)} inputs"), ("newest", P.ago(newest), "commit pulled in")])
     if H.THIS:
         pick = await job.choose(f"Rebuild {H.THIS.name} on the new inputs?",
                                 [("switch", "Switch now"), ("build", "Build only (see the diff)"), ("later", "Later")])
@@ -258,7 +286,8 @@ def _bump(name: str, old: str, new: str, omod: float, mod: float):
 async def sync_repo(job) -> bool:
     repo = job.app.repo
     st = await P.repo_status(repo)
-    job.begin(["Commit", "Sync"], YELLOW, "SYNC", "git sync", "commit · pull --rebase · push", st.branch if st else "")
+    job.begin(["Commit", "Sync"], YELLOW, "SYNC", "git sync", "commit · pull --rebase · push", st.branch if st else "",
+              kind="sync")
     msg = ""
     if st and st.dirty:
         sec = await job.section(f"{st.dirty} file{'s' if st.dirty > 1 else ''} changed", YELLOW, "")
@@ -281,7 +310,7 @@ async def sync_repo(job) -> bool:
 
 async def clone_repo(job) -> bool:
     dest = Path(os.environ.get("DOTS_DIR") or Path.home() / "Dots")
-    job.begin(["Clone"], YELLOW, "CLONE", "the repo", H.DOTS_URL, str(dest))
+    job.begin(["Clone"], YELLOW, "CLONE", "the repo", H.DOTS_URL, str(dest), kind="clone")
     if dest.exists():
         job.card(False, f"{dest} already exists", [])
         return False
@@ -298,7 +327,8 @@ async def clone_repo(job) -> bool:
 
 
 async def collect_garbage(job) -> bool:
-    job.begin(["Collect"], YELLOW, "GC", "garbage collect", "old generations · store · docker", platform.node())
+    job.begin(["Collect"], YELLOW, "GC", "garbage collect", "old generations · store · docker", platform.node(),
+              kind="gc")
     pick = await job.choose("Collect garbage now?", [("yes", "Yes — delete every old generation"), ("no", "No")],
                             detail="You can't roll back past the current generation afterwards.", danger=True)
     if pick != "yes":
@@ -314,5 +344,6 @@ async def collect_garbage(job) -> bool:
         job.card(False, "Garbage collection didn't finish", [("", "The output is above.")])
         return False
     freed = max(0, (after or 0) - (before or 0))
-    job.card(True, f"freed {P.human_bytes(freed)}", [("free now", P.human_bytes(after or 0))])
+    job.card(True, f"freed {P.human_bytes(freed)}", [],
+             [("freed", P.human_bytes(freed), "old generations + store"), ("free now", P.human_bytes(after or 0), "in /nix/store")])
     return True

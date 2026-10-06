@@ -56,8 +56,10 @@ nix flake update                        # Update flake inputs
 shared look + menu engine in `Resources/Scripts/lib/ui.sh`. **`system-rebuild` with
 no arguments opens a full-screen app** — `Resources/Rebuild/` (Python + Textual):
 animated, the build drawn live, sudo/ssh prompts as pop-ups; `--classic` gives the
-old inline menus. It keeps its own host table + rebuild pipeline (`hosts.py`,
-`jobs.py`) — change both. See `Claude/deploy.md` → The app. Sisyphus gets all of them;
+old inline menus. Machine cards, a preview panel beside every menu, ctrl+p to jump
+to any action, a run history (`~/.local/state/system-rebuild/`). It keeps its own
+host table + rebuild pipeline (`hosts.py`, `jobs.py`) — change both. See
+`Claude/deploy.md` → The app. Sisyphus gets all of them;
 Kit-Kat gets `system-rebuild`/`git-sync`/`nix-gc` (`my.deploy-tools.admin = false`).
 `system-rebuild` is **host-aware**: the machine it runs on rebuilds in place, any other
 is pushed over the tailnet. Sisyphus builds into the named profile `-p sisyphus` (see

@@ -8,23 +8,19 @@ Screen {
 
 #body { height: 1fr; }
 
-Machines {
-    margin: 1 2 0 2;
-    padding: 0 1;
-    border: round #504945;
-    border-title-color: #928374;
-    border-title-style: bold;
-}
-
 #notes {
     height: auto;
     padding: 0 3;
     margin: 1 0 0 0;
 }
 
-Menu { margin: 1 1 0 1; }
+/* the rows on the left, the preview of the highlighted one on the right */
+#main { height: auto; margin: 1 1 0 1; }
+#main > Menu { width: 1fr; margin: 0 1 0 0; }
+#main > Preview { width: 46%; min-width: 44; max-width: 76; }
 
 /* a job */
+#rail { margin: 0 0 0 0; }
 #stagebox { height: auto; margin: 1 0 0 0; }
 #journal { height: 1fr; padding: 0 1 1 1; scrollbar-size-vertical: 1; }
 .log {
@@ -41,7 +37,16 @@ Menu { margin: 1 1 0 1; }
 
 #helpbody { padding: 1 4; }
 
-Toast { background: #282828; }
+/* notifications: a panel with its severity down the left edge */
+Toast {
+    background: #282828;
+    color: #ebdbb2;
+    border-left: outer #8ec07c;
+    padding: 0 1;
+}
+Toast.-warning { border-left: outer #fabd2f; }
+Toast.-error { border-left: outer #fb4934; }
+Toast > .toast--title { color: #ebdbb2; text-style: bold; }
 
 /* scrollbars and inputs in the palette, not Textual's defaults */
 * {
@@ -61,3 +66,5 @@ Input {
 Input:focus { border: tall #fabd2f; }
 Input > .input--placeholder { color: #665c54; }
 Input > .input--cursor { background: #fabd2f; color: #1d2021; }
+JumpModal Input:focus { border: tall #83a598; }
+JumpModal Input > .input--cursor { background: #83a598; }

@@ -86,14 +86,15 @@
 
     apollo = [ apollo-iso apollo-key apollo-connect apollo-deploy ];
 
-    # The full-screen app. Only dix, git, ssh and findmnt come from here, in
+    # The full-screen app. Only dix, git, ssh, findmnt and notify-send (a job
+    # that ends while you're in another window) come from here, in
     # front of the inherited PATH like a writeShellApplication's inputs, so
     # sudo, nix, nixos-rebuild and tailscale still resolve to the system's own
     # (see the header). git-sync and nix-gc are its jobs; the apollo-* tools
     # are found on PATH, so its Apollo section only shows where they exist.
     rebuild-tui = pkgs.stdenvNoCC.mkDerivation {
       pname = "system-rebuild-tui";
-      version = "1";
+      version = "2";
       src = ../../Resources/Rebuild;
       nativeBuildInputs = [ pkgs.makeWrapper ];
       installPhase = let
@@ -105,7 +106,7 @@
         makeWrapper ${python}/bin/python $out/bin/system-rebuild-tui \
           --add-flags "-m rebuild" \
           --prefix PYTHONPATH : $out/share/system-rebuild \
-          --prefix PATH : ${lib.makeBinPath [ pkgs.dix pkgs.git pkgs.openssh pkgs.util-linux git-sync nix-gc ]}
+          --prefix PATH : ${lib.makeBinPath [ pkgs.dix pkgs.git pkgs.openssh pkgs.util-linux pkgs.libnotify git-sync nix-gc ]}
       '';
     };
 
