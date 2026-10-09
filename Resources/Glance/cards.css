@@ -601,10 +601,12 @@ button:where(.hud-sw) { aspect-ratio: 1; border: none; padding: 0; cursor: point
 button:where(.hud-sw:hover) { transform: translateY(-1px); filter: brightness(1.12); }
 button:where(.hud-sw.duo) { background: linear-gradient(135deg, var(--sw) 0 50%, var(--sw2) 50% 100%); }
 button:where(.hud-sw[aria-pressed="true"]) { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px rgb(0 0 0 / 0.5); }
-/* Cats: a ginger swatch with a cat's face on it. */
-.hud-sw.cats { position: relative; }
-.hud-sw.cats::after { content: ""; position: absolute; inset: 17% 15% 13%; background: #6b3a12;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 56%22%3E%3Cpath fill-rule=%22evenodd%22 d=%22M12 52C6 46 5 36 8 28L6 6L20 15C24 13.6 28 13 32 13C36 13 40 13.6 44 15L58 6L56 28C59 36 58 46 52 52C46 56 18 56 12 52ZM22 31a3.4 4.6 0 1 0 0.01 0ZM42 31a3.4 4.6 0 1 0 0.01 0ZM29.6 41h4.8L32 44Z%22/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 56%22%3E%3Cpath fill-rule=%22evenodd%22 d=%22M12 52C6 46 5 36 8 28L6 6L20 15C24 13.6 28 13 32 13C36 13 40 13.6 44 15L58 6L56 28C59 36 58 46 52 52C46 56 18 56 12 52ZM22 31a3.4 4.6 0 1 0 0.01 0ZM42 31a3.4 4.6 0 1 0 0.01 0ZM29.6 41h4.8L32 44Z%22/%3E%3C/svg%3E") center / contain no-repeat; }
+/* A fun theme: its two-tone, with its mark on it (--ic: theme.js draws the
+   mark — the cat's face, the snowflake, the bat …) in a dark ink of the main colour. */
+.hud-sw.fun { position: relative; }
+.hud-sw.fun::after { content: ""; position: absolute; inset: 17% 15% 15%; background: color-mix(in srgb, var(--sw) 34%, #0e0905);
+  -webkit-mask: var(--ic) center / contain no-repeat; mask: var(--ic) center / contain no-repeat; }
+:where(.hud-tip[hidden]) { display: none; }
 :where(.hud-tip) { margin-top: 8px; font-size: 1.05rem; line-height: 1.4; color: var(--ag-text-faint); }
 /* A switch in the picker (MarsBar's blossoms / butterflies / fireflies): a row with a little track and knob. */
 button:where(.hud-tg) { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 8px; padding: 7px 10px 7px 12px;
@@ -621,7 +623,9 @@ button:where(.hud-tg:hover) { border-color: var(--color-primary); }
 :where(.hud-tg[aria-pressed="true"]) > i::after { transform: translateX(14px); background: #fff; }
 :where(.hud-sub) { margin: 12px 0 8px; font-size: 1.1rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ag-text-faint); }
 :where(.hud-pop-f, .hud-row-h) { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
-:where(.hud-pop-f label) { display: inline-flex; align-items: center; gap: 8px; font-size: 1.15rem; color: var(--ag-text-dim); cursor: pointer; }
+:where(.hud-own) { display: inline-flex; align-items: center; gap: 8px; font-size: 1.15rem; color: var(--ag-text-dim); }
+/* The custom pair: two wells side by side, the main colour and its partner. */
+:where(.hud-wells) { display: inline-flex; gap: 4px; }
 :where(.hud-custom) { width: 34px; height: 26px; padding: 0; border: none; background: none; cursor: pointer; }
 :where(.hud-custom)::-webkit-color-swatch-wrapper { padding: 0; }
 :where(.hud-custom)::-webkit-color-swatch { border: 1px solid var(--ag-line); border-radius: 6px; }
@@ -631,7 +635,7 @@ button:where(.hud-reset) { font: inherit; font-size: 1.05rem; font-weight: 600; 
 button:where(.hud-reset:hover) { color: var(--ag-text); border-color: var(--color-primary); }
 :where(.hud-row) { padding: 4px 16px 14px; margin-bottom: 10px; border-bottom: 1px solid var(--ag-line-soft); }
 :where(.hud-row-h) { margin: 0 0 12px; }
-:where(.hud-row-h span) { flex: 1; font-size: 1.2rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ag-text-dim); }
+:where(.hud-row-h > span:not(.hud-wells)) { flex: 1; font-size: 1.2rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ag-text-dim); }
 :where(.hud-row .hud-sws) { grid-template-columns: repeat(6, 34px); justify-content: space-between; gap: 8px 0; }
 
 @keyframes ag-blink { 50% { opacity: 0.35; } }

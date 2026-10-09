@@ -55,6 +55,9 @@
       # the picker's Cats theme: how the cats look, and what they do (fetched only when picked)
       "cats.css" = ../../Resources/Glance/cats.css;
       "cats.js" = ../../Resources/Glance/cats.js;
+      # its other fun themes — snow, sakura, starry night, spooky, ocean (likewise)
+      "fx.css" = ../../Resources/Glance/fx.css;
+      "fx.js" = ../../Resources/Glance/fx.js;
     };
     # The HUD's artwork — the panel frame round every card, the grid that
     # tiles down the page, the misty pines pinned to the foot of the screen,
@@ -677,7 +680,7 @@
         <link rel="stylesheet" href="${asset "cards.css"}">
         <link rel="stylesheet" href="/assets/hud/hud.css?v=${hudVersion}">
         <link rel="stylesheet" href="${asset "overview.css"}">
-        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}"></script>
+        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}" data-fx="${asset "fx.css"}" data-fx-js="${asset "fx.js"}"></script>
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "asgard.js"}" data-api-port="${toString bridgePort}" defer></script>

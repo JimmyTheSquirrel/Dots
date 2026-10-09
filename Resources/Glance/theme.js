@@ -15,9 +15,11 @@
 //            artwork (data-art: vine.svg, bloom.svg — their purples turned to
 //            the pick, their greens to the second colour of a two-tone pick).
 //
-// Either way, plus Cats: a ginger-and-pink theme that also puts cats all over
-// the page (cats.css + cats.js, data-cats / data-cats-js — fetched only when
-// someone picks it).
+// Every pick is a TWO-tone (a main light and its partner) or one of the "Just
+// for fun" themes — a two-tone of its own that also puts something living on
+// the page: Cats (cats.css + cats.js, data-cats / data-cats-js), or Snow,
+// Sakura, Starry night, Spooky and Ocean (fx.css + fx.js, data-fx /
+// data-fx-js). Those files are fetched only when someone picks one.
 //
 // It runs in <head>, before the page paints, so there's no flash of the
 // default: the palette is computed from the stored pick, and redrawn artwork
@@ -45,6 +47,8 @@
   var ART_URLS = attr("data-art").split(",").filter(Boolean);   // marsbar: vine, bloom
   var CATS_CSS = attr("data-cats");
   var CATS_JS = attr("data-cats-js");
+  var FX_CSS = attr("data-fx");
+  var FX_JS = attr("data-fx-js");
   var FINE = !!(window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches);
   var KEY = MB ? "marsbar-colour" : "asgard-hud-colour";
   var ART = MB ? "marsbar-art" : "asgard-hud-art";
@@ -52,30 +56,59 @@
   var MB_H = 272, MB_H2 = 150;
 
   // Light colours read best on the dark glass (rock, 2026-10-05: the first,
-  // saturated set was "a lot"). A pick is "#rrggbb", "#rrggbb+#rrggbb" for a
-  // two-tone theme (the first colour is the main one, the second its other
-  // light: alternate cards and the second series on Asgard, the vine's leaves
-  // on MarsBar), or "cats".
-  var PRESETS = MB ? [
-    ["Lavender — her own", DEFAULT], ["Rose", "#ffa6c9"], ["Coral", "#ffa697"], ["Peach", "#ffbf8f"],
-    ["Butter", "#ffdc85"], ["Pistachio", "#c6e891"], ["Mint", "#7eecc0"], ["Aqua", "#7ee0e6"],
-    ["Sky", "#8cc8ff"], ["Periwinkle", "#a4b0ff"], ["Orchid", "#e3a8f5"], ["Berry", "#f28cb8"],
+  // saturated set was "a lot"). Every theme is TWO colours (2026-10-09: the
+  // single colours went — "I really like those" two-tones): "#rrggbb+#rrggbb",
+  // the first the main light, the second its partner (alternate cards and the
+  // second series on Asgard, the vine's leaves on MarsBar). A one-colour pick
+  // from before still works (the HUD derives a partner for it); the picker
+  // just doesn't offer them any more. Or a fun theme's name (FUN, below).
+  //
+  // The house colours come first, as a swatch of their own: Asgard's mint and
+  // teal (asgard.css), her lavender and the vine's green (marsbar.css). It
+  // picks DEFAULT — the stylesheet's own palette and artwork, untouched.
+  var HOUSE = MB ? ["Lavender — her own, with the vine's green", "#ca99f5+#8fd6b0"]
+                 : ["Asgard — mint and teal, as it ships", "#3be8a8+#1fc8c4"];
+  // Asgard's are named for the Nine Realms and their people; hers are softer.
+  // Sorted by their main colour, so the grid runs round the wheel.
+  var DUOS = MB ? [
+    ["Plum and gold", "#d79cf0+#ffd27a"], ["Twilight — violet and rose gold", "#b7a3ff+#ffb8a0"],
+    ["Bluebell — blue and new leaves", "#a4b0ff+#9fe3a8"], ["Moonlight — silver blue and lilac", "#b9d4ff+#d8b8ff"],
+    ["Lagoon — aqua and lilac", "#7ee0e6+#c8a8ff"],
+    ["Mermaid — teal and orchid", "#6fe0c8+#e3a8f5"], ["Seafoam and coral", "#8ff0d0+#ffa697"],
+    ["Meadow — grass and buttercups", "#b9e89a+#ffd98a"], ["Honeydew — melon and mint", "#c6e891+#8ff0c8"],
+    ["Lemonade — lemon and pink", "#fff08a+#ffadd2"], ["Peaches and cream", "#ffbf8f+#ffe3a8"],
+    ["Tangerine and teal", "#ffb07a+#7ee0d6"], ["Sorbet — mango and raspberry", "#ffc27a+#ff8fb8"],
+    ["Sunset — coral and violet", "#ffa697+#b9a3ff"], ["Strawberries and mint", "#ff9fb1+#8ff0c8"],
+    ["Cherry blossom — pink and new leaves", "#ffa6c9+#b5e6a0"], ["Cotton candy — pink and sky", "#ffadd2+#9fd0ff"],
   ] : [
-    ["Mint", "#3be8a8"], ["Aqua", "#7ee0e6"], ["Sky", "#8cc8ff"], ["Periwinkle", "#a4b0ff"],
-    ["Lavender", "#bfa8ff"], ["Orchid", "#e3a8f5"], ["Rose", "#ffa6c9"], ["Coral", "#ffa697"],
-    ["Peach", "#ffbf8f"], ["Butter", "#ffdc85"], ["Pistachio", "#c6e891"], ["Frost", "#cfd9e6"],
+    ["Aurora — northern lights", "#7ff0c0+#b7a3ff"], ["Vanaheim — sea-green and coral", "#7ee8d0+#ffa697"],
+    ["Fjord — sea and sky", "#86e3e0+#9db4ff"], ["Jötunheim — glacier and stone", "#a8e6ff+#cfc6b4"],
+    ["Bifröst — the rainbow bridge", "#8fd0ff+#ffadd2"],
+    ["Skaði — snow and pine", "#e3f1ff+#8fd9a8"], ["Niflheim — mist and ice", "#cfe6ff+#c8b6ff"],
+    ["Loki — mischief, lime and orchid", "#c6f08a+#d6a3ff"], ["Midgard — meadow and wheat", "#b9e89a+#ffd98a"],
+    ["Álfheim — the light elves, gold and mint", "#fff0a0+#9ff0d0"], ["Sól and Máni — the sun and the moon", "#ffd27a+#b9c6ff"],
+    ["Mead — honey and plum", "#ffcf7a+#d79cf0"], ["Svartálfheim — the forge, ember and steel", "#ffb36b+#9fc4e8"],
+    ["Muspelheim — the realm of fire", "#ffbf8f+#ff9fb1"], ["Ragnarök — ember and ash", "#ff9f7a+#bdb4cc"],
+    ["Iðunn — apples and leaves", "#ff9f9f+#c6e891"], ["Freyja — rose and mint", "#ffa6c9+#8ff0c8"],
   ];
-  var DUOS = [
-    ["Aurora — northern lights", "#7ff0c0+#b7a3ff"], ["Bifröst — the rainbow bridge", "#8fd0ff+#ffadd2"],
-    ["Fjord", "#86e3e0+#9db4ff"], ["Muspel — the realm of fire", "#ffbf8f+#ff9fb1"],
-    ["Midgard — meadow and wheat", "#b9e89a+#ffd98a"], ["Niflheim — mist and ice", "#cfe6ff+#c8b6ff"],
+  // The fun themes: a two-tone of their own, and something living on the page.
+  // Cats is cats.css + cats.js; the rest are fx.css + fx.js (data-fx,
+  // data-fx-js) — each pair fetched only when one of its themes is picked.
+  var FUN = [
+    ["cats", "Cats — cats everywhere", "#ffb36b+#ff9ec4"],             // ginger and a pink nose
+    ["snow", "Snow — a quiet snowfall", "#e3f1ff+#9fc8ff"],
+    ["sakura", "Sakura — blossom petals on the wind", "#ffb7d5+#b5e6a0"],
+    ["stars", "Starry night — a moon, stars, the odd shooting star", "#a99bff+#ffe08a"],   // night, and starlight
+    ["spooky", "Spooky — bats at dusk, and a spider", "#ffa95c+#b99cff"],
+    ["ocean", "Ocean — bubbles, light through the water, fish", "#7fe3e8+#ffa697"],
   ];
-  var CATS = "#ffb36b+#ff9ec4";      // ginger and a pink nose
-  var VALID = /^(cats|#[0-9a-f]{6}(\+#[0-9a-f]{6})?)$/;
-  var PROPS = MB
+  var FUNS = {};
+  FUN.forEach(function (f) { FUNS[f[0]] = f[2]; });
+  var VALID = new RegExp("^(" + Object.keys(FUNS).join("|") + "|#[0-9a-f]{6}(\\+#[0-9a-f]{6})?)$");
+  var PROPS = (MB
     ? ["--mb-h", "--mb-h2", "--bgh", "--color-primary", "--color-positive", "--mb-vine", "--mb-bloom"]
     : ["--hud", "--hud2", "--hud-hot", "--hud-deep", "--hud-rgb", "--hud2-rgb",
-       "--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--h-frame", "--h-ygg"];
+       "--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--h-frame", "--h-ygg"]).concat(["--fx-a", "--fx-b", "--fx-ic"]);
   var root = document.documentElement;
   if (MB) root.setAttribute("data-dash", "marsbar");
 
@@ -210,32 +243,61 @@
       .catch(function () { /* the stylesheet's own artwork stays */ });
   }
 
-  // ── the cats ────────────────────────────────────────────────────────────────
-  // A face for Asgard's logo (and the Cats swatch, in cards.css).
-  var FACE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 56"><path fill="__C__" fill-rule="evenodd" d="M12 52C6 46 5 36 8 28L6 6L20 15C24 13.6 28 13 32 13C36 13 40 13.6 44 15L58 6L56 28C59 36 58 46 52 52C46 56 18 56 12 52ZM22 31a3.4 4.6 0 1 0 0.01 0ZM42 31a3.4 4.6 0 1 0 0.01 0ZM29.6 41h4.8L32 44Z"/></svg>';
-  // Picking Cats loads cats.css and cats.js (data-cats, data-cats-js) — the
-  // cats themselves, what they do and everything they react to live there;
-  // this only switches them on and off.
-  var catsOn = false;
-  function loadCats() {
-    if (CATS_CSS && !document.querySelector("link[data-cats-css]")) {
+  // ── the fun themes ──────────────────────────────────────────────────────────
+  // Each has a mark: drawn on its swatch, as Asgard's logo (in the theme's
+  // light), and — through --fx-ic — on section headings and MarsBar's crowns
+  // (fx.css; Cats keeps its paws and kitten faces, cats.css). __C__ is the colour.
+  function svg(box, body) { return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + box + '">' + body + '</svg>'; }
+  function turns(k, g) {
+    for (var i = 0, s = ""; i < k; i++) s += '<g transform="rotate(' + i * 360 / k + ' 12 12)">' + g + '</g>';
+    return s;
+  }
+  var MARK = {
+    cats: svg("0 0 64 56", '<path fill="__C__" fill-rule="evenodd" d="M12 52C6 46 5 36 8 28L6 6L20 15C24 13.6 28 13 32 13C36 13 40 13.6 44 15L58 6L56 28C59 36 58 46 52 52C46 56 18 56 12 52ZM22 31a3.4 4.6 0 1 0 0.01 0ZM42 31a3.4 4.6 0 1 0 0.01 0ZM29.6 41h4.8L32 44Z"/>'),
+    snow: svg("0 0 24 24", '<g fill="none" stroke="__C__" stroke-width="1.9" stroke-linecap="round">' +
+      turns(6, '<path d="M12 12V2.2M12 6L9.3 3.6M12 6l2.7-2.4"/>') + '</g>'),
+    sakura: svg("0 0 24 24", '<g fill="__C__">' + turns(5, '<path d="M12 11.3C9.3 9.6 8.4 5.4 10.3 2.4L12 4l1.7-1.6c1.9 3 1 7.2-1.7 8.9Z"/>') + '</g>'),
+    stars: svg("0 0 24 24", '<path fill="__C__" d="M12.8 3.1A9 9 0 1 0 20.9 15A7.2 7.2 0 0 1 12.8 3.1ZM19 1.6l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9Z"/>'),
+    spooky: svg("0 0 24 24", '<path fill="__C__" d="M12 9.2C11.6 8.2 11.1 7.6 10.6 7.4L10.8 8.9C8.6 8.6 5.6 8.6 1.2 6.4C2.6 8.4 3 10.6 2.5 12.8C3.7 11.9 5.3 11.9 6.3 13.1C7 12 8.5 11.6 9.7 12.2C10.4 13.2 11.1 14.8 12 16.4C12.9 14.8 13.6 13.2 14.3 12.2C15.5 11.6 17 12 17.7 13.1C18.7 11.9 20.3 11.9 21.5 12.8C21 10.6 21.4 8.4 22.8 6.4C18.4 8.6 15.4 8.6 13.2 8.9L13.4 7.4C12.9 7.6 12.4 8.2 12 9.2Z"/>'),
+    ocean: svg("0 0 24 24", '<path fill="__C__" fill-rule="evenodd" d="M1.6 12C4.6 7.2 10.6 6.2 15 9.6L20.6 6C19.4 9.6 19.4 14.4 20.6 18L15 14.4C10.6 17.8 4.6 16.8 1.6 12ZM6.6 10.4a1.25 1.25 0 1 0 .01 0Z"/>'),
+  };
+  function mark(kind, colour) { return dataUrl(MARK[kind].replace(/__C__/g, colour)); }
+
+  // A fun theme loads its pair of files the first time it is picked (Cats:
+  // data-cats / data-cats-js; the rest: data-fx / data-fx-js) — what lives on
+  // the page and everything it does is there; this only switches it on and
+  // off. Nobody who never picks one ever downloads them.
+  function load(css, js, mark, ready) {
+    if (css && !document.querySelector("link[" + mark + "]")) {
       var l = document.createElement("link");
-      l.rel = "stylesheet"; l.href = CATS_CSS; l.setAttribute("data-cats-css", "");
+      l.rel = "stylesheet"; l.href = css; l.setAttribute(mark, "");
       document.head.appendChild(l);
     }
-    if (window.Cats) { window.Cats.on(); return; }
-    // (A marker of its own: this very <script> tag carries data-cats-js.)
-    if (!CATS_JS || document.querySelector("script[data-cats-loaded]")) return;   // already on its way
+    if (ready()) return;
+    // (A marker of its own: this very <script> tag carries data-cats-js / data-fx-js.)
+    if (!js || document.querySelector("script[" + mark + "-js]")) return;   // already on its way
     var s = document.createElement("script");
-    s.src = CATS_JS; s.setAttribute("data-cats-loaded", "");
-    s.onload = function () { if (catsOn && window.Cats) window.Cats.on(); };
+    s.src = js; s.setAttribute(mark + "-js", "");
+    s.onload = ready;
     document.head.appendChild(s);
   }
+  var catsOn = false, fxOn = null;
   function cats(on) {
     if (on === catsOn) return;
     catsOn = on;
-    if (on) { root.setAttribute("data-cats", ""); loadCats(); }
-    else { root.removeAttribute("data-cats"); if (window.Cats) window.Cats.off(); }
+    if (on) {
+      root.setAttribute("data-cats", "");
+      load(CATS_CSS, CATS_JS, "data-cats-loaded", function () { if (catsOn && window.Cats) { window.Cats.on(); return true; } return !!window.Cats; });
+    } else { root.removeAttribute("data-cats"); if (window.Cats) window.Cats.off(); }
+  }
+  function fx(kind) {
+    if (kind === fxOn) return;
+    if (fxOn && window.Fx) window.Fx.off();
+    fxOn = kind;
+    if (kind) {
+      root.setAttribute("data-fx", kind);
+      load(FX_CSS, FX_JS, "data-fx-loaded", function () { if (fxOn && window.Fx) { window.Fx.on(fxOn); return true; } return !!window.Fx; });
+    } else root.removeAttribute("data-fx");
   }
 
   // ── applying it ─────────────────────────────────────────────────────────────
@@ -248,7 +310,7 @@
     }
     root.style.setProperty("--h-frame", 'url("' + a.frame + '")');
     root.style.setProperty("--h-ygg", 'url("' + a.ygg + '")');
-    logoArt = catsOn ? logoArt : a.logo;
+    logoArt = FUNS[current] ? logoArt : a.logo;          // a fun theme's mark stays the logo
     paintLogo();
   }
   function paintLogo() {
@@ -263,15 +325,22 @@
     current = pick;
     PROPS.forEach(function (k) { root.style.removeProperty(k); });
     logoArt = null;
+    var fun = FUNS[pick];
     cats(pick === "cats");
+    fx(fun && pick !== "cats" ? pick : null);
     if (pick === DEFAULT.toLowerCase()) { paintLogo(); return; }   // the stylesheet's own palette
-    var colours = pick === "cats" ? CATS : pick;
+    var colours = fun || pick;
     var p = MB ? mbPalette(colours) : hudPalette(colours);
     Object.keys(p).forEach(function (k) { if (k.charAt(0) !== "_") root.style.setProperty(k, p[k]); });
+    if (fun) {
+      root.style.setProperty("--fx-a", colours.split("+")[0]);
+      root.style.setProperty("--fx-b", colours.split("+")[1]);
+      root.style.setProperty("--fx-ic", 'url("' + mark(pick, "#000") + '")');
+    }
     if (!MB) {
       root.style.setProperty("--hud-rgb", rgb(p["--hud"]).join(" "));
       root.style.setProperty("--hud2-rgb", rgb(p["--hud2"]).join(" "));
-      if (catsOn) { logoArt = dataUrl(FACE.replace("__C__", p["--hud"])); paintLogo(); }
+      if (fun) { logoArt = mark(pick, p[pick === "stars" ? "--hud2" : "--hud"]); paintLogo(); }   // a gold moon
     }
     var a = stored(pick);
     if (a) { useArt(a); return; }
@@ -294,11 +363,13 @@
     '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/>' +
     '<circle cx="7.5" cy="11" r="1.2"/><circle cx="10.5" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></svg>';
 
+  // [title, pick, "#a+#b" as shown, fun-theme mark?]
   function swatches(list) {
     return '<div class="hud-sws">' + list.map(function (p) {
-      var c = p[1] === "cats" ? CATS.split("+") : p[1].split("+");
-      return '<button type="button" class="hud-sw' + (p[1] === "cats" ? " cats" : c[1] ? " duo" : "") + '" data-hud-colour="' + p[1] +
-        '" title="' + p[0] + '" aria-label="' + p[0] + '" style="--sw:' + c[0] + (c[1] ? ";--sw2:" + c[1] : "") + '"></button>';
+      var c = p[2].split("+");
+      return '<button type="button" class="hud-sw duo' + (p[3] ? " fun" : "") + '" data-hud-colour="' + p[1] +
+        '" title="' + p[0] + '" aria-label="' + p[0] + '" style="--sw:' + c[0] + ";--sw2:" + c[1] +
+        (p[3] ? ";--ic:url('" + mark(p[3], "#000") + "')" : "") + '"></button>';
     }).join("") + '</div>';
   }
   // MarsBar's living garden (garden.js) is three switches, not colours —
@@ -316,24 +387,47 @@
     sync();
   }
   function allSwatches() {
-    return swatches(PRESETS) + '<div class="hud-sub">Two-tone</div>' + swatches(DUOS) +
-      '<div class="hud-sub">Just for fun</div>' + swatches([["Cats — cats everywhere", "cats"]]) +
+    return swatches([[HOUSE[0], DEFAULT, HOUSE[1]]].concat(DUOS.map(function (d) { return [d[0], d[1], d[1]]; }))) +
+      '<div class="hud-sub">Just for fun</div>' + swatches(FUN.map(function (f) { return [f[1], f[0], f[2], f[0]]; })) +
       (MB ? GARDEN.map(function (g) {
               return '<button type="button" class="hud-tg" data-hud-toggle="' + g[0] + '" aria-pressed="true">' +
                 '<span>' + g[1] + '<small>' + g[2] + '</small></span><i></i></button>';
             }).join("") : "") +
-      '<div class="hud-tip">Tap a cat' + (MB ? " — or a butterfly" : "") + '.' +
-      (FINE ? " Double-click an empty bit of page for a laser pointer." : "") + '</div>';
+      '<div class="hud-tip"></div>';
+  }
+  // A line under the fun themes about the one that's on: what it does if you
+  // tap it. (MarsBar's butterflies take a tap whatever the theme.)
+  var TIP = {
+    cats: "Tap a cat." + (FINE ? " Double-click an empty bit of page for a laser pointer." : ""),
+    stars: "Tap an empty bit of sky for a shooting star.",
+    spooky: "Tap a bat — or the spider.",
+    ocean: "Tap a fish.",
+  };
+  function tip() {
+    var t = TIP[current] || "";
+    if (MB && gardenOn("butterflies")) t += (t ? " " : "") + "Butterflies like a tap too.";
+    return t;
+  }
+  // The custom pair: two colour wells, the main light and its partner. They
+  // show whatever is on (the house colours, a theme's two, an old one-colour
+  // pick and the partner the HUD gave it), so a tweak starts from there.
+  function pair() {
+    if (current === DEFAULT.toLowerCase()) return HOUSE[1].split("+");
+    var c = (FUNS[current] || current).split("+");
+    if (!c[1]) c[1] = MB ? HOUSE[1].split("+")[1] : hudPalette(c[0])["--hud2"];
+    return c;
   }
   function sync() {
     document.querySelectorAll(".hud-sw").forEach(function (b) {
       b.setAttribute("aria-pressed", b.getAttribute("data-hud-colour").toLowerCase() === current ? "true" : "false");
     });
-    var c = (current === "cats" ? CATS : current).split("+")[0];
-    document.querySelectorAll(".hud-custom").forEach(function (i) { i.value = c; });
+    var c = pair();
+    document.querySelectorAll(".hud-custom").forEach(function (i) { i.value = c[+i.getAttribute("data-i")]; });
     document.querySelectorAll(".hud-tg[data-hud-toggle]").forEach(function (b) {
       b.setAttribute("aria-pressed", gardenOn(b.getAttribute("data-hud-toggle")) ? "true" : "false");
     });
+    var t = tip();
+    document.querySelectorAll(".hud-tip").forEach(function (e) { e.textContent = t; e.hidden = !t; });
   }
   function wire(el) {
     el.addEventListener("click", function (e) {
@@ -343,11 +437,15 @@
       var tg = e.target.closest(".hud-tg[data-hud-toggle]");
       if (tg) { var part = tg.getAttribute("data-hud-toggle"); garden(part, !gardenOn(part)); }
     });
-    el.querySelectorAll(".hud-custom").forEach(function (i) {
-      i.addEventListener("input", function () { apply(i.value); sync(); });   // live while dragging
-      i.addEventListener("change", function () { choose(i.value); });
+    var wells = el.querySelectorAll(".hud-custom");
+    function both() { return wells[0].value.toLowerCase() + "+" + wells[1].value.toLowerCase(); }
+    wells.forEach(function (i) {
+      i.addEventListener("input", function () { apply(both()); sync(); });   // live while dragging
+      i.addEventListener("change", function () { choose(both()); });
     });
   }
+  var WELLS = '<span class="hud-wells"><input type="color" class="hud-custom" data-i="0" aria-label="Custom main colour">' +
+    '<input type="color" class="hud-custom" data-i="1" aria-label="Custom second colour"></span>';
   // Under the button — or above it, for the corner button.
   function place() {
     if (!pop || !button) return;
@@ -388,7 +486,7 @@
       pop.setAttribute("role", "dialog");
       pop.setAttribute("aria-label", "UI colour");
       pop.innerHTML = '<div class="hud-pop-h">UI colour</div>' + allSwatches() +
-        '<div class="hud-pop-f"><label>Custom <input type="color" class="hud-custom"></label>' +
+        '<div class="hud-pop-f"><span class="hud-own">Your own' + WELLS + '</span>' +
         '<button type="button" class="hud-reset">Reset</button></div>';
       document.body.appendChild(pop);
       wire(pop);
@@ -402,7 +500,7 @@
     if (mob && !mob.querySelector(".hud-row")) {
       var row = document.createElement("div");
       row.className = "hud-row";
-      row.innerHTML = '<div class="hud-row-h"><span>UI colour</span><input type="color" class="hud-custom" aria-label="Custom colour">' +
+      row.innerHTML = '<div class="hud-row-h"><span>UI colour</span>' + WELLS +
         '<button type="button" class="hud-reset">Reset</button></div>' + allSwatches();
       mob.insertBefore(row, mob.firstChild);
       wire(row);

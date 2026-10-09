@@ -703,13 +703,19 @@ icon and a tag in asgard.css's "Accents, icons and tags". Everything is small �
 1.4 KB, the grid 2 KB, the pines ~80 KB, the card's tree ~90 KB, `tpl.js` ~95 KB.
 
 **The colour picker — `Resources/Glance/theme.js`.** A swatch button at the right end of
-the nav bar (on a phone: a row at the top of the ☰ menu) opens **twelve light colours** —
-Mint (the default), Aqua, Sky, Periwinkle, Lavender, Orchid, Rose, Coral, Peach, Butter,
-Pistachio, Frost — **six two-tone themes** — Aurora (mint + lavender), Bifröst (sky +
-pink), Fjord (aqua + periwinkle), Muspel (peach + rose), Midgard (sage + wheat), Niflheim
-(ice + lilac) — a **Custom** colour input, and **Reset**. rock found the first, saturated
-set "a lot" and asked for lighter colours with more variation (2026-10-05). It replaces
-Glance's own theme picker, which asgard.css hides (its presets fight the HUD's tokens).
+the nav bar (on a phone: a row at the top of the ☰ menu) opens **eighteen two-tone themes**
+— first the house colours (**Asgard**: mint + teal, which picks the default and leaves the
+stylesheet's own palette alone), then seventeen named for the Nine Realms and their people:
+Aurora, Vanaheim, Fjord, Jötunheim, Bifröst, Skaði, Niflheim, Loki, Midgard, Álfheim, Sól and
+Máni, Mead, Svartálfheim, Muspelheim, Ragnarök, Iðunn, Freyja (sorted by main colour, so the
+grid runs round the wheel) — then **Just for fun** (below), **Your own** (two colour wells:
+the main light and its partner — they show whatever is on, so a tweak starts from there) and
+**Reset**. History: rock found the first, saturated set "a lot" and asked for lighter colours
+with more variation (2026-10-05); then (2026-10-09) "remove the base colours and have more 2
+tone variants I really like those" — the twelve single colours went and the two-tones went
+from six to eighteen. An old one-colour pick in someone's browser still works (the HUD derives
+a partner for it); the picker just no longer offers one. It replaces Glance's own theme
+picker, which asgard.css hides (its presets fight the HUD's tokens).
 - **A pick in, the whole palette out**: `--hud`, `--hud2`, `--hud-hot`, `--hud-deep`,
   `--hud-rgb`/`--hud2-rgb` and the data slots `--s1…--s6`. A pick is `#rrggbb`, or
   `#rrggbb+#rrggbb` for a two-tone theme (stored as such). One colour: the second light
@@ -746,8 +752,9 @@ Glance's own theme picker, which asgard.css hides (its presets fight the HUD's t
   `Resources/Glance/cats.css` + `cats.js` (`data-cats` / `data-cats-js` on the script tag;
   fetched only when picked — theme.js only switches them on and off: `Cats.on()` /
   `Cats.off()`, and off takes every cat, timer and listener back out). ⚠ theme.js marks
-  the `<script>` it adds with `data-cats-loaded`, not `data-cats-js` — its own tag carries
-  `data-cats-js`, so checking for that would match itself and never load the cats.
+  what it adds with `data-cats-loaded` (the `<link>`) and `data-cats-loaded-js` (the
+  `<script>`) — never `data-cats-js`: its own tag carries that, so checking for it would
+  match itself and never load the cats (the same goes for `data-fx-js`).
   - **The cats** are inline SVG with their parts rigged (each part drawn round its own
     pivot, so cats.css can turn an ear about its base, a tail about the rump, a leg
     about the shoulder; right-hand parts are the left ones under `scale(-1 1)`). One per
@@ -790,6 +797,37 @@ Glance's own theme picker, which asgard.css hides (its presets fight the HUD's t
   - Cats only ever go *into* a `.widget` or `<body>` — never inside a `Dash.paint` target,
     which would morph them away. Reduced motion: no acts, no chase, no scattering (they
     just vanish), no trotting; they still answer a tap with a word.
+- **Snow, Sakura, Starry night, Spooky, Ocean** — the rest of the "Just for fun" row
+  (2026-10-09, "maybe some other themes"). Each is a two-tone of its own plus something
+  living on the page, all in `Resources/Glance/fx.css` + `fx.js` (`data-fx` / `data-fx-js`
+  on the script tag, fetched only when one is picked; theme.js sets `html[data-fx="<kind>"]`
+  and calls `Fx.on(kind)` / `Fx.off()`, which takes every layer, timer and listener out):
+  - **Snow** — flakes at three depths, the nearest few real six-armed ones, turning.
+  - **Sakura** — blossom petals tumbling across on the wind.
+  - **Starry night** — a sky with a crescent moon behind the cards, stars glinting for a
+    moment all over the page, and now and then a shooting star; **tap an empty bit of sky**
+    and one shoots from there. Its main colour is the night (violet), the partner the
+    starlight (gold) — so the HUD goes violet and the moon, stars and logo go gold.
+  - **Spooky** — a low moon and mist behind the cards; bats flit across in ones to threes
+    (**tap one**: it squeaks "eek!" and bolts), and every half-minute or so a spider lets
+    itself down on a thread from the top of a card that's on screen, hangs there swaying
+    and climbs back (**tap it** and it shoots straight back up).
+  - **Ocean** — light coming down through the water behind the cards, bubbles rising, a
+    fish now and then (**tap it**: it darts off in a puff of bubbles).
+  - Two fixed layers: `.fx-back` behind everything (z-index −1, like the paw prints) and
+    `.fx-front` over the cards (z-index 6, under the picker and the ☰ menu). **Neither
+    takes a tap**: a creature is hit-tested by position on `pointerdown` and the tap goes
+    on to whatever is under it, so a bat crossing a light never eats the tap meant for it.
+    The spider goes *into* a `.widget`, like a cat (never a `Dash.paint` target).
+  - Each theme's **mark** (snowflake, blossom, moon, bat, fish — drawn once in theme.js's
+    `MARK`, with the cat's face) is on its swatch, becomes Asgard's logo, and — handed over
+    as `--fx-ic` with the two colours as `--fx-a` / `--fx-b` — goes on the section headings
+    and MarsBar's crowns (fx.css).
+  - Cheap: everything that moves is a CSS transform/opacity animation; the falling things
+    are made once and loop, with no timers. Spawners skip their turn in a hidden tab and the
+    layers pause. **On MarsBar the back layer stands still** — her cards are frosted glass
+    (`backdrop-filter`), and anything moving under the glass is re-blurred every frame.
+    Reduced motion: nothing falls, flies or twinkles; the sky, moon, mist and light stay.
 
 **The colour system** — the default the picker starts from (table and reasoning at the
 top of `asgard.css`): **mint** `#3be8a8`

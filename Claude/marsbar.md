@@ -264,10 +264,16 @@ On a phone it is a row at the top of the ☰ menu; on a desktop (no nav bar ther
 `hide-desktop-navigation`) it is a round button in the bottom-right corner (`.hud-pick.fab`,
 shown only while the phone bar is hidden).
 
-- **Lavender is the default** (`#ca99f5`, her `hsl(272, 82%, 78%)`), then Rose, Coral, Peach,
-  Butter, Pistachio, Mint, Aqua, Sky, Periwinkle, Orchid, Berry; the six two-tone themes;
-  **Cats**; Custom; Reset. Stored in `marsbar-colour` (and the redrawn artwork in
-  `marsbar-art`, keyed to `data-art-v` — a hash of vine.svg, bloom.svg and theme.js).
+- **Every theme is a two-tone** (2026-10-09: the single colours went, at rock's request —
+  "I really like those"): first **Lavender — her own** (`#ca99f5` with the vine's green; it
+  picks the default, `hsl(272, 82%, 78%)`), then seventeen softer ones — Plum and gold,
+  Twilight, Bluebell, Moonlight, Lagoon, Mermaid, Seafoam and coral, Meadow, Honeydew,
+  Lemonade, Peaches and cream, Tangerine and teal, Sorbet, Sunset, Strawberries and mint,
+  Cherry blossom, Cotton candy (her list is her own; Asgard's are named for the Nine
+  Realms) — then **Just for fun** (Cats, Snow, Sakura, Starry night, Spooky, Ocean, and her
+  garden switches), **Your own** (two wells: her colour and the vine's) and Reset. Stored
+  in `marsbar-colour` (and the redrawn artwork in `marsbar-art`, keyed to `data-art-v` — a
+  hash of vine.svg, bloom.svg and theme.js).
 - **Only hues move.** marsbar.css is written against two numbers: `--mb-h` (her purple,
   272) and `--mb-h2` (the vine's green, 150) — every colour there is
   `hsl(var(--mb-h) ± n, …)` or `--mb-h2`. A pick sets those, Glance's own `--bgh`,
@@ -290,6 +296,14 @@ shown only while the phone bar is hidden).
   kitten faces in place of the blossoms
   (`html[data-cats][data-dash="marsbar"]` — on Asgard that spot is the Yggdrasil tree).
   Details in `Claude/server-info.md` → The colour picker → Cats.
+- **Snow, Sakura, Starry night, Spooky, Ocean** — the other fun themes (fx.css + fx.js,
+  shared with Asgard; details in `Claude/server-info.md` → The colour picker): snowfall,
+  drifting petals, a night sky with shooting stars, bats and a spider, bubbles and fish.
+  Her crowns become the theme's mark (a snowflake, a moon, a bat, a fish), swaying —
+  except in **Sakura**, where her living blossoms stay (they already are the theme). Her
+  cards are frosted glass, so behind them (the sky, the mist, the light) nothing moves;
+  everything alive is in front. The tip under the row says what the theme does on a tap,
+  plus "Butterflies like a tap too" while her butterflies are on.
 
 ## The garden (garden.js)
 
@@ -312,7 +326,8 @@ switch, `marsbar-garden = "off"`, then split into three the same day at rock's r
   (`html[data-mb-night]`, re-checked every minute) and ease open in the morning. Once
   the crowns are in, `html.mb-garden` hides the old `::before` blossom. Colours are
   `--mb-h`/`--mb-h2` offsets via one hidden `svg.mbg-defs` of gradients, so her picker
-  recolours them live. Cats mode hides the crowns (its kitten faces are on `::before`).
+  recolours them live. Cats hides the crowns (its kitten faces are on `::before`), and so
+  do the other fun themes bar Sakura (their marks are on `::before`, fx.css).
 - **Butterflies.** One at a time, now and then (first ~6–15 s in, then 25–70 s after the
   last leaves; never in a hidden tab): it flutters in from the left or top, lands on a
   card's vine rail, fans its wings for 9–22 s, then visits another card or flies off.
