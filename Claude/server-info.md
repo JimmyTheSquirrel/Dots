@@ -898,6 +898,9 @@ and points the arrows down.
   get the step's **number**, earlier steps stay softly lit, so the path reads 1 → 2 → 3 down the
   tree; a pinned caption says what's happening. Plays itself (5.2 s a step), ‹ › step, ❚❚ pauses;
   on a phone it scrolls each step's box into view.
+- **MarsBar is deliberately not on it** (rock, 2026-10-09: "it's just a dashboard, not a real
+  part of the system infrastructure") — neither is her marsbar node. Her *access* stays (the
+  "Her" box: on the tailnet, limited by the ACL), because that is infrastructure.
 - **Not live** — nothing polls; it is a picture of the config. **Keep it in step**: a new service,
   port or connection is a line in `NODES`, its place in `ZONES`, a line in `EDGES` (maybe a
   `STORIES` step) at the top of overview.js. Colours are HUD tokens only, so the picker recolours it.

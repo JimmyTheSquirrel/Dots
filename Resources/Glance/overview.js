@@ -65,8 +65,8 @@
 
     { id: "you", k: "who", t: "You", s: "phone · laptop · anywhere",
       d: "Your own devices, all on the tailnet — so everything in this row answers wherever you are: home, work, 4G." },
-    { id: "her", k: "who", t: "Her", s: "MarsBar · Jellyfin · Jellyseerr only",
-      d: "She has her own tailnet name, marsbar:1111 — a second Tailscale node on Asgard that serves only MarsBar. The tailnet's rules let her reach that, Jellyfin and Jellyseerr; nothing else on Asgard. (Rules work per machine and port, not per web address — that's why she has her own node.)" },
+    { id: "her", k: "who", t: "Her", s: "on the tailnet · limited access",
+      d: "Her devices are on the tailnet too, but its rules (a Tailscale ACL) only let her reach the few things she uses — Jellyfin and Jellyseerr among them. Nothing else on Asgard answers her." },
     { id: "tailnet", k: "door", t: "Tailscale", s: "private mesh · WireGuard",
       d: "A private, encrypted network between your own devices (tailb54b82.ts.net). Almost everything on Asgard listens only here: its firewall trusts tailscale0 and nothing else." },
     { id: "abs", k: "svc", t: "Audiobookshelf", s: "audiobooks · ebooks", p: "13378",
@@ -88,11 +88,9 @@
     { id: "ha", k: "svc", t: "Home Assistant", s: "the smart plugs", p: "8123",
       d: "Talks to the smart plugs. Its token never reaches a browser: ha-bridge (one of the live feeds) holds it, and only lets the dashboards switch the plugs on its list." },
     { id: "feeds", k: "svc", t: "Live feeds", s: "stats · network · Eclipse · lights", p: "9552 · 9555 · 9554 · 9556",
-      d: "Small services that push live data to both dashboards: asgard-stats (the machine), network-panel (throughput, speed tests), eclipse-control (drives the TV box over SSH) and ha-bridge (the only thing allowed to flip a plug)." },
+      d: "Small services that push live data to the dashboard: asgard-stats (the machine), network-panel (throughput, speed tests), eclipse-control (drives the TV box over SSH) and ha-bridge (the only thing allowed to flip a plug)." },
     { id: "glance", k: "svc", t: "Glance", s: "this dashboard", p: "8888",
       d: "What you're looking at. Every card is pushed live by the feeds — nothing on these pages polls." },
-    { id: "marsbar", k: "svc", t: "MarsBar", s: "her dashboard", p: "1111",
-      d: "A second Glance, in purple, for her: the lights, the TV panel, Jellyfin. Reachable only through her own tailnet node." },
     { id: "tools", k: "svc", t: "Terminal & files", s: "ttyd · FileBrowser", p: "7681 · 8081",
       d: "A web terminal (the Terminal page) and a file manager for /data." },
 
@@ -127,7 +125,7 @@
     ["sisyphus", "tv", "Wolf game streams"],
     ["guests", "cf", "a web address"], ["cf", "jellyfin", "streams"], ["cf", "seerr", "requests"], ["cf", "immich", "photos"],
     ["you", "tailnet", "connects"], ["her", "tailnet", "connects"], ["kitkat", "tailnet", "connects"],
-    ["tailnet", "glance", "this page"], ["tailnet", "marsbar", "her page"], ["tailnet", "jellyfin", "streams"], ["tailnet", "seerr", "requests"],
+    ["tailnet", "glance", "this page"], ["tailnet", "jellyfin", "streams"], ["tailnet", "seerr", "requests"],
     ["seerr", "arrs", "the request"], ["arrs", "prowlarr", "search"], ["prowlarr", "indexers", "query"],
     ["arrs", "sab", "grab"], ["arrs", "pool", "rename & import"],
     ["shelfarr", "prowlarr", "search"], ["shelfarr", "sab", "download"], ["shelfarr", "abs", "delivers"],
@@ -135,7 +133,7 @@
     ["house", "arrs", "profiles"], ["house", "sab", "clears stuck"],
     ["sab", "mullvad", "the only way out"], ["mullvad", "usenet", "download"], ["sab", "nvme", "unpack"],
     ["jellyfin", "pool", "reads"], ["abs", "pool", "reads"], ["suwayomi", "pool", "saves"], ["immich", "photos", "stores"],
-    ["plugs", "ha", "Wi-Fi"], ["ha", "feeds", "plug states"], ["feeds", "glance", "live"], ["feeds", "marsbar", "live"],
+    ["plugs", "ha", "Wi-Fi"], ["ha", "feeds", "plug states"], ["feeds", "glance", "live"],
     ["feeds", "tv", "drives over SSH"], ["tv", "lan", "wired"], ["lan", "jellyfin", "plays films"]
   ];
 
@@ -163,8 +161,7 @@
       [["glance"], "…and push every change to Glance the moment it happens. Nothing polls."],
       [["you", "tailnet"], "Your browser opens it over the tailnet and keeps a live stream per card."],
       [["plugs", "ha"], "Lights: the plugs report to Home Assistant; ha-bridge holds its token and only flips the plugs on its list."],
-      [["tv"], "The TV panel's buttons go to eclipse-control, which drives the Pi over SSH."],
-      [["her", "marsbar"], "Her MarsBar gets the same live cards, through her own tailnet node."]
+      [["tv"], "The TV panel's buttons go to eclipse-control, which drives the Pi over SSH."]
     ] },
     { id: "book", t: "A book", steps: [
       [["shelfarr"], "Ask for a book or an audiobook in Shelfarr."],
@@ -181,7 +178,7 @@
     { id: "game", t: "Game night", steps: [
       [["sisyphus"], "Wolf on Sisyphus streams a game, in true 4K…"],
       [["lan", "tv"], "…to Moonlight on Eclipse. The pads pair straight to the TV box over Bluetooth."],
-      [["feeds", "glance"], "A stuck stream can be ended from either dashboard."]
+      [["feeds", "glance"], "A stuck stream can be ended from the dashboard."]
     ] }
   ];
 
@@ -200,12 +197,12 @@
       groups: [
         { t: "Watch & read", flow: [["abs", "suwayomi"]] },
         { t: "Getting new things", flow: ["arrs", "→", "prowlarr", "→", "indexers"], more: ["shelfarr", "house", "flare"] },
-        { t: "Dashboards & control", flow: ["ha", "→", "feeds", "→", ["glance", "marsbar"]], more: ["tools"] }
+        { t: "Dashboards & control", flow: ["ha", "→", "feeds", "→", "glance"], more: ["tools"] }
       ] },
     { id: "vpn", c: "var(--hud2)", icon: "shield", t: "Inside the VPN tunnel", s: "SABnzbd only — its one way out is Mullvad",
       flow: ["sab", "⇒", "mullvad", "→", "usenet"],
       note: "Kill switch: if the tunnel drops, SABnzbd has no network at all. Nothing else on Asgard goes through it." },
-    { id: "house", c: "var(--s5)", icon: "home", t: "Around the house", s: "on the home network, driven from the dashboards",
+    { id: "house", c: "var(--s5)", icon: "home", t: "Around the house", s: "on the home network, driven from the dashboard",
       flow: [["tv", "plugs"], "→", "lan"],
       note: "The TV plays from Jellyfin over the LAN; the plugs report to Home Assistant over Wi-Fi." },
     { id: "disks", c: "var(--s4)", icon: "disk", t: "The disks", s: "where everything above keeps its things",
