@@ -64,6 +64,11 @@
         # an internal Jellyfin GUID, same class as the library ids already in
         # eclipse-control.py. See Claude/eclipse.md.
         JELLYFIN_TV_USER = "b725e6a692f44fcd83e104b333f97319";
+        # The Network card's cable ⇄ Wi-Fi switch: sent to the Pi over ssh and
+        # run there, detached, because the link it changes is the one ssh rides.
+        # It puts things back by itself if the Pi can't get online. Nothing is
+        # installed on the Pi for it. See Claude/eclipse.md → Network.
+        ECLIPSE_NET_SCRIPT = "${../../Resources/Eclipse-Control/eclipse-net.sh}";
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${../../Resources/Eclipse-Control/eclipse-control.py}";

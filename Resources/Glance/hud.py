@@ -109,17 +109,32 @@ def frame():
     ticks = "".join("M%s %sh4" % (f(S - o - 7), f(o + 28 + i * 5)) for i in range(4))
     inner = "M%s %sL%s %s" % (f(S - o - 5), f(S - o - K - 6), f(S - o - K - 6), f(S - o - 5))
     notch = "M%s %sl6 0l-6 -6z" % (f(o + 3), f(S - o - 3))
-    body = ('<path d="%s" fill="none" stroke="%s" stroke-width="5" opacity=".22" filter="url(#glow)"/>'
-            '<path d="%s" fill="none" stroke="%s" stroke-width="1.1" opacity=".6"/>'
+    # Two-tone: the outline runs from the HUD's light (top-left) into its
+    # second light (bottom-right), and each corner's bracket wears its own end
+    # — so a theme's PAIR shows on every card, not just its first colour. The
+    # gradient is in the source tile, so the 9-slice keeps the ends in their
+    # corners and stretches the blend along the edges between them.
+    tl, tr, br, bl = ("M" + p for p in brackets.split("M") if p)
+    tr_bl = tr + bl
+    defs = (GLOW.replace("SD", "2.2") +
+            '<linearGradient id="fg" x1="0" y1="0" x2="1" y2="1"><stop offset=".18" stop-color="%s"/>'
+            '<stop offset=".82" stop-color="%s"/></linearGradient>' % (MINT, TEAL))
+    body = ('<path d="%s" fill="none" stroke="url(#fg)" stroke-width="5" opacity=".24" filter="url(#glow)"/>'
+            '<path d="%s" fill="none" stroke="url(#fg)" stroke-width="1.1" opacity=".65"/>'
             '<path d="%s" fill="none" stroke="%s" stroke-width="5" opacity=".35" filter="url(#glow)"/>'
+            '<path d="%s" fill="none" stroke="%s" stroke-width="5" opacity=".35" filter="url(#glow)"/>'
+            '<path d="%s" fill="none" stroke="url(#fg)" stroke-width="5" opacity=".3" filter="url(#glow)"/>'
             '<path d="%s" fill="none" stroke="%s" stroke-width="2.2" stroke-linecap="square"/>'
+            '<path d="%s" fill="none" stroke="%s" stroke-width="2.2" stroke-linecap="square"/>'
+            '<path d="%s" fill="none" stroke="url(#fg)" stroke-width="2.2" stroke-linecap="square"/>'
             '<g fill="%s" opacity=".85">%s</g>'
             '<path d="%s" stroke="%s" stroke-width="1" opacity=".7"/>'
-            '<path d="%s" stroke="%s" stroke-width="1" opacity=".55"/>'
+            '<path d="%s" stroke="%s" stroke-width="1" opacity=".6"/>'
             '<path d="%s" fill="%s" opacity=".7"/>') % (
-        outline, MINT, outline, MINT, brackets, MINT, brackets, MINT_HOT, MINT, marks, ticks, MINT, inner, MINT, notch, MINT)
+        outline, outline, tl, MINT, br, TEAL, tr_bl, tl, MINT_HOT, br, TEAL, tr_bl,
+        MINT, marks, ticks, MINT, inner, TEAL, notch, TEAL)
     return doc(S, S, "The panel frame round every card: a 9-slice border image (%dpx corners, stretched edges)." % FC,
-               body, GLOW.replace("SD", "2.2"))
+               body, defs)
 
 
 # ── the page's ground: grid + circuit traces, one seamless tile ───────────────

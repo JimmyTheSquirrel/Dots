@@ -70,6 +70,13 @@
                  : ["Asgard — mint and teal, as it ships", "#3be8a8+#1fc8c4"];
   // Asgard's are named for the Nine Realms and their people; hers are softer.
   // Sorted by their main colour, so the grid runs round the wheel.
+  //
+  // Asgard's pairs are built to CONTRAST (2026-10-09: "they're all the same
+  // somehow"): the two halves sit far apart on the wheel, and the partner may
+  // be deeper and richer than the main light (Fjord's deep blue, Muspelheim's
+  // red fire, Skaði's pine) — two pastels side by side read as one colour. And
+  // each pair now tints the ground, the glass and the light falling on the page
+  // (hudPalette), so it changes the whole room, not just the outlines.
   var DUOS = MB ? [
     ["Plum and gold", "#d79cf0+#ffd27a"], ["Twilight — violet and rose gold", "#b7a3ff+#ffb8a0"],
     ["Bluebell — blue and new leaves", "#a4b0ff+#9fe3a8"], ["Moonlight — silver blue and lilac", "#b9d4ff+#d8b8ff"],
@@ -81,15 +88,15 @@
     ["Sunset — coral and violet", "#ffa697+#b9a3ff"], ["Strawberries and mint", "#ff9fb1+#8ff0c8"],
     ["Cherry blossom — pink and new leaves", "#ffa6c9+#b5e6a0"], ["Cotton candy — pink and sky", "#ffadd2+#9fd0ff"],
   ] : [
-    ["Aurora — northern lights", "#7ff0c0+#b7a3ff"], ["Vanaheim — sea-green and coral", "#7ee8d0+#ffa697"],
-    ["Fjord — sea and sky", "#86e3e0+#9db4ff"], ["Jötunheim — glacier and stone", "#a8e6ff+#cfc6b4"],
-    ["Bifröst — the rainbow bridge", "#8fd0ff+#ffadd2"],
-    ["Skaði — snow and pine", "#e3f1ff+#8fd9a8"], ["Niflheim — mist and ice", "#cfe6ff+#c8b6ff"],
-    ["Loki — mischief, lime and orchid", "#c6f08a+#d6a3ff"], ["Midgard — meadow and wheat", "#b9e89a+#ffd98a"],
-    ["Álfheim — the light elves, gold and mint", "#fff0a0+#9ff0d0"], ["Sól and Máni — the sun and the moon", "#ffd27a+#b9c6ff"],
-    ["Mead — honey and plum", "#ffcf7a+#d79cf0"], ["Svartálfheim — the forge, ember and steel", "#ffb36b+#9fc4e8"],
-    ["Muspelheim — the realm of fire", "#ffbf8f+#ff9fb1"], ["Ragnarök — ember and ash", "#ff9f7a+#bdb4cc"],
-    ["Iðunn — apples and leaves", "#ff9f9f+#c6e891"], ["Freyja — rose and mint", "#ffa6c9+#8ff0c8"],
+    ["Aurora — northern lights over the snow", "#7ff0c0+#a98bff"], ["Vanaheim — sea-green and coral", "#7ee8d0+#ff8f7a"],
+    ["Fjord — glacier water and the deep", "#8ae6e6+#5f8bff"], ["Jötunheim — frost giants and their amber", "#a8e6ff+#e8a865"],
+    ["Bifröst — the rainbow bridge", "#8fd0ff+#ff8fc8"],
+    ["Skaði — snow and pine", "#e8f4ff+#4fd18b"], ["Niflheim — mist, and the dark below it", "#cfe6ff+#8a7dff"],
+    ["Loki — mischief, lime and orchid", "#c6f08a+#c77dff"], ["Midgard — meadow and harvest", "#b9e89a+#ffb35c"],
+    ["Álfheim — the light elves, gold and jade", "#fff0a0+#4fe0b0"], ["Sól and Máni — the sun and the moon", "#ffd27a+#8f9fff"],
+    ["Mead — honey and plum", "#ffcf7a+#c27df0"], ["Svartálfheim — the forge, ember and steel", "#ffb36b+#7fb0e0"],
+    ["Muspelheim — the realm of fire", "#ffc36b+#ff5f57"], ["Ragnarök — ember and ash", "#ff8a65+#a9a3b8"],
+    ["Iðunn — apples and leaves", "#ff8f8f+#b5e67a"], ["Freyja — rose and the falcon's green", "#ffa6c9+#5ee8b0"],
   ];
   // The fun themes: a two-tone of their own, and something living on the page.
   // Cats is cats.css + cats.js; the rest are fx.css + fx.js (data-fx,
@@ -108,7 +115,8 @@
   var PROPS = (MB
     ? ["--mb-h", "--mb-h2", "--bgh", "--color-primary", "--color-positive", "--mb-vine", "--mb-bloom"]
     : ["--hud", "--hud2", "--hud-hot", "--hud-deep", "--hud-rgb", "--hud2-rgb",
-       "--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--h-frame", "--h-ygg"]).concat(["--fx-a", "--fx-b", "--fx-ic"]);
+       "--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--h-frame", "--h-ygg",
+       "--ag-page", "--ag-ground", "--ag-surface", "--ag-pop"]).concat(["--fx-a", "--fx-b", "--fx-ic"]);
   var root = document.documentElement;
   if (MB) root.setAttribute("data-dash", "marsbar");
 
@@ -151,15 +159,32 @@
   // its neighbours a fair way round the wheel (+30, +48, and a paler −34),
   // light enough that none reads as an error. Two-tone: the second colour is
   // the second light and the second series; the third sits between the two.
-  function tone(hex) {
+  // The partner may go a step deeper (0.55) — the contrast that keeps a pair
+  // reading as two colours, not one.
+  function tone(hex, lo) {
     var p = toHsl(rgb(hex));
-    return [p[0], Math.min(p[1], 0.9), clamp(p[2], 0.6, 0.84)];
+    return [p[0], Math.min(p[1], 0.9), clamp(p[2], lo || 0.6, 0.84)];
+  }
+  // The room a pair lights: the page's ground, its top, the glass of a panel
+  // and a pop-up, each the main colour's hue at a low, dark saturation. Near
+  // white (Skaði's snow) has no real hue, so its partner's is used instead.
+  function ground(A, B) {
+    var h = A[2] > 0.88 || A[1] < 0.12 ? B[0] : A[0];
+    function rgbs(s, l) { return rgb(hsl(h, s, l)).join(" "); }
+    return {
+      "--ag-page": hsl(h, 0.3, 0.068),
+      "--ag-ground": hsl(h, 0.32, 0.1),
+      "--ag-surface": hsl(h, 0.22, 0.095),
+      "--ag-pop": "rgb(" + rgbs(0.24, 0.085) + " / 0.97)",
+    };
   }
   function between(a, b) { var d = ((b - a + 540) % 360) - 180; return a + d / 2; }
   function hudPalette(colours) {
     var parts = colours.split("+"), A = tone(parts[0]), H = A[0], S = A[1], L = A[2];
-    var B = parts[1] ? tone(parts[1]) : [H + 30, S, L * 0.95];
+    var B = parts[1] ? tone(parts[1], 0.55) : [H + 30, S, L * 0.95];
+    var g = ground(toHsl(rgb(parts[0])), B);
     return {
+      "--ag-page": g["--ag-page"], "--ag-ground": g["--ag-ground"], "--ag-surface": g["--ag-surface"], "--ag-pop": g["--ag-pop"],
       "--hud": hsl(H, S, L),
       "--hud2": hsl(B[0], B[1], B[2]),
       "--hud-hot": hsl(H, S, Math.min(0.92, L + 0.14)),

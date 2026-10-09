@@ -591,7 +591,7 @@
     # ════════════════════════════════════════════════════════════════════════
     #   ags-host ags-storage ags-playing ags-dl   stats.js   ← asgard-stats :9552
     #   nw                                        net.js     ← network-panel :9555
-    #   ec-main ec-tv ec-wolf ec-ctl ec-log       eclipse.js ← eclipse-control :9554
+    #   ec-main ec-tv ec-wolf ec-ctl ec-net ec-log  eclipse.js ← eclipse-control :9554
     # net.js and eclipse.js (and cards.css) are SHARED with MarsBar, which
     # draws the same cards through her serve proxy. See _livecard.nix.
     liveCard = import ./_livecard.nix lib;
@@ -784,7 +784,8 @@
               widgets = [
                 (liveCard { id = "ec-main"; title = "Eclipse"; acc = "mint"; rune = "dagaz"; badge = "ec-live"; })
                 (liveCard { id = "ec-wolf"; title = "Streams · Wolf on Sisyphus"; acc = "teal"; rune = "ehwaz"; })
-                (liveCard { id = "ec-ctl"; title = "Controllers & network"; acc = "teal"; rune = "algiz"; })
+                (liveCard { id = "ec-ctl"; title = "Controllers"; acc = "teal"; rune = "algiz"; })
+                (liveCard { id = "ec-net"; title = "Eclipse network · cable & Wi-Fi"; acc = "mint"; rune = "gebo"; })
               ];
             }
             {

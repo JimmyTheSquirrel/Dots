@@ -15,6 +15,12 @@ the Eclipse LibreELEC box over SSH.
   GET  /wolf/sessions    Moonlight streams Wolf is serving on Sisyphus
   POST /act/<name>       run an action (needs `X-Dash: 1`)
   POST /wolf/stop/<id>   end a stream (needs `X-Dash: 1`)
+  POST /ctl/…            Bluetooth: search, pair, connect, rename … (needs `X-Dash: 1`)
+  POST /net/scan         search for Wi-Fi                          (needs `X-Dash: 1`)
+  POST /net/wired        back to the cable, wired only (home)
+  POST /net/wifi[/<id>]  Wi-Fi (away): a saved network, or a new one with
+                         {"pass": "…"} in the body — sent on to the Pi via stdin
+  POST /net/forget/<id>  forget a saved Wi-Fi network
 
 SSH rather than Kodi's JSON-RPC on purpose: the headline action is "restart Kodi
 when it has wedged", and a wedged Kodi cannot answer its own API. Kodi's HTTP
@@ -137,7 +143,7 @@ KODI_SEND = "/usr/bin/kodi-send"
 EVENTS_STATUS_S = 5.0
 EVENTS_WOLF_S = 3.0
 EVENTS_TV_S = 5.0
-# Controllers + network path. Slower than the rest on purpose: this one shells
+# Controllers + subtitles. Slower than the rest on purpose: this one shells
 # out to bluetoothctl, which talks DBus to a bluetoothd that has already shown
 # it can burn CPU (21 min over 6 days with one paired, powered-OFF pad).
 EVENTS_CTL_S = 8.0
@@ -165,6 +171,33 @@ CTL_NAME_MAX = 24
 # AND checked against the Pi's own device list before it goes near a command.
 # Same precedent as wolf_stop()'s session_id.isdigit().
 MAC_RE = re.compile(r"^([0-9A-F]{2}:){5}[0-9A-F]{2}$")
+
+# ── Network: the cable, Wi-Fi, and switching between them ───────────────────
+# Wired-only is the house rule (Resources/Eclipse-Box/network/, 2026-10-09): the
+# Pi once dual-homed and sent a 4K game stream over its own weak radio while the
+# cable sat idle. The dashboards can switch it to Wi-Fi on purpose (away from
+# home) and back, and join a network with its password; eclipse-net.sh does the
+# switch ON the Pi, detached, and undoes it if the Pi can't get online.
+#
+# Every switch is safe to make remotely only because ECLIPSE is the Pi's tailnet
+# address: whichever link it is on, the control channel finds it again.
+EVENTS_NET_S = 8.0
+EVENTS_NETSW_S = 3.0           # while a switch runs: watch for its result
+# Longest a switch can take before we stop waiting: connman restart + ~25 s to
+# find the network + ~30 s to get online, and the same again to put it back.
+NET_SWITCH_MAX_S = 180
+NET_SCAN_KEEP_S = 180
+NET_LIST_MAX = 24
+NET_DIR = "/storage/.cache/eclipse-net"
+NET_SCRIPT = os.environ.get("ECLIPSE_NET_SCRIPT") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "eclipse-net.sh")
+# connman service ids, as connmanctl prints them. A dashboard-supplied id is
+# matched against this AND the Pi's own list before it reaches a root shell.
+# Hidden networks (wifi_<mac>_hidden_…) have no SSID to join by, so they never
+# match; enterprise (ieee8021x) ones match but are not joinable from here.
+WIFI_RE = re.compile(r"^wifi_[0-9a-f]{12}_([0-9a-f]{2,64})_managed_(psk|sae|wep|none|ieee8021x)$")
+WIRED_RE = re.compile(r"^ethernet_[0-9a-f]{12}_cable$")
+JOINABLE = ("psk", "sae", "wep", "none")
 
 # Subtitle defaults are a JELLYFIN USER setting, not a Kodi one. The addon runs
 # set_audio_subs() about 2s into every playback and calls showSubtitles(False)
@@ -249,14 +282,16 @@ def _drop_master():
         pass
 
 
-def ssh(remote_cmd, timeout=30):
-    """Run a command on Eclipse. Returns (ok, output)."""
+def ssh(remote_cmd, timeout=30, stdin=None):
+    """Run a command on Eclipse. Returns (ok, output). `stdin` is fed to the
+    remote command — the way anything secret (a Wi-Fi password) gets there:
+    never in remote_cmd, which is on a command line on both machines."""
     global _inflight
     with _inflight_lock:
         _inflight += 1
     try:
         p = subprocess.run(SSH_BASE + [remote_cmd], capture_output=True, text=True,
-                           timeout=timeout)
+                           timeout=timeout, input=stdin if stdin is not None else "")
         out = (p.stdout + p.stderr).strip()
         if p.returncode == 255:
             # 255 is ssh's own failure (connect/auth/mux), not the remote
@@ -406,7 +441,7 @@ def _fetch_status():
     return st
 
 
-# ── Controllers and the network path ────────────────────────────────────────
+# ── Controllers and subtitles ────────────────────────────────────────────────
 # WHY THIS IS NOT JUST "is BlueZ connected". The DualSense on this box fails to
 # bind its kernel driver with -5 (EIO) often enough to matter: 17 reconnect
 # cycles and 3 probe failures in the logs, and /storage/dualsense-repair.log
@@ -426,7 +461,7 @@ def _fetch_status():
 #             device Uniq is its MAC, so `live` matches the exact pad, not
 #             just one with the same name (two DualSenses share a name)
 #   bat=      kernel power_supply: hid-playstation's ps-controller-battery-<mac>
-#   net=      connman's services, for the network rows
+# (The network has its own card and poll now: NET_CMD.)
 # Generic "Key: value" seds + filtering in Python: LibreELEC's sed is busybox.
 CTL_CMD = (
     "bluetoothctl show 2>/dev/null | sed -n 's/^[[:space:]]*\\([A-Za-z]*\\): /adapter=\\1=/p'; "
@@ -438,8 +473,7 @@ CTL_CMD = (
     " | sed -n \"s/^[[:space:]]*Battery Percentage: .*(\\([0-9]*\\)).*/btbat=$m \\1/p\"; done; "
     "grep -E '^(N: Name|U: Uniq)=' /proc/bus/input/devices 2>/dev/null | sed 's/^/input=/'; "
     "for b in /sys/class/power_supply/*; do [ -r \"$b/capacity\" ] &&"
-    " echo \"bat=${b##*/} $(cat \"$b/capacity\" 2>/dev/null) $(cat \"$b/status\" 2>/dev/null)\"; done; "
-    "connmanctl services 2>/dev/null | head -8 | sed 's/^/net=/'"
+    " echo \"bat=${b##*/} $(cat \"$b/capacity\" 2>/dev/null) $(cat \"$b/status\" 2>/dev/null)\"; done"
 )
 
 # What a running search has found: every device BlueZ knows that is NOT paired
@@ -586,12 +620,11 @@ def _set_subs(mode=None, lang=None):
 
 def _fetch_ctl():
     ok, out = ssh(CTL_CMD, timeout=15)
-    st = {"reachable": ok, "bt_powered": False, "devices": [], "net": [],
-          "subs": _subs_state()}
+    st = {"reachable": ok, "bt_powered": False, "devices": [], "subs": _subs_state()}
     if not ok:
         st["error"] = out
         return st
-    adapter, known, flags, btbat, inputs, bats, nets = {}, {}, {}, {}, [], {}, []
+    adapter, known, flags, btbat, inputs, bats = {}, {}, {}, {}, [], {}
     cur = None
     for line in out.splitlines():
         k, _, v = line.partition("=")
@@ -621,8 +654,6 @@ def _fetch_ctl():
             parts = v.split()
             if len(parts) >= 2 and parts[1].isdigit():
                 bats[parts[0].lower()] = (int(parts[1]), " ".join(parts[2:]).lower())
-        elif k == "net":
-            nets.append(v)
     st["bt_powered"] = adapter.get("Powered") == "yes"
     uniqs = {i["uniq"] for i in inputs if i["uniq"]}
     for mac, model in known.items():
@@ -652,21 +683,6 @@ def _fetch_ctl():
             "battery": battery if connected else None, "charging": charging,
         })
     st["devices"].sort(key=lambda d: (not d["live"], not d["connected"], d["name"].lower()))
-    for raw in nets:
-        flags_, rest = raw[:3], raw[3:].strip()
-        if not rest:
-            continue
-        sid = rest.split()[-1]
-        name = rest[:-len(sid)].strip() or sid
-        kind = "ethernet" if sid.startswith("ethernet_") else (
-            "wifi" if sid.startswith("wifi_") else "other")
-        nets_entry = {"name": name, "kind": kind,
-                      "online": "O" in flags_, "ready": "R" in flags_,
-                      "favourite": "*" in flags_}
-        # Only the ones that matter: what is carrying traffic, plus any
-        # remembered network. A list of every SSID in range is noise on a TV.
-        if nets_entry["favourite"]:
-            st["net"].append(nets_entry)
     return st
 
 
@@ -972,6 +988,364 @@ def stop_scan(quiet=False):
         return 200, {"ok": True, "message": "not searching"}
     proc.terminate()
     return 200, {"ok": True, "message": "search stopped"}
+
+
+# ── Network: what Eclipse is on, Wi-Fi in range, switching ───────────────────
+# One look at everything the Network card shows:
+#   tech=     connman technologies and whether each radio is powered
+#   svc=      `connmanctl services`: every network in range plus the saved
+#             ones, flags first (* saved, A auto-connect, O online / R ready)
+#   str=      signal strength for the Wi-Fi ones (0-100, connman's scale)
+#   saved=    every saved Wi-Fi ON DISK, in range or not, with its AutoConnect —
+#             the wired-only rule is "all of these false", and a network out of
+#             range is invisible to connmanctl
+#   prov=     the provisioning files a join from here leaves behind
+#   sct=      the one-link override (SingleConnectedTechnology) — a re-flash loses it
+#   carrier=  is a cable plugged in
+#   unit=     is a switch (eclipse-net.sh) running right now
+#   result=   how the last switch ended
+#   home=     can it reach Asgard on the house LAN — away from home, the LAN
+#             Jellyfin path can't work
+NET_CMD = (
+    "connmanctl technologies 2>/dev/null | awk '/^\\/net\\/connman\\/technology\\// "
+    "{ t = $1; sub(/.*\\//, \"\", t) } /^ *Powered = / { print \"tech=\" t \" \" $3 }'; "
+    "connmanctl services 2>/dev/null | sed 's/^/svc=/'; "
+    "n=0; for id in $(connmanctl services 2>/dev/null | awk '$NF ~ /^wifi_/ { print $NF }'); do"
+    " n=$((n + 1)); [ $n -gt " + str(NET_LIST_MAX) + " ] && break;"
+    " connmanctl services \"$id\" 2>/dev/null | sed -n \"s/^ *Strength = /str=$id /p\"; done; "
+    "for d in /storage/.cache/connman/wifi_*/; do [ -f \"$d/settings\" ] || continue; s=${d%/};"
+    " echo \"saved=${s##*/} $(sed -n 's/^AutoConnect=//p' \"$d/settings\" | head -1)"
+    " $(sed -n 's/^Name=//p' \"$d/settings\" | head -1)\"; done; "
+    "for f in /storage/.cache/connman/eclipse-*.config; do [ -f \"$f\" ] && echo \"prov=${f##*/}\"; done; "
+    "echo \"sct=$(sed -n 's/^SingleConnectedTechnology *= *//p' /storage/.config/connman_main.conf 2>/dev/null)\"; "
+    "echo \"carrier=$(cat /sys/class/net/eth0/carrier 2>/dev/null)\"; "
+    "echo \"unit=$(systemctl is-active eclipse-net 2>/dev/null)\"; "
+    "echo \"result=$(cat " + NET_DIR + "/result 2>/dev/null)\"; "
+    "case \"$(ip route get " + ASGARD_LAN_IP + " 2>/dev/null)\" in *tailscale*|'') echo home=0;;"
+    " *) ping -c 1 -W 1 " + ASGARD_LAN_IP + " >/dev/null 2>&1 && echo home=1 || echo home=0;; esac"
+)
+
+
+def _ssid(hexpart):
+    try:
+        return bytes.fromhex(hexpart).decode("utf-8", "replace")
+    except ValueError:
+        return ""
+
+
+def _net_row(sid, name="", flags="", strength=None):
+    m = WIFI_RE.match(sid)
+    sec = m.group(2) if m else ""
+    return {"id": sid, "name": name or (_ssid(m.group(1)) if m else sid),
+            "security": sec, "secure": sec not in ("none", ""),
+            "joinable": sec in JOINABLE, "strength": strength,
+            "saved": "*" in flags, "auto": "A" in flags,
+            "online": "O" in flags, "ready": "R" in flags, "in_range": bool(flags) or strength is not None}
+
+
+def _fetch_net():
+    ok, out = ssh(NET_CMD, timeout=20)
+    if not ok:
+        return {"reachable": False, "error": out[:200]}
+    techs, strength, saved, prov, misc, rows, wired = {}, {}, {}, set(), {}, {}, None
+    for line in out.splitlines():
+        k, _, v = line.partition("=")
+        if k == "tech":
+            t, _, p = v.partition(" ")
+            techs[t] = p.strip() == "True"
+        elif k == "svc":
+            flags, rest = v[:3], v[3:].strip()
+            if not rest:
+                continue
+            sid = rest.split()[-1]
+            name = rest[:-len(sid)].strip()
+            if WIRED_RE.match(sid):
+                wired = {"id": sid, "online": "O" in flags, "ready": "R" in flags, "auto": "A" in flags}
+            elif WIFI_RE.match(sid):
+                rows[sid] = (flags, name)
+        elif k == "str":
+            sid, _, s = v.partition(" ")
+            strength[sid] = int(s) if s.strip().isdigit() else None
+        elif k == "saved":
+            sid, _, rest = v.partition(" ")
+            auto, _, name = rest.partition(" ")
+            if WIFI_RE.match(sid):
+                saved[sid] = (auto.strip() == "true", name.strip())
+        elif k == "prov":
+            prov.add(v.strip())
+        elif k in ("sct", "carrier", "unit", "result", "home"):
+            misc[k] = v.strip()
+    nets = {}
+    for sid, (flags, name) in rows.items():
+        nets[sid] = _net_row(sid, name, flags if flags.strip() else " ", strength.get(sid))
+        nets[sid]["in_range"] = True
+    for sid, (auto, name) in saved.items():
+        n = nets.setdefault(sid, _net_row(sid, name))
+        n["saved"], n["auto"] = True, auto
+        if not n["name"] or n["name"] == sid:
+            n["name"] = name or n["name"]
+    for n in nets.values():
+        n["ours"] = ("eclipse-" + WIFI_RE.match(n["id"]).group(1) + ".config") in prov
+    using = None
+    if wired and (wired["online"] or wired["ready"]):
+        using = {"kind": "wired", "id": wired["id"], "name": "Cable", "online": wired["online"]}
+    for n in nets.values():
+        if (n["online"] or n["ready"]) and (using is None or (n["online"] and not using["online"])):
+            using = {"kind": "wifi", "id": n["id"], "name": n["name"], "online": n["online"],
+                     "strength": n["strength"]}
+    saved_list = sorted((n for n in nets.values() if n["saved"]),
+                        key=lambda n: (not (n["online"] or n["ready"]), not n["in_range"],
+                                       -(n["strength"] or 0), n["name"].lower()))
+    found = sorted((n for n in nets.values() if not n["saved"] and n["name"]),
+                   key=lambda n: (-(n["strength"] or 0), n["name"].lower()))[:NET_LIST_MAX]
+    result = None
+    parts = misc.get("result", "").split(" ", 3)
+    if len(parts) == 4 and parts[0].isdigit():
+        result = {"t": int(parts[0]), "token": parts[1], "outcome": parts[2], "message": parts[3]}
+    sct = misc.get("sct", "").lower() == "true"
+    wifi_auto = any(n["auto"] for n in saved_list)
+    return {
+        "reachable": True,
+        "using": using,
+        "cable": misc.get("carrier") == "1",
+        "wired": wired,
+        "wifi_on": techs.get("wifi", False),
+        "sct": sct,
+        # The 2026-10-09 rule, as the Pi has it right now.
+        "wired_only": sct and not wifi_auto,
+        "wifi_auto": wifi_auto,
+        "home": misc.get("home") == "1",
+        "saved": saved_list,
+        "found": found,
+        "switch_running": misc.get("unit") in ("active", "activating"),
+        "result": result,
+    }
+
+
+# A switch in flight. The Pi can't report while its link is changing, so this
+# side remembers what was asked and when, and keeps the card saying "Switching…"
+# until the Pi's result file carries this switch's token (or it times out).
+NETSW_LOCK = threading.Lock()
+NETSW = {"active": False}
+
+
+def _netsw_state():
+    with NETSW_LOCK:
+        return dict(NETSW)
+
+
+def _net_switch_check(st):
+    """Called with each fresh network state while a switch runs."""
+    with NETSW_LOCK:
+        sw = dict(NETSW)
+    if not sw.get("active"):
+        return
+    res = (st or {}).get("result") or {}
+    done = res.get("token") == sw["token"] and not st.get("switch_running")
+    late = time.time() > sw["until"]
+    if not (done or late):
+        return
+    if done:
+        ok, msg = res["outcome"] == "ok", res["message"][:160]
+    else:
+        ok, msg = False, ("no word from Eclipse since switching to " + sw["label"] +
+                          " — it should have gone back by itself; if it's still missing, plug in a "
+                          "cable or use LibreELEC → Connections on the TV")
+    with NETSW_LOCK:
+        if NETSW.get("token") != sw["token"]:
+            return
+        # `last` lets every open card say how it ended, not just the log.
+        NETSW.clear()
+        NETSW.update(active=False, last={"ok": ok, "message": msg, "token": sw["token"]})
+    HUB.log("Network", ok, msg)
+    HUB.publish("netsw", _netsw_state())
+
+
+def net_refresh():
+    st = _fetch_net()
+    HUB.publish("net", st)
+    if st.get("reachable"):
+        _net_switch_check(st)
+    elif _netsw_state().get("active"):
+        _net_switch_check({})                 # only the timeout can end it now
+    return st
+
+
+# Searching: connman scans in the background anyway (BackgroundScanning), so a
+# search only asks for a fresh one now and holds the results list open.
+NETSCAN = {"active": False, "ended": 0}
+NETSCAN_LOCK = threading.Lock()
+
+
+def _netscan_state():
+    with NETSCAN_LOCK:
+        if NETSCAN["ended"] and time.time() - NETSCAN["ended"] > NET_SCAN_KEEP_S:
+            NETSCAN["ended"] = 0
+        return dict(NETSCAN)
+
+
+def net_scan():
+    with NETSCAN_LOCK:
+        if NETSCAN["active"]:
+            return 200, {"ok": True, "message": "already searching"}
+        NETSCAN.update(active=True, ended=0)
+    HUB.publish("netscan", _netscan_state())
+
+    def go():
+        try:
+            # `enable wifi`: searching is the moment someone clearly wants the
+            # radio on (it was once found off, persisted — Claude/eclipse.md). It
+            # does not JOIN anything: wired-only keeps every saved network's
+            # AutoConnect off.
+            ssh("connmanctl enable wifi >/dev/null 2>&1; connmanctl scan wifi 2>&1 | tail -1", timeout=30)
+            net_refresh()
+        finally:
+            with NETSCAN_LOCK:
+                NETSCAN.update(active=False, ended=time.time())
+            HUB.publish("netscan", _netscan_state())
+
+    threading.Thread(target=go, daemon=True).start()
+    return 200, {"ok": True, "message": "searching for Wi-Fi"}
+
+
+def _keyfile_value(s):
+    """A value for connman's GKeyFile provisioning file: backslash and spaces
+    escaped (\\\\, \\s) so leading/trailing spaces survive and nothing can break
+    out of the line. Newlines are refused before this is ever called."""
+    return s.replace("\\", "\\\\").replace(" ", "\\s")
+
+
+def _check_pass(sec, pw):
+    if sec == "none":
+        return None
+    if any(ord(c) < 0x20 or ord(c) > 0x7e for c in pw):
+        return "the password can only use plain keyboard characters"
+    if sec in ("psk", "sae"):
+        if len(pw) == 64 and all(c in "0123456789abcdefABCDEF" for c in pw):
+            return None
+        if not 8 <= len(pw) <= 63:
+            return "a Wi-Fi password is 8 to 63 characters"
+    elif sec == "wep":
+        if len(pw) not in (5, 13) and not (len(pw) in (10, 26) and
+                                           all(c in "0123456789abcdefABCDEF" for c in pw)):
+            return "a WEP key is 5 or 13 characters (10 or 26 hex)"
+    return None
+
+
+def _net_start(mode, sid, label, config=None):
+    """Hand eclipse-net.sh to the Pi and start it detached. `config`, when
+    joining a new network, is the provisioning file — sent through stdin."""
+    try:
+        with open(NET_SCRIPT) as f:
+            script = f.read()
+    except OSError as exc:
+        return 500, {"ok": False, "error": "eclipse-net.sh missing on Asgard: " + str(exc)[:80]}
+    token = os.urandom(6).hex()
+    with NETSW_LOCK:
+        if NETSW.get("active"):
+            return 409, {"ok": False, "error": "already switching to " + NETSW["label"]}
+        now = time.time()
+        NETSW.clear()
+        NETSW.update(active=True, mode=mode, id=sid or "", label=label, token=token,
+                     since=now, until=now + NET_SWITCH_MAX_S)
+    ok, out = ssh("umask 077; mkdir -p " + NET_DIR + " && cat > " + NET_DIR + "/eclipse-net.sh", stdin=script)
+    if ok:
+        ok, out = (ssh("umask 077; cat > " + NET_DIR + "/pending.config", stdin=config) if config
+                   else ssh("rm -f " + NET_DIR + "/pending.config"))
+    if ok:
+        # --collect: a failed run doesn't linger and block the next one.
+        ok, out = ssh("systemctl reset-failed eclipse-net >/dev/null 2>&1; "
+                      "systemd-run --quiet --collect --unit=eclipse-net /bin/sh " + NET_DIR + "/eclipse-net.sh " +
+                      mode + " " + (sid or "-") + " " + ("new" if config else "old") + " " + token + " 2>&1",
+                      timeout=20)
+    if not ok:
+        with NETSW_LOCK:
+            NETSW.clear()
+            NETSW["active"] = False
+        HUB.publish("netsw", _netsw_state())
+        if config:
+            ssh("rm -f " + NET_DIR + "/pending.config", timeout=10)
+        return 502, {"ok": False, "error": "couldn't start the switch: " + (out or "no answer")[:160]}
+    HUB.publish("netsw", _netsw_state())
+    HUB.wake.set()
+    return 200, {"ok": True, "message": "switching to " + label + " — Eclipse may drop off for up to a minute"}
+
+
+def net_wired():
+    st = net_refresh()
+    if not st.get("reachable"):
+        return 502, {"ok": False, "error": "Eclipse isn't answering"}
+    if not st.get("cable"):
+        return 409, {"ok": False, "error": "there's no cable in Eclipse — plug one in first"}
+    u = st.get("using") or {}
+    if u.get("kind") == "wired" and st.get("wired_only"):
+        return 200, {"ok": True, "message": "already on the cable, wired only"}
+    return _net_start("wired", "", "the cable")
+
+
+def net_wifi(sid="", body=None):
+    """Wi-Fi mode on network `sid` (a saved one, or a new one with a password
+    in the body), or with no sid the strongest saved network in range."""
+    st = net_refresh()
+    if not st.get("reachable"):
+        return 502, {"ok": False, "error": "Eclipse isn't answering"}
+    nets = {n["id"]: n for n in st.get("saved", []) + st.get("found", [])}
+    if not sid:
+        best = [n for n in st.get("saved", []) if n["in_range"] and n["joinable"]]
+        if not best:
+            return 404, {"ok": False, "error": "no saved Wi-Fi in range — search and pick one"}
+        sid = best[0]["id"]
+    m = WIFI_RE.match(sid or "")
+    if not m:
+        return 400, {"ok": False, "error": "bad network id"}
+    n = nets.get(sid)
+    if not n:
+        return 404, {"ok": False, "error": "that network isn't in range any more — search again"}
+    if not n["joinable"]:
+        return 400, {"ok": False, "error": n["name"] + " needs a username (work/uni Wi-Fi) — use LibreELEC → Connections on the TV"}
+    pw = (body or {}).get("pass")
+    config = None
+    if n["saved"]:
+        # A saved network joins with what the Pi already has. A new password is
+        # NOT taken here: a join that fails throws its provisioning file away,
+        # and connman would take the saved network down with it — a typo would
+        # forget the house Wi-Fi. Forget it, then join it fresh.
+        if pw is not None:
+            return 409, {"ok": False, "error": n["name"] + " is already saved — Forget it first to enter a new password"}
+        if (st.get("using") or {}).get("id") == sid:
+            return 200, {"ok": True, "message": "already on " + n["name"]}
+    else:
+        pw = pw if isinstance(pw, str) else ""
+        if n["security"] != "none":
+            bad = _check_pass(n["security"], pw)
+            if bad:
+                return 400, {"ok": False, "error": bad}
+        config = ("[service_eclipse]\nType = wifi\nSSID = " + m.group(1) + "\n" +
+                  ("Passphrase = " + _keyfile_value(pw) + "\n" if n["security"] != "none" else ""))
+    return _net_start("wifi", sid, n["name"], config)
+
+
+def net_forget(sid):
+    st = net_refresh()
+    if not st.get("reachable"):
+        return 502, {"ok": False, "error": "Eclipse isn't answering"}
+    m = WIFI_RE.match(sid or "")
+    n = next((x for x in st.get("saved", []) if x["id"] == sid), None)
+    if not m or not n:
+        return 404, {"ok": False, "error": "not a saved network"}
+    if (st.get("using") or {}).get("id") == sid:
+        return 409, {"ok": False, "error": "Eclipse is on " + n["name"] + " right now — switch to the cable or another network first"}
+    if _netsw_state().get("active"):
+        return 409, {"ok": False, "error": "a switch is running — try again in a minute"}
+    # Our provisioning file first: removing it is what makes connman drop a
+    # network it provisioned (an immutable one refuses `config --remove`).
+    ok, out = ssh("rm -f /storage/.cache/connman/eclipse-" + m.group(1) + ".config; "
+                  "connmanctl config " + sid + " --remove >/dev/null 2>&1; "
+                  "rm -rf /storage/.cache/connman/" + sid + "; echo forgotten", timeout=15)
+    net_refresh()
+    if ok and "forgotten" in out:
+        return 200, {"ok": True, "message": n["name"] + " forgotten"}
+    return 502, {"ok": False, "error": (out or "no answer")[:160]}
 
 
 def _route_sublang(code):
@@ -1301,10 +1675,13 @@ ACTIONS = {
 #             tapped on MarsBar shows up on the admin page too, and the log
 #             survives a reload
 #   busy      actions running right now — every open page greys that button
-#   ctl       paired Bluetooth devices, our names for them, network path
+#   ctl       paired Bluetooth devices, our names for them, subtitles
 #   scan      a running (or just-finished) search: what it has found
 #   ctlbusy   {MAC: "pairing" | "connecting" | …} — so a Pair tapped on one
 #             dashboard shows "Pairing…" on that device on the other too
+#   net       the cable, Wi-Fi in range and saved, wired-only or not (_fetch_net)
+#   netscan   a Wi-Fi search running / just ended
+#   netsw     a cable ⇄ Wi-Fi switch in flight, until the Pi reports back
 # The poller sleeps while nobody is connected.
 
 class Hub:
@@ -1313,6 +1690,8 @@ class Hub:
         self.version = 0
         self.state = {"status": None, "tv": None, "wolf": None, "ctl": None,
                       "scan": {"active": False, "found": [], "unnamed": 0},
+                      "net": None, "netscan": {"active": False, "ended": 0},
+                      "netsw": {"active": False},
                       "activity": [], "busy": {}, "ctlbusy": {}}
         self.watchers = 0
         self.wake = threading.Event()
@@ -1362,10 +1741,14 @@ class Hub:
         return True
 
     def poller(self):
-        status_at = wolf_at = tv_at = ctl_at = scan_at = 0.0
+        status_at = wolf_at = tv_at = ctl_at = scan_at = net_at = 0.0
         while True:
             if self.watchers > 0:
                 now = time.monotonic()
+                if now - net_at >= (EVENTS_NETSW_S if NETSW.get("active") else EVENTS_NET_S):
+                    net_at = now
+                    net_refresh()
+                    self.publish("netscan", _netscan_state())     # ages the last search out
                 if now - wolf_at >= EVENTS_WOLF_S:
                     wolf_at = now
                     self.publish("wolf", wolf_sessions())
@@ -1386,14 +1769,14 @@ class Hub:
                 elif not SCAN["active"] and SCAN["ended"]:
                     _publish_scan()        # ages the last results out
             else:
-                status_at = wolf_at = tv_at = ctl_at = 0.0
+                status_at = wolf_at = tv_at = ctl_at = net_at = 0.0
             if self.wake.wait(1.0):
                 self.wake.clear()
                 # An action finished or a client joined: look again NOW. ctl_at
                 # must be reset alongside status_at or the card lags a Connect
                 # tap by up to EVENTS_CTL_S even though the action has finished,
                 # which reads as "the button did nothing".
-                status_at = ctl_at = 0.0
+                status_at = ctl_at = net_at = 0.0
 
 
 HUB = Hub()
@@ -1529,8 +1912,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _no_dash(self):
+        if self.headers.get("X-Dash") == "1":
+            return False
+        self._send(403, json.dumps({"ok": False, "error": "missing X-Dash header"}), "application/json")
+        return True
+
     def do_POST(self):
         path = self.path.split("?")[0].strip("/")
+        # Always drain the body: this is a keep-alive HTTP/1.1 server, and an
+        # unread body would be parsed as the next request on the connection.
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        raw = self.rfile.read(min(max(length, 0), 4096)) if length > 0 else b""
+        # Network: the cable, Wi-Fi, joining and forgetting. Ids are validated
+        # (WIFI_RE) and checked against the Pi's own list before any shell sees
+        # them; a password arrives in the body (JSON) and goes to the Pi only
+        # through ssh's stdin.
+        if path == "net/scan" or path == "net/wired" or path == "net/wifi" or \
+                path.startswith("net/wifi/") or path.startswith("net/forget/"):
+            if self._no_dash():
+                return
+            body = None
+            if raw:
+                try:
+                    body = json.loads(raw.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    self._send(400, json.dumps({"ok": False, "error": "bad request body"}), "application/json")
+                    return
+                if not isinstance(body, dict):
+                    body = None
+            if path == "net/scan":
+                code, out = net_scan()
+            elif path == "net/wired":
+                code, out = net_wired()
+            elif path.startswith("net/forget/"):
+                code, out = net_forget(urllib.parse.unquote(path[len("net/forget/"):]))
+                HUB.log("Forget network", code == 200, str(out.get("message") or out.get("error"))[:160])
+            else:
+                code, out = net_wifi(urllib.parse.unquote(path[len("net/wifi/"):]) if path != "net/wifi" else "", body)
+            if code != 200 and path != "net/scan" and not path.startswith("net/forget/"):
+                HUB.log("Network", False, str(out.get("error") or code)[:160])
+            HUB.wake.set()
+            self._send(code, json.dumps(out), "application/json")
+            return
         if path.startswith("wolf/stop/"):
             if self.headers.get("X-Dash") != "1":
                 self._send(403, json.dumps({"ok": False, "error": "missing X-Dash header"}),
