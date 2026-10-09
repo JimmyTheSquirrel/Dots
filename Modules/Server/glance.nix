@@ -48,10 +48,16 @@
       "stats.js" = ../../Resources/Glance/stats.js;
       "net.js" = ../../Resources/Glance/net.js;
       "eclipse.js" = ../../Resources/Glance/eclipse.js;
+      # the Overview page's map of the whole system (Asgard only)
+      "overview.js" = ../../Resources/Glance/overview.js;
+      "overview.css" = ../../Resources/Glance/overview.css;
       "theme.js" = ../../Resources/Glance/theme.js;
       # the picker's Cats theme: how the cats look, and what they do (fetched only when picked)
       "cats.css" = ../../Resources/Glance/cats.css;
       "cats.js" = ../../Resources/Glance/cats.js;
+      # its other fun themes — snow, sakura, starry night, spooky, ocean (likewise)
+      "fx.css" = ../../Resources/Glance/fx.css;
+      "fx.js" = ../../Resources/Glance/fx.js;
     };
     # The HUD's artwork — the panel frame round every card, the grid that
     # tiles down the page, the misty pines pinned to the foot of the screen,
@@ -673,13 +679,15 @@
       document.head = ''
         <link rel="stylesheet" href="${asset "cards.css"}">
         <link rel="stylesheet" href="/assets/hud/hud.css?v=${hudVersion}">
-        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}"></script>
+        <link rel="stylesheet" href="${asset "overview.css"}">
+        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}" data-fx="${asset "fx.css"}" data-fx-js="${asset "fx.js"}"></script>
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "asgard.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "stats.js"}" data-api-port="${toString statsPort}" data-jellyfin-port="${toString jellyfinPort}" defer></script>
         <script src="${asset "net.js"}" data-api-port="${toString netPort}" defer></script>
         <script src="${asset "eclipse.js"}" data-api-port="${toString eclipsePort}" defer></script>
+        <script src="${asset "overview.js"}" defer></script>
       '';
 
       # The HUD: a tech/cyberpunk heads-up display on tech grey — chamfered
@@ -735,6 +743,25 @@
                 })
                 (tailnet // { css-class = "ygg-widget acc-mint rune-eihwaz"; })
               ];
+            }
+          ];
+        }
+
+        # ══════════════════════════════════════════════════════════════════
+        # Overview — how it all works: a map of every service and connection
+        # ══════════════════════════════════════════════════════════════════
+        # For "so how does your setup work?": who uses it, how they get in,
+        # Asgard's services in four groups, the disks, what's on the internet
+        # — and the lines between them. Tap a box for what it is; a story
+        # chip walks a path ("A film, start to finish"). Drawn by overview.js
+        # from its own tables (not live — nothing polls); keep those in step
+        # with the services here.
+        {
+          name = "Overview";
+          columns = [
+            {
+              size = "full";
+              widgets = [ (liveCard { id = "ov-map"; title = "How Asgard works"; acc = "mint"; rune = "eihwaz"; }) ];
             }
           ];
         }

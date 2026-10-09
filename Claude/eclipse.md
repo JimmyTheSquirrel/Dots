@@ -177,6 +177,15 @@ badly while discovering), then `pair` → `trust` → checks `info`; the new dev
 and its name field opens with the cursor in it. A "how to put it in pairing mode" list sits under
 the search (DualSense: hold **Create + PS** until the light bar flashes).
 
+**What a search found folds away** (2026-10-09): the found devices sit in a `<details
+class="bt-results">` under the search button — "4 found so far" / "Found 3 devices" (+ how many
+nameless ones were hidden), **hide / show** on the right. A search starting opens it; a
+successful **Pair** folds it (the device is up in My devices now); a tap on its header folds or
+opens it any time, remembered per browser (`localStorage["eclipse-bt-results"] = "folded"`) so a
+reload keeps it folded. A page loaded mid-search does NOT reopen it — only a search that starts
+while the page is watching does. **My devices never folds.** Both dashboards, one file
+(eclipse.js + cards.css).
+
 **Why these and not others:**
 
 - ⚠️ **`connected` is not the same as working, and this is the whole point of the card.** The

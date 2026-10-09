@@ -703,13 +703,19 @@ icon and a tag in asgard.css's "Accents, icons and tags". Everything is small �
 1.4 KB, the grid 2 KB, the pines ~80 KB, the card's tree ~90 KB, `tpl.js` ~95 KB.
 
 **The colour picker — `Resources/Glance/theme.js`.** A swatch button at the right end of
-the nav bar (on a phone: a row at the top of the ☰ menu) opens **twelve light colours** —
-Mint (the default), Aqua, Sky, Periwinkle, Lavender, Orchid, Rose, Coral, Peach, Butter,
-Pistachio, Frost — **six two-tone themes** — Aurora (mint + lavender), Bifröst (sky +
-pink), Fjord (aqua + periwinkle), Muspel (peach + rose), Midgard (sage + wheat), Niflheim
-(ice + lilac) — a **Custom** colour input, and **Reset**. rock found the first, saturated
-set "a lot" and asked for lighter colours with more variation (2026-10-05). It replaces
-Glance's own theme picker, which asgard.css hides (its presets fight the HUD's tokens).
+the nav bar (on a phone: a row at the top of the ☰ menu) opens **eighteen two-tone themes**
+— first the house colours (**Asgard**: mint + teal, which picks the default and leaves the
+stylesheet's own palette alone), then seventeen named for the Nine Realms and their people:
+Aurora, Vanaheim, Fjord, Jötunheim, Bifröst, Skaði, Niflheim, Loki, Midgard, Álfheim, Sól and
+Máni, Mead, Svartálfheim, Muspelheim, Ragnarök, Iðunn, Freyja (sorted by main colour, so the
+grid runs round the wheel) — then **Just for fun** (below), **Your own** (two colour wells:
+the main light and its partner — they show whatever is on, so a tweak starts from there) and
+**Reset**. History: rock found the first, saturated set "a lot" and asked for lighter colours
+with more variation (2026-10-05); then (2026-10-09) "remove the base colours and have more 2
+tone variants I really like those" — the twelve single colours went and the two-tones went
+from six to eighteen. An old one-colour pick in someone's browser still works (the HUD derives
+a partner for it); the picker just no longer offers one. It replaces Glance's own theme
+picker, which asgard.css hides (its presets fight the HUD's tokens).
 - **A pick in, the whole palette out**: `--hud`, `--hud2`, `--hud-hot`, `--hud-deep`,
   `--hud-rgb`/`--hud2-rgb` and the data slots `--s1…--s6`. A pick is `#rrggbb`, or
   `#rrggbb+#rrggbb` for a two-tone theme (stored as such). One colour: the second light
@@ -746,18 +752,20 @@ Glance's own theme picker, which asgard.css hides (its presets fight the HUD's t
   `Resources/Glance/cats.css` + `cats.js` (`data-cats` / `data-cats-js` on the script tag;
   fetched only when picked — theme.js only switches them on and off: `Cats.on()` /
   `Cats.off()`, and off takes every cat, timer and listener back out). ⚠ theme.js marks
-  the `<script>` it adds with `data-cats-loaded`, not `data-cats-js` — its own tag carries
-  `data-cats-js`, so checking for that would match itself and never load the cats.
+  what it adds with `data-cats-loaded` (the `<link>`) and `data-cats-loaded-js` (the
+  `<script>`) — never `data-cats-js`: its own tag carries that, so checking for it would
+  match itself and never load the cats (the same goes for `data-fx-js`).
   - **The cats** are inline SVG with their parts rigged (each part drawn round its own
     pivot, so cats.css can turn an ear about its base, a tail about the rump, a leg
     about the shoulder; right-hand parts are the left ones under `scale(-1 1)`). One per
     top-level card, alternating pose, side and coat (ginger, `.coat1` cream, `.coat2`
     grey, `.coat3` pink): `.cat-peek` (head and paws over the card's top edge — the head
     is clipped at the edge so it can duck behind it), `.cat-sit` (sitting on the edge,
-    tail hanging down the front), `.cat-loaf` (a sleeper, tail round its paws). A
-    `.cat-walk` strolls along the foot of the screen (above the phone's bottom bar —
-    `--cat-floor`, from `.mobile-navigation-icons`), paw prints sit behind everything,
-    the section headings get paws and the logo a cat face.
+    tail hanging down the front), `.cat-loaf` (a sleeper, tail round its paws). Paw
+    prints sit behind everything, the section headings get paws and the logo a cat face.
+    (A `.cat-walk` used to stroll along the foot of the screen — **removed 2026-10-09** at
+    rock's request. Its two-frame sprite, `--cat-walk` in cats.css, lives on as the laser
+    runner and the download carrier.)
   - **Idle**: CSS keeps them blinking (each its own rhythm), a sitter's tail swishing, a
     loaf breathing. One ticker (1.1 s, only cats on screen, only in a shown tab) hands
     out "acts" — a class for as long as its animation runs: ear twitch, head tilt,
@@ -789,6 +797,37 @@ Glance's own theme picker, which asgard.css hides (its presets fight the HUD's t
   - Cats only ever go *into* a `.widget` or `<body>` — never inside a `Dash.paint` target,
     which would morph them away. Reduced motion: no acts, no chase, no scattering (they
     just vanish), no trotting; they still answer a tap with a word.
+- **Snow, Sakura, Starry night, Spooky, Ocean** — the rest of the "Just for fun" row
+  (2026-10-09, "maybe some other themes"). Each is a two-tone of its own plus something
+  living on the page, all in `Resources/Glance/fx.css` + `fx.js` (`data-fx` / `data-fx-js`
+  on the script tag, fetched only when one is picked; theme.js sets `html[data-fx="<kind>"]`
+  and calls `Fx.on(kind)` / `Fx.off()`, which takes every layer, timer and listener out):
+  - **Snow** — flakes at three depths, the nearest few real six-armed ones, turning.
+  - **Sakura** — blossom petals tumbling across on the wind.
+  - **Starry night** — a sky with a crescent moon behind the cards, stars glinting for a
+    moment all over the page, and now and then a shooting star; **tap an empty bit of sky**
+    and one shoots from there. Its main colour is the night (violet), the partner the
+    starlight (gold) — so the HUD goes violet and the moon, stars and logo go gold.
+  - **Spooky** — a low moon and mist behind the cards; bats flit across in ones to threes
+    (**tap one**: it squeaks "eek!" and bolts), and every half-minute or so a spider lets
+    itself down on a thread from the top of a card that's on screen, hangs there swaying
+    and climbs back (**tap it** and it shoots straight back up).
+  - **Ocean** — light coming down through the water behind the cards, bubbles rising, a
+    fish now and then (**tap it**: it darts off in a puff of bubbles).
+  - Two fixed layers: `.fx-back` behind everything (z-index −1, like the paw prints) and
+    `.fx-front` over the cards (z-index 6, under the picker and the ☰ menu). **Neither
+    takes a tap**: a creature is hit-tested by position on `pointerdown` and the tap goes
+    on to whatever is under it, so a bat crossing a light never eats the tap meant for it.
+    The spider goes *into* a `.widget`, like a cat (never a `Dash.paint` target).
+  - Each theme's **mark** (snowflake, blossom, moon, bat, fish — drawn once in theme.js's
+    `MARK`, with the cat's face) is on its swatch, becomes Asgard's logo, and — handed over
+    as `--fx-ic` with the two colours as `--fx-a` / `--fx-b` — goes on the section headings
+    and MarsBar's crowns (fx.css).
+  - Cheap: everything that moves is a CSS transform/opacity animation; the falling things
+    are made once and loop, with no timers. Spawners skip their turn in a hidden tab and the
+    layers pause. **On MarsBar the back layer stands still** — her cards are frosted glass
+    (`backdrop-filter`), and anything moving under the glass is re-blurred every frame.
+    Reduced motion: nothing falls, flies or twinkles; the sky, moon, mist and light stay.
 
 **The colour system** — the default the picker starts from (table and reasoning at the
 top of `asgard.css`): **mint** `#3be8a8`
@@ -858,7 +897,53 @@ Under it, **History** (a toggle; remembered per browser):
 - **Export CSV**, and **Clear** (two taps within 4 s; admin only — MarsBar shows the history
   read-only).
 
-#### Page 2 — Eclipse
+#### Page 2 — Overview (added 2026-10-09, redrawn the same day)
+
+**"So how does your setup work?"** — one card, `#ov-map`, built by `Resources/Glance/overview.js`
+(+ `overview.css`, both Asgard-only assets). It reads **top-down like a family tree**:
+
+```
+CONTROL CENTRE   Sisyphus — the repo; builds & deploys every machine over the tailnet
+      ┌─────────────┼─────────────┐
+   Kit-Kat        ASGARD         Apollo
+                    │
+ ┌─ INSIDE ASGARD — sorted by who can reach it ─────────────────────────────┐
+ │ OPEN TO THE INTERNET  anyone → Cloudflare Tunnel → Jellyfin · Jellyseerr · Immich
+ │ TAILNET ONLY          you, her → Tailscale ↓ Watch & read · Getting new things
+ │                       (arrs → Prowlarr → indexers) · Dashboards & control
+ │ INSIDE THE VPN TUNNEL SABnzbd ⇒ Mullvad → Usenet providers (kill switch)
+ │ AROUND THE HOUSE      the TV, the plugs → home network
+ │ THE DISKS             NVMe · media pool · photos & state
+ └──────────────────────────────────────────────────────────────────────────┘
+```
+
+Every row reads left to right — who or what comes in, the **door** it comes through (a pill),
+what it reaches — so the only arrows are between neighbours in a row and **nothing crosses
+anything**. Outside-Asgard boxes are dashed; an amber dot = needs attention (no photo backup).
+It is plain HTML (flex rows + border-drawn tree lines), not a drawing: a phone stacks every row
+and points the arrows down.
+
+> **Why not a network graph:** the first version (same day) was an SVG of boxes with a line for
+> every connection. Forty lines between thirty boxes crossed each other and ran behind boxes, and
+> it read as a tangle — rock: "I can't really understand how it flows down". The connections now
+> live in the panel (and the stories), not as lines.
+
+- **Tap a box** → it lights up, its connections (`EDGES`, not drawn) light softer, the rest
+  steps back; the panel under the tree says what it is, its port(s), why it's there, and lists
+  its connections as buttons that jump to them.
+- **Story chips** (A film, start to finish · Watching from anywhere · This dashboard · A book ·
+  Changing anything · Game night) walk one path a step at a time: each step's boxes light up and
+  get the step's **number**, earlier steps stay softly lit, so the path reads 1 → 2 → 3 down the
+  tree; a pinned caption says what's happening. Plays itself (5.2 s a step), ‹ › step, ❚❚ pauses;
+  on a phone it scrolls each step's box into view.
+- **MarsBar is deliberately not on it** (rock, 2026-10-09: "it's just a dashboard, not a real
+  part of the system infrastructure") — neither is her marsbar node. Her *access* stays (the
+  "Her" box: on the tailnet, limited by the ACL), because that is infrastructure.
+- **Not live** — nothing polls; it is a picture of the config. **Keep it in step**: a new service,
+  port or connection is a line in `NODES`, its place in `ZONES`, a line in `EDGES` (maybe a
+  `STORIES` step) at the top of overview.js. Colours are HUD tokens only, so the picker recolours it.
+
+#### Page 3 — Eclipse
 
 Drawn natively by `eclipse.js` from eclipse-control's `/events` (it was an iframe). **The same
 file runs on MarsBar** — she has every control here. Eclipse card (status, SoC temperature,
@@ -868,7 +953,7 @@ Sisyphus, End a stuck one) | On the TV (Jellyfin, filtered to the Kodi addon) ·
 last actions from EITHER dashboard, from eclipse-control's memory). Reboot, the path switch and
 End need a second tap within 3 s. See `Claude/eclipse.md`.
 
-#### Page 3 — Power (was Monitoring)
+#### Page 4 — Power (was Monitoring)
 
 Full column: **Lights** — two sections, **Groups** (the Living Room Lights master switch, full
 width) and **Lamps** (one warm tile each); moved here from the home page so every switch and
@@ -885,7 +970,7 @@ All first frames POST the **same generated Jinja query** to HA's `/api/template`
 in `glance.nix`. Projections are **instantaneous draw × 24 h, labelled "at current draw"** —
 never "average"; see `Claude/home-assistant.md` for why.
 
-#### Page 4 — Terminal
+#### Page 5 — Terminal
 
 ttyd (:7681), sized to the window (`.term-widget`) instead of a fixed 700 px box.
 

@@ -1,6 +1,11 @@
 // ════════════════════════════════════════════════════════════════════════════
-// garden.js — MarsBar's vine, alive (marsbar:1111 only; always on, whatever
-// colour she has picked).
+// garden.js — MarsBar's vine, alive (marsbar:1111 only; whatever colour she
+// has picked). Three parts, each on unless she turns it off — three switches
+// in the colour picker's "Just for fun" section (theme.js), kept in THIS
+// browser's localStorage as marsbar-blossoms / marsbar-butterflies /
+// marsbar-fireflies = "off". Blossoms off: the static bloom.svg flower is back
+// on every card. Any part comes and goes live, no reload. (Until 2026-10-09
+// it was one Garden switch, marsbar-garden = "off": read once, as all three off.)
 //
 //   blossoms     every card's crown blossom is redrawn as a rigged inline SVG
 //                (.mb-crown) whose five petals slowly fold shut and open again
@@ -47,6 +52,7 @@
 //   .mb-crown               a card's blossom, in its .widget-header
 //   .mb-sky > .mb-fly       the butterfly (.rest while it sits; .bolt fleeing)
 //   .mb-fireflies           the firefly layer (.on while shown)
+//   window.Garden           { set(part, on), enabled(part) } — for theme.js's switches
 // ════════════════════════════════════════════════════════════════════════════
 (function () {
   "use strict";
@@ -55,6 +61,17 @@
 
   var root = document.documentElement;
   var still = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+  // Which parts are on. A private window (no storage) has them all.
+  var PARTS = ["blossoms", "butterflies", "fireflies"];
+  var on = { blossoms: true, butterflies: true, fireflies: true };
+  try {
+    if (localStorage.getItem("marsbar-garden") === "off") {          // the old single switch
+      PARTS.forEach(function (k) { localStorage.setItem("marsbar-" + k, "off"); });
+      localStorage.removeItem("marsbar-garden");
+    }
+    PARTS.forEach(function (k) { on[k] = localStorage.getItem("marsbar-" + k) !== "off"; });
+  } catch (e) { /* private window: all on */ }
+  function any() { return on.blossoms || on.butterflies || on.fireflies; }
 
   // ⚠ Glance's templating.js replaces HTMLElement.prototype.animate with its
   // own animate({keyframes, options}, callback), which returns the ELEMENT, not
@@ -140,6 +157,7 @@
   // Idempotent: runs once Glance's markup is in, then every minute, so a card
   // that arrives late (or is re-rendered) still gets its blossom.
   function crowns() {
+    if (!on.blossoms) return;
     var ws = cards(), made = 0;
     for (var i = 0; i < ws.length; i++) {
       var head = ws[i].firstElementChild;
@@ -194,6 +212,7 @@
   // The attribute is the truth (so a hand-set one is honoured until the next
   // minute's check, and anything else can read it).
   function clock() {
+    if (!on.blossoms && !on.fireflies) return;     // night only shuts the flowers and wakes the fireflies
     var h = new Date().getHours(), night = h >= 20 || h < 6;
     if (night === root.hasAttribute("data-mb-night")) return;
     if (night) nightfall();
@@ -205,13 +224,14 @@
   // lights.js paints data-ha-state before it fires ha:state; no switch on the
   // page (or no answer yet) is not "dark".
   function dusk() {
+    if (!on.fireflies && !on.blossoms) return;
     var hero = document.querySelector(".mb-hero[data-ha-state]");
     var dark = !!hero && hero.getAttribute("data-ha-state") === "off";
     if (dark !== root.hasAttribute("data-mb-dark")) {
       if (dark) root.setAttribute("data-mb-dark", "");
       else root.removeAttribute("data-mb-dark");
     }
-    fireflies(!still.matches && (dark || root.hasAttribute("data-mb-night")));
+    fireflies(on.fireflies && !still.matches && (dark || root.hasAttribute("data-mb-night")));
   }
 
   // ── the fireflies ──────────────────────────────────────────────────────────
@@ -221,8 +241,8 @@
   // layer is display:none — a hidden layer still running two dozen
   // animations would cost battery for nothing.
   var ff = null, ffOff = null;
-  function fireflies(on) {
-    if (on && !ff) {
+  function fireflies(show) {
+    if (show && !ff) {
       ff = document.createElement("div");
       ff.className = "mb-fireflies";
       ff.setAttribute("aria-hidden", "true");
@@ -244,7 +264,7 @@
     }
     if (!ff) return;
     clearTimeout(ffOff);
-    if (on) {
+    if (show) {
       if (ff.hidden) {
         ff.hidden = false;
         void ff.offsetWidth;   // commit display before the fade, or it won't transition
@@ -491,7 +511,7 @@
 
   function spawn() {
     nextT = null;
-    if (fly || still.matches) return;
+    if (fly || still.matches || !on.butterflies) return;
     if (document.hidden) return later(rnd(8000, 20000));
     var ps = perches(null);
     if (!ps.length) return later(rnd(15000, 30000));
@@ -504,13 +524,36 @@
     visit(b, pick(ps));
   }
 
+  // ── on / off ───────────────────────────────────────────────────────────────
+  // Each part leaves at once when switched off; the intervals and listeners
+  // below stay, but each checks its part first.
+  function drop(q) { document.querySelectorAll(q).forEach(function (e) { e.remove(); }); }
+  function set(part, want) {
+    if (!(part in on) || on[part] === want) return;
+    on[part] = want;
+    if (part === "blossoms") {
+      if (want) { clock(); crowns(); }
+      else { drop(".mb-crown"); drop(".mbg-defs"); root.classList.remove("mb-garden"); }   // bloom.svg is back
+    } else if (part === "butterflies") {
+      if (want) { if (!still.matches && !fly && !nextT) later(rnd(4000, 9000)); }
+      else { clearTimeout(nextT); nextT = null; gone(fly); drop(".mb-sky"); sky = null; }
+    } else if (part === "fireflies") {
+      if (want) { clock(); dusk(); }
+      else { clearTimeout(ffOff); drop(".mb-fireflies"); ff = null; }
+    }
+    if (!on.blossoms && !on.fireflies) {            // nothing left that cares about night or lights-out
+      root.removeAttribute("data-mb-night");
+      root.removeAttribute("data-mb-dark");
+    }
+  }
+  window.Garden = { set: set, enabled: function (part) { return !!on[part]; }, parts: PARTS };
+
   // ── wiring ─────────────────────────────────────────────────────────────────
   clock();   // before the crowns exist, so a night-time page draws them shut
-
   Dash.ready(".widget", function () {
     crowns();
     dusk();
-    if (!still.matches) later(rnd(6000, 15000));
+    if (on.butterflies && !still.matches && !fly && !nextT) later(rnd(6000, 15000));
   });
 
   document.addEventListener("ha:state", dusk);
@@ -528,8 +571,9 @@
 
   // Reduced motion switched on mid-visit: the butterfly and fireflies go now.
   function onStill() {
+    if (!any()) return;
     if (still.matches) { clearTimeout(nextT); nextT = null; gone(fly); }
-    else if (!fly && !nextT && root.classList.contains("mb-garden")) later(rnd(6000, 15000));
+    else if (on.butterflies && !fly && !nextT) later(rnd(6000, 15000));
     dusk();
   }
   if (still.addEventListener) still.addEventListener("change", onStill);

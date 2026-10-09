@@ -91,8 +91,14 @@ REMOTE = [
 ]
 
 UTILS = [
-    ("item", "Git sync", "Commit every change (it asks for a message), pull --rebase, push. Anything it can't "
-             "commit is stashed and put back. The same as running git-sync."),
+    ("item", "Git sync", "Keep your changes and bring GitHub's in: commit every change (it asks for a message), "
+             "pull --rebase (GitHub's new commits go underneath yours), push. Anything it can't commit is stashed "
+             "and put back. The same as running git-sync."),
+    ("item", "Reset to GitHub", "The \"just overwrite it\" pull: fetch, then make ~/Dots exactly GitHub's main, "
+             "throwing away whatever is different here. It lists what would go (changed files, files git doesn't "
+             "track, commits that aren't on GitHub) and asks — twice if anything would be lost — and keeps a copy "
+             "first: the files in a stash (git stash list), the commits on a backup/reset-<when> branch. Then it "
+             "offers to rebuild. Git sync is the one that keeps your changes and merges GitHub's in."),
     ("item", "Update inputs", "nix flake update: fetch the newest nixpkgs, home-manager and every other input, "
              "then list what moved (old → new, and how old each was). flake.lock changes but isn't committed. "
              "Then it offers to Switch, Build only (to see the diff), or leave it for later."),

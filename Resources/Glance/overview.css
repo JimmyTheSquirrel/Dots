@@ -1,0 +1,204 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   overview.css — the Overview page's tree (overview.js builds it in #ov-map).
+   Asgard only (glance.nix). Every colour is the HUD's: var(--hud…), --s1…--s6,
+   --ag-* — the viewer's picked colour recolours it like everything else. A
+   row's colour comes in as --c (set on its <section> by overview.js).
+
+   The only lines are the tree's own (Sisyphus → its machines → Asgard's
+   panel), drawn with borders, and the arrows between neighbours in a row:
+   nothing can cross anything. A phone stacks every row and points the
+   arrows down.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#ov-map .ags-skel { height: 620px; }
+.ov { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }   /* nothing inside widens the card */
+.ov { --ov-line: rgb(var(--hud-rgb) / 0.45); }
+
+/* ── the story chips and the step caption ── */
+.ov-stories { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ov-lead { font-family: var(--ag-title); font-size: 1.05rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ag-text-faint); margin-right: 4px; }
+button.ov-chip {
+  font: inherit; font-size: 1.25rem; font-weight: 600; color: var(--ag-text-dim); cursor: pointer;
+  padding: 6px 14px; border: 1px solid var(--ag-line); background: var(--ag-tile);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+button.ov-chip:hover { color: var(--ag-text); border-color: var(--hud); }
+button.ov-chip[aria-pressed="true"] { color: var(--ag-on-acc); background: var(--hud); border-color: var(--hud); }
+
+.ov-cap {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: 1px solid rgb(var(--hud-rgb) / 0.4);
+  background: linear-gradient(90deg, rgb(var(--hud-rgb) / 0.10), rgb(var(--hud-rgb) / 0.02)), var(--ag-pop);
+  animation: ov-in 0.3s ease;
+  position: sticky; top: 8px; z-index: 3;      /* pinned while the tree scrolls under it */
+}
+.ov-cap[hidden] { display: none; }
+.ov-cap-t { flex: 1; min-width: 0; font-size: 1.4rem; line-height: 1.45; color: var(--ag-text); }
+.ov-cap-t b { font-family: var(--ag-title); font-size: 1.05rem; letter-spacing: 0.12em; color: var(--hud); margin-right: 6px; }
+.ov-pips { display: flex; gap: 5px; margin-top: 7px; }
+.ov-pips i { width: 18px; height: 3px; background: var(--ag-line); }
+.ov-pips i.done { background: rgb(var(--hud-rgb) / 0.5); }
+.ov-pips i.on { background: var(--hud); box-shadow: 0 0 8px rgb(var(--hud-rgb) / 0.7); }
+.ov-cap button {
+  flex: none; width: 34px; height: 34px; font: inherit; font-size: 1.6rem; line-height: 1; cursor: pointer;
+  color: var(--ag-text-dim); background: var(--ag-well); border: 1px solid var(--ag-line);
+}
+.ov-cap button:hover:not(:disabled) { color: var(--ag-text); border-color: var(--hud); }
+.ov-cap button:disabled { opacity: 0.3; cursor: default; }
+.ov-cap .ov-play { font-size: 1.1rem; }
+@keyframes ov-in { from { opacity: 0; transform: translateY(-4px); } }
+
+/* ── the tree: Sisyphus → its machines → Asgard's panel ── */
+.ov-tree { display: flex; flex-direction: column; align-items: center; padding: 4px 0 2px; }
+.ov-tier { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; --c: var(--hud); }
+.ov-tier-l { display: inline-flex; align-items: center; gap: 8px; font-family: var(--ag-title); font-size: 1.05rem;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--hud); }
+.ov-box.root { width: min(460px, 100%); padding: 12px 16px; }
+.ov-box.root .ov-bt { font-size: 1.75rem; }
+
+.ov-fan { position: relative; display: flex; width: min(960px, 100%); margin-top: 52px; --c: var(--s5); }
+.ov-fan::before { content: ""; position: absolute; left: 50%; top: -52px; height: 26px; border-left: 2px solid var(--ov-line); }
+.ov-fan::after { content: attr(data-why); position: absolute; left: calc(50% + 12px); top: -50px; font-size: 1.15rem;
+  color: var(--ag-text-faint); white-space: nowrap; }
+.ov-kid { position: relative; flex: 1 1 0; display: flex; justify-content: center; padding: 0 10px; min-width: 0; }
+.ov-kid::before { content: ""; position: absolute; left: 50%; top: -26px; height: 26px; border-left: 2px solid var(--ov-line); }
+.ov-kid::after { content: ""; position: absolute; top: -26px; left: 0; right: 0; border-top: 2px solid var(--ov-line); }
+.ov-kid:first-child::after { left: 50%; }
+.ov-kid:last-child::after { right: 50%; }
+.ov-kid > .ov-box { width: 100%; max-width: 280px; }
+.ov-box.server { --c: var(--hud); border-width: 2px; }
+
+.ov-server {
+  position: relative; width: 100%; margin-top: 34px; padding: 14px 14px 16px;
+  border: 1px solid rgb(var(--hud-rgb) / 0.42);
+  background: linear-gradient(180deg, rgb(var(--hud-rgb) / 0.05), rgb(var(--hud-rgb) / 0.01));
+}   /* (no clip-path: it would clip the line coming down into it) */
+.ov-server::before { content: ""; position: absolute; left: 50%; top: -34px; height: 34px; border-left: 2px solid var(--ov-line); }
+.ov-server-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin: 0 0 12px 4px; }
+.ov-server-h b { white-space: nowrap; font-family: var(--ag-title); font-size: 1.5rem; letter-spacing: 0.24em; text-transform: uppercase; color: var(--hud); }
+.ov-server-h span { font-size: 1.25rem; color: var(--ag-text-faint); }
+
+/* A row of Asgard: who can reach it, how, what. */
+.ov-zone { position: relative; padding: 12px 14px 14px 16px; border-left: 3px solid var(--c);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 8%, transparent), transparent 70%); }
+.ov-zone + .ov-zone { margin-top: 12px; }
+.ov-zh { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 12px; }
+.ov-zh b { font-family: var(--ag-title); font-size: 1.2rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c); }
+.ov-zh span { font-size: 1.25rem; color: var(--ag-text-dim); }
+.ov-ico { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--c); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ov-tier-l .ov-ico { stroke: var(--hud); }
+.ov-note { margin-top: 10px; font-size: 1.2rem; color: var(--ag-text-faint); }
+
+.ov-flow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ov-flow > .ov-box { flex: 0 0 auto; width: 196px; }
+.ov-set { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.ov-set > .ov-box { width: 190px; }
+.ov-reach { margin: 12px 0 8px; font-size: 1.2rem; color: var(--ag-text-faint); }
+.ov-reach::before { content: "↓ "; color: var(--c); }
+.ov-groups { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }   /* one group a row: it reads down */
+.ov-group { padding: 10px 12px; border: 1px solid rgb(var(--hud-rgb) / 0.12); background: rgb(0 0 0 / 0.16); }
+.ov-gh { font-family: var(--ag-title); font-size: 1rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ag-text-faint); margin-bottom: 8px; }
+.ov-set.more { margin-top: 8px; }
+.ov-also { margin-top: 6px; font-size: 1.15rem; color: var(--ag-text-faint); }
+.ov-also::before { content: "+ "; }
+
+/* an arrow between neighbours; the tunnel's is a dashed pipe */
+.ov-arr { position: relative; flex: 0 0 24px; height: 2px; background: color-mix(in srgb, var(--c) 70%, transparent); }
+.ov-arr::after { content: ""; position: absolute; right: -2px; top: -4px; border-left: 7px solid color-mix(in srgb, var(--c) 70%, transparent);
+  border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.ov-arr.tunnel { flex-basis: 42px; height: 8px; background: repeating-linear-gradient(90deg, var(--c) 0 7px, transparent 7px 11px);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--c) 45%, transparent); }
+.ov-arr.tunnel::after { top: -1px; }
+
+/* ── a box ── */
+button.ov-box {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0;
+  padding: 8px 12px 9px; font: inherit; text-align: left; cursor: pointer; color: var(--ag-text);
+  background: color-mix(in srgb, var(--c) 6%, var(--ag-surface));
+  border: 1px solid color-mix(in srgb, var(--c) 42%, transparent); border-left-width: 3px;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.25s ease, box-shadow 0.2s ease;
+}
+button.ov-box:hover, button.ov-box:focus-visible { border-color: var(--c); background: color-mix(in srgb, var(--c) 13%, var(--ag-surface)); outline: none; }
+.ov-bt { display: flex; align-items: center; gap: 6px; max-width: 100%; font-size: 1.4rem; font-weight: 700; line-height: 1.25; }
+.ov-bs { max-width: 100%; font-size: 1.15rem; line-height: 1.35; color: var(--ag-text-dim); }
+.ov-box code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 1.05rem; color: var(--c); opacity: 0.85; }
+.ov-warn { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--ag-warn); box-shadow: 0 0 6px var(--ag-warn); }
+/* kinds: a door is the way in or out; outside is not on Asgard; who is people */
+button.ov-box.k-door { clip-path: none; border-radius: 22px; border-left-width: 1px; border-color: color-mix(in srgb, var(--c) 70%, transparent);
+  background: color-mix(in srgb, var(--c) 14%, var(--ag-surface)); padding-left: 16px; padding-right: 16px; }
+button.ov-box.k-out { border-style: dashed; border-left-width: 1px; background: rgb(0 0 0 / 0.2); }
+button.ov-box.k-who { border-left-width: 1px; background: transparent; border-color: color-mix(in srgb, var(--c) 28%, transparent); }
+button.ov-box.k-host .ov-bt { font-family: var(--ag-title); font-size: 1.35rem; letter-spacing: 0.08em; }
+
+/* lit: the tapped box (or a story's step) bright, its neighbours (or the
+   story's earlier steps) softer, everything else steps back */
+.ov-tree.focus .ov-box:not(.on):not(.near) { opacity: 0.3; }
+button.ov-box.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 22%, var(--ag-surface));
+  box-shadow: 0 0 0 1px var(--c), 0 0 18px color-mix(in srgb, var(--c) 45%, transparent); clip-path: none; }
+button.ov-box.near { border-color: color-mix(in srgb, var(--c) 80%, transparent); }
+button.ov-box[data-n]::before {
+  content: attr(data-n); position: absolute; top: -1px; right: -1px; z-index: 1;
+  min-width: 20px; height: 20px; padding: 0 5px; display: grid; place-items: center;
+  font-family: var(--ag-title); font-size: 1rem; font-weight: 700; color: var(--ag-on-acc); background: var(--c);
+}
+
+/* ── what a box is ── */
+.ov-detail { min-height: 64px; padding: 12px 14px; border-left: 3px solid rgb(var(--hud-rgb) / 0.45); background: var(--ag-tile); }
+.ov-d-empty { font-size: 1.3rem; color: var(--ag-text-faint); }
+.ov-d-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.ov-d-h b { font-family: var(--ag-title); font-size: 1.6rem; letter-spacing: 0.06em; color: var(--hud); }
+.ov-d-h span { font-size: 1.3rem; color: var(--ag-text-dim); }
+.ov-d-h code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 1.2rem; color: var(--ag-text); padding: 1px 7px; background: var(--ag-well); border: 1px solid var(--ag-line); }
+.ov-detail p { margin: 8px 0 0; font-size: 1.35rem; line-height: 1.55; color: var(--ag-text); max-width: 90ch; }
+.ov-d-warn { color: var(--ag-warn) !important; }
+.ov-d-warn::before { content: "▲ "; }
+.ov-d-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+button.ov-link {
+  display: inline-flex; align-items: baseline; gap: 6px; font: inherit; font-size: 1.2rem; color: var(--ag-text); cursor: pointer;
+  padding: 4px 10px; background: var(--ag-well); border: 1px solid var(--ag-line);
+}
+button.ov-link small { font-size: 1.05rem; color: var(--ag-text-faint); }
+button.ov-link:hover { border-color: var(--hud); }
+
+/* ── the key ── */
+.ov-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; font-size: 1.15rem; color: var(--ag-text-faint); }
+.ov-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.ov-legend i { display: inline-block; width: 22px; height: 13px; border: 1px solid rgb(var(--hud-rgb) / 0.55); border-left-width: 3px; }
+.ov-legend i.l-door { border-radius: 8px; border-left-width: 1px; background: rgb(var(--hud-rgb) / 0.15); }
+.ov-legend i.l-out { border-style: dashed; border-left-width: 1px; }
+.ov-legend i.l-warn { width: 9px; height: 9px; border: none; border-radius: 50%; background: var(--ag-warn); }
+.ov-legend i.l-tun { height: 6px; border: none; background: repeating-linear-gradient(90deg, var(--hud2) 0 5px, transparent 5px 8px); }
+
+/* ── a phone: every row stacks, arrows point down ── */
+@media (max-width: 760px) {
+  .ov-cap { flex-wrap: wrap; gap: 8px; }
+  .ov-cap-t { flex: 1 1 100%; order: -1; font-size: 1.3rem; }
+  .ov-cap .ov-close { margin-left: auto; }
+  button.ov-chip { font-size: 1.15rem; padding: 6px 11px; }
+
+  .ov-fan { margin-top: 40px; }
+  .ov-fan::before { top: -40px; height: 20px; }
+  .ov-fan::after { display: none; }
+  .ov-kid { padding: 0 3px; }
+  .ov-kid::before, .ov-kid::after { top: -20px; }
+  .ov-kid::before { height: 20px; }
+  .ov-kid > .ov-box { padding: 7px 8px; }
+  .ov-kid .ov-bs { white-space: normal; font-size: 1.05rem; }
+  .ov-server { padding: 10px 8px 12px; }
+  .ov-zone { padding: 10px 8px 12px 10px; }
+
+  .ov-flow { flex-direction: column; align-items: stretch; gap: 8px; }
+  .ov-flow > .ov-box, .ov-set > .ov-box { width: auto; }
+  .ov-set { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .ov-arr { align-self: center; flex: 0 0 18px; width: 2px; height: 18px; }
+  .ov-arr::after { right: auto; left: -4px; top: auto; bottom: -2px; border-top: 7px solid color-mix(in srgb, var(--c) 70%, transparent);
+    border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 0; }
+  .ov-arr.tunnel { flex-basis: 28px; width: 8px; height: 28px; background: repeating-linear-gradient(180deg, var(--c) 0 7px, transparent 7px 11px); }
+  .ov-arr.tunnel::after { left: -1px; }
+  .ov-group { padding: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-cap, button.ov-box { animation: none !important; transition: none !important; }
+}

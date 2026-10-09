@@ -285,9 +285,10 @@ html[data-cats] .cat-heat i:nth-child(3) { left: 22px; animation-delay: 1.6s; }
   100% { transform: translateY(-14px); opacity: 0; }
 }
 
-/* The two-frame running sprite: the stroller, the laser chaser and the cat
-   carrying off a download. */
-html[data-cats] :is(.cat-walk, .cat-runner, .cat-carry) b {
+/* The two-frame running sprite: the laser chaser and the cat carrying off a
+   download. (--cat-walk is the sprite's name, from the stroller that used to
+   cross the bottom of the screen — removed 2026-10-09.) */
+html[data-cats] :is(.cat-runner, .cat-carry) b {
   display: block;
   width: 80px; height: 48px;
   background: var(--coat);
@@ -296,27 +297,6 @@ html[data-cats] :is(.cat-walk, .cat-runner, .cat-carry) b {
   filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.4));
 }
 @keyframes cat-step { from { -webkit-mask-position: 0 0; mask-position: 0 0; } to { -webkit-mask-position: -80px 0; mask-position: -80px 0; } }
-
-/* A cat strolling along the bottom of the screen, now and then. */
-html[data-cats] .cat-walk {
-  position: fixed;
-  left: 0;
-  bottom: var(--cat-floor, 4px);
-  z-index: 40;
-  width: 80px; height: 48px;
-  pointer-events: none;
-  background: var(--cat-ginger);
-  -webkit-mask: var(--cat-walk) 0 0 / 160px 48px no-repeat;
-  mask: var(--cat-walk) 0 0 / 160px 48px no-repeat;
-  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.4));
-  transform: translateX(-120px);
-  animation: cat-step 0.5s steps(2, jump-none) infinite, cat-stroll 38s linear 3s infinite;
-}
-@keyframes cat-stroll {
-  0%   { transform: translateX(-120px); }
-  42%  { transform: translateX(calc(100vw + 40px)); }
-  100% { transform: translateX(calc(100vw + 40px)); }
-}
 
 /* The laser pointer and the cat after it. */
 html[data-cats] .cat-laser {
@@ -385,9 +365,9 @@ html[data-cats][data-dash="marsbar"] .widget > .widget-header::before {
 }
 
 /* Reduced motion: the cats sit still (a jumped-off cat is simply gone), and
-   nothing runs or strolls. Bubbles still answer a tap. */
+   nothing runs. Bubbles still answer a tap. */
 @media (prefers-reduced-motion: reduce) {
   html[data-cats] .cat, html[data-cats] .cat * { animation: none !important; transition: none !important; }
   html[data-cats] .cat.away { visibility: hidden; }
-  html[data-cats] :is(.cat-walk, .cat-runner, .cat-carry, .cat-laser) { display: none; }
+  html[data-cats] :is(.cat-runner, .cat-carry, .cat-laser) { display: none; }
 }

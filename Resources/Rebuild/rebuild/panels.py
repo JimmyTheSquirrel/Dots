@@ -437,6 +437,22 @@ def pv_sync(app) -> Group:
     return Group(*parts)
 
 
+def pv_reset(app) -> Group:
+    st = app.repo_st
+    parts: list = [steps("fetch", "show what goes", "confirm", "overwrite", accent=RED), Text(""),
+                   Text("Throws away what's in ~/Dots and makes it exactly GitHub's main — the pull for when "
+                        "you just want what's on GitHub. Git sync is the one that keeps your changes.", FG)]
+    if st:
+        parts += [Text(""), grid([("branch", Text(st.branch, BLUE)), ("changed", str(st.dirty)),
+                                  ("unpushed", str(st.ahead))])]
+        if st.dirty or st.ahead or st.branch != "main":
+            parts += [Text(""), Text("Anything that would go is listed and asked about twice, and a copy is kept "
+                                     "(a stash, a backup branch) before the overwrite.", YELLOW)]
+        else:
+            parts += [Text(""), Text("nothing here would be lost — it just catches up with GitHub", DIM)]
+    return Group(*parts, Text(""), cmd("git fetch && git reset --hard origin/main", RED))
+
+
 def pv_update(app) -> Group:
     lock = P.lock_table(app.repo.path / "flake.lock") if app.repo.path else {}
     parts: list = [steps("fetch", "what moved", "rebuild?", accent=YELLOW), Text("")]

@@ -64,6 +64,9 @@
       "theme.js" = ../../Resources/Glance/theme.js;
       "cats.css" = ../../Resources/Glance/cats.css;
       "cats.js" = ../../Resources/Glance/cats.js;
+      # and its other fun themes (snow, sakura, starry night, spooky, ocean)
+      "fx.css" = ../../Resources/Glance/fx.css;
+      "fx.js" = ../../Resources/Glance/fx.js;
       # her vine, alive: blossoms that open and close, butterflies, fireflies
       "garden.js" = ../../Resources/MarsBar/garden.js;
     };
@@ -196,7 +199,7 @@
       # before the page paints, so a pick never flashes purple first.
       document.head = ''
         <link rel="stylesheet" href="${asset "cards.css"}">
-        <script src="${asset "theme.js"}" data-profile="marsbar" data-default="#ca99f5" data-art="${asset "vine.svg"},${asset "bloom.svg"}" data-art-v="${artVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}"></script>
+        <script src="${asset "theme.js"}" data-profile="marsbar" data-default="#ca99f5" data-art="${asset "vine.svg"},${asset "bloom.svg"}" data-art-v="${artVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}" data-fx="${asset "fx.css"}" data-fx-js="${asset "fx.js"}"></script>
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api="/ha" defer></script>
         <script src="${asset "eclipse.js"}" data-api="/eclipse-api" data-jellyfin="http://asgard:8096" defer></script>
