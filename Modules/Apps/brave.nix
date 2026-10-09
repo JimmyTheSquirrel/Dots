@@ -12,7 +12,8 @@ let
         It follows the host's name by default. A RENAMED machine sets its old
         name here, so Brave keeps opening the same profile — bookmarks, logins,
         extensions — instead of quietly starting an empty one (Elektra, which
-        was Kit-Kat until 2026-10-09, does).
+        was Kit-Kat until 2026-10-09, does). A lock left under the old hostname
+        is cleared by staleProfileLocks in Modules/Desktop/desktop.nix.
       '';
     };
 
@@ -88,30 +89,12 @@ in {
       };
     };
 
-    home-manager.users.${activeUser} = { config, osConfig, pkgs, ... }:
+    home-manager.users.${activeUser} = { config, osConfig, ... }:
     let
       profileDir = "${config.home.homeDirectory}/.config/BraveSoftware/Brave-Browser-${osConfig.my.brave.profileName}";
     in {
-      # Chromium's profile lock is a symlink to "<hostname>-<pid>". One left by an
-      # unclean exit under a DIFFERENT hostname — a renamed machine — reads as
-      # "in use by another computer", and Brave won't open the profile until it
-      # is unlocked by hand. So on activation (every switch, and every boot), if
-      # Brave isn't running and the lock names another host, the three Singleton
-      # files go. A live lock, or one from this host, is never touched.
-      home.activation.braveStaleLock = {
-        after = [ "writeBoundary" ];
-        before = [ ];
-        data = ''
-          lock="${profileDir}/SingletonLock"
-          if [ -L "$lock" ] && ! ${pkgs.procps}/bin/pgrep -u "$(id -u)" -x brave >/dev/null; then
-            owner=$(readlink "$lock")
-            if [ "''${owner%-*}" != "$(cat /proc/sys/kernel/hostname)" ]; then
-              run rm -f "${profileDir}/SingletonLock" "${profileDir}/SingletonSocket" "${profileDir}/SingletonCookie"
-            fi
-          fi
-        '';
-      };
-
+      # (A profile lock left under the OLD hostname is cleared by
+      # staleProfileLocks in Modules/Desktop/desktop.nix, for every Chromium app.)
       programs.brave = {
         enable = true;
 

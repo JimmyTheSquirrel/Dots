@@ -51,6 +51,36 @@
     ];
 
     home-manager.users.${activeUser} = {
+      # Stale Chromium/Electron profile locks from a RENAMED machine.
+      #
+      # Every Chromium-based app (Brave, Helium, VSCodium, Vesktop, Spotify's CEF)
+      # marks its profile in use with a SingletonLock symlink to
+      # "<hostname>-<pid>". A lock left behind by a crash or power cut is
+      # harmless while the hostname stays the same — the app sees the pid is
+      # gone and takes it over. But one carrying ANOTHER hostname reads as "in
+      # use by another computer", and the app won't open (an Electron app just
+      # quits) until it is unlocked by hand. Elektra was renamed from Kit-Kat
+      # (2026-10-09), so on every activation — each switch, and each boot — a
+      # lock naming a different host whose pid isn't running is cleared. A live
+      # lock (an app started before the rename) and this host's own locks are
+      # never touched.
+      home.activation.staleProfileLocks = {
+        after = [ "writeBoundary" ];
+        before = [ ];
+        data = ''
+          here=$(cat /proc/sys/kernel/hostname)
+          for lock in "$HOME"/.config/*/SingletonLock "$HOME"/.config/*/*/SingletonLock "$HOME"/.cache/*/SingletonLock; do
+            [ -L "$lock" ] || continue
+            owner=$(readlink "$lock")
+            [ "''${owner%-*}" = "$here" ] && continue
+            pid=''${owner##*-}
+            [ -n "$pid" ] && [ -d "/proc/$pid" ] && continue
+            dir=$(dirname "$lock")
+            run rm -f "$dir/SingletonLock" "$dir/SingletonSocket" "$dir/SingletonCookie"
+          done
+        '';
+      };
+
       # System-wide DARK MODE preference.
       #
       # This one dconf key is what `xdg-desktop-portal` serves as
