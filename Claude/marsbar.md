@@ -204,13 +204,16 @@ Asgard, so she never needs (or gets) anything on Sisyphus. Not hers: the network
   lands on both dashboards, and they can never drift apart again — which is what
   happened to the old hand-built copy here (three actions, a 15 s poll, `marsbar.js`,
   now deleted). Glance's `html` widget does NOT sanitise markup (0.8.5).
-- **Her Eclipse column is `ec-main · ec-tv · ec-wolf · ec-ctl · ec-log`.** ⚠️ The card
+- **Her Eclipse column is `ec-main · ec-tv · ec-wolf · ec-ctl · ec-net · ec-log`.** ⚠️ The card
   list in `marsbar.nix` and the one in `glance.nix` are **independent by design** — a
   new card must be added to BOTH, plus the `D.ready` selector and the `.ags-skel`
   height list in `cards.css`, or one dashboard gets a collapsing card and the other
   does not. This is exactly how the two drifted before `2a831da`.
-- **`ec-ctl` — the Bluetooth manager, network path and the subtitle default** (added
-  2026-10-05). She gets every control he does — pair, rename, auto-connect, forget, search —
+- **`ec-net` — Eclipse's network** (added 2026-10-09): Wired ⇄ Wi-Fi, search, join with a
+  password, forget — every control, same as the admin card, since she's the one who'd take
+  the box to a friend's. See `Claude/eclipse.md` → *Network · `#ec-net`*.
+- **`ec-ctl` — the Bluetooth manager and the subtitle default** (added
+  2026-10-05; its network rows moved to `ec-net`). She gets every control he does — pair, rename, auto-connect, forget, search —
   and `eclipse.js` deliberately has **no** `data-readonly` split (unlike `net.js`, where she
   has no "Run now" because a speed test pauses SABnzbd). **It stays in sync with the admin
   page because nothing is kept in the browser:** device names, a running search and a pair

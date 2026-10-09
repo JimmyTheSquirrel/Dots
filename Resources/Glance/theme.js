@@ -19,7 +19,9 @@
 // for fun" themes — a two-tone of its own that also puts something living on
 // the page: Cats (cats.css + cats.js, data-cats / data-cats-js), or Snow,
 // Sakura, Starry night, Spooky and Ocean (fx.css + fx.js, data-fx /
-// data-fx-js). Those files are fetched only when someone picks one.
+// data-fx-js), or — Asgard only — Ravens, Huginn and Muninn bringing the news
+// (ravens.css + ravens.js, data-ravens / data-ravens-js). Those files are
+// fetched only when someone picks one.
 //
 // It runs in <head>, before the page paints, so there's no flash of the
 // default: the palette is computed from the stored pick, and redrawn artwork
@@ -49,6 +51,8 @@
   var CATS_JS = attr("data-cats-js");
   var FX_CSS = attr("data-fx");
   var FX_JS = attr("data-fx-js");
+  var RAVENS_CSS = attr("data-ravens");
+  var RAVENS_JS = attr("data-ravens-js");
   var FINE = !!(window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches);
   var KEY = MB ? "marsbar-colour" : "asgard-hud-colour";
   var ART = MB ? "marsbar-art" : "asgard-hud-art";
@@ -108,7 +112,9 @@
     ["stars", "Starry night — a moon, stars, the odd shooting star", "#a99bff+#ffe08a"],   // night, and starlight
     ["spooky", "Spooky — bats at dusk, and a spider", "#ffa95c+#b99cff"],
     ["ocean", "Ocean — bubbles, light through the water, fish", "#7fe3e8+#ffa697"],
-  ];
+    // Asgard's alone (ravens.css + ravens.js): Odin's two, perched on the cards.
+    ["ravens", "Ravens — Huginn and Muninn bring you the news", "#c9d2ec+#9d8cff", "hud"],
+  ].filter(function (f) { return !(MB && f[3] === "hud"); });
   var FUNS = {};
   FUN.forEach(function (f) { FUNS[f[0]] = f[2]; });
   var VALID = new RegExp("^(" + Object.keys(FUNS).join("|") + "|#[0-9a-f]{6}(\\+#[0-9a-f]{6})?)$");
@@ -284,6 +290,7 @@
     sakura: svg("0 0 24 24", '<g fill="__C__">' + turns(5, '<path d="M12 11.3C9.3 9.6 8.4 5.4 10.3 2.4L12 4l1.7-1.6c1.9 3 1 7.2-1.7 8.9Z"/>') + '</g>'),
     stars: svg("0 0 24 24", '<path fill="__C__" d="M12.8 3.1A9 9 0 1 0 20.9 15A7.2 7.2 0 0 1 12.8 3.1ZM19 1.6l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9Z"/>'),
     spooky: svg("0 0 24 24", '<path fill="__C__" d="M12 9.2C11.6 8.2 11.1 7.6 10.6 7.4L10.8 8.9C8.6 8.6 5.6 8.6 1.2 6.4C2.6 8.4 3 10.6 2.5 12.8C3.7 11.9 5.3 11.9 6.3 13.1C7 12 8.5 11.6 9.7 12.2C10.4 13.2 11.1 14.8 12 16.4C12.9 14.8 13.6 13.2 14.3 12.2C15.5 11.6 17 12 17.7 13.1C18.7 11.9 20.3 11.9 21.5 12.8C21 10.6 21.4 8.4 22.8 6.4C18.4 8.6 15.4 8.6 13.2 8.9L13.4 7.4C12.9 7.6 12.4 8.2 12 9.2Z"/>'),
+    ravens: svg("0 0 24 24", '<path fill="__C__" fill-rule="evenodd" d="M1.6 19.4L7.4 15.4C7.1 11.1 9.9 7.6 13.9 6.6C14.5 5 16 4.1 17.6 4.1C19 4.1 20.1 4.8 20.7 6L23.2 7.7L20.5 8.3C20.3 11.6 18.7 14.6 15.9 16.4L16.9 19.7H15.4L14.2 17.1L12.8 17.3L13.4 19.7H11.9L11.1 17.2C9.8 17.1 8.6 16.7 7.6 16.1ZM17.9 5.9a.85.85 0 1 0 .01 0Z"/>'),
     ocean: svg("0 0 24 24", '<path fill="__C__" fill-rule="evenodd" d="M1.6 12C4.6 7.2 10.6 6.2 15 9.6L20.6 6C19.4 9.6 19.4 14.4 20.6 18L15 14.4C10.6 17.8 4.6 16.8 1.6 12ZM6.6 10.4a1.25 1.25 0 1 0 .01 0Z"/>'),
   };
   function mark(kind, colour) { return dataUrl(MARK[kind].replace(/__C__/g, colour)); }
@@ -306,7 +313,7 @@
     s.onload = ready;
     document.head.appendChild(s);
   }
-  var catsOn = false, fxOn = null;
+  var catsOn = false, fxOn = null, ravensOn = false;
   function cats(on) {
     if (on === catsOn) return;
     catsOn = on;
@@ -314,6 +321,14 @@
       root.setAttribute("data-cats", "");
       load(CATS_CSS, CATS_JS, "data-cats-loaded", function () { if (catsOn && window.Cats) { window.Cats.on(); return true; } return !!window.Cats; });
     } else { root.removeAttribute("data-cats"); if (window.Cats) window.Cats.off(); }
+  }
+  function ravens(on) {
+    if (on === ravensOn) return;
+    ravensOn = on;
+    if (on) {
+      root.setAttribute("data-ravens", "");
+      load(RAVENS_CSS, RAVENS_JS, "data-ravens-loaded", function () { if (ravensOn && window.Ravens) { window.Ravens.on(); return true; } return !!window.Ravens; });
+    } else { root.removeAttribute("data-ravens"); if (window.Ravens) window.Ravens.off(); }
   }
   function fx(kind) {
     if (kind === fxOn) return;
@@ -352,7 +367,8 @@
     logoArt = null;
     var fun = FUNS[pick];
     cats(pick === "cats");
-    fx(fun && pick !== "cats" ? pick : null);
+    ravens(pick === "ravens");
+    fx(fun && pick !== "cats" && pick !== "ravens" ? pick : null);
     if (pick === DEFAULT.toLowerCase()) { paintLogo(); return; }   // the stylesheet's own palette
     var colours = fun || pick;
     var p = MB ? mbPalette(colours) : hudPalette(colours);
@@ -427,6 +443,7 @@
     stars: "Tap an empty bit of sky for a shooting star.",
     spooky: "Tap a bat — or the spider.",
     ocean: "Tap a fish.",
+    ravens: "Tap a raven: Huginn tells you what’s happening, Muninn what has happened. When one flies to a card with a glowing mark, it has news.",
   };
   function tip() {
     var t = TIP[current] || "";

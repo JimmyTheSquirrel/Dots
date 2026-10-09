@@ -132,7 +132,7 @@ mount. She has every control he has (`Claude/marsbar.md`).
 
 | Endpoint | What |
 |---|---|
-| `GET /events` | SSE: `status`, `tv`, `wolf`, `ctl`, `scan`, `ctlbusy`, `activity`, `busy` — pushed on change. The Pi is only polled (SSH every 5 s, one channel on the shared ControlMaster) while a page has this open; Wolf every 3 s; Jellyfin every 5 s |
+| `GET /events` | SSE: `status`, `tv`, `wolf`, `ctl`, `scan`, `ctlbusy`, `net`, `netscan`, `netsw`, `activity`, `busy` — pushed on change. The Pi is only polled (SSH every 5 s, one channel on the shared ControlMaster) while a page has this open; Wolf every 3 s; Jellyfin every 5 s |
 | `GET /status` | the Pi's state as JSON (cached 5 s, in-flight de-duplicated) |
 | `POST /act/<name>` | `restart-kodi`, `sync-library` (Movies then TV Shows), `sync-movies`, `sync-shows`, `speedtest` (the Pi→Asgard link test), `jellyfin-toggle`, `reboot`, `bt-on`, `subs-on`, `subs-off`. One run per action at a time (409 otherwise); every result lands in the shared activity log |
 | `POST /ctl/connect/<MAC>` · `/ctl/disconnect/<MAC>` | Connect or drop a paired device. The MAC is checked against `MAC_RE` **and** the Pi's own `bluetoothctl devices` list before it reaches a root shell (`_ctl_guard`) — same precedent as `wolf_stop`'s `isdigit()` |
@@ -142,13 +142,16 @@ mount. She has every control he has (`Claude/marsbar.md`).
 | `POST /ctl/scan` · `/ctl/scan/stop` | Start / stop a background search (`CTL_SCAN_SECONDS`, 45 s) |
 | `POST /ctl/sublang/<iso639-2>` | Subtitle language, whitelisted against `SUB_LANGS` |
 | `POST /wolf/stop/<id>` | end a Moonlight stream on Sisyphus, via wolf-bridge (`Claude/wolf.md`) |
+| `POST /net/wired` | Back to the cable, **wired only** (refused with no cable in) |
+| `POST /net/wifi` · `/net/wifi/<service>` | Wi-Fi (away): the strongest saved network in range, or that one. A network that isn't saved yet takes `{"pass": "…"}` in the body; a saved one refuses a password (Forget it first — see *Network* below) |
+| `POST /net/forget/<service>` | Forget a saved Wi-Fi network — refused for the one Eclipse is on |
+| `POST /net/scan` | Ask connman for a fresh Wi-Fi scan (turns the radio on; joins nothing) |
 
 Every POST needs `X-Dash: 1`; CORS answers only `_origins.nix`.
 
 ### Bluetooth · `#ec-ctl` (added 2026-10-05, rebuilt the same day as a full manager)
 
-The card both dashboards draw ("Controllers & network" on the admin page, "Controllers" on
-MarsBar), from three events on the same `/events` stream. **All of it lives in eclipse-control,
+The card both dashboards draw ("Controllers" on both), from three events on the same `/events` stream. **All of it lives in eclipse-control,
 not the page** — names, a running search, a pair in progress — so a rename on one dashboard, or a
 search started on her phone, shows on every open page within a second or two. That is what keeps
 the two dashboards in sync; nothing is per-browser.
@@ -156,7 +159,8 @@ the two dashboards in sync; nothing is per-browser.
 - **`ctl`** (every 8 s — slower than the rest because it shells out to `bluetoothctl`, whose
   daemon has form for burning CPU): the **paired** devices, each with our name for it, BlueZ's
   name (`model`), a kind (gamepad / audio / keyboard / …), `trusted`, `connected`, `live`, `stale`,
-  battery, plus Bluetooth power, subtitles and the network rows.
+  battery, plus Bluetooth power and subtitles. (The network rows moved to their own card,
+  `#ec-net`, 2026-10-09.)
 - **`scan`**: a search and what it has found — every device BlueZ sees that is **not** paired,
   with its signal (RSSI) and icon, controllers first then strongest signal. Nameless devices
   (BlueZ shows them as their MAC) are counted, not listed. Results stay up 3 minutes after the
@@ -240,6 +244,61 @@ re-appending the public key, or the panel shows `reachable: false`.
 The panel used to be an HTML page this service served, iframed into Glance at a fixed height,
 with its own copy of JetBrains Mono so it matched — on the belief that Glance's `html` widget
 sanitises markup. It does not (0.8.5 emits it raw), so the page, the fonts and the iframe are gone.
+
+### Network · `#ec-net` (added 2026-10-09)
+
+"Eclipse network · cable & Wi-Fi" on the admin page, "Eclipse network" on MarsBar — the same
+card on both, like the Bluetooth one, so she can get the box online wherever it is. Built on
+the **wired-only** rule (*Network*, below): the Pi once dual-homed and sent a 4K game stream
+over its own −67 dBm radio while the cable sat idle.
+
+- **Wired | Wi-Fi.** *Wired* is exactly `Resources/Eclipse-Box/network/wired-only-apply.sh`:
+  `SingleConnectedTechnology = true` (installed if a re-flash lost it), the cable's AutoConnect
+  on, **every saved Wi-Fi's AutoConnect off** — Wi-Fi never joins by itself, not even if the
+  cable comes out. *Wi-Fi* is for taking the box out: the chosen network connected and every
+  saved network's AutoConnect **on**, so it rejoins after a restart wherever it is; the cable's
+  stays on too, so a cable plugged in still wins (connman keeps one link, ethernet first) and
+  the mode can never strand the box. Both are armed (tap twice).
+- **Saved Wi-Fi** (what's on disk in `/storage/.cache/connman/wifi_*`, in range or not): signal,
+  "joins by itself" or not, Join, and Forget (refused for the network in use). **Join a
+  network**: a search (`connmanctl scan wifi`) whose results fold like the Bluetooth ones
+  (`eclipse-net-results` in localStorage); a secured one opens a password field in its row
+  (Show/Hide, Enter joins, Esc cancels). Enterprise (`ieee8021x`) and hidden networks can't be
+  joined from here — LibreELEC's own settings on the TV.
+- **Home / Away** tag: can the Pi reach Asgard's LAN address (`ip route get` not via
+  `tailscale0`, and a ping)? Away with Jellyfin on the LAN path → a nudge (and button) to move
+  it to **Tailscale**; home on the cable with it on Tailscale → a nudge back to LAN.
+
+**How a switch runs.** eclipse-control reaches the Pi over its **tailnet** address, so the
+switch can't be watched from here — the link being changed is the one ssh rides. So
+`Resources/Eclipse-Control/eclipse-net.sh` (shipped as `ECLIPSE_NET_SCRIPT`) is sent to the Pi
+over ssh's **stdin** into `/storage/.cache/eclipse-net/` and started detached with
+`systemd-run --unit=eclipse-net --collect`. It snapshots every saved network's AutoConnect and
+the link in use, stops connman, edits the files (connman rewrites them on exit, and
+`config --autoconnect` can't reach an out-of-range network), starts it, connects, then waits
+~30 s for `State = online` or a ping of the new gateway. **Not online → it puts back exactly
+what was there** (AutoConnect flags and the old link). The card shows *Switching…* from the
+moment it starts until the Pi's `result` file carries that switch's token (or 180 s pass), then
+says how it ended — in the card and the activity log. Log on the Pi:
+`/storage/.cache/eclipse-net/log`.
+
+**Passwords.** A new network's password goes from the page in the POST body (never a URL), is
+validated (8–63 printable ASCII for WPA, or 64 hex; WEP 5/13 or 10/26 hex), and reaches the Pi
+only through ssh's stdin, as a connman **provisioning file**
+(`/storage/.cache/connman/eclipse-<ssid-hex>.config`, `Passphrase` GKeyFile-escaped). If the
+join fails the file is deleted — and connman deletes a provisioned network with it, so a wrong
+password is never kept. That is also why a **saved** network refuses a new password: replacing
+its credentials by provisioning and then failing would take the saved network (say, the house
+Wi-Fi) down with it. Forget it, then join it fresh.
+
+**Away from home, the bootstrap problem**: wired-only + no cable = no network = no dashboard.
+So: switch to **Wi-Fi** before taking it out, and join your **phone's hotspot** once at home —
+in Wi-Fi mode it joins any saved network by itself, so turning the hotspot on wherever you are
+brings it back to the dashboard, and from there you join the local Wi-Fi. Last resort: the TV
+remote, **LibreELEC → Connections**.
+
+The **Activity** card folds (2026-10-09, `eclipse-log` in localStorage, folded to begin with);
+folded, its header is the latest entry, so a glance still says what last happened.
 
 ## Rebuild from scratch
 
@@ -1056,13 +1115,20 @@ in the Kodi device profile, exactly like the P5 patch.
 > not just the P5 ones. This was found late on 2026-09-08 and has **not** been confirmed against a
 > known-good HDR10 title. Confirm before acting on it.
 
-## Network — wired since 2026-08-23; wifi is now an automatic standby
+## Network — wired only since 2026-10-09 (switchable from the dashboards)
 
-**Ethernet is connected and owns the default route.** Everything below about the 2.4 GHz link is
+**Current state:** wired only — `SingleConnectedTechnology = true` and every saved Wi-Fi at
+`AutoConnect=false` (`Resources/Eclipse-Box/README.md` → `network/`, which has the measurements
+and the re-apply script). The dashboards' **Network card** (`#ec-net`, *Control panel* above)
+switches between that and **Wi-Fi mode** for taking the box out, and joins new networks. The
+"automatic standby" design below is **history**: with both links up on one subnet the Wi-Fi
+won `ip route get` for local traffic (2026-10-09), so the standby is gone on purpose.
+
+*(2026-08-23 → 2026-10-09:)* **Ethernet is connected and owns the default route.** Everything below about the 2.4 GHz link is
 still accurate for *whenever the cable is out* — that path is unchanged, it is just no longer the
 normal one. Address the box by its tailnet IP `100.80.62.3`, which is interface-independent.
 
-### Ethernet → wifi failover
+### Ethernet → wifi failover (2026-08-23 — superseded by wired-only, 2026-10-09)
 
 ConnMan does this natively and needed no new config. `/etc/connman/main.conf` already ships
 `PreferredTechnologies = ethernet,wifi,cellular` and does **not** set `SingleConnectedTechnology`
