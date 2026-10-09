@@ -244,9 +244,11 @@
             keybinds.type = "kenn/keybind-cheatsheet:keybinds";
             spacer_2 = { capsule = false; length = 104; scale = 0.4; type = "spacer"; };
 
-            # display = "none" hides the workspace NUMBERS, leaving just the pills.
-            # (The other options are "id" and "name".)
-            workspaces = { display = "none"; };
+            # show_labels = false hides the workspace NUMBERS, leaving just the
+            # pills. (Noctalia 5.2 split the old `display = "none" | "id" |
+            # "name"` into show_labels + label_source; `noctalia config
+            # validate` flags the old key.)
+            workspaces = { show_labels = false; };
           };
         };
 
