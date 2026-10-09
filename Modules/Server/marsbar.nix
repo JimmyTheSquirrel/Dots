@@ -68,7 +68,9 @@
       "fx.css" = ../../Resources/Glance/fx.css;
       "fx.js" = ../../Resources/Glance/fx.js;
       # her vine, alive: blossoms that open and close, butterflies, fireflies
+      # (garden.css is shared with Asgard's Tech + Garden skin)
       "garden.js" = ../../Resources/MarsBar/garden.js;
+      "garden.css" = ../../Resources/MarsBar/garden.css;
     };
     marsbarAssets = pkgs.linkFarm "glance-marsbar-assets" assetFiles;
 
@@ -199,6 +201,7 @@
       # before the page paints, so a pick never flashes purple first.
       document.head = ''
         <link rel="stylesheet" href="${asset "cards.css"}">
+        <link rel="stylesheet" href="${asset "garden.css"}">
         <script src="${asset "theme.js"}" data-profile="marsbar" data-default="#ca99f5" data-art="${asset "vine.svg"},${asset "bloom.svg"}" data-art-v="${artVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}" data-fx="${asset "fx.css"}" data-fx-js="${asset "fx.js"}"></script>
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api="/ha" defer></script>

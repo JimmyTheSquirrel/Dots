@@ -171,8 +171,10 @@
 
   // ── one EventSource, the whole lifecycle ──────────────────────────────────
   // handlers: { eventName: fn(data) }. badge: element id of an .ags-live badge.
+  // Returns { reconnect, close } — close() ends it for good (the Overview's
+  // living tree streams only while it is on screen).
   function stream(url, handlers, badge) {
-    var es = null, retry = null, park = null, delay = 2000, lastSeen = 0;
+    var es = null, retry = null, park = null, delay = 2000, lastSeen = 0, closed = false;
 
     function setBadge(on) {
       var b = badge && $(badge);
@@ -183,6 +185,7 @@
     }
     function connect() {
       clearTimeout(retry); retry = null;
+      if (closed) return;
       if (es) es.close();
       lastSeen = Date.now();
       var src = es = new EventSource(url);
@@ -208,7 +211,7 @@
     }
     // A link that died half-open (a phone that changed networks) never errors;
     // silence is the only symptom.
-    setInterval(function () {
+    var watch = setInterval(function () {
       if (es && !document.hidden && Date.now() - lastSeen > 40000) { setBadge(false); connect(); }
     }, 10000);
     document.addEventListener("visibilitychange", function () {
@@ -218,7 +221,12 @@
     });
     window.addEventListener("pageshow", function (e) { if (e.persisted && !es) connect(); });
     connect();
-    return { reconnect: connect };
+    function close() {
+      closed = true;
+      clearTimeout(retry); clearTimeout(park); clearInterval(watch);
+      if (es) { es.close(); es = null; }
+    }
+    return { reconnect: connect, close: close };
   }
 
   // POST with the X-Dash header every backend requires (it forces a CORS

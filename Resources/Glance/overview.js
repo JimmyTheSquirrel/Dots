@@ -28,7 +28,12 @@
 //                 so the path reads 1 → 2 → 3 across the tree; a caption says
 //                 what's happening. Plays itself; ‹ › step, ❚❚ pauses
 //
-// A picture of the CONFIG, not a live view — nothing polls. A new service,
+// Two views, a slider at the top (remembered per browser, asgard-ov-view):
+// this MAP, and the LIVING TREE — the same system grown as Yggdrasil and alive
+// with what Asgard is doing right now (ygg-live.js, loaded the first time it
+// is shown; it streams only while on screen).
+//
+// The map is a picture of the CONFIG, not a live view — nothing polls. A new service,
 // port or connection is a line in NODES (+ its place in TREE below) and
 // EDGES, maybe a STORIES step. Colours are HUD tokens only (var(--hud…),
 // --s1…--s6, --ag-*), so the viewer's picked colour recolours it.
@@ -38,6 +43,7 @@
   if (!window.Dash) return;
   var D = window.Dash;
   var still = window.matchMedia ? matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+  var me = document.currentScript, cfg = (me && me.dataset) || {};
 
   // ── what's on it ───────────────────────────────────────────────────────────
   // k: box kind — host / svc (a service on Asgard) / door (a way in or out) /
@@ -266,8 +272,46 @@
   // ── the card ───────────────────────────────────────────────────────────────
   var el = null, sel = null, story = null, timer = null, playing = true;
 
+  // ── the two views ──────────────────────────────────────────────────────────
+  var VIEW_KEY = "asgard-ov-view", view = "map", treeLoading = false;
+  try { if (localStorage.getItem(VIEW_KEY) === "tree") view = "tree"; } catch (e) { /* private window */ }
+  function views() {
+    return '<div class="ov-views" role="tablist" aria-label="How to show it">' +
+      '<button type="button" role="tab" data-view="map" aria-selected="' + (view === "map") + '">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="5"/><rect x="14" y="3" width="7" height="5"/><rect x="8.5" y="16" width="7" height="5"/><path d="M6.5 8v4h11V8M12 12v4"/></svg>Map</button>' +
+      '<button type="button" role="tab" data-view="tree" aria-selected="' + (view === "tree") + '">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21v-9M12 14l-4-3M12 12l4-3M12 17l3-2"/><path d="M12 3a6 6 0 0 0-6 6c0 1 .3 2 .8 2.8A4.5 4.5 0 0 0 9 19h6a4.5 4.5 0 0 0 2.2-7.2c.5-.8.8-1.8.8-2.8a6 6 0 0 0-6-6z"/></svg>Living tree</button>' +
+      '<i class="ov-thumb" aria-hidden="true"></i></div>';
+  }
+  function setView(v) {
+    if (v === view && el.querySelector(".ov-pane.tree").childElementCount === (v === "tree" ? 1 : 0)) return;
+    view = v;
+    try { localStorage.setItem(VIEW_KEY, v); } catch (e) { /* private window */ }
+    el.querySelector(".ov-views").setAttribute("data-on", v);
+    el.querySelectorAll(".ov-views [data-view]").forEach(function (b) { b.setAttribute("aria-selected", b.getAttribute("data-view") === v ? "true" : "false"); });
+    var map = el.querySelector(".ov-pane.map"), tree = el.querySelector(".ov-pane.tree");
+    map.hidden = v !== "map";
+    tree.hidden = v !== "tree";
+    if (v === "map") {
+      if (window.LivingTree) window.LivingTree.unmount();
+      return;
+    }
+    story = null; sel = null; clearTimeout(timer); paint();
+    withTree(function () { if (view === "tree" && !tree.childElementCount) window.LivingTree.mount(tree, { nodes: BY, edges: EDGES, ports: PORTS }); });
+  }
+  var PORTS = { stats: cfg.statsPort, eclipse: cfg.eclipsePort, net: cfg.netPort, bridge: cfg.bridgePort };
+  function withTree(fn) {
+    if (window.LivingTree) return fn();
+    if (treeLoading || !cfg.tree) return;
+    treeLoading = true;
+    var sc = document.createElement("script");
+    sc.src = cfg.tree;
+    sc.onload = function () { treeLoading = false; if (window.LivingTree) fn(); };
+    document.head.appendChild(sc);
+  }
+
   function render() {
-    el.innerHTML =
+    el.innerHTML = views() + '<div class="ov-pane map"' + (view === "map" ? "" : " hidden") + '>' +
       '<div class="ov">' +
         '<div class="ov-stories" role="toolbar" aria-label="Walk through how things work">' +
           '<span class="ov-lead">Show me</span>' +
@@ -279,8 +323,11 @@
         '<div class="ov-legend"><span><i class="l-box"></i>runs on the machine</span><span><i class="l-door"></i>a way in or out</span>' +
           '<span><i class="l-out"></i>outside Asgard</span><span><i class="l-warn"></i>needs attention</span>' +
           '<span><i class="l-tun"></i>the encrypted tunnel</span></div>' +
-      '</div>';
+      '</div></div>' +
+      '<div class="ov-pane tree"' + (view === "tree" ? "" : " hidden") + '></div>';
+    el.querySelector(".ov-views").setAttribute("data-on", view);
     paint();
+    if (view === "tree") { view = "map"; setView("tree"); }
   }
 
   // Light what's picked (and its neighbours), or the story so far: this
@@ -395,6 +442,9 @@
 
   function onClick(e) {
     var t = e.target;
+    var vb = t.closest(".ov-views [data-view]");
+    if (vb) { setView(vb.getAttribute("data-view")); return; }
+    if (t.closest(".ov-pane.tree")) return;          // the tree handles its own taps
     var chip = t.closest(".ov-chip");
     if (chip) { startStory(chip.getAttribute("data-story")); return; }
     var stp = t.closest(".ov-step");

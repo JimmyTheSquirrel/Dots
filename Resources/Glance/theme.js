@@ -23,6 +23,15 @@
 // (ravens.css + ravens.js, data-ravens / data-ravens-js). Those files are
 // fetched only when someone picks one.
 //
+// Asgard also has SKINS (2026-10-09) — the whole look, not its colour, so any
+// skin wears any colour: Tech (the HUD as it ships), Tech + Garden (Kit-Kat's
+// garden grown over the HUD: her vines, blossoms, butterflies and fireflies —
+// garden.css + garden-hud.css + garden.js, the same garden.js MarsBar runs,
+// data-garden / data-garden-js, her vine.svg recoloured to the pick from
+// data-vine) and Star Wars (starwars.css + starwars.js, data-starwars /
+// data-starwars-js). A row at the top of the picker; each skin's switches
+// under it. <html data-skin="garden|starwars">; stored as asgard-skin.
+//
 // It runs in <head>, before the page paints, so there's no flash of the
 // default: the palette is computed from the stored pick, and redrawn artwork
 // is kept in localStorage beside it (keyed to the build, so a new build
@@ -53,6 +62,11 @@
   var FX_JS = attr("data-fx-js");
   var RAVENS_CSS = attr("data-ravens");
   var RAVENS_JS = attr("data-ravens-js");
+  var GARDEN_CSS = attr("data-garden");          // garden.css,garden-hud.css
+  var GARDEN_JS = attr("data-garden-js");
+  var VINE_URL = attr("data-vine");
+  var SW_CSS = attr("data-starwars");
+  var SW_JS = attr("data-starwars-js");
   var FINE = !!(window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches);
   var KEY = MB ? "marsbar-colour" : "asgard-hud-colour";
   var ART = MB ? "marsbar-art" : "asgard-hud-art";
@@ -122,7 +136,8 @@
     ? ["--mb-h", "--mb-h2", "--bgh", "--color-primary", "--color-positive", "--mb-vine", "--mb-bloom"]
     : ["--hud", "--hud2", "--hud-hot", "--hud-deep", "--hud-rgb", "--hud2-rgb",
        "--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--h-frame", "--h-ygg",
-       "--ag-page", "--ag-ground", "--ag-surface", "--ag-pop"]).concat(["--fx-a", "--fx-b", "--fx-ic"]);
+       "--ag-page", "--ag-ground", "--ag-surface", "--ag-pop",
+       "--mb-h", "--mb-h2", "--gd-vine"]).concat(["--fx-a", "--fx-b", "--fx-ic"]);
   var root = document.documentElement;
   if (MB) root.setAttribute("data-dash", "marsbar");
 
@@ -299,19 +314,30 @@
   // data-cats / data-cats-js; the rest: data-fx / data-fx-js) — what lives on
   // the page and everything it does is there; this only switches it on and
   // off. Nobody who never picks one ever downloads them.
+  // `css` may be a comma-separated list. The stylesheets go in at once (no
+  // flash of the old look); the script only once the page is parsed — the
+  // deferred scripts (dash.js, which garden.js needs) have run by then.
+  function whenParsed(fn) {
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", fn, { once: true });
+    else fn();
+  }
   function load(css, js, mark, ready) {
-    if (css && !document.querySelector("link[" + mark + "]")) {
+    (css || "").split(",").forEach(function (href) {
+      if (!href || document.querySelector('link[href="' + href + '"]')) return;
       var l = document.createElement("link");
-      l.rel = "stylesheet"; l.href = css; l.setAttribute(mark, "");
+      l.rel = "stylesheet"; l.href = href; l.setAttribute(mark, "");
       document.head.appendChild(l);
-    }
+    });
     if (ready()) return;
     // (A marker of its own: this very <script> tag carries data-cats-js / data-fx-js.)
-    if (!js || document.querySelector("script[" + mark + "-js]")) return;   // already on its way
-    var s = document.createElement("script");
-    s.src = js; s.setAttribute(mark + "-js", "");
-    s.onload = ready;
-    document.head.appendChild(s);
+    if (!js) return;
+    whenParsed(function () {
+      if (ready() || document.querySelector("script[" + mark + "-js]")) return;   // already on its way
+      var s = document.createElement("script");
+      s.src = js; s.setAttribute(mark + "-js", "");
+      s.onload = ready;
+      document.head.appendChild(s);
+    });
   }
   var catsOn = false, fxOn = null, ravensOn = false;
   function cats(on) {
@@ -338,6 +364,100 @@
       root.setAttribute("data-fx", kind);
       load(FX_CSS, FX_JS, "data-fx-loaded", function () { if (fxOn && window.Fx) { window.Fx.on(fxOn); return true; } return !!window.Fx; });
     } else root.removeAttribute("data-fx");
+  }
+
+  // ── skins (Asgard) ──────────────────────────────────────────────────────────
+  // The look, not the colour. Each skin's switches live in this browser:
+  // asgard-garden-<part> (read by garden.js too) and asgard-sw-<part>.
+  var SKIN_KEY = "asgard-skin";
+  var SKINS = MB ? [] : [
+    ["tech", "Tech", "The HUD, as it ships"],
+    ["garden", "Garden", "Tech + Garden — Kit-Kat’s garden grows over your HUD"],
+    ["starwars", "Star Wars", "A long time ago, on a server far, far away…"]
+  ];
+  var SKIN_ICON = {
+    tech: '<path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5"/><path d="M8 12h8M12 8v8"/>',
+    garden: '<path d="M12 21V11"/><path d="M12 14c-4 0-7-2.5-7-7 4 0 7 2.5 7 7zM12 12c0-4 2.5-7 7-7 0 4-2.5 7-7 7z"/>',
+    starwars: '<path d="M12 2l1.6 5.4L19 9l-5.4 1.6L12 16l-1.6-5.4L5 9l5.4-1.6z"/><circle cx="19" cy="18" r="1.2"/><circle cx="5" cy="19" r=".9"/><circle cx="20" cy="4" r=".7"/>'
+  };
+  // The garden's parts (garden.js): MarsBar's three switches, and on Asgard
+  // the vines as well (MarsBar's vine rails are her stylesheet's, always on).
+  var GARDEN = [["blossoms", "Blossoms", "open and close on every card"],
+                ["butterflies", "Butterflies", "land on the vine · tap one"],
+                ["fireflies", "Fireflies", "at night, or lights off"]];
+  var GARDEN_HUD = [["vines", "Vines", "climbing every card’s frame"]].concat(GARDEN);
+  var SW_OPTS = [["crawl", "Opening crawl", "once a day, on the home page"],
+                 ["jump", "Hyperspace", "a jump between pages"],
+                 ["sabers", "Lightsabers", "every bar a blade"]];
+  var OPTS = { garden: GARDEN_HUD, starwars: SW_OPTS };
+  // Blade colours for the Star Wars skin — plain two-tone picks (any colour
+  // works in any skin), offered under it because the house mint isn't one.
+  var BLADES = [["Jedi — blue and green blades", "#5cc8ff+#6dff9e"], ["Sith — red, and cold steel", "#ff4d4d+#a3adbf"],
+                ["Purple and gold — a Master's", "#b98cff+#ffd36b"], ["Rebel — flight-suit orange and white", "#ffa04d+#eef3fb"],
+                ["The dark blade — white-black and steel blue", "#eaf2ff+#7f8fb8"], ["Kyber yellow and holo blue", "#ffe36b+#5cc8ff"]];
+  function optKey(group, part) { return (group === "starwars" ? "asgard-sw-" : MB ? "marsbar-" : "asgard-garden-") + part; }
+  function optOn(group, part) { return get(optKey(group, part)) !== "off"; }
+  var skin = null;
+  // The garden's two hues: petals and leaves. The house colours get her
+  // lavender on his mint — the two dashboards, merged; a pick puts its
+  // partner in the flowers and its main light in the leaves, unless the two
+  // are too close to tell a flower from its leaf (then her lavender again).
+  function gardenHues() {
+    if (current === DEFAULT.toLowerCase()) return [272, hueOf(DEFAULT)];
+    var c = (FUNS[current] || current).split("+"), a = hueOf(c[0]), b = c[1] ? hueOf(c[1]) : 272;
+    return [Math.abs(((b - a + 540) % 360) - 180) < 45 ? 272 : b, a];
+  }
+  var GART = "asgard-garden-art";
+  function gardenPaint() {
+    if (MB) return;
+    if (skin !== "garden") {
+      ["--mb-h", "--mb-h2", "--gd-vine"].forEach(function (k) { root.style.removeProperty(k); });
+      return;
+    }
+    var hs = gardenHues(), key = BUILD + "/" + hs[0].toFixed(0) + "/" + hs[1].toFixed(0);
+    root.style.setProperty("--mb-h", hs[0].toFixed(1));
+    root.style.setProperty("--mb-h2", hs[1].toFixed(1));
+    // Her vine, its purples turned to the petals and its greens to the leaves —
+    // kept in this browser, so it is drawn once per colour.
+    var kept = null;
+    try { kept = JSON.parse(get(GART) || "null"); } catch (e) { kept = null; }
+    if (kept && kept.k === key) { root.style.setProperty("--gd-vine", 'url("' + kept.v + '")'); return; }
+    if (!VINE_URL || !window.fetch) return;
+    fetch(VINE_URL).then(function (r) { return r.text(); }).then(function (t) {
+      var v = dataUrl(shiftSvg(t, hs[0] - MB_H, hs[1] - MB_H2));
+      set(GART, JSON.stringify({ k: key, v: v }));
+      if (skin === "garden") root.style.setProperty("--gd-vine", 'url("' + v + '")');
+    }).catch(function () { /* garden-hud.css falls back to the file itself */ });
+  }
+  function useSkin(s) {
+    if (MB) return;
+    if (!SKINS.some(function (k) { return k[0] === s; })) s = "tech";
+    if (s === skin) return;
+    var was = skin;
+    skin = s;
+    if (was === "garden" && window.Garden) GARDEN_HUD.forEach(function (g) { window.Garden.set(g[0], false); });
+    if (was === "starwars" && window.StarWars) window.StarWars.off();
+    if (s === "tech") root.removeAttribute("data-skin");
+    else root.setAttribute("data-skin", s);
+    gardenPaint();
+    if (s === "garden") {
+      load(GARDEN_CSS, GARDEN_JS, "data-garden-loaded", function () {
+        if (skin !== "garden" || !window.Garden) return !!window.Garden;
+        GARDEN_HUD.forEach(function (g) { window.Garden.set(g[0], optOn("garden", g[0])); });
+        return true;
+      });
+    } else if (s === "starwars") {
+      load(SW_CSS, SW_JS, "data-starwars-loaded", function () {
+        if (skin !== "starwars" || !window.StarWars) return !!window.StarWars;
+        window.StarWars.on();
+        return true;
+      });
+    }
+  }
+  function chooseSkin(s) {
+    set(SKIN_KEY, s && s !== "tech" ? s : null);
+    useSkin(s);
+    sync();
   }
 
   // ── applying it ─────────────────────────────────────────────────────────────
@@ -369,7 +489,7 @@
     cats(pick === "cats");
     ravens(pick === "ravens");
     fx(fun && pick !== "cats" && pick !== "ravens" ? pick : null);
-    if (pick === DEFAULT.toLowerCase()) { paintLogo(); return; }   // the stylesheet's own palette
+    if (pick === DEFAULT.toLowerCase()) { paintLogo(); gardenPaint(); return; }   // the stylesheet's own palette
     var colours = fun || pick;
     var p = MB ? mbPalette(colours) : hudPalette(colours);
     Object.keys(p).forEach(function (k) { if (k.charAt(0) !== "_") root.style.setProperty(k, p[k]); });
@@ -383,6 +503,7 @@
       root.style.setProperty("--hud2-rgb", rgb(p["--hud2"]).join(" "));
       if (fun) { logoArt = mark(pick, p[pick === "stars" ? "--hud2" : "--hud"]); paintLogo(); }   // a gold moon
     }
+    gardenPaint();
     var a = stored(pick);
     if (a) { useArt(a); return; }
     if (MB) drawMb(pick, p, function (d) { if (current === pick) useArt(d); });
@@ -397,6 +518,7 @@
   }
 
   apply(get(KEY));   // now, in <head>: before the page paints
+  useSkin(get(SKIN_KEY));
 
   // ── the picker ──────────────────────────────────────────────────────────────
   var pop = null, button = null;
@@ -413,27 +535,44 @@
         (p[3] ? ";--ic:url('" + mark(p[3], "#000") + "')" : "") + '"></button>';
     }).join("") + '</div>';
   }
-  // MarsBar's living garden (garden.js) is three switches, not colours —
-  // the blossoms that open and close, the butterflies, the fireflies — each
-  // on unless she turns it off, kept in this browser as marsbar-<part> =
-  // "off". garden.js reads the same keys when it starts, and window.Garden
-  // switches a part live.
-  var GARDEN = [["blossoms", "Blossoms", "open and close on every card"],
-                ["butterflies", "Butterflies", "land on the vine · tap one"],
-                ["fireflies", "Fireflies", "at night, or lights off"]];
-  function gardenOn(part) { return get("marsbar-" + part) !== "off"; }
-  function garden(part, on) {
-    set("marsbar-" + part, on ? null : "off");
-    if (window.Garden && window.Garden.set) window.Garden.set(part, on);
+  // MarsBar's living garden (garden.js) is three switches (GARDEN, above),
+  // not colours — each on unless she turns it off, kept in this browser as
+  // marsbar-<part> = "off" (asgard-garden-<part> in Asgard's Garden skin).
+  // garden.js reads the same keys when it starts; window.Garden switches a
+  // part live.
+  function gardenOn(part) { return optOn("garden", part); }
+  // A switch: "garden:blossoms", "starwars:crawl" — or, on MarsBar, a bare
+  // garden part. Stored in this browser; the skin's script told at once.
+  function toggleOpt(id) {
+    var g = id.indexOf(":") > 0 ? id.split(":")[0] : "garden", part = id.split(":").pop();
+    var on = !optOn(g, part);
+    set(optKey(g, part), on ? null : "off");
+    if (g === "garden" && window.Garden && window.Garden.set && (MB || skin === "garden")) window.Garden.set(part, on);
+    if (g === "starwars" && window.StarWars && window.StarWars.set) window.StarWars.set(part, on);
     sync();
   }
+  function switches(list, group) {
+    return list.map(function (g) {
+      return '<button type="button" class="hud-tg" data-hud-toggle="' + (group ? group + ":" : "") + g[0] + '" aria-pressed="true">' +
+        '<span>' + g[1] + '<small>' + g[2] + '</small></span><i></i></button>';
+    }).join("");
+  }
+  function skinRow() {
+    if (MB) return "";
+    return '<div class="hud-sub hud-first">Skin</div><div class="hud-skins">' + SKINS.map(function (k) {
+      return '<button type="button" class="hud-skin sk-' + k[0] + '" data-hud-skin="' + k[0] + '" aria-pressed="false" title="' + k[2] + '">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' + SKIN_ICON[k[0]] + '</svg><span>' + k[1] + '</span></button>';
+    }).join("") + '</div>' +
+      Object.keys(OPTS).map(function (g) {
+        return '<div class="hud-opts" data-skin-for="' + g + '" hidden>' + switches(OPTS[g], g) +
+          (g === "starwars" ? '<div class="hud-sub">Blades</div>' + swatches(BLADES.map(function (d) { return [d[0], d[1], d[1]]; })) : "") + '</div>';
+      }).join("") +
+      '<div class="hud-sub">Colour</div>';
+  }
   function allSwatches() {
-    return swatches([[HOUSE[0], DEFAULT, HOUSE[1]]].concat(DUOS.map(function (d) { return [d[0], d[1], d[1]]; }))) +
+    return skinRow() + swatches([[HOUSE[0], DEFAULT, HOUSE[1]]].concat(DUOS.map(function (d) { return [d[0], d[1], d[1]]; }))) +
       '<div class="hud-sub">Just for fun</div>' + swatches(FUN.map(function (f) { return [f[1], f[0], f[2], f[0]]; })) +
-      (MB ? GARDEN.map(function (g) {
-              return '<button type="button" class="hud-tg" data-hud-toggle="' + g[0] + '" aria-pressed="true">' +
-                '<span>' + g[1] + '<small>' + g[2] + '</small></span><i></i></button>';
-            }).join("") : "") +
+      (MB ? switches(GARDEN) : "") +
       '<div class="hud-tip"></div>';
   }
   // A line under the fun themes about the one that's on: what it does if you
@@ -447,7 +586,7 @@
   };
   function tip() {
     var t = TIP[current] || "";
-    if (MB && gardenOn("butterflies")) t += (t ? " " : "") + "Butterflies like a tap too.";
+    if ((MB || skin === "garden") && gardenOn("butterflies")) t += (t ? " " : "") + "Butterflies like a tap too.";
     return t;
   }
   // The custom pair: two colour wells, the main light and its partner. They
@@ -466,8 +605,13 @@
     var c = pair();
     document.querySelectorAll(".hud-custom").forEach(function (i) { i.value = c[+i.getAttribute("data-i")]; });
     document.querySelectorAll(".hud-tg[data-hud-toggle]").forEach(function (b) {
-      b.setAttribute("aria-pressed", gardenOn(b.getAttribute("data-hud-toggle")) ? "true" : "false");
+      var id = b.getAttribute("data-hud-toggle"), g = id.indexOf(":") > 0 ? id.split(":")[0] : "garden";
+      b.setAttribute("aria-pressed", optOn(g, id.split(":").pop()) ? "true" : "false");
     });
+    document.querySelectorAll(".hud-skin").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-hud-skin") === skin ? "true" : "false");
+    });
+    document.querySelectorAll(".hud-opts").forEach(function (o) { o.hidden = o.getAttribute("data-skin-for") !== skin; });
     var t = tip();
     document.querySelectorAll(".hud-tip").forEach(function (e) { e.textContent = t; e.hidden = !t; });
   }
@@ -477,7 +621,9 @@
       if (sw) choose(sw.getAttribute("data-hud-colour"));
       if (e.target.closest(".hud-reset")) choose(null);
       var tg = e.target.closest(".hud-tg[data-hud-toggle]");
-      if (tg) { var part = tg.getAttribute("data-hud-toggle"); garden(part, !gardenOn(part)); }
+      if (tg) toggleOpt(tg.getAttribute("data-hud-toggle"));
+      var sk = e.target.closest(".hud-skin");
+      if (sk) chooseSkin(sk.getAttribute("data-hud-skin"));
     });
     var wells = el.querySelectorAll(".hud-custom");
     function both() { return wells[0].value.toLowerCase() + "+" + wells[1].value.toLowerCase(); }
@@ -527,7 +673,7 @@
       pop.hidden = true;
       pop.setAttribute("role", "dialog");
       pop.setAttribute("aria-label", "UI colour");
-      pop.innerHTML = '<div class="hud-pop-h">UI colour</div>' + allSwatches() +
+      pop.innerHTML = '<div class="hud-pop-h">' + (MB ? "UI colour" : "Skin &amp; colour") + '</div>' + allSwatches() +
         '<div class="hud-pop-f"><span class="hud-own">Your own' + WELLS + '</span>' +
         '<button type="button" class="hud-reset">Reset</button></div>';
       document.body.appendChild(pop);
@@ -542,7 +688,7 @@
     if (mob && !mob.querySelector(".hud-row")) {
       var row = document.createElement("div");
       row.className = "hud-row";
-      row.innerHTML = '<div class="hud-row-h"><span>UI colour</span>' + WELLS +
+      row.innerHTML = '<div class="hud-row-h"><span>' + (MB ? "UI colour" : "Skin &amp; colour") + '</span>' + WELLS +
         '<button type="button" class="hud-reset">Reset</button></div>' + allSwatches();
       mob.insertBefore(row, mob.firstChild);
       wire(row);

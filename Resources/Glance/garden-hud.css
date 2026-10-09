@@ -1,0 +1,73 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   garden-hud.css — Kit-Kat's garden grown over Asgard's HUD: the Tech + Garden
+   skin (<html data-skin="garden">). theme.js loads it with garden.css (the
+   blossoms, butterflies and fireflies, shared with MarsBar) and garden.js (the
+   same script MarsBar runs; it puts the vines and crowns in).
+
+   On MarsBar her vine climbs inside each card; here it climbs the neon FRAME —
+   up its left edge and along its top from the corner where the crown blossom
+   grows — so the HUD stays the HUD and the garden grows over it. The card's
+   ::before and ::after are its glass and its frame, so the vines are two
+   elements per card (.gd-vine.gd-side, .gd-vine.gd-top) and the crown is
+   garden.js's .mb-crown, all placed here. Nothing here takes a tap.
+
+   Colour: her vine.svg recoloured by theme.js to the pick (--gd-vine: purples
+   to --mb-h, the petals; greens to --mb-h2, the leaves); garden.css's crowns
+   and butterflies read the same two hues. The house colours give her lavender
+   flowers on his mint leaves.
+   ════════════════════════════════════════════════════════════════════════════ */
+html[data-skin="garden"] .gd-vine {
+  position: absolute;
+  z-index: 1;
+  width: 36px;
+  pointer-events: none;
+  background: var(--gd-vine, url("/assets/vine.svg")) repeat-y;
+  filter: drop-shadow(0 0 3px rgb(0 0 0 / 0.65));
+}
+/* Up the frame's left edge, centred on it (garden.js's RAIL: 2px in — where a
+   butterfly lands), from under the crown, fading out before the foot. */
+html[data-skin="garden"] .gd-side {
+  left: -16px; top: 26px; bottom: 22px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 34px, #000 calc(100% - 90px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 34px, #000 calc(100% - 90px), transparent);
+}
+/* Along the top from the crown: the same vertical tile turned on its side —
+   rotated −90° about its top-left corner, it lies from y −18 to +18, centred
+   on the frame's top edge — and fading out (garden.js sets its length to a
+   share of the card's width). */
+html[data-skin="garden"] .gd-top {
+  left: 22px; top: 18px;
+  height: 220px;
+  transform: rotate(-90deg);
+  transform-origin: 0 0;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 100px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 100px), transparent);
+}
+/* The crown grows on the frame's top-left corner, over the bracket. */
+html[data-skin="garden"] .mb-crown {
+  left: -19px; top: -21px;
+  width: 44px; height: 44px;
+  z-index: 2;
+}
+/* A card's title steps right a little, so the crown and the vine don't sit
+   on its icon box. */
+html[data-skin="garden"] .widget:not(.widget .widget) > .widget-header { padding-left: 4px; }
+
+/* The HUD's own furniture, softened toward the garden: a little of the
+   leaves' green in the glass, as if lit through foliage. */
+html[data-skin="garden"] .widget::before {
+  background:
+    radial-gradient(70% 50% at 0% 0%, hsla(var(--mb-h2, 158), 70%, 50%, 0.08), transparent 60%),
+    radial-gradient(60% 40% at 100% 100%, hsla(var(--mb-h, 272), 70%, 60%, 0.05), transparent 65%),
+    linear-gradient(180deg, rgb(var(--hud-rgb) / 0.04), transparent 70px),
+    repeating-linear-gradient(0deg, rgb(var(--hud-rgb) / 0.02) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, rgb(26 29 34 / 0.93), rgb(17 19 23 / 0.95));
+}
+
+@media (max-width: 550px) {
+  html[data-skin="garden"] .mb-crown { left: -9px; top: -18px; width: 38px; height: 38px; }
+  html[data-skin="garden"] .gd-top { left: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-skin="garden"] .mb-crown { animation: none; }
+}

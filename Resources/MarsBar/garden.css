@@ -1,0 +1,205 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   garden.css — the garden, alive, on BOTH dashboards: all of it put on the
+   page by Resources/MarsBar/garden.js (read its header) — the crown blossoms
+   fold shut and open again, a butterfly visits now and then, and at night, or
+   with every light off, fireflies. MarsBar always (marsbar.nix links it);
+   Asgard in its Tech + Garden skin (theme.js loads it, with garden-hud.css,
+   which puts the vines and crowns on the HUD's frames).
+   Colours are written against two hues, --mb-h (petals) and --mb-h2 (leaves):
+   on MarsBar her picked colours, on Asgard theme.js's choice for the pick.
+   The only fixed ones are gold (the blossoms' hearts, the fireflies). Whatever
+   moves, moves by transform or opacity. Nothing here takes a tap but a
+   resting butterfly. Reduced motion: the crowns stand still (below) and
+   garden.js never makes a butterfly or a firefly.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* The crowns' gradients: one hidden <svg> in <body> that every crown points
+   at. Hidden by size, never display:none — that stops its gradients painting. */
+.mbg-defs { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+/* The crown's glow, breathing (the same as marsbar.css's, so it is here on Asgard too). */
+@keyframes mb-bloom {
+  from { filter: drop-shadow(0 0 4px hsla(calc(var(--mb-h) + 13), 80%, 70%, 0.30)); }
+  to   { filter: drop-shadow(0 0 10px hsla(calc(var(--mb-h) + 28), 85%, 75%, 0.60)); }
+}
+
+html[data-cats] .mb-crown { display: none; }
+.mb-crown {
+  position: absolute;
+  left: 2px; top: 4px;
+  width: 40px; height: 40px;
+  pointer-events: none;
+  transform-origin: 50% 100%;   /* the foot of the stem, where it meets the vine */
+  filter: drop-shadow(0 0 6px hsla(calc(var(--mb-h) + 13), 80%, 70%, 0.45));
+  animation:
+    mb-bloom 6s ease-in-out infinite alternate,
+    mbg-sway var(--gw, 7s) ease-in-out var(--gs, 0s) infinite alternate;
+}
+.mb-crown svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.mb-crown .mbc-st { stroke: hsl(calc(var(--mb-h2) + 2), 38%, 50%); }
+.mb-crown .mbc-vn { stroke: hsl(calc(var(--mb-h2) - 4), 69%, 87%); }
+.mb-crown .mbc-vy { stroke: hsl(calc(var(--mb-h) + 4), 100%, 93%); }
+
+/* Each petal folds toward the heart (its own box's base, which sits on the
+   flower's centre) on the crown's slow cycle (--gd, from --gl), each a beat
+   behind the last (--pd). It turns a little as it rises, so the five furl
+   into a bud instead of just shrinking, and a fine darker edge shows where
+   they overlap; the gold heart draws in under them. */
+.mb-crown .pet,
+.mb-crown .mbc-hrt { transform-box: fill-box; }
+.mb-crown .pet {
+  transform-origin: 50% 100%;
+  stroke: hsl(calc(var(--mb-h) - 6), 45%, 42%);
+  stroke-width: 0.22;
+  stroke-opacity: 0;
+  animation: mbg-fold var(--gd, 24s) ease-in-out calc(var(--gl, 0s) - var(--pd, 0s)) infinite;
+}
+.mb-crown .mbc-hrt {
+  transform-origin: 50% 50%;
+  animation: mbg-heart var(--gd, 24s) ease-in-out var(--gl, 0s) infinite;
+}
+/* Night (20:00–06:00): shut, and staying shut — the same pose as the
+   keyframes' shut one. garden.js eases each petal here from wherever its
+   cycle had it (a transition can't: the cycle and the pose change at once),
+   and in the morning restarts the cycle from shut, so neither end snaps. */
+html[data-mb-night] .mb-crown .pet {
+  animation: none;
+  transform: rotate(36deg) scale(0.58, 0.38);
+  stroke-opacity: 0.8;
+}
+html[data-mb-night] .mb-crown .mbc-hrt {
+  animation: none;
+  transform: scale(0.35);
+  opacity: 0.55;
+}
+
+@keyframes mbg-fold {
+  0%, 52%, 92%, 100% { transform: none; stroke-opacity: 0; }
+  66%, 78% { transform: rotate(36deg) scale(0.58, 0.38); stroke-opacity: 0.8; }
+}
+@keyframes mbg-heart {
+  0%, 52%, 92%, 100% { transform: none; opacity: 1; }
+  66%, 78% { transform: scale(0.35); opacity: 0.55; }
+}
+@keyframes mbg-sway {
+  from { transform: rotate(-4deg); }
+  to   { transform: rotate(4deg); }
+}
+
+/* Butterflies. .mb-sky is a zero-size box at the page's origin: a butterfly
+   is placed in it by transform, in page coordinates, and only crosses the
+   left or top edge — so one can never widen or lengthen the page. */
+.mb-sky {
+  position: absolute;
+  left: 0; top: 0;
+  width: 0; height: 0;
+  overflow: visible;
+  z-index: 6;
+  pointer-events: none;
+}
+.mb-fly {
+  position: absolute;
+  left: 0; top: 0;
+  width: 26px; height: 22px;
+  pointer-events: none;
+  will-change: transform;
+  /* Its shadow on the page: soft and well below it in flight, close and
+     crisp once it has landed. Here, not on the heading, so it always falls
+     the same way whichever way the butterfly faces. */
+  filter: drop-shadow(0 7px 3px hsla(calc(var(--mb-h) - 2), 60%, 3%, 0.32));
+  transition: filter 0.9s ease;
+}
+.mb-fly.rest {
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  filter: drop-shadow(0 1.5px 1.2px hsla(calc(var(--mb-h) - 2), 60%, 3%, 0.6));
+}
+/* A finger-sized target round a resting one — but not reaching right, onto
+   the light switches beside the vine (the rail ends 38px into the card). */
+.mb-fly::after {
+  content: "";
+  position: absolute;
+  inset: -14px -2px -14px -14px;
+}
+.mbf-o, .mbf-b { position: absolute; inset: 0; }
+.mbf-b { animation: mbf-bob 0.32s ease-in-out infinite alternate; }
+.mb-fly.rest .mbf-b { animation: none; }
+.mbf-w, .mbf-t { position: absolute; top: 0; height: 22px; overflow: visible; }
+.mbf-t { left: 0; width: 26px; }
+.mbf-w { width: 13px; animation: mbf-flap 0.16s ease-in-out infinite alternate; }
+.mbf-l { left: 0; transform-origin: 100% 50%; }    /* hinged on the body */
+.mbf-r { left: 13px; transform-origin: 0 50%; }
+.mb-fly.bolt .mbf-w { animation-duration: 0.085s; }
+.mb-fly.rest .mbf-w { animation: mbf-fan var(--fa, 3.4s) ease-in-out infinite; }
+.mb-fly .fw, .mb-fly .hw {
+  stroke: hsl(calc(var(--mb-h) + var(--fh, 0) - 6), 48%, 34%);
+  stroke-width: 0.5;
+  stroke-linejoin: round;
+}
+.mb-fly .sp { fill: hsla(calc(var(--mb-h) + var(--fh, 0)), 100%, 97%, 0.92); }
+.mb-fly .bd { fill: hsl(calc(var(--mb-h) - 10), 30%, 14%); }
+.mb-fly .an {
+  fill: none;
+  stroke: hsl(calc(var(--mb-h) - 10), 30%, 14%);
+  stroke-width: 0.45;
+  stroke-linecap: round;
+}
+@keyframes mbf-flap { to { transform: scaleX(0.18); } }
+/* At rest: open in the sun, now and then a slow half-close and open again. */
+@keyframes mbf-fan {
+  0%, 38%, 100% { transform: none; }
+  58%, 70% { transform: scaleX(0.3); }
+}
+@keyframes mbf-bob {
+  from { transform: translateY(-1.4px); }
+  to   { transform: translateY(1.4px); }
+}
+
+/* Fireflies: warm gold (fixed — fireflies are gold whatever her colour), each
+   drifting on its own slow path and blinking on its own rhythm, dark as long
+   as lit. garden.js fades the layer in and out (.on) and sets display:none
+   once it is out, so nothing runs while they are not wanted. */
+.mb-fireflies {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 2.5s ease;
+}
+.mb-fireflies.on { opacity: 1; }
+.mb-fireflies[hidden] { display: none; }
+.mb-fireflies i {
+  position: absolute;
+  width: calc(4px * var(--fs, 1));
+  height: calc(4px * var(--fs, 1));
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: #fff7b0;
+  box-shadow: 0 0 5px 2px rgba(243, 197, 95, 0.9), 0 0 16px 7px rgba(243, 197, 95, 0.32);
+  opacity: 0;
+  animation:
+    mbff-drift var(--fd, 18s) ease-in-out var(--fdl, 0s) infinite alternate,
+    mbff-glow var(--fg, 3.5s) ease-in-out var(--fgl, 0s) infinite;
+}
+@keyframes mbff-drift {
+  0%   { transform: translate(0, 0); }
+  33%  { transform: translate(var(--x1, 0), var(--y1, 0)); }
+  67%  { transform: translate(var(--x2, 0), var(--y2, 0)); }
+  100% { transform: translate(var(--x3, 0), var(--y3, 0)); }
+}
+@keyframes mbff-glow {
+  0%, 100% { opacity: 0; }
+  28% { opacity: 0.95; }
+  40% { opacity: 0.8; }
+  66% { opacity: 0; }
+}
+
+@media (max-width: 420px) {
+  .mb-crown { left: -1px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mb-crown, .mb-crown *, .gd-vine { animation: none !important; transition: none !important; }
+}
