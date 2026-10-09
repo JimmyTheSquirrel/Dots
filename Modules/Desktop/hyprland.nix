@@ -7,6 +7,114 @@
     # string niri.nix binds; see the media-key note further down.
     playerctlCmd = "playerctl --player=spotify,%any --ignore-player=skwd-music";
 
+    # ── Keybinds ─────────────────────────────────────────────────────────────
+    # One list, two readers: Hyprland itself, and noctalia's
+    # kenn/keybind-cheatsheet plugin (Mod+B), which reads hyprland.conf for
+    # `# N. Category` headings and a `#"Title"` after each bind — hyprlang drops
+    # both as comments. settings.bind can't carry comments, so the list is
+    # rendered into extraConfig instead (appended after $terminal/$fileManager,
+    # which it uses). Categories and titles match rock's niri cheatsheet
+    # (keybindCategories / mkKeybinds in niri.nix), so both machines' Mod+B
+    # panels read the same.
+    #
+    # The keymap deliberately mirrors rock's niri layout so the two machines
+    # feel the same, trimmed to what she uses: workspaces 1-5 (not 1-10), no
+    # named discord/spotify/blank workspaces, no pseudo-tile. Niri-only entries
+    # have no Hyprland equivalent and are simply absent: Overview (Mod+A),
+    # Cycle Width / Reset Height (niri's column model), Hotkey Overlay
+    # (Mod+Shift+Slash). Mod+S is focusmonitor, not a screenshot — Hyprland
+    # silently keeps only ONE bind per key combination.
+    keybindCategories = [
+      "Applications"
+      "Window Management"
+      "Workspace - Navigation"
+      "Workspace - Movement"
+      "Screenshots"
+      "Media"
+    ];
+    # { type ? "bind", mods, key, action, title, category }
+    keybinds = let
+      k = category: mods: key: action: title: { inherit category mods key action title; };
+      app = k "Applications";
+      win = k "Window Management";
+      nav = k "Workspace - Navigation";
+      mov = k "Workspace - Movement";
+      shot = k "Screenshots";
+      media = type: key: action: title: (k "Media" "" key action title) // { inherit type; };
+      shift = "${mainMod} SHIFT";
+    in [
+      (app mainMod "RETURN" "exec, $terminal" "Terminal")
+      (app mainMod "E" "exec, $fileManager" "Files")
+      (app mainMod "F" "exec, brave" "Browser")
+      (app mainMod "D" "exec, noctalia msg panel-toggle launcher" "Launcher")
+      (app mainMod "W" "exec, ${config.my.hyprland.wallpaperCommand}" "Wallpaper")
+      (app mainMod "B" "exec, noctalia msg panel-toggle kenn/keybind-cheatsheet:cheatsheet" "Keybind Cheatsheet")
+      (app mainMod "M" "exec, noctalia msg desktop-widgets-edit" "Edit Widgets")
+      (app shift "B" "exec, noctalia msg bar-toggle" "Toggle Bar")
+      (app shift "DELETE" "exec, noctalia msg panel-toggle session" "Power Menu")
+
+      (win mainMod "Q" "killactive," "Close Window")
+      (win mainMod "V" "togglefloating," "Toggle Float")
+      (win mainMod "J" "layoutmsg, togglesplit" "Toggle Split")
+      (win shift "F" "fullscreen" "Fullscreen")
+      ((win mainMod "mouse:272" "movewindow" "Drag to Move") // { type = "bindm"; })
+      ((win mainMod "mouse:273" "resizewindow" "Drag to Resize") // { type = "bindm"; })
+
+      # With workspaces unpinned, Mod+S is how she picks a screen; 1-5 then act
+      # on whichever has focus (see `workspace = [ ]` below).
+      (nav mainMod "S" "focusmonitor, +1" "Next Screen")
+      (nav mainMod "left" "movefocus, l" "Focus Left")
+      (nav mainMod "right" "movefocus, r" "Focus Right")
+      (nav mainMod "up" "movefocus, u" "Focus Up")
+      (nav mainMod "down" "movefocus, d" "Focus Down")
+    ] ++ map (n: nav mainMod n "workspace, ${n}" "Workspace ${n}") [ "1" "2" "3" "4" "5" ] ++ [
+      (nav mainMod "mouse_down" "workspace, e+1" "Next Workspace")
+      (nav mainMod "mouse_up" "workspace, e-1" "Previous Workspace")
+
+      (mov shift "left" "movewindow, l" "Move Window Left")
+      (mov shift "right" "movewindow, r" "Move Window Right")
+      (mov shift "up" "movewindow, u" "Move Window Up")
+      (mov shift "down" "movewindow, d" "Move Window Down")
+    ] ++ map (n: mov shift n "movetoworkspace, ${n}" "Move to Workspace ${n}") [ "1" "2" "3" "4" "5" ] ++ [
+
+      # grim's geometry is `X,Y WxH` — a SPACE between position and size, the
+      # shape slurp prints. (It once emitted `X,Y+WxH`, which grim rejects.)
+      # One hyprctl call rather than four, so the window can't move between reads.
+      (shot shift "S" ''exec, grim -g "$(slurp)" - | wl-copy'' "Screenshot Region")
+      (shot mainMod "Print" "exec, grim - | wl-copy" "Screenshot Screen")
+      (shot "${mainMod} CTRL" "S"
+        ''exec, grim -g "$(hyprctl activewindow -j | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')" - | wl-copy''
+        "Screenshot Window")
+
+      # No XF86MonBrightness binds: brightnessctl is not installed, and both of
+      # her panels are external monitors with no backlight to drive.
+      (media "bindel" "XF86AudioRaiseVolume" "exec, wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+" "Volume Up")
+      (media "bindel" "XF86AudioLowerVolume" "exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-" "Volume Down")
+      (media "bindel" "XF86AudioMute" "exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle" "Mute")
+      (media "bindel" "XF86AudioMicMute" "exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle" "Mute Mic")
+      # Same player selection as niri's media keys: bare `playerctl` can pick
+      # skwd-daemon's inert skwd-music MPRIS player, which accepts every
+      # command and does nothing, so the keys silently go nowhere.
+      (media "bindl" "XF86AudioNext" "exec, ${playerctlCmd} next" "Next Track")
+      (media "bindl" "XF86AudioPrev" "exec, ${playerctlCmd} previous" "Prev Track")
+      (media "bindl" "XF86AudioPlay" "exec, ${playerctlCmd} play-pause" "Play / Pause")
+      (media "bindl" "XF86AudioPause" "exec, ${playerctlCmd} play-pause" "Play / Pause")
+    ];
+    # A literal `#` in hyprlang is `##` — escaped so a command can never be cut
+    # short by its own comment. Category order is keybindCategories'.
+    keybindsConf = let
+      renderBind = b:
+        "${b.type or "bind"} = ${b.mods}, ${b.key}, ${lib.replaceStrings [ "#" ] [ "##" ] b.action} #\"${b.title}\"";
+      renderCategory = i: category:
+        "# ${toString (i + 1)}. ${category}\n"
+        + lib.concatMapStringsSep "\n" renderBind (builtins.filter (b: b.category == category) keybinds);
+    in ''
+      # ── Keybinds ── generated from `keybinds` in Modules/Desktop/hyprland.nix.
+      # Hyprland reads them; so does the Mod+B cheatsheet (the headings and titles).
+
+      ${lib.concatStringsSep "\n\n" (lib.imap0 renderCategory keybindCategories)}
+    '';
+
     # Shorthand so the opacity rules below stay readable.
     o = {
       light = config.my.hyprland.opacityLight;
@@ -136,10 +244,13 @@
         #   hyprland.lua:5: <name> expected near '$'
         #
         # The retired Odysseus host never hit this only because it was on
-        # stateVersion 25.05. Kit-Kat is a fresh 26.05 install and hit it
+        # stateVersion 25.05. Elektra is a fresh 26.05 install and hit it
         # immediately. Pinning here keeps the
         # module self-consistent regardless of a host's stateVersion.
         configType = "hyprlang";
+
+        # The binds, titled and grouped for the Mod+B cheatsheet (see `keybinds`).
+        extraConfig = keybindsConf;
 
         settings = {
           # Host's own rules first, then an unconditional catch-all so an unlisted
@@ -235,7 +346,7 @@
           # Both of these were read off the live machine with `hyprctl getoption`
           # before being set, and both default the *slow* way on this hardware.
           #
-          # Hyprland is Kit-Kat-only (Odysseus is gone), so these sit here
+          # Hyprland is Elektra-only (Odysseus is gone), so these sit here
           # unconditionally rather than behind a `my.hyprland.*` option. If this
           # file ever gains a second, non-NVIDIA host, gate them then.
 
@@ -270,95 +381,8 @@
             touchpad = { natural_scroll = false; };
           };
 
-          # Keybinds
-          # Keymap, deliberately mirroring rock's niri layout so the two machines
-          # feel the same. Trimmed to what she actually uses: workspaces 1-5 (not
-          # 1-10), no named discord/spotify/blank workspaces, no pseudo-tile.
-          #
-          # Niri-only entries from that map have no Hyprland equivalent and are
-          # simply absent: Overview (Mod+A), Cycle Width / Reset Height (niri's
-          # column model), Hotkey Overlay (Mod+Shift+Slash), Rain Effect (retired).
-          #
-          # Screenshots come from Modules/Desktop/screenshot.nix (Mod+Shift+S region,
-          # Mod+Print fullscreen, Mod+Ctrl+S active window). Mod+S is focusmonitor
-          # below, not a screenshot.
-          bind = [
-            # ── Applications ──────────────────────────────────────────────────
-            "${mainMod}, RETURN, exec, $terminal"
-            "${mainMod}, E, exec, $fileManager"
-            "${mainMod}, F, exec, brave"
-            "${mainMod}, D, exec, noctalia msg panel-toggle launcher"
-            "${mainMod}, W, exec, ${config.my.hyprland.wallpaperCommand}"
-            "${mainMod}, B, exec, noctalia msg panel-toggle kenn/keybind-cheatsheet:cheatsheet"
-            "${mainMod}, M, exec, noctalia msg desktop-widgets-edit"
-            "${mainMod} SHIFT, DELETE, exec, noctalia msg panel-toggle session"
-
-            # ── Window management ─────────────────────────────────────────────
-            "${mainMod}, Q, killactive,"
-            "${mainMod}, V, togglefloating,"
-            "${mainMod} SHIFT, F, fullscreen"
-            "${mainMod}, J, layoutmsg, togglesplit"
-
-            # Move focus to the other screen. With workspaces unpinned this is how
-            # she picks a monitor, then 1-5 act on whichever has focus.
-            "${mainMod}, S, focusmonitor, +1"
-            "${mainMod} SHIFT, B, exec, noctalia msg bar-toggle"
-
-            # ── Focus ─────────────────────────────────────────────────────────
-            "${mainMod}, left, movefocus, l"
-            "${mainMod}, right, movefocus, r"
-            "${mainMod}, up, movefocus, u"
-            "${mainMod}, down, movefocus, d"
-
-            # ── Move the focused window ───────────────────────────────────────
-            "${mainMod} SHIFT, left, movewindow, l"
-            "${mainMod} SHIFT, right, movewindow, r"
-            "${mainMod} SHIFT, up, movewindow, u"
-            "${mainMod} SHIFT, down, movewindow, d"
-
-            # ── Workspaces ────────────────────────────────────────────────────
-            # 1-5 only, and unpinned — they act on whichever screen has focus
-            # (see `workspace = [ ]` below).
-            "${mainMod}, 1, workspace, 1"
-            "${mainMod}, 2, workspace, 2"
-            "${mainMod}, 3, workspace, 3"
-            "${mainMod}, 4, workspace, 4"
-            "${mainMod}, 5, workspace, 5"
-            "${mainMod} SHIFT, 1, movetoworkspace, 1"
-            "${mainMod} SHIFT, 2, movetoworkspace, 2"
-            "${mainMod} SHIFT, 3, movetoworkspace, 3"
-            "${mainMod} SHIFT, 4, movetoworkspace, 4"
-            "${mainMod} SHIFT, 5, movetoworkspace, 5"
-
-            # Scroll the mouse wheel over the bar/desktop to change workspace.
-            "${mainMod}, mouse_down, workspace, e+1"
-            "${mainMod}, mouse_up, workspace, e-1"
-          ];
-
-          bindm = [
-            "${mainMod}, mouse:272, movewindow"
-            "${mainMod}, mouse:273, resizewindow"
-          ];
-
-          bindel = [
-            ",XF86AudioRaiseVolume, exec, wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
-            ",XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
-            ",XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
-            ",XF86AudioMicMute, exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
-            # No XF86MonBrightness binds: brightnessctl is not installed, and both
-            # of her panels are external monitors with no backlight to drive.
-          ];
-
-          # Same player selection as niri's media keys (playerctlCmd in
-          # Modules/Desktop/niri.nix): bare `playerctl` can pick skwd-daemon's
-          # inert skwd-music MPRIS player, which accepts every command and does
-          # nothing, so the keys silently go nowhere.
-          bindl = [
-            ", XF86AudioNext, exec, ${playerctlCmd} next"
-            ", XF86AudioPause, exec, ${playerctlCmd} play-pause"
-            ", XF86AudioPlay, exec, ${playerctlCmd} play-pause"
-            ", XF86AudioPrev, exec, ${playerctlCmd} previous"
-          ];
+          # Keybinds: rendered into extraConfig from `keybinds` (top of this
+          # file), so they can carry the cheatsheet's titles and categories.
 
           # Workspaces are NOT pinned to monitors and NOT persistent.
           #
@@ -436,6 +460,19 @@
             "noctalia"
           ];
         };
+      };
+
+      # The cheatsheet plugin caches what it parsed, and hyprland.conf is a store
+      # symlink (every store file's mtime is 1970), so it can't tell the binds
+      # changed — drop the cache and it re-reads them. Same as niri.nix's
+      # niriCheatsheet. (`after = [ "writeBoundary" ]` is lib.hm.dag.entryAfter's
+      # raw form; it keeps `--dry-run` read-only.)
+      home.activation.hyprCheatsheet = {
+        after = [ "writeBoundary" ];
+        before = [ ];
+        data = ''
+          rm -f "$HOME/.local/state/noctalia/plugins/data/kenn/keybind-cheatsheet/bindings-cache.json"
+        '';
       };
     };
   };
