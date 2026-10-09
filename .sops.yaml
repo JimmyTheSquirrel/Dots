@@ -5,12 +5,12 @@ keys:
   # Apollo USB backup key (/run/media/rock/Apollo/keys/age-keys.txt)
   - &apollo age1e7gwwejhck67d36zjak3l0k5jpwlj23eluma9jaku0ae48eypveq9z3qyj
 
-  # Kit-Kat's machine. Derived from its ssh host key with `ssh-to-age`, not a
+  # Elektra, her machine. Derived from its ssh host key with `ssh-to-age`, not a
   # hand-copied age key, so Modules/Core/sops.nix's `sops-kitkat` can decrypt on the
   # very first activation after nixos-anywhere --extra-files plants that host key.
   #
   # Generated 2026-10-02 from her ssh host key, which lives OUTSIDE this repo at
-  #   ~/.local/share/apollo/Kit-Kat/etc/ssh/ssh_host_ed25519_key
+  #   ~/.local/share/apollo/Elektra/etc/ssh/ssh_host_ed25519_key
   # and is planted during the install by nixos-anywhere --extra-files, so sops can
   # decrypt on her very first activation. Derive with: ssh-to-age -i <that>.pub
   - &kitkat age185mqahaq2pac7szxvzkmlg5mdv4lcjgvtjkwu2ly24cc3mva3pssh4yuw2

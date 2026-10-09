@@ -19,9 +19,9 @@
 # (rebuild/hosts.py, rebuild/jobs.py): a change to either belongs in both.
 #
 # WHERE IT RUNS DECIDES WHAT "LOCAL" MEANS. The machine is matched by hostname
-# (DOTS_HOST overrides it). On Sisyphus, `system-rebuild kitkat Kit-Kat` pushes
-# to her machine over the tailnet; on Kit-Kat itself the very same command
-# rebuilds Kit-Kat in place. No flag to remember, no "can't reach kit-kat"
+# (DOTS_HOST overrides it). On Sisyphus, `system-rebuild kitkat Elektra` pushes
+# to her machine over the tailnet; on Elektra itself the very same command
+# rebuilds Elektra in place. No flag to remember, no "can't reach elektra"
 # when you're sitting at it.
 #
 # Every rebuild — menu or CLI, local or remote — is the same three steps:
@@ -36,7 +36,7 @@
 # closure to a remote host.
 #
 # The flake is ~/Dots (DOTS_DIR overrides it). A machine with no checkout —
-# Kit-Kat, usually — builds github:JimmyTheSquirrel/Dots (main) instead, and
+# Elektra, usually — builds github:JimmyTheSquirrel/Dots (main) instead, and
 # the jobs that need a working tree (git sync, update inputs) step aside.
 #
 # The UI is inline: it draws in the normal scrollback and never takes over the
@@ -54,7 +54,7 @@
 # prints.
 
 # ── Machines ──────────────────────────────────────────────────────────────────
-HOSTS=(Sisyphus Kit-Kat Asgard Apollo)
+HOSTS=(Sisyphus Elektra Asgard Apollo)
 
 # host_info NAME — sets, for that machine:
 #   H_USER     flake user (the attr is H_USER-NAME) and its ssh login
@@ -67,7 +67,7 @@ HOSTS=(Sisyphus Kit-Kat Asgard Apollo)
 host_info() {
   case "$1" in
     Sisyphus) H_USER=rock   H_SSH=sisyphus H_PROFILE=sisyphus H_MODE=push    H_ROLE="rock's desktop" H_ICON=$'' ;;
-    Kit-Kat)  H_USER=kitkat H_SSH=kit-kat  H_PROFILE=system   H_MODE=push    H_ROLE="her machine"    H_ICON=$'' ;;
+    Elektra)  H_USER=kitkat H_SSH=elektra  H_PROFILE=system   H_MODE=push    H_ROLE="her machine"    H_ICON=$'' ;;
     Asgard)   H_USER=rock   H_SSH=asgard   H_PROFILE=system   H_MODE=push    H_ROLE="media server"   H_ICON=$'' ;;
     Apollo)   H_USER=rock   H_SSH=-        H_PROFILE=-        H_MODE=stick   H_ROLE="deployer USB"   H_ICON=$'' ;;
     *) return 1 ;;
@@ -740,7 +740,7 @@ help_rebuild() {
   hp_item "Switch" "Build, show the changes, and switch to the new system now. Services restart as needed; no reboot."
   hp_item "Boot" "Build and show the changes, but only make it the system the NEXT boot starts. For kernel, driver or boot changes, or when you don't want things restarting under you. Sisyphus has its own boot entry: reboot and pick Sisyphus under GRUB's System Select."
   hp_item "Build" "Build and show the changes, activate nothing. ./result points at the new system. The safe way to see what an edit does."
-  hp_item "Other host" "Build another machine's config here and diff it against what that machine runs. Deploys nothing — a quick check that a change to Kit-Kat or Asgard builds."
+  hp_item "Other host" "Build another machine's config here and diff it against what that machine runs. Deploys nothing — a quick check that a change to Elektra or Asgard builds."
   hp_head "Going back"
   hp_text "Each Switch or Boot adds a generation, and the boot menu lists them: to undo a bad rebuild, reboot and pick the one before. Garbage collect deletes the old ones."
   hp_note "No ~/Dots on this machine? It builds GitHub's main instead, and Utilities offers to clone the repo."
@@ -766,7 +766,7 @@ help_utils() {
   hp_item "Update inputs" "nix flake update: fetch the newest nixpkgs, home-manager and every other input, then list what moved (old → new, and how old each was). flake.lock changes but isn't committed. Then it offers to Switch, Build only (to see the diff), or leave it for later."
   hp_item "Garbage collect" "Delete every old generation, then everything in the Nix store only they used; hard-link duplicate files; on Sisyphus also prune stopped Docker containers. Frees disk space, but you can't roll back past the current generation afterwards — it asks first."
   hp_item "Check hosts" "Evaluate all four machines' configs without building anything. A fast \"did my edit break something\" check; a failure shows its error."
-  hp_item "Get the repo" "Only on a machine without ~/Dots (Kit-Kat, usually): clone it, so Git sync and Update inputs work there. Until then, rebuilds use GitHub's main."
+  hp_item "Get the repo" "Only on a machine without ~/Dots (Elektra, usually): clone it, so Git sync and Update inputs work there. Until then, rebuilds use GitHub's main."
   hp_note "A weekly automatic garbage collect runs anyway; this one is \"do it now, and delete every old generation\"."
   hp_show "Utilities"
 }
@@ -796,7 +796,7 @@ help_machines() {
     esac
     hp_item "$H_ICON  $h" "$H_ROLE$([[ "$h" == "$THIS_HOST" ]] && echo " — this machine"). $mode$([[ "$H_PROFILE" != system && "$H_PROFILE" != - ]] && echo " Keeps its own boot entry ($H_PROFILE) under GRUB's System Select.")"
   done
-  hp_note "\"This machine\" is whichever one system-rebuild runs on: the same menu on Kit-Kat rebuilds Kit-Kat in place."
+  hp_note "\"This machine\" is whichever one system-rebuild runs on: the same menu on Elektra rebuilds Elektra in place."
   hp_show "The machines"
 }
 
@@ -808,13 +808,13 @@ help_cli() {
   hp_cmd "system-rebuild rock Sisyphus" "switch Sisyphus — in place on Sisyphus, pushed from anywhere else"
   hp_cmd "system-rebuild rock Sisyphus --boot" "the same, for the next boot instead"
   hp_cmd "system-rebuild rock Sisyphus --build" "build and show the changes only"
-  hp_cmd "system-rebuild kitkat Kit-Kat" "push to Kit-Kat (on Kit-Kat: rebuild in place)"
+  hp_cmd "system-rebuild kitkat Elektra" "push to Elektra (on Elektra: rebuild in place)"
   hp_cmd "system-rebuild rock Asgard" "push to Asgard (every machine is deployed from here now)"
   hp_cmd "git-sync [\"message\"]" "commit, pull --rebase, push"
   hp_cmd "nix-gc" "garbage collect now"
   if has_apollo; then
     hp_cmd "apollo-iso · apollo-key · apollo-connect" "build the stick's image · its tailnet key · SSH to it"
-    hp_cmd "apollo-deploy [--dry-run|--vm-test] kitkat-Kit-Kat" "install a machine onto the computer booted from the stick"
+    hp_cmd "apollo-deploy [--dry-run|--vm-test] kitkat-Elektra" "install a machine onto the computer booted from the stick"
   fi
   hp_show "Command line"
 }

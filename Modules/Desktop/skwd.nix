@@ -13,8 +13,8 @@
 # derivations then stop matching the store paths upstream publishes in
 # channel.json and every build becomes a local rebuild instead of a cache hit.
 #
-# Serves Sisyphus (niri) and Kit-Kat (Hyprland). v1 (QuickShell,
-# Modules/skwd-wall.nix) is gone along with the Elektra and Odysseus hosts it
+# Serves Sisyphus (niri) and Elektra (Hyprland). v1 (QuickShell,
+# Modules/skwd-wall.nix) is gone along with the old KDE Elektra profile and Odysseus, the hosts it
 # served; v2 keeps its own ~/.config/skwd-wall-v2 and ~/.cache/skwd-wall-v2, so
 # nothing of v1's lingering state is read.
 # ============================================================================
@@ -50,7 +50,7 @@
 
     # Steam: same shape as the spicetify pair. The integration renders a
     # Millennium Quick CSS, so it only means anything where Millennium is
-    # injected (my.steam.millennium, Modules/Gaming/steam.nix). Kit-Kat runs
+    # injected (my.steam.millennium, Modules/Gaming/steam.nix). Elektra runs
     # plain Steam, where it was rendering into a quick.css nothing loads; it is
     # deleted there rather than skipped, for the same reason as above.
     #
@@ -80,11 +80,11 @@
     # Modules/Desktop/niri.nix and is what keeps the surface in the
     # overview instead of on top of the desktop.
     #
-    # Everywhere else (Kit-Kat's Hyprland) it is forced OFF. There is no niri
+    # Everywhere else (Elektra's Hyprland) it is forced OFF. There is no niri
     # overview to put it in and no `place-within-backdrop` rule to keep it
     # there, so a backdrop surface would only be a second background layer
     # painted over the real wallpaper — and this module used to force it ON for
-    # every host, so Kit-Kat's config.json still says true until this runs.
+    # every host, so Elektra's config.json still says true until this runs.
     niriBackdrop =
       if config.programs.niri.enable then ''
           | .niri.overviewBackdrop = true
@@ -331,7 +331,7 @@
         # install gets a sane, tuned starting point while anything dialled in
         # through the settings UI afterwards survives every rebuild. (This used
         # to say theme.* was not seeded at all. The cost of that showed up on
-        # Kit-Kat's first install: with no `theme.engine` the daemon fell back to
+        # Elektra's first install: with no `theme.engine` the daemon fell back to
         # the skwd-iris backend instead of pywal, so her colours were derived
         # differently from Sisyphus's for no reason anyone had chosen.)
         #

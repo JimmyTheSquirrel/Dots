@@ -5,7 +5,7 @@
   # home-assistant.nix, marsbar.nix and _lib.nix defines that same module, and the
   # definitions merge. Layout and shared pieces: see default.nix.
 
-  flake.nixosModules.server = { config, pkgs, lib, ... }:
+  flake.nixosModules.server = { config, pkgs, pkgs-unstable, inputs, lib, ... }:
   let
     inherit (import ./_lib.nix { inherit pkgs; }) waitForHttp;
   in
@@ -20,8 +20,20 @@
 # nothing to click on first visit.
 # ══════════════════════════════════════════════════════════════════════════════
 
+    # Immich 3, from nixos-unstable — the module AND the package, the pair
+    # nixpkgs tests together. 26.05 still ships 2.7.5, which nixpkgs marked
+    # insecure in Oct 2026 (CVE-2026-59258, CVE-2026-82272; 2.x gets no more
+    # fixes) and now refuses to build — and this one is open to the internet.
+    # 3.x lands in NixOS 26.11: on that release, delete these three lines.
+    # (rock, 2026-10-09: "update all my hosts … so they dont have any
+    # security things".) The first start on 3.x migrates the database one
+    # way — immich-dump-before-upgrade, below, dumps it first.
+    disabledModules = [ "services/web-apps/immich.nix" ];
+    imports = [ "${inputs.nixpkgs-unstable}/nixos/modules/services/web-apps/immich.nix" ];
+
     services.immich = {
       enable = true;
+      package = pkgs-unstable.immich;
       mediaLocation = "/data/photos";
       host = "0.0.0.0";
       openFirewall = false;
@@ -35,6 +47,26 @@
           mkdir -p /data/photos/$dir
           touch /data/photos/$dir/.immich
         done
+      '')
+      # A safety net for upgrades: the first start of a NEW Immich version
+      # migrates its database one way (2.x → 3.x did, 2026-10), and rolling back
+      # the NixOS generation doesn't roll the database back. So before the first
+      # start on each version it dumps the database beside Immich's own nightly
+      # dumps — backups/before-immich-<version>-<when>.sql.gz — and won't start
+      # if that fails. A plain restart on the same version does nothing. (It runs
+      # as immich, which owns the database: peer auth on /run/postgresql; gzip and
+      # pg_dump are on the unit's path, the same ones Immich's backup job uses.)
+      (pkgs.writeShellScript "immich-dump-before-upgrade" ''
+        set -euo pipefail
+        want=${config.services.immich.package.version}
+        seen=/var/lib/immich/dumped-for
+        [ "$(cat "$seen" 2>/dev/null || true)" = "$want" ] && exit 0
+        rm -f /data/photos/backups/before-immich-*.part      # a failed earlier attempt
+        out=/data/photos/backups/before-immich-$want-$(date +%Y%m%d-%H%M%S).sql.gz
+        echo "Immich $want: dumping the database to $out before its first start"
+        pg_dump --clean --if-exists ${config.services.immich.database.name} | gzip > "$out.part"
+        mv "$out.part" "$out"
+        echo "$want" > "$seen"
       '')
     ];
 

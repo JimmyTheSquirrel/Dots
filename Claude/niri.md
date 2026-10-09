@@ -104,7 +104,7 @@ rather than your session — a config typo can't lock you out.
 
 **Niri binary:** `packages.wrappedNiri` is the wrapper-modules package used as-is. It already carries `passthru.providedSessions = [ "niri" ]` (copied from `pkgs.niri`), which is what the SDDM session entry needs. There used to be a `niri-with-delay` `symlinkJoin` around it whose `bin/niri` just `exec`'d the wrapped binary — a leftover from an old `sleep 2`, which was removed because it applied to `niri msg` too, causing every IPC call and all app launches from Noctalia to take 2 seconds. The wrapper was deleted 2026-10-03.
 
-**What is NOT in niri.nix (since 2026-10-03):** the X server + keymap (SDDM's greeter needs X), `XCURSOR_*` / `NIXOS_OZONE_WL`, Bluetooth and `hardware.graphics` live in `Modules/Desktop/desktop.nix`, shared with Kit-Kat's Hyprland; SDDM itself is `Modules/Boot/sddm.nix`; `videoDrivers = [ "amdgpu" ]` is in `Hosts/Sisyphus/_hardware.nix`; the codium MIME defaults belong to `Modules/Apps/vscodium.nix`. Apollo imports niri.nix but none of those, which is the point — the ISO no longer inherits a desktop's worth of settings through the compositor module.
+**What is NOT in niri.nix (since 2026-10-03):** the X server + keymap (SDDM's greeter needs X), `XCURSOR_*` / `NIXOS_OZONE_WL`, Bluetooth and `hardware.graphics` live in `Modules/Desktop/desktop.nix`, shared with Elektra's Hyprland; SDDM itself is `Modules/Boot/sddm.nix`; `videoDrivers = [ "amdgpu" ]` is in `Hosts/Sisyphus/_hardware.nix`; the codium MIME defaults belong to `Modules/Apps/vscodium.nix`. Apollo imports niri.nix but none of those, which is the point — the ISO no longer inherits a desktop's worth of settings through the compositor module.
 
 **Portals:** nothing is configured here. `programs.niri` writes `/etc/xdg/xdg-desktop-portal/niri-portals.conf` (gnome, then gtk; gnome-keyring for Secret) and pulls in both portals. A `xdg.portal.config.common` block used to sit in niri.nix and was dead — under `XDG_CURRENT_DESKTOP=niri` the portal reads `niri-portals.conf` and never falls back to `portals.conf`. `programs.niri.useNautilus = false`: Thunar is the file manager, so the file chooser is the gtk portal's and Nautilus is no longer in the closure just to back one dialog.
 
@@ -459,7 +459,7 @@ Steam has niri spawn issue (niri issue #2463 — apps launched via `niri msg act
 
 ## Bluetooth (for RPCS3 / controller)
 
-Configured in `Modules/Desktop/desktop.nix` (shared with Kit-Kat's Hyprland; it used to sit in `niri.nix`):
+Configured in `Modules/Desktop/desktop.nix` (shared with Elektra's Hyprland; it used to sit in `niri.nix`):
 - `hardware.bluetooth.powerOnBoot = true`
 - `hardware.bluetooth.settings.Policy.AutoEnable = "true"`
 - `services.blueman.enable = true`

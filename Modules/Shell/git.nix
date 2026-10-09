@@ -15,7 +15,7 @@ let
     };
     kitkat = {
       name = "Kit Kat";
-      email = "kitkat@kit-kat.local";
+      email = "kitkat@elektra.local";
     };
   };
 in {

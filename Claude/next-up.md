@@ -484,12 +484,12 @@ desktop's **appearance**, and anything living in a vendor console, that is not.
 
 ---
 
-## Opened 2026-10-02 — Apollo USB + Kit-Kat's machine
+## Opened 2026-10-02 — Apollo USB + Elektra's machine
 
-See `Claude/deploy.md` and `Claude/kit-kat.md`. Phases 1-3 of the plan are built and
+See `Claude/deploy.md` and `Claude/elektra.md`. Phases 1-3 of the plan are built and
 verified; what follows is what is genuinely still open.
 
-### Blocking the first install of Kit-Kat
+### Blocking the first install of Elektra
 
 1. **Tailnet policy, in the admin console** (not in this repo): create
    `tag:installer`, grant yourself ownership, add a grant so your devices can reach a
@@ -503,17 +503,17 @@ verified; what follows is what is genuinely still open.
    ```
    `apollo-key` reads exactly that key. Max validity is 90 days; rotating means
    re-running `apollo-key`, not rebuilding the ISO.
-3. **Confirm `installDisk`** in `Hosts/Kit-Kat/system.nix` (currently `/dev/nvme0n1`).
+3. **Confirm `installDisk`** in `Hosts/Elektra/system.nix` (currently `/dev/nvme0n1`).
    Everything on that device is destroyed. `apollo-connect` then
    `lsblk -o NAME,SIZE,MODEL`.
 4. ~~Her `&kitkat` age key~~ ✅ **DONE 2026-10-02.** Host key at
-   `~/.local/share/apollo/Kit-Kat/`, recipient in `.sops.yaml`, `kit-kat.yaml`
+   `~/.local/share/apollo/Elektra/`, recipient in `.sops.yaml`, `kit-kat.yaml`
    re-encrypted, and `apollo-deploy` plants it automatically.
 5. **Swap is a guess.** 16 G with `resumeDevice = true` (hibernate intent), chosen
    without knowing her RAM. Revisit alongside `installDisk` once `facter.json`
    reports it. Note this also puts the layout over disko's hardcoded 4 GiB VM-test
    disk, so use `apollo-deploy --dry-run`, not `--vm-test`, to check it.
-5. **`Hosts/Kit-Kat/facter.json` does not exist.** The host evaluates and builds
+5. **`Hosts/Elektra/facter.json` does not exist.** The host evaluates and builds
    without it and emits a warning, but it must not be switched onto real hardware until
    `apollo-deploy` has generated it and you have committed it.
 6. **Her initial password** is in `Secrets/kit-kat.yaml`. It is declarative, so `passwd`
@@ -563,9 +563,9 @@ verified; what follows is what is genuinely still open.
     the better pattern — `sops.age.sshKeyPaths` against the host's own ssh key. rock's
     hosts have not been migrated.
 
-## Opened 2026-10-04 — Kit-Kat: Bluetooth + GPU noise, and what they exposed
+## Opened 2026-10-04 — Elektra: Bluetooth + GPU noise, and what they exposed
 
-Both faults are **closed** — see `Claude/kit-kat.md` → Bluetooth and "Her graphics card is
+Both faults are **closed** — see `Claude/elektra.md` → Bluetooth and "Her graphics card is
 taking off", and `Claude/misc.md` → Audio. These are the gaps they uncovered.
 
 1. ⚠️ **Her tailnet join is imperative, and it caused the whole episode.**
@@ -590,7 +590,7 @@ taking off", and `Claude/misc.md` → Audio. These are the gaps they uncovered.
    "her GPU is taking off" report could not be answered with a temperature reading;
    everything had to come from `nvidia-smi` plus raw `/sys/class/hwmon` reads. Worth adding
    to the desktop module. Note her board exposes **no fan-RPM inputs at all**, so CPU fan
-   speed is unmeasurable on Kit-Kat even with it installed.
+   speed is unmeasurable on Elektra even with it installed.
 5. **Only DXVK titles are frame-capped globally; native Vulkan relies on MangoHud.** Her
    host now sets both (`programs.mangohud` with `fps_limit = 60`, plus
    `DXVK_FRAME_RATE=60` for D3D titles). Sisyphus has neither — it is AMD, where

@@ -69,7 +69,7 @@ REBUILD = [
     ("item", "Build", "Build and show the changes, activate nothing. ./result points at the new system. The safe "
              "way to see what an edit does."),
     ("item", "Other host", "Build another machine's config here and diff it against what that machine runs. "
-             "Deploys nothing — a quick check that a change to Kit-Kat or Asgard builds."),
+             "Deploys nothing — a quick check that a change to Elektra or Asgard builds."),
     ("head", "Going back"),
     ("text", "Each Switch or Boot adds a generation, and the boot menu lists them: to undo a bad rebuild, reboot "
              "and pick the one before. Garbage collect deletes the old ones."),
@@ -107,7 +107,7 @@ UTILS = [
              "you can't roll back past the current generation afterwards — it asks first."),
     ("item", "Check hosts", "Evaluate all four machines' configs at once, building nothing. A fast \"did my "
              "edit break something\" check; a failure shows its error."),
-    ("item", "Get the repo", "Only on a machine without ~/Dots (Kit-Kat, usually): clone it, so Git sync and "
+    ("item", "Get the repo", "Only on a machine without ~/Dots (Elektra, usually): clone it, so Git sync and "
              "Update inputs work there. Until then, rebuilds use GitHub's main."),
     ("item", "History", "Every job this app has run, by day: what, which machine, how it went, how long it "
              "took — and each machine's rebuild times as a sparkline. Kept in "
@@ -144,8 +144,8 @@ def _machines():
                 "A USB stick: its image is built (Apollo › Build ISO), never switched to.")
         extra = "" if h.profile in ("system", "") else f" Its own profile ({h.profile}): its own entry under GRUB's System Select."
         out.append(("item", f"{h.icon}  {h.name}", f"{h.role} · {h.key}. {mode}{extra}"))
-    out.append(("note", "\"This machine\" is whichever one system-rebuild runs on: the same menu on Kit-Kat "
-                        "rebuilds Kit-Kat in place."))
+    out.append(("note", "\"This machine\" is whichever one system-rebuild runs on: the same menu on Elektra "
+                        "rebuilds Elektra in place."))
     return out
 
 
@@ -156,12 +156,12 @@ CLI = [
     ("cmd", "system-rebuild rock Sisyphus", "switch Sisyphus — in place on Sisyphus, pushed from anywhere else"),
     ("cmd", "system-rebuild rock Sisyphus --boot", "the same, for the next boot instead"),
     ("cmd", "system-rebuild rock Sisyphus --build", "build and show the changes only"),
-    ("cmd", "system-rebuild kitkat Kit-Kat", "push to Kit-Kat (on Kit-Kat: rebuild in place)"),
+    ("cmd", "system-rebuild kitkat Elektra", "push to Elektra (on Elektra: rebuild in place)"),
     ("cmd", "system-rebuild rock Asgard", "push to Asgard (every machine is deployed from here now)"),
     ("cmd", 'git-sync ["message"]', "commit, pull --rebase, push"),
     ("cmd", "nix-gc", "garbage collect now"),
     ("cmd", "apollo-iso · apollo-key · apollo-connect", "build the stick's image · its tailnet key · SSH to it"),
-    ("cmd", "apollo-deploy [--dry-run|--vm-test] kitkat-Kit-Kat", "install a machine onto the computer booted "
+    ("cmd", "apollo-deploy [--dry-run|--vm-test] kitkat-Elektra", "install a machine onto the computer booted "
             "from the stick"),
 ]
 

@@ -5,7 +5,7 @@
 #
 # Two tiers, picked by `my.deploy-tools.admin`:
 #   admin = true  (Sisyphus, the machine you deploy FROM): everything below.
-#   admin = false (Kit-Kat): only system-rebuild, git-sync and nix-gc. Run on
+#   admin = false (Elektra): only system-rebuild, git-sync and nix-gc. Run on
 #     her machine, system-rebuild rebuilds it IN PLACE (it matches the hostname)
 #     and builds github:JimmyTheSquirrel/Dots when there is no ~/Dots there.
 #     The Apollo commands stay off it: they decrypt with rock's sops key and
@@ -175,8 +175,8 @@
         apollo-connect
 
         % SSH
-        # Kit-Kat — her machine
-        ssh kitkat@kit-kat
+        # Elektra — her machine
+        ssh kitkat@elektra
       '';
     };
   };

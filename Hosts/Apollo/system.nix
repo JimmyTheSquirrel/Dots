@@ -271,7 +271,7 @@ in {
         #
         # Printed on every login (console and ssh). Answers, without typing anything:
         # is it on the tailnet, what do I type from Sisyphus, and what hardware is
-        # this — the last being exactly what Hosts/Kit-Kat/system.nix needs for
+        # this — the last being exactly what Hosts/Elektra/system.nix needs for
         # installDisk and the NVIDIA `open` setting.
         environment.systemPackages = with pkgs; [
           (pkgs.writeShellScriptBin "apollo-status" ''

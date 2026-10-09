@@ -141,6 +141,29 @@ stack), 5000 (Kavita), 25600 (Komga) or 2049/111 (NFS) any more.
 
 ### Native NixOS services (not nixflix)
 - Immich — `services.immich`, manages its own PostgreSQL + Redis. `host = "0.0.0.0"` required — default `localhost` binds to `[::1]` (IPv6 only) making it unreachable. `ExecStartPre` script creates `.immich` marker files in all subdirs of `/data/photos/` (encoded-video, thumbs, upload, backups, library, profile) — Immich refuses to start without these.
+  - **Immich 3, from nixos-unstable (2026-10-09).** 26.05 ships Immich 2.7.5, which nixpkgs
+    marked insecure in October 2026 (CVE-2026-59258, CVE-2026-82272; 2.x gets no more fixes)
+    and then refuses to evaluate — and this one is open to the internet. `photos.nix` swaps
+    in the unstable **module and package together** (`disabledModules` +
+    `imports = [ "${inputs.nixpkgs-unstable}/nixos/modules/services/web-apps/immich.nix" ]`,
+    `package = pkgs-unstable.immich`) — the pair nixpkgs tests; the unstable module also
+    passes the DB port and sets `database.package` (the `pg_dumpall` its backup job uses)
+    from `services.postgresql.package`. Postgres stays 26.05's (16, with VectorChord 1.1.1 —
+    the same version unstable has, so no reindex). **On NixOS 26.11, delete those three lines.**
+    v3's breaking changes that could have mattered here don't: pgvecto.rs support is gone
+    (we're on VectorChord), ML needs an x86-64-v2 CPU (Asgard is Intel), a few env vars and
+    API endpoints went (we set none and call only `/api/server/ping` and
+    `/api/auth/admin-signup`). ⚠ **The first start on a new version migrates the database
+    one way** — rolling the NixOS generation back does not roll the database back. So
+    `immich-server` has a second `ExecStartPre`, **`immich-dump-before-upgrade`**: before
+    the first start on each Immich version it `pg_dump`s the database (as `immich`, peer
+    auth) to `/data/photos/backups/before-immich-<version>-<when>.sql.gz` — beside Immich's
+    own nightly dumps, which Immich's retention never touches — remembers the version in
+    `/var/lib/immich/dumped-for`, and **refuses to start Immich if the dump fails**. A
+    restart on the same version does nothing. Restore: stop `immich-server`, then
+    `zcat <dump> | sudo -u immich psql immich` (the dump has `--clean --if-exists`). The
+    library itself is files on disk1 — no backup yet; copy `/data/photos` somewhere first
+    if you want a belt-and-braces copy of the originals too (it's small).
 - Tailscale — `services.tailscale` (stock, no login-server flag)
 - Cloudflared — `services.cloudflared`
 - **WAN egress shaping** — `wan-egress-shaping.service` (in `Modules/Server/network.nix`) caps WAN-bound upload on enp3s0 at 30 Mbit via HTB + fq_codel. Home uplink is 50 Mbit; Jellyfin transcode segments burst at full line rate every ~3s, spiking latency ~180ms and rubber-banding LAN game sessions. RFC1918 destinations bypass the cap (LAN direct-play unaffected). Inspect with `tc -s qdisc show dev enp3s0`.
@@ -905,7 +928,7 @@ Under it, **History** (a toggle; remembered per browser):
 ```
 CONTROL CENTRE   Sisyphus — the repo; builds & deploys every machine over the tailnet
       ┌─────────────┼─────────────┐
-   Kit-Kat        ASGARD         Apollo
+   Elektra        ASGARD         Apollo
                     │
  ┌─ INSIDE ASGARD — sorted by who can reach it ─────────────────────────────┐
  │ OPEN TO THE INTERNET  anyone → Cloudflare Tunnel → Jellyfin · Jellyseerr · Immich

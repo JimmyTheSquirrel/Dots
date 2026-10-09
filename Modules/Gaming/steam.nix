@@ -308,7 +308,7 @@ in {
 
     # The Steam EVERY host gets, Millennium or not. These used to exist only
     # inside the Millennium build, so a host with my.steam.millennium = false
-    # (Kit-Kat) silently lost the audio fix along with the theming.
+    # (Elektra) silently lost the audio fix along with the theming.
     baseSteam = pkgs.steam.override {
       extraLibraries = p: [
         # Override Steam's bundled old audio libraries with host versions:
@@ -365,7 +365,7 @@ in {
         # do not exist yet, `ln -sf` fails with "No such file or directory", and
         # because extraProfile runs in the launch wrapper that failure aborts the
         # launch — Steam simply never starts, with no window and no obvious error.
-        # Hit on Kit-Kat's fresh install; invisible on a machine where Steam has
+        # Hit on Elektra's fresh install; invisible on a machine where Steam has
         # run before, which is why it survived this long.
         mkdir -p "$HOME/.local/share/Steam/ubuntu12_32" "$HOME/.local/share/Steam/ubuntu12_64"
         ln -sf ${millennium}/lib/libmillennium_bootstrap_x86.so "$HOME/.local/share/Steam/ubuntu12_32/libXtst.so.6"

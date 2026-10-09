@@ -3,7 +3,7 @@
 **Module:** `Modules/Gaming/steam.nix`
 **Theme source:** `Resources/Steam-Glass-Theme/`
 **Flake input:** `github:SteamClientHomebrew/Millennium?dir=packages/nix`
-**Used on:** Sisyphus (with Millennium) and Kit-Kat (plain Steam, `my.steam.millennium = false`); the glass effect itself is Niri-only
+**Used on:** Sisyphus (with Millennium) and Elektra (plain Steam, `my.steam.millennium = false`); the glass effect itself is Niri-only
 
 ## The one thing to understand first
 
@@ -49,7 +49,7 @@ symbols and spawns Millennium alongside Steam.
   - `extraEnv`: `MILLENNIUM_RUNTIME_PATH`
   - `extraProfile`: the two `libXtst.so.6` symlinks
 
-The audio fix used to exist only inside the Millennium build. Kit-Kat, which
+The audio fix used to exist only inside the Millennium build. Elektra, which
 turns Millennium off, therefore got plain `pkgs.steam` and none of the audio fix.
 Keep it in the base layer.
 

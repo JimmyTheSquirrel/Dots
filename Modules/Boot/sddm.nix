@@ -1,7 +1,7 @@
 # SDDM greeter — a single qylock theme, chosen per host.
 #
 #   Sisyphus: nier-automata      (my.sddm.theme = "nier-automata")
-#   Kit-Kat:  women-umbrella     (my.sddm.theme = "women-umbrella")
+#   Elektra:  women-umbrella     (my.sddm.theme = "women-umbrella")
 #
 # This replaced two near-identical modules, sddm-nier.nix and sddm-umbrella.nix.
 # Both called qylock's `mkSddmThemes { }`, which copies ALL ~40 of its themes —

@@ -60,7 +60,7 @@ ENTRY
       generate_entry "sisyphus" "Sisyphus (Niri)"
       # Sisyphus is the only local boot profile now. Elektra (KDE) and Odysseus
       # (Hyprland) used to have entries here as well; both are retired, and
-      # Kit-Kat — what Elektra's slot became — is separate hardware with its own
+      # Elektra (her machine, once Kit-Kat — what the old Elektra's slot became) is separate hardware with its own
       # GRUB (Modules/Boot/grub-celeste.nix). An entry for a profile nothing
       # builds any more would only advertise a stale generation.
 

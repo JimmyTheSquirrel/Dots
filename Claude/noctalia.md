@@ -1,7 +1,7 @@
 # Noctalia — Desktop Shell
 
 **Module:** `Modules/Desktop/noctalia.nix`
-**Used on:** Sisyphus (Niri), Kit-Kat (Hyprland), and the Apollo ISO's rescue niri session
+**Used on:** Sisyphus (Niri), Elektra (Hyprland), and the Apollo ISO's rescue niri session
 
 ## Architecture (v5)
 
@@ -86,7 +86,7 @@ pkill -f 'noctalia$' && noctalia &
 One mechanism: `lockedSettings` in `noctalia.nix`, rendered to TOML and merged
 **over** `~/.local/state/noctalia/settings.toml` on every rebuild (see above).
 Per-host differences go in `my.noctalia.lockedSettingsExtra`, deep-merged over it
-(Kit-Kat's squared-off bottom bar) — restate only what differs; lists replace
+(Elektra's squared-off bottom bar) — restate only what differs; lists replace
 wholesale, so a changed list has to be given in full.
 
 Among the locked keys, the ones that came over from the retired `nix-config.toml`:
@@ -328,7 +328,7 @@ The `{:%H:%M}` C++ chrono style also works (noctalia strips `{:` and `}` then pa
 
 ## Color Theming
 
-**skwd generates, noctalia fans out** (Sisyphus since 2026-09-15; Kit-Kat runs the same module). skwd-iris is the only palette generator; noctalia consumes its palette and pushes it to every template it has enabled.
+**skwd generates, noctalia fans out** (Sisyphus since 2026-09-15; Elektra runs the same module). skwd-iris is the only palette generator; noctalia consumes its palette and pushes it to every template it has enabled.
 
 ```
 wallpaper change

@@ -1,6 +1,21 @@
 { ... }:
 let
-  braveOptions = { lib, ... }: {
+  braveOptions = { lib, hostName, ... }: {
+    options.my.brave.profileName = lib.mkOption {
+      type = lib.types.str;
+      default = hostName;
+      defaultText = lib.literalExpression "hostName";
+      example = "Kit-Kat";
+      description = ''
+        Names Brave's profile folder, ~/.config/BraveSoftware/Brave-Browser-<this>.
+
+        It follows the host's name by default. A RENAMED machine sets its old
+        name here, so Brave keeps opening the same profile — bookmarks, logins,
+        extensions — instead of quietly starting an empty one (Elektra, which
+        was Kit-Kat until 2026-10-09, does).
+      '';
+    };
+
     options.my.brave.forceDarkMode = lib.mkEnableOption ''
       Chromium's forced dark mode in Brave.
 
@@ -73,7 +88,30 @@ in {
       };
     };
 
-    home-manager.users.${activeUser} = { config, osConfig, hostName, ... }: {
+    home-manager.users.${activeUser} = { config, osConfig, pkgs, ... }:
+    let
+      profileDir = "${config.home.homeDirectory}/.config/BraveSoftware/Brave-Browser-${osConfig.my.brave.profileName}";
+    in {
+      # Chromium's profile lock is a symlink to "<hostname>-<pid>". One left by an
+      # unclean exit under a DIFFERENT hostname — a renamed machine — reads as
+      # "in use by another computer", and Brave won't open the profile until it
+      # is unlocked by hand. So on activation (every switch, and every boot), if
+      # Brave isn't running and the lock names another host, the three Singleton
+      # files go. A live lock, or one from this host, is never touched.
+      home.activation.braveStaleLock = {
+        after = [ "writeBoundary" ];
+        before = [ ];
+        data = ''
+          lock="${profileDir}/SingletonLock"
+          if [ -L "$lock" ] && ! ${pkgs.procps}/bin/pgrep -u "$(id -u)" -x brave >/dev/null; then
+            owner=$(readlink "$lock")
+            if [ "''${owner%-*}" != "$(cat /proc/sys/kernel/hostname)" ]; then
+              run rm -f "${profileDir}/SingletonLock" "${profileDir}/SingletonSocket" "${profileDir}/SingletonCookie"
+            fi
+          fi
+        '';
+      };
+
       programs.brave = {
         enable = true;
 
@@ -112,7 +150,7 @@ in {
           [
             "--password-store=basic"
             "--ozone-platform=wayland"
-            "--user-data-dir=${config.home.homeDirectory}/.config/BraveSoftware/Brave-Browser-${hostName}"
+            "--user-data-dir=${profileDir}"
           ]
           ++ lib.optional (ourFeatures != [ ])
             "--enable-features=${lib.concatStringsSep "," (wrapperFeatures ++ ourFeatures)}"
@@ -120,7 +158,7 @@ in {
       };
 
       # Normal priority on purpose. Modules/Apps/helium.nix sets the same three
-      # keys with lib.mkDefault, so wherever both browsers are imported (Kit-Kat)
+      # keys with lib.mkDefault, so wherever both browsers are imported (Elektra)
       # Brave is the default — by priority, not by which module happens to be
       # listed first. (Both used to be normal priority; the lists concatenated
       # in import order, and Brave won only by sitting earlier in the host file.)

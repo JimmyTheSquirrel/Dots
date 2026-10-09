@@ -56,7 +56,7 @@
           }
 
           # Start Claude Code in the Dots repo where there is one. Guarded because
-          # zsh is on every host and ~/Dots is not (Kit-Kat, Apollo): the old
+          # zsh is on every host and ~/Dots is not (Elektra, Apollo): the old
           # unguarded `cd ~/Dots && command claude` meant `claude` did nothing
           # at all there except print "no such file or directory".
           claude() {

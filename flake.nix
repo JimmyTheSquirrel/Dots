@@ -22,7 +22,7 @@
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
 
-    # --- SKWD Wallpaper Selector (v2 — Rust; Sisyphus, Kit-Kat) ---
+    # --- SKWD Wallpaper Selector (v2 — Rust; Sisyphus, Elektra) ---
     # Upstream's official NixOS support. Ships prebuilt release binaries plus
     # nixosModules.default; consumed by Modules/Desktop/skwd.nix.
     #
@@ -35,7 +35,7 @@
     # --- Wrapper Modules ---
     wrapper-modules.url = "github:BirdeeHub/nix-wrapper-modules";
 
-    # --- Qylock (SDDM greeter themes — Sisyphus nier-automata, Kit-Kat women-umbrella) ---
+    # --- Qylock (SDDM greeter themes — Sisyphus nier-automata, Elektra women-umbrella) ---
     qylock = {
       url = "github:Darkkal44/qylock";
       inputs.nixpkgs.follows = "nixpkgs";

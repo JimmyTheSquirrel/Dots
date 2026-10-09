@@ -26,7 +26,7 @@
       #
       # This used to be an unconditional `--add-flags ~/Dots`, which hijacked
       # every call: `codium --wait <file>` as $EDITOR (git commit, sudoedit,
-      # sops) opened the whole workspace next to the file, and on Kit-Kat —
+      # sops) opened the whole workspace next to the file, and on Elektra —
       # where ~/Dots does not exist — every launch pointed at a missing folder.
       # Hence both conditions.
       vscodiumWrapped = pkgs.symlinkJoin {

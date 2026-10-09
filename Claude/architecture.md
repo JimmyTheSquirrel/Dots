@@ -8,7 +8,7 @@ Hosts/<Host>/
   system.nix         flake.nixosConfigurations.<user>-<Host> = self.lib.mkHost { … }
   _hardware.nix      plain NixOS module (kernel modules, filesystems / facter)
   _disko.nix         plain NixOS module (disk layout), only on disko hosts
-  facter.json        nixos-facter hardware report (Kit-Kat)
+  facter.json        nixos-facter hardware report (Elektra)
 Modules/
   Core/              base, locale, audio, polkit, sops, nvidia, tailscale, flake-lib
   Boot/              grub, grub-celeste, plymouth, sddm
@@ -87,7 +87,7 @@ full nixpkgs evaluation each.
 | Host | Hardware | Disks | Boot |
 |------|----------|-------|------|
 | Sisyphus | `_hardware.nix` (hand-written, by UUID) | `_hardware.nix` | GRUB named profile `sisyphus` |
-| Kit-Kat | `_hardware.nix` → nixos-facter `facter.json` | `_disko.nix` | GRUB (Celeste theme), default profile |
+| Elektra | `_hardware.nix` → nixos-facter `facter.json` | `_disko.nix` | GRUB (Celeste theme), default profile |
 | Asgard | `_hardware.nix` (+ it87 fan driver) | `_disko.nix` (never run the format script) | systemd-boot, default profile |
 | Apollo | live ISO | — | ISO |
 
@@ -102,7 +102,7 @@ nixos-facter + disko is the path for any new machine (see `Claude/deploy.md`).
 pointing at that profile's current kernel/initrd, and GRUB sources it via
 `extraConfig`.
 
-This machinery dates from when three desktops (Sisyphus, Odysseus, Elektra) were
+This machinery dates from when three desktops (Sisyphus, Odysseus, and the old KDE Elektra profile) were
 boot profiles on this one disk. Sisyphus is the only one left, so the submenu has
 a single entry. It is kept because the plain top-level "NixOS" entry boots the
 *default* `system` profile, which `-p sisyphus` never updates — the submenu is
@@ -115,9 +115,9 @@ then remove the symlink.
 
 ## Plymouth boot splash
 
-`Modules/Boot/plymouth.nix` — Sisyphus and Kit-Kat. Early KMS so the splash gets a
+`Modules/Boot/plymouth.nix` — Sisyphus and Elektra. Early KMS so the splash gets a
 real framebuffer: the initrd GPU modules come from `my.plymouth.initrdGpuModules`
-(default `[ "amdgpu" ]`; Kit-Kat sets the four nvidia modules in its host file,
+(default `[ "amdgpu" ]`; Elektra sets the four nvidia modules in its host file,
 because that option is declared here and `nvidia.nix` must stay importable without
 plymouth). Theme `spinner`; kernel params `quiet splash loglevel=3
 rd.udev.log_level=3`. NixOS ships `bgrt`, `spinner`, `fade-in`, `solar`, `tribar`;
@@ -135,7 +135,7 @@ does **not** — it uses the noctalia flake's own NixOS module.
 
 ## Remote machines
 
-Kit-Kat and Asgard are separate hardware on the tailnet, deployed with
+Elektra and Asgard are separate hardware on the tailnet, deployed with
 `nixos-rebuild --target-host` and the default system profile (no `-p`).
 Apollo is an ISO (`nix build .#apollo-iso`). `system-rebuild` and the `apollo-*`
 helpers handle all of it — see `Claude/deploy.md`.

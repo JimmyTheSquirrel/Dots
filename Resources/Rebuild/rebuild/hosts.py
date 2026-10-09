@@ -34,7 +34,7 @@ class Host:
 
 HOSTS: list[Host] = [
     Host("Sisyphus", "rock", "sisyphus", "sisyphus", "push", "rock's desktop", ""),
-    Host("Kit-Kat", "kitkat", "kit-kat", "system", "push", "her machine", ""),
+    Host("Elektra", "kitkat", "elektra", "system", "push", "her machine", ""),
     Host("Asgard", "rock", "asgard", "system", "push", "media server", ""),
     Host("Apollo", "rock", "", "", "stick", "deployer USB", ""),
 ]

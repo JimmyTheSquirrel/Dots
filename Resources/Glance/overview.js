@@ -6,7 +6,7 @@
 //   CONTROL CENTRE   Sisyphus — the repo lives here; it builds and deploys
 //         │          every other machine over the tailnet
 //   ┌─────┼─────┐
-//   Kit-Kat  ASGARD  Apollo        the machines it deploys
+//   Elektra  ASGARD  Apollo        the machines it deploys
 //            │
 //   ┌─ ASGARD, opened up ──────────────────────────────────────────────┐
 //   │ OPEN TO THE INTERNET   anyone → Cloudflare Tunnel → 3 services    │
@@ -45,7 +45,7 @@
   var NODES = [
     { id: "sisyphus", k: "host", t: "Sisyphus", s: "the control centre · your desktop",
       d: "Where the repo lives — ~/Dots, the only copy anywhere. system-rebuild builds every machine here and pushes it to them over the tailnet. It also runs Wolf, which streams games to the TV." },
-    { id: "kitkat", k: "host", t: "Kit-Kat", s: "her desktop",
+    { id: "kitkat", k: "host", t: "Elektra", s: "her desktop",
       d: "Her NVIDIA machine running Hyprland. Built on Sisyphus and pushed to her over the tailnet, like everything else." },
     { id: "asgard", k: "host", t: "Asgard", s: "the server · opened up below",
       d: "The server: an Intel i5-14400, a 1 TB NVMe, 8 TB + 12 TB drives. Everything on it is declared in the repo (Modules/Server/) — a fresh install is a clone and one rebuild from Sisyphus." },
@@ -172,7 +172,7 @@
     { id: "change", t: "Changing anything", steps: [
       [["sisyphus"], "Every machine is described in one repo — ~/Dots on Sisyphus, the only copy."],
       [["asgard"], "system-rebuild builds Asgard's new system on Sisyphus and pushes it over the tailnet; Asgard switches to it (any older version is one pick away in its boot menu)."],
-      [["kitkat"], "Kit-Kat is deployed the same way, from the same repo."],
+      [["kitkat"], "Elektra, her desktop, is deployed the same way, from the same repo."],
       [["apollo"], "And a brand-new machine starts from the Apollo stick: boot it, and Sisyphus installs it over the tailnet."]
     ] },
     { id: "game", t: "Game night", steps: [
