@@ -71,6 +71,7 @@
   --ag-title: "Orbitron", "Eurostile", "Bank Gothic", sans-serif;
   /* ink */
   --ag-page: #101215;
+  --ag-ground: #15181c;                   /* the top of the page, fading to --ag-page */
   --ag-text: #e6ebef;
   --ag-text-dim: rgb(222 230 236 / 0.66);
   --ag-text-faint: rgb(222 230 236 / 0.42);
@@ -143,13 +144,17 @@
    long the page. Over it, two soft lights from above. Pinned to the foot of
    the SCREEN (a fixed layer — phones honour that; they ignore a fixed
    background) the pines in their mist (--h-forest), and over everything
-   behind the cards a vignette and faint scanlines. Nothing animates. */
+   behind the cards a vignette and faint scanlines. Nothing animates.
+   A colour pick lights the room as well as the outlines (theme.js): --ag-page
+   and --ag-ground take its hue, and its two colours fall from the top corners
+   and its partner glows low on the left — so two picks feel like two places. */
 body {
   background:
-    radial-gradient(70% 45% at 12% -8%, rgb(var(--hud-rgb) / 0.08), transparent 70%),
-    radial-gradient(60% 40% at 92% -6%, rgb(var(--hud2-rgb) / 0.06), transparent 70%),
+    radial-gradient(70% 48% at 10% -8%, rgb(var(--hud-rgb) / 0.12), transparent 70%),
+    radial-gradient(62% 44% at 94% -6%, rgb(var(--hud2-rgb) / 0.11), transparent 70%),
+    radial-gradient(50% 36% at 6% 78%, rgb(var(--hud2-rgb) / 0.05), transparent 72%),
     var(--h-grid, none) 0 0 / 480px 480px repeat,
-    linear-gradient(180deg, #15181c, var(--ag-page) 600px),
+    linear-gradient(180deg, var(--ag-ground), var(--ag-page) 640px),
     var(--ag-page);
 }
 body::before {
@@ -397,7 +402,8 @@ body::after {
 .nav-item.nav-item-current {
   color: var(--ag-on-acc);
   font-weight: 700;
-  background: linear-gradient(180deg, var(--hud-hot), var(--hud));
+  /* the pair again: the light, warming into its partner at the far edge */
+  background: linear-gradient(115deg, var(--hud-hot), var(--hud) 58%, color-mix(in srgb, var(--hud2) 80%, var(--hud)));
   text-shadow: none;
 }
 .mobile-navigation {

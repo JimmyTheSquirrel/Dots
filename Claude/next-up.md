@@ -507,7 +507,7 @@ verified; what follows is what is genuinely still open.
    Everything on that device is destroyed. `apollo-connect` then
    `lsblk -o NAME,SIZE,MODEL`.
 4. ~~Her `&kitkat` age key~~ ✅ **DONE 2026-10-02.** Host key at
-   `~/.local/share/apollo/Elektra/`, recipient in `.sops.yaml`, `kit-kat.yaml`
+   `~/.local/share/apollo/Elektra/` (`…/Kit-Kat/` until the next `apollo-deploy` moves it), recipient in `.sops.yaml`, `kit-kat.yaml`
    re-encrypted, and `apollo-deploy` plants it automatically.
 5. **Swap is a guess.** 16 G with `resumeDevice = true` (hibernate intent), chosen
    without knowing her RAM. Revisit alongside `installDisk` once `facter.json`

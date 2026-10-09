@@ -254,6 +254,7 @@
                 (liveCard { id = "ec-tv"; title = "On the TV"; })
                 (liveCard { id = "ec-wolf"; title = "Game streams"; })
                 (liveCard { id = "ec-ctl"; title = "Controllers"; })
+                (liveCard { id = "ec-net"; title = "Eclipse network"; })
                 (liveCard { id = "ec-log"; title = "Activity"; })
               ];
             }

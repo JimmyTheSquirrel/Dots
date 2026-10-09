@@ -58,6 +58,9 @@
       # its other fun themes — snow, sakura, starry night, spooky, ocean (likewise)
       "fx.css" = ../../Resources/Glance/fx.css;
       "fx.js" = ../../Resources/Glance/fx.js;
+      # Ravens — Huginn and Muninn, Asgard's own fun theme (likewise)
+      "ravens.css" = ../../Resources/Glance/ravens.css;
+      "ravens.js" = ../../Resources/Glance/ravens.js;
     };
     # The HUD's artwork — the panel frame round every card, the grid that
     # tiles down the page, the misty pines pinned to the foot of the screen,
@@ -591,7 +594,7 @@
     # ════════════════════════════════════════════════════════════════════════
     #   ags-host ags-storage ags-playing ags-dl   stats.js   ← asgard-stats :9552
     #   nw                                        net.js     ← network-panel :9555
-    #   ec-main ec-tv ec-wolf ec-ctl ec-log       eclipse.js ← eclipse-control :9554
+    #   ec-main ec-tv ec-wolf ec-ctl ec-net ec-log  eclipse.js ← eclipse-control :9554
     # net.js and eclipse.js (and cards.css) are SHARED with MarsBar, which
     # draws the same cards through her serve proxy. See _livecard.nix.
     liveCard = import ./_livecard.nix lib;
@@ -680,7 +683,7 @@
         <link rel="stylesheet" href="${asset "cards.css"}">
         <link rel="stylesheet" href="/assets/hud/hud.css?v=${hudVersion}">
         <link rel="stylesheet" href="${asset "overview.css"}">
-        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}" data-fx="${asset "fx.css"}" data-fx-js="${asset "fx.js"}"></script>
+        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}" data-fx="${asset "fx.css"}" data-fx-js="${asset "fx.js"}" data-ravens="${asset "ravens.css"}" data-ravens-js="${asset "ravens.js"}"></script>
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "asgard.js"}" data-api-port="${toString bridgePort}" defer></script>
@@ -784,7 +787,8 @@
               widgets = [
                 (liveCard { id = "ec-main"; title = "Eclipse"; acc = "mint"; rune = "dagaz"; badge = "ec-live"; })
                 (liveCard { id = "ec-wolf"; title = "Streams · Wolf on Sisyphus"; acc = "teal"; rune = "ehwaz"; })
-                (liveCard { id = "ec-ctl"; title = "Controllers & network"; acc = "teal"; rune = "algiz"; })
+                (liveCard { id = "ec-ctl"; title = "Controllers"; acc = "teal"; rune = "algiz"; })
+                (liveCard { id = "ec-net"; title = "Eclipse network · cable & Wi-Fi"; acc = "mint"; rune = "gebo"; })
               ];
             }
             {

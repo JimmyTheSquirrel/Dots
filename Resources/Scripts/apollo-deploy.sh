@@ -112,6 +112,15 @@ args=(
 #   nix run nixpkgs#ssh-to-age -- -i <that>.pub     # -> the age recipient
 # then add that recipient to .sops.yaml and `sops updatekeys` the host's file.
 extra="${APOLLO_EXTRA_FILES:-$HOME/.local/share/apollo/${host}}"
+# A renamed machine's keys still sit under its OLD name until they're moved —
+# Elektra was Kit-Kat until 2026-10-09. Found there, they are moved into place
+# (once, saying so), so a reinstall after a rename can't lose them.
+declare -A former=([Elektra]=Kit-Kat)
+if [[ -z "${APOLLO_EXTRA_FILES:-}" && ! -d "$extra" && -n "${former[$host]:-}" \
+      && -d "$HOME/.local/share/apollo/${former[$host]}" ]]; then
+  echo -e "\033[1;34m:: $host was ${former[$host]} — moving its keys to $extra\033[0m"
+  mv "$HOME/.local/share/apollo/${former[$host]}" "$extra"
+fi
 if [[ -d "$extra" ]]; then
   args+=(--extra-files "$extra")
   echo -e "\033[1;32m:: planting these onto the new system:\033[0m"

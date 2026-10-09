@@ -21,6 +21,9 @@
 //             network path                                         (#ec-ctl)
 //   scan      a Bluetooth search and what it has found             (#ec-ctl)
 //   ctlbusy   which device is pairing / connecting / … right now
+//   net       the cable, Wi-Fi saved and in range, wired-only or not  (#ec-net)
+//   netscan   a Wi-Fi search running
+//   netsw     a cable ⇄ Wi-Fi switch in flight, until the Pi reports back
 //
 // Everything Bluetooth lives in eclipse-control, not the page: a name given on
 // one dashboard, a search started on her phone, a pad pairing — all of it is
@@ -39,7 +42,9 @@
   var JF = cfg.jellyfin || D.api("8096");
   var esc = D.esc, $ = D.$;
   var S = { status: null, tv: null, wolf: null, ctl: null, scan: null, ctlbusy: {}, activity: [], busy: {},
-            armed: null, killing: {}, local: {}, btOpen: {}, btMsg: null, focusName: null, hint: null };
+            armed: null, killing: {}, local: {}, btOpen: {}, btMsg: null, focusName: null, hint: null,
+            net: null, netscan: null, netsw: null, netOpen: {}, netMsg: null, netJoin: null, netPass: "",
+            netShow: false, netFocus: false, logOpen: false };
   var STALE_SECS = 3 * 3600;
   var queued = false;
 
@@ -184,19 +189,33 @@
   var LABEL = { "restart-kodi": "Restart Kodi", "sync-library": "Sync library", "sync-movies": "Sync movies",
                 "sync-shows": "Sync TV shows", "speedtest": "Link test", "reboot": "Reboot Pi", "jellyfin-toggle": "Switch Jellyfin path",
                 "bt-on": "Turn Bluetooth on", "subs-on": "Subtitles on", "subs-off": "Subtitles off" };
+  // Folds away (remembered in this browser, folded to start with): folded, its
+  // header is the latest entry — or what is running now — so a glance still
+  // says what last happened.
+  var LOGK = "eclipse-log";
+  try { S.logOpen = localStorage.getItem(LOGK) === "open"; } catch (e) { /* private window */ }
   function renderLog() {
     var el = $("ec-log"); if (!el) return;
-    var running = Object.keys(S.busy).map(function (a) {
+    var busy = Object.keys(S.busy), acts = S.activity || [];
+    var running = busy.map(function (a) {
       return '<li class="run"><i>●</i><b>' + esc(LABEL[a] || a) + '</b><span>running…</span></li>';
     }).join("");
-    var done = (S.activity || []).map(function (e) {
+    var done = acts.map(function (e) {
       return '<li class="' + (e.ok ? "" : "bad") + '"><i>' + (e.ok ? "✓" : "✕") + '</i><b>' + esc(e.action) +
         '<em>' + D.ago(e.t) + '</em></b><span>' + esc(e.message) + '</span></li>';
     }).join("");
-    D.paint(el, running || done ? '<ul class="lg">' + running + done + '</ul>' : '<div class="lg-empty">Nothing yet — actions from either dashboard show up here.</div>');
+    if (!running && !done) { D.paint(el, '<div class="lg-empty">Nothing yet — actions from either dashboard show up here.</div>'); return; }
+    var top = busy.length ? '<i class="lg-i run">●</i><span class="bt-main"><b>' + esc(LABEL[busy[0]] || busy[0]) + '</b><span class="bt-state">running…</span></span>'
+      : '<i class="lg-i' + (acts[0].ok ? "" : " bad") + '">' + (acts[0].ok ? "✓" : "✕") + '</i><span class="bt-main"><b>' + esc(acts[0].action) +
+        '<em>' + D.ago(acts[0].t) + '</em></b><span class="bt-state">' + esc(acts[0].message) + '</span></span>';
+    var n = busy.length + acts.length;
+    D.paint(el, '<details class="lg-fold" data-lg' + (S.logOpen ? " open" : "") + '>' +
+      '<summary class="bt-rsum lg-sum">' + (S.logOpen ? '<span class="bt-main"><b>Last ' + n + '</b><span class="bt-state">from either dashboard, newest first</span></span>' : top) +
+        '<span class="lg-n">' + n + '</span><span class="bt-rhint" aria-hidden="true"></span><i class="bt-chev" aria-hidden="true"></i></summary>' +
+      '<ul class="lg">' + running + done + '</ul></details>');
   }
 
-  // ── Bluetooth: my devices, adding one, subtitles, network ────────────────
+  // ── Bluetooth: my devices, adding one, subtitles ─────────────────────────
   // Shown on BOTH dashboards, same as every other card here — she is the one in
   // front of the TV, so she gets every control (Modules/Server/marsbar.nix).
   //
@@ -381,14 +400,6 @@
         (S.busy["subs-on"] || S.busy["subs-off"] || S.local["subs-on"] || S.local["subs-off"] ? " disabled" : "") + ' aria-label="Subtitles on by default"><i></i></button></div>';
     }
 
-    // Network path — which link is actually carrying traffic.
-    if ((c.net || []).length) {
-      h += '<div class="ag-sec">Network</div><div class="bt-list">' + c.net.map(function (n) {
-        return '<div class="bt-line solo"><span><b><i class="bt-dot ' + (n.online || n.ready ? "ok" : "") + '"></i>' + esc(n.name) + '</b><small>' +
-          (n.kind === "ethernet" ? "wired" : n.kind) + (n.online ? " · carrying traffic" : n.ready ? " · standby, connected" : " · standby, idle") +
-          '</small></span></div>';
-      }).join("") + '</div>';
-    }
     h += '</div>';
     D.paint(el, h);
     if (S.focusName) {
@@ -420,9 +431,275 @@
     btPost("rename/" + encodeURIComponent(mac) + "?name=" + encodeURIComponent(v)).then(function (j) { btSay(j); });
   }
 
-  function render() { queued = false; renderMain(); renderTv(); renderWolf(); renderCtl(); renderLog(); }
+  // ── Network: the cable, Wi-Fi, switching (#ec-net) ────────────────────────
+  // Wired only is the house rule (Resources/Eclipse-Box/network/): the Pi once
+  // sent a 4K game stream over its own weak radio while the cable sat idle. So
+  // Wired means wired ONLY — no saved Wi-Fi joins by itself, even if the cable
+  // comes out — and Wi-Fi is a deliberate switch, for taking the box somewhere
+  // else: saved networks then rejoin by themselves (a cable still wins).
+  //
+  // Every switch runs on the Pi, detached (eclipse-net.sh), because the link
+  // this page reaches it over is the one changing: the card says "Switching…"
+  // until the Pi reports back, and the Pi puts things back by itself if it
+  // can't get online. Joining a new network sends its password in the POST
+  // body; it never goes in a URL, and the field is cleared once it's sent.
+  var NI = {
+    wifi: '<path d="M2 8.8a15 15 0 0 1 20 0"/><path d="M5 12.3a10 10 0 0 1 14 0"/><path d="M8.5 15.8a5 5 0 0 1 7 0"/><circle cx="12" cy="19.3" r="1.1"/>',
+    cable: '<path d="M8 2v4M16 2v4"/><rect x="5" y="6" width="14" height="7" rx="2"/><path d="M9 13v3a3 3 0 0 0 6 0v-3M12 19v3"/>',
+    off: '<path d="M2 8.8a15 15 0 0 1 4.5-2.9M10.5 4.6A15 15 0 0 1 22 8.8"/><path d="M8.5 15.8a5 5 0 0 1 7 0"/><path d="m3 3 18 18"/>',
+    lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'
+  };
+  function nico(k) {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + (NI[k] || NI.wifi) + '</svg>';
+  }
+  // connman's Strength is 0-100.
+  function nlevel(s) { return s == null ? 0 : s >= 65 ? 3 : s >= 40 ? 2 : 1; }
+  function nbars(s) {
+    var n = nlevel(s);
+    return '<span class="bt-bars' + (n ? " s" + n : "") + '" title="' + (s == null ? "signal unknown" : "signal " + s + "%") + '"><i></i><i></i><i></i></span>';
+  }
+  function nword(s) { var n = nlevel(s); return n === 3 ? "strong signal" : n === 2 ? "good signal" : n === 1 ? "weak signal" : ""; }
+  var SECWORD = { psk: "Secured", sae: "Secured", wep: "Secured (old WEP)", none: "Open", ieee8021x: "Work/uni login" };
+
+  var NRES = "eclipse-net-results";
+  try { if (localStorage.getItem(NRES) === "folded") S.netOpen.results = false; } catch (e) { /* private window */ }
+  function nresults(open) {
+    S.netOpen.results = open;
+    try { if (open) localStorage.removeItem(NRES); else localStorage.setItem(NRES, "folded"); } catch (e) { /* private window */ }
+  }
+
+  function savedRow(n, u, locked) {
+    var on = u && u.id === n.id;
+    var st = on ? "Connected" + (n.strength != null ? " · " + nword(n.strength) : "")
+      : n.in_range ? "In range · " + (nword(n.strength) || "signal unknown") : "Not in range";
+    if (!on && n.auto) st += " · joins by itself";
+    var cls = on ? "ok" : n.in_range ? "" : "off";
+    var jk = "join:" + n.id, armed = S.armed === jk;
+    var act = on ? '<span class="nt-chip">On</span>'
+      : n.in_range && n.joinable ? '<button type="button" class="bt-btn go' + (armed ? " armed" : "") + '" data-net-join="' + esc(n.id) + '"' + (locked ? " disabled" : "") + '>' + (armed ? "Tap to switch" : "Join") + '</button>'
+      : "";
+    var fk = "nforget:" + n.id, fArmed = S.armed === fk;
+    return '<details class="bt-dev nt-net ' + cls + '" data-net="' + esc(n.id) + '"' + (S.netOpen[n.id] ? " open" : "") + '>' +
+      '<summary class="bt-sum">' +
+        '<span class="bt-ico">' + nico("wifi") + '</span>' +
+        '<span class="bt-main"><b class="bt-name">' + esc(n.name) + '</b>' +
+          '<span class="bt-state"><i class="bt-dot"></i>' + esc(st) + '</span></span>' +
+        (n.in_range ? nbars(n.strength) : "") + act + '<i class="bt-chev" aria-hidden="true"></i>' +
+      '</summary>' +
+      '<div class="bt-more">' +
+        '<div class="bt-line"><span><b>Joins by itself</b><small>' +
+          (n.auto ? "Yes — Eclipse is in Wi-Fi mode, so every saved network does" : "No — wired only: no saved Wi-Fi joins on its own") +
+          '</small></span></div>' +
+        '<div class="bt-line"><span><b>' + esc(SECWORD[n.security] || "Wi-Fi") + '</b><small>' +
+          (n.secure ? "Password saved on Eclipse · " : "") + esc(n.id) + '</small></span>' +
+          '<span class="bt-pair"><button type="button" class="bt-btn danger' + (fArmed ? " armed" : "") + '" data-net-forget="' + esc(n.id) + '"' +
+            (on || locked ? " disabled" : "") + '>' + (fArmed ? "Tap to forget" : "Forget") + '</button></span></div>' +
+        (on ? '<small class="bt-note">It’s the network Eclipse is on — switch to the cable or another network to forget it.</small>' : "") +
+      '</div></details>';
+  }
+
+  function foundNet(n, u, locked) {
+    var sec = SECWORD[n.security] || "Wi-Fi";
+    var line = sec + (n.strength != null ? " · " + nword(n.strength) : "");
+    if (!n.joinable) {
+      return '<div class="bt-found nt-found off"><span class="bt-ico">' + nico("wifi") + '</span>' +
+        '<span class="bt-main"><b class="bt-name">' + esc(n.name) + '</b><span class="bt-state">' + esc(sec) + ' — use LibreELEC’s settings on the TV</span></span>' +
+        nbars(n.strength) + '<span></span></div>';
+    }
+    if (S.netJoin === n.id) {
+      var back = u ? (u.kind === "wired" ? "the cable" : u.name) : "how it was";
+      return '<div class="bt-found nt-found nt-join"><span class="bt-ico">' + nico("wifi") + '</span>' +
+        '<span class="bt-main"><b class="bt-name">' + esc(n.name) + '</b><span class="bt-state">' + esc(line) + '</span></span>' +
+        nbars(n.strength) + '<span></span>' +
+        '<div class="nt-form">' +
+          '<span class="nt-pw"><input class="bt-input nt-pass" type="' + (S.netShow ? "text" : "password") + '" data-net-pass="' + esc(n.id) + '" ' +
+            'placeholder="Wi-Fi password" maxlength="64" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go">' +
+          '<button type="button" class="nt-eye" data-net-eye aria-label="' + (S.netShow ? "Hide" : "Show") + ' password">' + (S.netShow ? "Hide" : "Show") + '</button></span>' +
+          '<button type="button" class="bt-btn go" data-net-go="' + esc(n.id) + '"' + (locked ? " disabled" : "") + '>Join</button>' +
+          '<button type="button" class="bt-btn" data-net-cancel>Cancel</button>' +
+          '<small>Eclipse moves to ' + esc(n.name) + ' to try it — it drops off here for up to a minute. If it can’t get online it goes back to ' +
+            esc(back) + ' by itself, and the password isn’t kept.</small>' +
+        '</div></div>';
+    }
+    var k = "open:" + n.id, armed = S.armed === k;
+    return '<div class="bt-found nt-found"><span class="bt-ico">' + nico("wifi") + '</span>' +
+      '<span class="bt-main"><b class="bt-name">' + esc(n.name) + '</b><span class="bt-state">' +
+        (n.secure ? '<i class="nt-lock">' + nico("lock") + '</i>' : "") + esc(line) + '</span></span>' +
+      nbars(n.strength) +
+      '<button type="button" class="bt-btn go' + (armed ? " armed" : "") + '" data-net-new="' + esc(n.id) + '"' + (locked ? " disabled" : "") + '>' +
+        (armed ? "Tap to join" : "Join") + '</button></div>';
+  }
+
+  // What it's on now, the Wired | Wi-Fi switch, and anything worth knowing.
+  function netTop(c, u, kind, locked) {
+    var h = "";
+    // ── what it's on now
+    var title = !u ? "Not connected" : kind === "wired" ? "On the cable" : "On Wi-Fi · " + esc(u.name);
+    var sub = !u ? "No cable and no Wi-Fi" :
+      kind === "wired" ? (c.wired_only ? "Wired only — Wi-Fi never joins by itself" : "Wired · a saved Wi-Fi can join if the cable comes out") :
+      (nword(u.strength) ? cap(nword(u.strength)) + " · " : "") + "saved networks rejoin by themselves";
+    h += '<div class="nt-now ' + kind + '"><span class="bt-ico">' + nico(kind === "wired" ? "cable" : kind === "wifi" ? "wifi" : "off") + '</span>' +
+      '<span class="bt-main"><b class="bt-name">' + title + '</b><span class="bt-state">' + esc(sub) + '</span></span>' +
+      (kind === "wifi" ? nbars(u.strength) : "") +
+      '<span class="nt-where ' + (c.home ? "home" : "away") + '" title="' + (c.home ? "Asgard answers on the house LAN" : "Asgard isn’t on this network") + '">' +
+        (c.home ? "Home" : "Away") + '</span></div>';
+
+    // ── the switch
+    var bestSaved = (c.saved || []).filter(function (n) { return n.in_range && n.joinable; })[0];
+    h += '<div class="ec-path nt-mode"><span class="ag-k">Connection</span><span class="ec-seg">' +
+      ["wired", "wifi"].map(function (m) {
+        var on = kind === m && (m !== "wired" || c.wired_only);
+        var armed = S.armed === "mode:" + m;
+        var dis = locked || (m === "wired" && !c.cable);
+        return '<button type="button" data-net-mode="' + m + '" class="' + (kind === m ? "on" : "") + (armed ? " armed" : "") + '"' +
+          (dis || on ? " disabled" : "") + '>' + (armed ? "Tap again" : m === "wired" ? "Wired" : "Wi-Fi") + '</button>';
+      }).join("") + '</span><span class="ags-sub">' +
+      (kind === "wired" && c.wired_only ? "The house setting: full speed, and nothing swaps to Wi-Fi behind your back. Taking Eclipse out? Switch to Wi-Fi first." :
+       kind === "wired" ? "Tap <b>Wired</b> to lock it to the cable again (no saved Wi-Fi joins by itself)." :
+       kind === "wifi" ? (c.cable ? "A cable is plugged in — tap <b>Wired</b> to use it (it’s much faster)." : "No cable in. Back home? Plug it in, then tap <b>Wired</b>.") :
+       c.cable ? "Tap <b>Wired</b> to use the cable." : "Plug in a cable, or join a Wi-Fi network below.") +
+      (!bestSaved && kind !== "wifi" ? " No saved Wi-Fi in range — search below." : "") + '</span></div>';
+
+    // ── things worth knowing
+    if (!c.sct) {
+      h += '<div class="ec-alert">⚠ <span>The one-link rule is missing on the Pi (a re-flash?), so cable and Wi-Fi can both be up at once — ' +
+        'the 9 Oct lag. ' + (c.cable ? "Tap <b>Wired</b> to put it back." : "Plug in a cable and tap <b>Wired</b> to put it back.") + '</span></div>';
+    }
+    var jf = S.status && S.status.jellyfin_mode;
+    if (!c.home && u && jf === "lan") {
+      var ja = S.armed === "net-jf";
+      h += '<div class="ec-alert nt-jf"><span>Away from the house, Jellyfin’s <b>LAN</b> path can’t load anything — use <b>Tailscale</b>. Switching restarts Kodi.</span>' +
+        '<button type="button" class="bt-btn go' + (ja ? " armed" : "") + '" data-net-jf' + (S.busy["jellyfin-toggle"] ? " disabled" : "") + '>' + (ja ? "Tap again" : "Use Tailscale") + '</button></div>';
+    } else if (c.home && kind === "wired" && jf === "remote") {
+      var jb = S.armed === "net-jf";
+      h += '<div class="ec-alert nt-jf ok"><span>Home on the cable, but Jellyfin is still on the capped <b>Tailscale</b> path. Switching restarts Kodi.</span>' +
+        '<button type="button" class="bt-btn go' + (jb ? " armed" : "") + '" data-net-jf' + (S.busy["jellyfin-toggle"] ? " disabled" : "") + '>' + (jb ? "Tap again" : "Use LAN") + '</button></div>';
+    }
+    return h;
+  }
+
+  function renderNet() {
+    var el = $("ec-net"); if (!el) return;
+    var c = S.net, sw = S.netsw && S.netsw.active ? S.netsw : null;
+    if (!c && !sw) return;
+    // Don't repaint under someone typing a password (their text and the
+    // phone's keyboard would go); it paints when they leave the field.
+    var ae = document.activeElement;
+    if (ae && ae.classList && ae.classList.contains("nt-pass") && el.contains(ae)) return;
+
+    var h = '<div class="ec bt nt">';
+    if (S.netMsg) h += '<div class="bt-msg' + (S.netMsg.bad ? " bad" : "") + '">' + (S.netMsg.bad ? "✕ " : "✓ ") + esc(S.netMsg.text) + '</div>';
+    if (sw) {
+      var gone = Math.max(0, Math.round(Date.now() / 1000 - (sw.since || 0)));
+      var pct = D.clamp(100 * gone / 60, 4, 100);
+      h += '<div class="bt-scan on nt-sw"><span class="bt-radar"><i></i>' + nico(sw.mode === "wired" ? "cable" : "wifi") + '</span>' +
+        '<span class="bt-main"><b>Switching to ' + esc(sw.label) + '… <span class="bt-left">' + gone + 's</span></b>' +
+          '<span class="bt-state">Eclipse drops off the dashboard for up to a minute while it changes over. ' +
+          'If it can’t get online it goes back by itself.</span></span>' +
+        '<span class="bt-prog"><i style="width:' + pct.toFixed(1) + '%"></i></span></div>';
+    }
+    if (c && !c.reachable && !sw) {
+      h += '<div class="ec-hero"><span class="ec-orb bad"></span><div><div class="ec-title">Eclipse unreachable</div>' +
+        '<div class="ec-sub">' + esc(c.error || "no answer over SSH") + '</div></div><div></div></div>' +
+        '<div class="bt-empty">Just switched it? Give it a minute. Still gone: plug in a cable, or on the TV open ' +
+        '<b>LibreELEC → Connections</b> with the remote.</div></div>';
+      D.paint(el, h + '</div>');
+      return;
+    }
+    if (!c || !c.reachable) { D.paint(el, h + '</div>'); return; }
+
+    var u = c.using, locked = !!sw || !!c.switch_running;
+    var kind = u ? u.kind : "none";
+    // Mid-switch the Pi's own view is in flux (connman restarting, no link
+    // for a moment): don't show that as the answer — the switch panel above
+    // is the state; the lists stay, greyed, for reference.
+    if (sw) h += '<div class="nt-dim">';
+    else h += netTop(c, u, kind, locked);
+
+    // ── saved networks
+    var saved = c.saved || [];
+    h += '<div class="ag-sec">Saved Wi-Fi<span class="ag-sec-end">' + (saved.length ? saved.length + " saved · " +
+      saved.filter(function (n) { return n.in_range; }).length + " in range" : "none") + '</span></div>';
+    h += saved.length ? '<div class="bt-list">' + saved.map(function (n) { return savedRow(n, u, locked); }).join("") + '</div>'
+      : '<div class="bt-empty">Nothing saved — search below to join one.</div>';
+
+    // ── joining one
+    var sc = S.netscan || {}, found = c.found || [];
+    h += '<div class="ag-sec">Join a network</div>';
+    if (sc.active) {
+      h += '<div class="bt-scan on"><span class="bt-radar"><i></i>' + nico("wifi") + '</span>' +
+        '<span class="bt-main"><b>Searching…</b><span class="bt-state">Listening for Wi-Fi near the TV</span></span><span></span></div>';
+    } else {
+      h += '<button type="button" class="bt-scan" data-net-scan' + (locked ? " disabled" : "") + '>' +
+        '<span class="bt-radar">' + ico("search") + '</span>' +
+        '<span class="bt-main"><b>' + (sc.ended ? "Search again" : "Search for Wi-Fi") + '</b>' +
+          '<span class="bt-state">' + (c.wifi_on ? "Networks near the TV — a friend’s, a hotspot, a hotel’s" : "Wi-Fi is off on Eclipse — searching turns it on (nothing joins by itself)") + '</span></span>' +
+        '<i class="bt-chev go" aria-hidden="true"></i></button>';
+    }
+    if (found.length || sc.active) {
+      var nf = found.length;
+      h += '<details class="bt-results" data-net="results"' + (S.netOpen.results !== false || S.netJoin ? " open" : "") + '>' +
+        '<summary class="bt-rsum"><span class="bt-main"><b>' + (nf ? nf + " network" + (nf === 1 ? "" : "s") + " nearby" : "Looking…") + '</b>' +
+          '<span class="bt-state">Strongest first</span></span>' +
+        '<span class="bt-rhint" aria-hidden="true"></span><i class="bt-chev" aria-hidden="true"></i></summary>';
+      if (nf) h += '<div class="bt-list">' + found.map(function (n) { return foundNet(n, u, locked); }).join("") + '</div>';
+      h += '</details>';
+    }
+
+    // ── away from home
+    h += '<details class="bt-howto"' + (S.netOpen.howto ? " open" : "") + ' data-net="howto"><summary>Taking Eclipse somewhere else</summary><ul>' +
+      '<li><b>Before you go</b> switch to <b>Wi-Fi</b> — wired only means no network at all once the cable’s out</li>' +
+      '<li><b>Your phone is the key</b> — join its hotspot once, here, at home. In Wi-Fi mode Eclipse joins any saved network by itself, so turn the hotspot on wherever you are and it comes back to this dashboard</li>' +
+      '<li><b>There</b> search here and join their Wi-Fi — then you can turn the hotspot off</li>' +
+      '<li><b>Jellyfin</b> switch its path to <b>Tailscale</b> while you’re out (this card says when)</li>' +
+      '<li><b>Back home</b> plug the cable in and tap <b>Wired</b></li>' +
+      '<li><b>No dashboard at all?</b> On the TV with the remote: <b>LibreELEC → Connections</b></li></ul>' +
+      '<small>Wi-Fi mode still prefers a cable: plug one in and it takes over after a restart.</small></details>';
+    if (sw) h += '</div>';
+    h += '</div>';
+    D.paint(el, h);
+    // The typed password lives here, not in the HTML — restored after a repaint.
+    if (S.netJoin) {
+      var inp = el.querySelector('[data-net-pass="' + S.netJoin + '"]');
+      if (inp) {
+        if (inp.value !== S.netPass) inp.value = S.netPass;
+        if (S.netFocus) { S.netFocus = false; inp.focus(); }
+      }
+    }
+  }
+
+  var netTimer = null;
+  function netSay(j, okText) {
+    var bad = !(j && j.ok);
+    S.netMsg = { bad: bad, text: bad ? (j && (j.error || j.message)) || "no answer from Eclipse" : (okText || (j && j.message) || "done") };
+    clearTimeout(netTimer);
+    netTimer = setTimeout(function () { S.netMsg = null; soon(); }, bad ? 15000 : 8000);
+    soon();
+    return j;
+  }
+  function netPost(path, body) {
+    var o = { method: "POST", headers: { "X-Dash": "1" } };
+    if (body) { o.body = JSON.stringify(body); o.headers["Content-Type"] = "text/plain"; }
+    return fetch(API + "/net/" + path, o)
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .catch(function () { return { ok: false, error: "couldn’t reach eclipse-control" }; });
+  }
+  function netJoinGo(id) {
+    var inp = document.querySelector('#ec-net [data-net-pass="' + id + '"]');
+    var pw = inp ? inp.value : S.netPass;
+    if (inp) inp.blur();
+    S.netPass = ""; S.netJoin = null; S.netShow = false;
+    if (inp) inp.value = "";
+    netPost("wifi/" + encodeURIComponent(id), { pass: pw }).then(function (j) { netSay(j); });
+  }
+
+  function render() { queued = false; renderMain(); renderTv(); renderWolf(); renderCtl(); renderNet(); renderLog(); }
   // The search countdown moves every second while one runs.
-  setInterval(function () { if (S.scan && S.scan.active && !document.hidden) renderCtl(); }, 1000);
+  setInterval(function () {
+    if (document.hidden) return;
+    if (S.scan && S.scan.active) renderCtl();
+    if (S.netsw && S.netsw.active) renderNet();          // the switch's seconds
+  }, 1000);
   function soon() { if (!queued) { queued = true; requestAnimationFrame(render); } }
 
   // ── input ─────────────────────────────────────────────────────────────────
@@ -442,7 +719,7 @@
   function onClick(e) {
     var t = e.target && e.target.closest ? e.target : null;
     if (!t) return;
-    var b = t.closest("#ec-main [data-act], #ec-ctl [data-act]");
+    var b = t.closest("#ec-main [data-act], #ec-ctl [data-act], #ec-net [data-act]");
     if (b && b.closest("summary")) e.preventDefault();
     if (b && !b.disabled) {
       var name = b.getAttribute("data-act");
@@ -513,6 +790,64 @@
       btPost((off ? "disconnect/" : "connect/") + encodeURIComponent(mac)).then(function (j) { btSay(j); });
       return;
     }
+    // Network. Every switch is armed (a second tap within 3 s): it takes the
+    // box off this dashboard for up to a minute.
+    var nb = t.closest("#ec-net [data-net-mode], #ec-net [data-net-join], #ec-net [data-net-new], #ec-net [data-net-go]," +
+      " #ec-net [data-net-cancel], #ec-net [data-net-eye], #ec-net [data-net-forget], #ec-net [data-net-scan], #ec-net [data-net-jf]");
+    if (nb) {
+      e.preventDefault();
+      if (nb.disabled) return;
+      var id;
+      if (nb.hasAttribute("data-net-scan")) { netPost("scan").then(function (j) { if (!j.ok) netSay(j); }); return; }
+      if (nb.hasAttribute("data-net-cancel")) { S.netJoin = null; S.netPass = ""; S.netShow = false; soon(); return; }
+      if (nb.hasAttribute("data-net-eye")) {
+        var pi = document.querySelector("#ec-net .nt-pass");
+        if (pi) S.netPass = pi.value;
+        S.netShow = !S.netShow; S.netFocus = true; soon(); return;
+      }
+      if (nb.hasAttribute("data-net-jf")) {
+        if (S.armed !== "net-jf") { arm("net-jf"); return; }
+        S.armed = null; act("jellyfin-toggle"); return;
+      }
+      if ((id = nb.getAttribute("data-net-mode"))) {
+        if (id === "wifi" && !(S.net && (S.net.saved || []).some(function (n) { return n.in_range && n.joinable; }))) {
+          // Nothing saved in range: show what is, to pick from.
+          nresults(true);
+          netSay({ ok: true }, "No saved Wi-Fi in range — pick a network below to join it");
+          netPost("scan");
+          return;
+        }
+        if (S.armed !== "mode:" + id) { arm("mode:" + id); return; }
+        S.armed = null;
+        netPost(id).then(function (j) { netSay(j); });
+        return;
+      }
+      if ((id = nb.getAttribute("data-net-join"))) {
+        if (S.armed !== "join:" + id) { arm("join:" + id); return; }
+        S.armed = null;
+        netPost("wifi/" + encodeURIComponent(id)).then(function (j) { netSay(j); });
+        return;
+      }
+      if ((id = nb.getAttribute("data-net-new"))) {
+        var nn = S.net && (S.net.found || []).filter(function (n) { return n.id === id; })[0];
+        if (nn && !nn.secure) {                       // open: no password, just confirm
+          if (S.armed !== "open:" + id) { arm("open:" + id); return; }
+          S.armed = null;
+          netPost("wifi/" + encodeURIComponent(id), { pass: "" }).then(function (j) { netSay(j); });
+          return;
+        }
+        S.netJoin = id; S.netPass = ""; S.netShow = false; S.netFocus = true; soon();
+        return;
+      }
+      if ((id = nb.getAttribute("data-net-go"))) { netJoinGo(id); return; }
+      if ((id = nb.getAttribute("data-net-forget"))) {
+        if (S.armed !== "nforget:" + id) { arm("nforget:" + id); return; }
+        S.armed = null;
+        netPost("forget/" + encodeURIComponent(id)).then(function (j) { netSay(j); });
+        return;
+      }
+      return;
+    }
     var k = t.closest("#ec-wolf [data-kill]");
     if (k) {
       var id = k.getAttribute("data-kill"), kk = "kill:" + id;
@@ -526,7 +861,7 @@
     }
   }
 
-  D.ready("#ec-main, #ec-tv, #ec-wolf, #ec-ctl, #ec-log", function () {
+  D.ready("#ec-main, #ec-tv, #ec-wolf, #ec-ctl, #ec-net, #ec-log", function () {
     D.stream(API + "/events", {
       status: function (d) { S.status = d; soon(); },
       tv: function (d) { S.tv = d; soon(); },
@@ -542,6 +877,18 @@
         soon();
       },
       ctlbusy: function (d) { S.ctlbusy = d || {}; soon(); },
+      net: function (d) { S.net = d; soon(); },
+      netscan: function (d) {
+        if (d.active && S.netscan && !S.netscan.active) nresults(true);   // a new search: show it
+        S.netscan = d; soon();
+      },
+      netsw: function (d) {
+        // A switch this page watched has ended: say how, in the card itself.
+        if (S.netsw && S.netsw.active && !d.active && d.last) {
+          netSay(d.last.ok ? { ok: true, message: d.last.message } : { ok: false, error: d.last.message });
+        }
+        S.netsw = d; soon();
+      },
       activity: function (d) { S.activity = d; soon(); },
       busy: function (d) { S.busy = d; soon(); }
     }, "ec-live");
@@ -550,6 +897,18 @@
     // rendered `open`, so the page has to remember it).
     document.addEventListener("toggle", function (e) {
       var d = e.target;
+      if (d && d.matches && d.matches("#ec-log details[data-lg]")) {
+        if (S.logOpen !== d.open) {
+          S.logOpen = d.open; soon();
+          try { localStorage.setItem(LOGK, d.open ? "open" : "folded"); } catch (x) { /* private window */ }
+        }
+        return;
+      }
+      if (d && d.matches && d.matches("#ec-net details[data-net]")) {
+        var nk = d.getAttribute("data-net");
+        if (nk === "results") nresults(d.open); else S.netOpen[nk] = d.open;
+        return;
+      }
       if (!d || !d.matches || !d.matches("#ec-ctl details[data-bt]")) return;
       var k = d.getAttribute("data-bt");
       if (k === "results") results(d.open);
@@ -559,12 +918,21 @@
     // repaint again (renderCtl holds off while it has focus).
     document.addEventListener("keydown", function (e) {
       var i = e.target;
+      if (i && i.classList && i.classList.contains("nt-pass")) {
+        if (e.key === "Enter") { e.preventDefault(); netJoinGo(i.getAttribute("data-net-pass")); }
+        else if (e.key === "Escape") { S.netJoin = null; S.netPass = ""; i.blur(); soon(); }
+        return;
+      }
       if (!i || !i.classList || !i.classList.contains("bt-input")) return;
       if (e.key === "Enter") { e.preventDefault(); saveName(i.getAttribute("data-bt-name")); }
       else if (e.key === "Escape") { i.value = i.defaultValue; i.blur(); }
     });
     document.addEventListener("focusout", function (e) {
       if (e.target && e.target.classList && e.target.classList.contains("bt-input")) setTimeout(soon, 0);
+    });
+    // The password is kept as it's typed (a repaint must not lose it).
+    document.addEventListener("input", function (e) {
+      if (e.target && e.target.classList && e.target.classList.contains("nt-pass")) S.netPass = e.target.value;
     });
     // relative times ("3m ago") keep moving between events
     setInterval(function () { if (!document.hidden) soon(); }, 30000);

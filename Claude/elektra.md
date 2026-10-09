@@ -13,11 +13,19 @@ notes elsewhere that say "Elektra" and KDE mean that first one.
 
 ### The 2026-10-09 rename, Kit-Kat → Elektra
 
+- **Nothing of hers moves.** Checked against the config just before the rename: her
+  user, home (`/home/kitkat`), groups, shell, password secret, sops file and key (the
+  ssh host key), disks and boot loader are identical — only `networking.hostName`
+  changed.
 - **Brave keeps her profile.** Its folder is named after the host
   (`Brave-Browser-<name>`), so `my.brave.profileName = "Kit-Kat"` keeps it pointing at
-  the existing one — bookmarks, logins, extensions stay put. `brave.nix` also clears a
-  profile lock left under the *old* hostname (it would read as "in use by another
-  computer"), and only when Brave isn't running.
+  the existing one — bookmarks, logins, extensions stay put.
+- **No "profile in use by another computer".** Every Chromium-based app (Brave, Helium,
+  VSCodium, Vesktop, Spotify) stamps its profile lock with the hostname; one left by a
+  crash under the OLD name would make the app refuse to open. `staleProfileLocks` in
+  `Modules/Desktop/desktop.nix` clears those on every switch and boot — only a lock
+  naming another host whose pid isn't running; live locks and this host's own are left
+  alone.
 - **The first push goes to the old tailnet name**, because `elektra` doesn't resolve
   until the rename is live: `system-rebuild kitkat Elektra --target kit-kat` (from
   Sisyphus, after Sisyphus has the new `system-rebuild`). From then on, plain
@@ -27,9 +35,13 @@ notes elsewhere that say "Elektra" and KDE mean that first one.
   auto-generate there (Machines → kit-kat → Edit machine name). Her MarsBar grants are
   by *user*, not machine name, so they don't change.
 - **Sisyphus's ssh** will ask once to trust `elektra` (same host key, new name).
-- **Reinstalls**: `apollo-deploy` reads her pre-generated host key from
-  `~/.local/share/apollo/<Host>` — on Sisyphus, `mv ~/.local/share/apollo/Elektra
-  ~/.local/share/apollo/Elektra` before the next install.
+- **Reinstalls**: `apollo-deploy kitkat-Elektra` plants her pre-generated ssh host key
+  (so her password secret decrypts on first boot) from `~/.local/share/apollo/<Host>`.
+  Until the next install it is still in the old `~/.local/share/apollo/Kit-Kat` on
+  Sisyphus; `apollo-deploy` moves it to `…/Elektra` itself, once, and says so. A
+  reinstall rebuilds the whole SYSTEM from this repo; what lives only in `/home/kitkat`
+  (downloads, browser data, game saves) is wiped with the disk unless it's backed up
+  first.
 - Not renamed: her user (`kitkat`), her sops file (`Secrets/kit-kat.yaml`, module
   `sops-kitkat`) — those are hers, not the machine's.
 
@@ -107,7 +119,7 @@ Her node is `elektra` (`kit-kat` until the 2026-10-09 rename; the address stays)
    device is destroyed. Check from the booted stick: `apollo-connect`, then
    `lsblk -o NAME,SIZE,MODEL`.
 2. ~~Pre-generate her ssh host key~~ ✅ **DONE 2026-10-02.** The key lives at
-   `~/.local/share/apollo/Elektra/etc/ssh/ssh_host_ed25519_key` (outside the repo —
+   `~/.local/share/apollo/Elektra/etc/ssh/ssh_host_ed25519_key` (still under `…/Kit-Kat/` on Sisyphus until the next `apollo-deploy` moves it; outside the repo —
    this repo is public), its age identity
    `age185mqahaq2pac7szxvzkmlg5mdv4lcjgvtjkwu2ly24cc3mva3pssh4yuw2` is in `.sops.yaml`
    as `&kitkat`, and `Secrets/kit-kat.yaml` has been re-encrypted to include it.

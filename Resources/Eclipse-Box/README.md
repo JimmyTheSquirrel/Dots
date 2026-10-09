@@ -203,6 +203,14 @@ Wi-Fi is still *available* — it just never connects on its own. Bring it up de
 `connmanctl connect <svc>` if the box ever needs it (e.g. reaching it over Tailscale with no
 wired link).
 
+**The dashboards do this now** (2026-10-09): the Eclipse **Network** card's *Wired* button is
+this exact state (and re-installs the override if a re-flash lost it); *Wi-Fi* is the away mode
+(saved networks join by themselves, a cable still wins), and it joins new networks with their
+password. Both run `Resources/Eclipse-Control/eclipse-net.sh` on the Pi, detached and
+self-reverting like the script below — see `Claude/eclipse.md` → *Network · `#ec-net`*. This
+script stays as the way to re-apply wired-only after a re-flash when the dashboards can't reach
+the box.
+
 ### `wired-only-apply.sh`
 
 The script that applied it, kept because it is the safe way to re-apply after a re-flash. It

@@ -744,9 +744,18 @@ picker, which asgard.css hides (its presets fight the HUD's tokens).
   `#rrggbb+#rrggbb` for a two-tone theme (stored as such). One colour: the second light
   and the other series are neighbours a fair way round the wheel (hue +30, +48 and a
   paler −34). Two-tone: the second colour is the second light and the second series, the
-  third sits between the two. Lightness is held in a **light band, 0.6–0.84**, and
-  saturation capped at 0.9, so even a custom pick comes out soft on the glass (and a
-  near-black one doesn't vanish). Everything else follows because it is written in those tokens: ⚠ **a new rule
+  third sits between the two. Lightness is held in a **light band, 0.6–0.84** (the partner
+  may go to 0.55), and saturation capped at 0.9, so even a custom pick comes out soft on the
+  glass (and a near-black one doesn't vanish).
+- **A pick changes the room, not just the outlines** (2026-10-09: "they're all the same
+  somehow" — two pastels on the same grey read as one colour). The pairs were rebuilt to
+  *contrast* (halves far apart on the wheel; the partner may be deeper — Fjord's deep blue,
+  Muspelheim's red fire, Skaði's pine), and each pick also sets `--ag-page`, `--ag-ground`,
+  `--ag-surface` and `--ag-pop` — the ground, the glass and pop-ups take the main colour's
+  hue at a low, dark saturation (`ground()` in theme.js; near-white mains use the partner's
+  hue) — while the two lights fall from the top corners and the partner glows low on the
+  page. The **card frame** runs from the first colour (top-left bracket) into the second
+  (bottom-right), a gradient in hud.py's `frame()`; the **active tab** carries both. Everything else follows because it is written in those tokens: ⚠ **a new rule
   that colours the HUD must use `var(--hud…)` / `rgb(var(--hud-rgb) / a)` / `--s*`, never
   a literal mint** (or it stays mint under every other pick). Status colours (good / warn /
   bad) deliberately don't move.
@@ -851,6 +860,32 @@ picker, which asgard.css hides (its presets fight the HUD's tokens).
     layers pause. **On MarsBar the back layer stands still** — her cards are frosted glass
     (`backdrop-filter`), and anything moving under the glass is re-blurred every frame.
     Reduced motion: nothing falls, flies or twinkles; the sky, moon, mist and light stay.
+- **Ravens — Huginn and Muninn** (2026-10-09, Asgard only — MarsBar has her garden; a stale
+  `ravens` pick there falls back to her default). Odin's two ravens "fly each day over the
+  wide world" and bring him the news, which is what this dashboard is for. `ravens.css` +
+  `ravens.js` (`data-ravens` / `data-ravens-js`, fetched only when picked; `html[data-ravens]`,
+  `Ravens.on()` / `.off()`). Silver and raven-violet (`#c9d2ec+#9d8cff`).
+  - Two rigged SVG ravens perch on cards' top edges — black, with a rim of the theme's second
+    colour so they read on the dark ground, and an eye-glint of the first. They breathe, blink,
+    tilt, look round, preen, ruffle, bob and hop; now and then one flies to another card on
+    screen along a rising arc (sampled WAAPI keyframes, `Element.prototype.animate` — Glance
+    replaces `HTMLElement`'s), wings beating. Scrolled out of sight for a while, one flies back
+    to a card you can see.
+  - **Tap one**: it croaks and says something it has seen. **Huginn** (thought, the *ansuz*
+    rune) — what's happening now: downloads, what's playing, the lamps, Asgard's load and heat,
+    Eclipse and its network, the hour. **Muninn** (memory, *mannaz*) — what has happened: the
+    last download to land, the last thing done to Eclipse, Asgard's uptime, the free space
+    ("left in the hoard"), today's downloads; and, when the cards say nothing, Grímnismál.
+    Pester one (five taps) and it flies off.
+  - **News**: when a download lands, something starts playing, Eclipse drops off or comes back
+    or changes network, or the lamps change, a raven flies to that card and waits with a
+    glowing mark until tapped (one piece of news per 20 s; nothing is news on first load).
+  - It reads the cards **from the outside** (their text and classes), like the cats. Read-outs
+    live in the `<body>` (a card is its own stacking context — inside it they'd slide under
+    the next card). A perch is chosen **clear of every button and link, of the nav bar and the
+    phone's menu bar, and of the other raven**; a card with no clear spot (the 12 px gap under
+    the Storage card's drive row) is skipped, and a raven that can't land clear waits for the
+    next look. Reduced motion: no acts, no flights (news is just the mark); a tap still answers.
 
 **The colour system** — the default the picker starts from (table and reasoning at the
 top of `asgard.css`): **mint** `#3be8a8`
