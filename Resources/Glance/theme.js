@@ -17,20 +17,21 @@
 //
 // Every pick is a TWO-tone (a main light and its partner) or one of the "Just
 // for fun" themes — a two-tone of its own that also puts something living on
-// the page: Cats (cats.css + cats.js, data-cats / data-cats-js), or Snow,
-// Sakura, Starry night, Spooky and Ocean (fx.css + fx.js, data-fx /
-// data-fx-js), or — Asgard only — Ravens, Huginn and Muninn bringing the news
+// the page. MarsBar: Cats (cats.css + cats.js, data-cats / data-cats-js), or
+// Snow, Sakura, Starry night, Spooky and Ocean (fx.css + fx.js, data-fx /
+// data-fx-js). Asgard has just the one (rock, 2026-10-09: "one clean for fun,
+// not that many options"): Ravens, Huginn and Muninn bringing the news
 // (ravens.css + ravens.js, data-ravens / data-ravens-js). Those files are
 // fetched only when someone picks one.
 //
 // Asgard also has SKINS (2026-10-09) — the whole look, not its colour, so any
-// skin wears any colour: Tech (the HUD as it ships), Tech + Garden (Kit-Kat's
-// garden grown over the HUD: her vines, blossoms, butterflies and fireflies —
-// garden.css + garden-hud.css + garden.js, the same garden.js MarsBar runs,
-// data-garden / data-garden-js, her vine.svg recoloured to the pick from
-// data-vine) and Star Wars (starwars.css + starwars.js, data-starwars /
-// data-starwars-js). A row at the top of the picker; each skin's switches
-// under it. <html data-skin="garden|starwars">; stored as asgard-skin.
+// skin wears any colour: Tech (the HUD as it ships) and Tech + Garden
+// (Kit-Kat's garden grown over the HUD: her vines, blossoms, butterflies and
+// fireflies — garden.css + garden-hud.css + garden.js, the same garden.js
+// MarsBar runs, data-garden / data-garden-js, her vine.svg recoloured to the
+// pick from data-vine). A row at the top of the picker; the skin's switches
+// under it. <html data-skin="garden">; stored as asgard-skin. (A Star Wars
+// skin was tried the same day and taken out — "looks very basic".)
 //
 // It runs in <head>, before the page paints, so there's no flash of the
 // default: the palette is computed from the stored pick, and redrawn artwork
@@ -65,8 +66,6 @@
   var GARDEN_CSS = attr("data-garden");          // garden.css,garden-hud.css
   var GARDEN_JS = attr("data-garden-js");
   var VINE_URL = attr("data-vine");
-  var SW_CSS = attr("data-starwars");
-  var SW_JS = attr("data-starwars-js");
   var FINE = !!(window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches);
   var KEY = MB ? "marsbar-colour" : "asgard-hud-colour";
   var ART = MB ? "marsbar-art" : "asgard-hud-art";
@@ -117,18 +116,20 @@
     ["Iðunn — apples and leaves", "#ff8f8f+#b5e67a"], ["Freyja — rose and the falcon's green", "#ffa6c9+#5ee8b0"],
   ];
   // The fun themes: a two-tone of their own, and something living on the page.
-  // Cats is cats.css + cats.js; the rest are fx.css + fx.js (data-fx,
-  // data-fx-js) — each pair fetched only when one of its themes is picked.
+  // MarsBar's: Cats is cats.css + cats.js; the rest are fx.css + fx.js
+  // (data-fx, data-fx-js) — each pair fetched only when one of its themes is
+  // picked. Asgard's one: the Ravens. A stale pick from the other's list (an
+  // old Sakura on Asgard) falls back to the house colours.
   var FUN = [
-    ["cats", "Cats — cats everywhere", "#ffb36b+#ff9ec4"],             // ginger and a pink nose
-    ["snow", "Snow — a quiet snowfall", "#e3f1ff+#9fc8ff"],
-    ["sakura", "Sakura — blossom petals on the wind", "#ffb7d5+#b5e6a0"],
-    ["stars", "Starry night — a moon, stars, the odd shooting star", "#a99bff+#ffe08a"],   // night, and starlight
-    ["spooky", "Spooky — bats at dusk, and a spider", "#ffa95c+#b99cff"],
-    ["ocean", "Ocean — bubbles, light through the water, fish", "#7fe3e8+#ffa697"],
-    // Asgard's alone (ravens.css + ravens.js): Odin's two, perched on the cards.
+    ["cats", "Cats — cats everywhere", "#ffb36b+#ff9ec4", "mb"],             // ginger and a pink nose
+    ["snow", "Snow — a quiet snowfall", "#e3f1ff+#9fc8ff", "mb"],
+    ["sakura", "Sakura — blossom petals on the wind", "#ffb7d5+#b5e6a0", "mb"],
+    ["stars", "Starry night — a moon, stars, the odd shooting star", "#a99bff+#ffe08a", "mb"],   // night, and starlight
+    ["spooky", "Spooky — bats at dusk, and a spider", "#ffa95c+#b99cff", "mb"],
+    ["ocean", "Ocean — bubbles, light through the water, fish", "#7fe3e8+#ffa697", "mb"],
+    // ravens.css + ravens.js: Odin's two, perched on the cards.
     ["ravens", "Ravens — Huginn and Muninn bring you the news", "#c9d2ec+#9d8cff", "hud"],
-  ].filter(function (f) { return !(MB && f[3] === "hud"); });
+  ].filter(function (f) { return f[3] === (MB ? "mb" : "hud"); });
   var FUNS = {};
   FUN.forEach(function (f) { FUNS[f[0]] = f[2]; });
   var VALID = new RegExp("^(" + Object.keys(FUNS).join("|") + "|#[0-9a-f]{6}(\\+#[0-9a-f]{6})?)$");
@@ -367,18 +368,16 @@
   }
 
   // ── skins (Asgard) ──────────────────────────────────────────────────────────
-  // The look, not the colour. Each skin's switches live in this browser:
-  // asgard-garden-<part> (read by garden.js too) and asgard-sw-<part>.
+  // The look, not the colour. The garden's switches live in this browser as
+  // asgard-garden-<part> (read by garden.js too).
   var SKIN_KEY = "asgard-skin";
   var SKINS = MB ? [] : [
     ["tech", "Tech", "The HUD, as it ships"],
-    ["garden", "Garden", "Tech + Garden — Kit-Kat’s garden grows over your HUD"],
-    ["starwars", "Star Wars", "A long time ago, on a server far, far away…"]
+    ["garden", "Garden", "Tech + Garden — Kit-Kat’s garden grows over your HUD"]
   ];
   var SKIN_ICON = {
     tech: '<path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5"/><path d="M8 12h8M12 8v8"/>',
-    garden: '<path d="M12 21V11"/><path d="M12 14c-4 0-7-2.5-7-7 4 0 7 2.5 7 7zM12 12c0-4 2.5-7 7-7 0 4-2.5 7-7 7z"/>',
-    starwars: '<path d="M12 2l1.6 5.4L19 9l-5.4 1.6L12 16l-1.6-5.4L5 9l5.4-1.6z"/><circle cx="19" cy="18" r="1.2"/><circle cx="5" cy="19" r=".9"/><circle cx="20" cy="4" r=".7"/>'
+    garden: '<path d="M12 21V11"/><path d="M12 14c-4 0-7-2.5-7-7 4 0 7 2.5 7 7zM12 12c0-4 2.5-7 7-7 0 4-2.5 7-7 7z"/>'
   };
   // The garden's parts (garden.js): MarsBar's three switches, and on Asgard
   // the vines as well (MarsBar's vine rails are her stylesheet's, always on).
@@ -386,16 +385,8 @@
                 ["butterflies", "Butterflies", "land on the vine · tap one"],
                 ["fireflies", "Fireflies", "at night, or lights off"]];
   var GARDEN_HUD = [["vines", "Vines", "climbing every card’s frame"]].concat(GARDEN);
-  var SW_OPTS = [["crawl", "Opening crawl", "once a day, on the home page"],
-                 ["jump", "Hyperspace", "a jump between pages"],
-                 ["sabers", "Lightsabers", "every bar a blade"]];
-  var OPTS = { garden: GARDEN_HUD, starwars: SW_OPTS };
-  // Blade colours for the Star Wars skin — plain two-tone picks (any colour
-  // works in any skin), offered under it because the house mint isn't one.
-  var BLADES = [["Jedi — blue and green blades", "#5cc8ff+#6dff9e"], ["Sith — red, and cold steel", "#ff4d4d+#a3adbf"],
-                ["Purple and gold — a Master's", "#b98cff+#ffd36b"], ["Rebel — flight-suit orange and white", "#ffa04d+#eef3fb"],
-                ["The dark blade — white-black and steel blue", "#eaf2ff+#7f8fb8"], ["Kyber yellow and holo blue", "#ffe36b+#5cc8ff"]];
-  function optKey(group, part) { return (group === "starwars" ? "asgard-sw-" : MB ? "marsbar-" : "asgard-garden-") + part; }
+  var OPTS = { garden: GARDEN_HUD };
+  function optKey(group, part) { return (MB ? "marsbar-" : "asgard-garden-") + part; }
   function optOn(group, part) { return get(optKey(group, part)) !== "off"; }
   var skin = null;
   // The garden's two hues: petals and leaves. The house colours get her
@@ -436,7 +427,6 @@
     var was = skin;
     skin = s;
     if (was === "garden" && window.Garden) GARDEN_HUD.forEach(function (g) { window.Garden.set(g[0], false); });
-    if (was === "starwars" && window.StarWars) window.StarWars.off();
     if (s === "tech") root.removeAttribute("data-skin");
     else root.setAttribute("data-skin", s);
     gardenPaint();
@@ -444,12 +434,6 @@
       load(GARDEN_CSS, GARDEN_JS, "data-garden-loaded", function () {
         if (skin !== "garden" || !window.Garden) return !!window.Garden;
         GARDEN_HUD.forEach(function (g) { window.Garden.set(g[0], optOn("garden", g[0])); });
-        return true;
-      });
-    } else if (s === "starwars") {
-      load(SW_CSS, SW_JS, "data-starwars-loaded", function () {
-        if (skin !== "starwars" || !window.StarWars) return !!window.StarWars;
-        window.StarWars.on();
         return true;
       });
     }
@@ -541,14 +525,13 @@
   // garden.js reads the same keys when it starts; window.Garden switches a
   // part live.
   function gardenOn(part) { return optOn("garden", part); }
-  // A switch: "garden:blossoms", "starwars:crawl" — or, on MarsBar, a bare
-  // garden part. Stored in this browser; the skin's script told at once.
+  // A switch: "garden:blossoms" — or, on MarsBar, a bare garden part. Stored
+  // in this browser; garden.js told at once.
   function toggleOpt(id) {
     var g = id.indexOf(":") > 0 ? id.split(":")[0] : "garden", part = id.split(":").pop();
     var on = !optOn(g, part);
     set(optKey(g, part), on ? null : "off");
     if (g === "garden" && window.Garden && window.Garden.set && (MB || skin === "garden")) window.Garden.set(part, on);
-    if (g === "starwars" && window.StarWars && window.StarWars.set) window.StarWars.set(part, on);
     sync();
   }
   function switches(list, group) {
@@ -564,8 +547,7 @@
         '<svg viewBox="0 0 24 24" aria-hidden="true">' + SKIN_ICON[k[0]] + '</svg><span>' + k[1] + '</span></button>';
     }).join("") + '</div>' +
       Object.keys(OPTS).map(function (g) {
-        return '<div class="hud-opts" data-skin-for="' + g + '" hidden>' + switches(OPTS[g], g) +
-          (g === "starwars" ? '<div class="hud-sub">Blades</div>' + swatches(BLADES.map(function (d) { return [d[0], d[1], d[1]]; })) : "") + '</div>';
+        return '<div class="hud-opts" data-skin-for="' + g + '" hidden>' + switches(OPTS[g], g) + '</div>';
       }).join("") +
       '<div class="hud-sub">Colour</div>';
   }

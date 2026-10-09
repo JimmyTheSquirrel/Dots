@@ -54,13 +54,8 @@
       # its Living tree view (loaded the first time someone shows it)
       "ygg-live.js" = ../../Resources/Glance/ygg-live.js;
       "theme.js" = ../../Resources/Glance/theme.js;
-      # the picker's Cats theme: how the cats look, and what they do (fetched only when picked)
-      "cats.css" = ../../Resources/Glance/cats.css;
-      "cats.js" = ../../Resources/Glance/cats.js;
-      # its other fun themes — snow, sakura, starry night, spooky, ocean (likewise)
-      "fx.css" = ../../Resources/Glance/fx.css;
-      "fx.js" = ../../Resources/Glance/fx.js;
-      # Ravens — Huginn and Muninn, Asgard's own fun theme (likewise)
+      # The picker's one fun theme here — Ravens, Huginn and Muninn (fetched
+      # only when picked; MarsBar has the others: cats, snow, sakura, …)
       "ravens.css" = ../../Resources/Glance/ravens.css;
       "ravens.js" = ../../Resources/Glance/ravens.js;
       # Skins (the picker's Skin row; each fetched only when picked):
@@ -71,9 +66,6 @@
       "garden.js" = ../../Resources/MarsBar/garden.js;
       "garden-hud.css" = ../../Resources/Glance/garden-hud.css;
       "vine.svg" = ../../Resources/MarsBar/vine.svg;
-      # — and Star Wars
-      "starwars.css" = ../../Resources/Glance/starwars.css;
-      "starwars.js" = ../../Resources/Glance/starwars.js;
     };
     # The HUD's artwork — the panel frame round every card, the grid that
     # tiles down the page, the misty pines pinned to the foot of the screen,
@@ -696,7 +688,7 @@
         <link rel="stylesheet" href="${asset "cards.css"}">
         <link rel="stylesheet" href="/assets/hud/hud.css?v=${hudVersion}">
         <link rel="stylesheet" href="${asset "overview.css"}">
-        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}" data-cats="${asset "cats.css"}" data-cats-js="${asset "cats.js"}" data-fx="${asset "fx.css"}" data-fx-js="${asset "fx.js"}" data-ravens="${asset "ravens.css"}" data-ravens-js="${asset "ravens.js"}" data-garden="${asset "garden.css"},${asset "garden-hud.css"}" data-garden-js="${asset "garden.js"}" data-vine="${asset "vine.svg"}" data-starwars="${asset "starwars.css"}" data-starwars-js="${asset "starwars.js"}"></script>
+        <script src="${asset "theme.js"}" data-default="#3be8a8" data-hud="${hudVersion}" data-tpl="/assets/hud/tpl.js?v=${hudVersion}" data-ravens="${asset "ravens.css"}" data-ravens-js="${asset "ravens.js"}" data-garden="${asset "garden.css"},${asset "garden-hud.css"}" data-garden-js="${asset "garden.js"}" data-vine="${asset "vine.svg"}"></script>
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "asgard.js"}" data-api-port="${toString bridgePort}" defer></script>

@@ -1380,7 +1380,7 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 /* Skins (theme.js): three tiles, the one on lit in both colours; its
    switches (.hud-opts) under the row. */
 .hud-sub.hud-first { margin-top: 0; }
-.hud-skins { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.hud-skins { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .hud-skin {
   display: grid; justify-items: center; gap: 5px;
   padding: 9px 4px 8px;

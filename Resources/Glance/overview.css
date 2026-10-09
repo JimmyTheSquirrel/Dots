@@ -231,29 +231,38 @@ button.ov-link:hover { border-color: var(--hud); }
 .ov-pane[hidden] { display: none; }
 
 /* ── The living tree (ygg-live.js) ────────────────────────────────────────────
-   One SVG, drawn once; the live state is classes and custom properties on it:
-   --cpu (the heartwood), --yg-heat, --wind (the sway), and per cluster --act
-   (how bright) and .down / .part / .lit / .sel. Zone colours (--zc) are the
-   Map's. Every colour is a HUD token, so the picker recolours the tree. */
+   Two SVGs stacked on one viewBox: .yg-back is the still picture (sky, hill,
+   wood, the canopy's leaves), drawn once and never repainted; .yg-live, over
+   it, is everything that moves or answers a tap. The live state is classes
+   and custom properties: on the stage --cpu (the heartwood), --yg-heat and
+   --wind (the sway); per cluster --act (how bright) and .down / .part / .lit /
+   .sel. Zone colours (--zc) are the Map's; the wood and leaves are mixed with
+   the HUD's colours, so the picker recolours the tree. */
 .yg-wrap { display: grid; gap: 12px; }
 .yg-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; font-size: 1.35rem; color: var(--ag-text-dim); }
 .yg-status b { font-family: var(--ag-title); font-weight: 500; letter-spacing: 0.08em; color: var(--hud); }
 .yg-status b.bad { color: var(--ag-bad); }
 .yg-status span { font-size: 1.2rem; color: var(--ag-text-faint); }
-.yg-stage { position: relative; }
-svg.yg { display: block; width: 100%; height: auto; overflow: visible; --wind: 0.15; --cpu: 0.2; }
+.yg-stage { position: relative; --wind: 0.15; --cpu: 0.2; }
+svg.yg-back { display: block; width: 100%; height: auto; will-change: transform; }
+svg.yg-live { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .yg .yg-hit { fill: transparent; stroke: none; cursor: pointer; }
 .yg text { font-family: var(--ag-title); font-size: 12px; letter-spacing: 0.08em; text-anchor: middle; fill: var(--ag-text-dim);
-  paint-order: stroke; stroke: rgb(4 6 9 / 0.9); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+  paint-order: stroke; stroke: rgb(4 6 9 / 0.92); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
 .yg text.k { font-size: 10.5px; fill: var(--ag-text-faint); }
-.yg text.trunk { font-size: 14px; letter-spacing: 0.3em; fill: rgb(255 255 255 / 0.5); stroke-width: 3px; }
+.yg text.trunk { font-size: 11px; letter-spacing: 0.32em; fill: rgb(255 255 255 / 0.45); stroke-width: 3px; }
 .yg text.w { font-size: 11px; }
 .yg text.s { font-size: 10.5px; fill: var(--ag-text-faint); }
 
-/* the sky */
+/* the sky and the hill */
 .yg-sky circle { fill: #fff; opacity: 0.35; animation: yg-tw var(--tw, 4s) ease-in-out var(--tl, 0s) infinite alternate; }
 @keyframes yg-tw { to { opacity: 0.9; } }
-.yg-ground { fill: rgb(var(--hud-rgb) / 0.05); filter: url(#yg-glow); }
+.yg-aura { fill: url(#yg-aura); }
+.yg-hill { fill: url(#yg-hill); }
+.yg-hill-edge { fill: none; stroke: rgb(var(--hud-rgb) / 0.22); stroke-width: 1.2; }
+.yg-grass { fill: none; stroke: color-mix(in srgb, var(--hud) 30%, #1d3a2a); stroke-width: 1.1; stroke-linecap: round; opacity: 0.75; }
+.yg-ground { fill: rgb(var(--hud-rgb) / 0.06); filter: url(#yg-glow); }
+.yg-mound { fill: url(#yg-hill); }
 .yg-star { fill: #fff; filter: drop-shadow(0 0 4px #fff); }
 .yg-halo { fill: rgb(var(--hud-rgb) / 0.12); }
 .yg-s[data-id="sisyphus"] .yg-star { fill: var(--hud-hot, #fff); filter: drop-shadow(0 0 8px var(--hud)); }
@@ -261,16 +270,35 @@ svg.yg { display: block; width: 100%; height: auto; overflow: visible; --wind: 0
 .yg-s[data-id="sisyphus"] text { fill: var(--hud); }
 @keyframes yg-breath { 50% { opacity: 0.55; } }
 
-/* the trunk: bark and grain, and the heartwood glowing with the CPU */
-.yg-bark { fill: url(#yg-bark); stroke: rgb(var(--hud-rgb) / 0.35); stroke-width: 1.2; }
-.yg-grain { fill: none; stroke: rgb(0 0 0 / 0.45); stroke-width: 1.4; stroke-linecap: round; }
-.yg-heart { fill: url(#yg-heart); opacity: calc(0.25 + var(--cpu) * 0.75); filter: url(#yg-glow); transition: opacity 1.5s ease; }
+/* the wood: one body, its shadow side and sunlit side, grain, and a rim of
+   light along the lit edge in the limb's zone colour */
+.yg-wood { fill: #2e251e; }
+.yg-wood-dark { fill: #0b0907; opacity: 0.3; }
+.yg-wood-dark.deep { opacity: 0.35; }
+.yg-wood-lit { fill: #75604b; opacity: 0.26; }
+.yg-wood-lit.hi { fill: #8d7559; opacity: 0.3; }
+.yg-grain { fill: none; stroke: rgb(0 0 0 / 0.42); stroke-width: 1.1; stroke-linecap: round; }
+.yg-grain.hi { stroke: rgb(255 232 205 / 0.09); }
+.yg-edge { fill: none; stroke: color-mix(in srgb, var(--zc) 75%, #fff); stroke-width: 1; stroke-linecap: round; opacity: 0.42; }
+.yg-hollow { fill: #070605; stroke: #4a3b2e; stroke-width: 2.4; }
+/* the canopy's own leaves: deep in the crown, and nearer */
+.yg-mass { fill: color-mix(in srgb, var(--hud) 8%, #0a1711); opacity: 0.8; filter: url(#yg-soft); }
+.yg-fol.far { fill: color-mix(in srgb, var(--hud) 16%, #10281c); }
+.yg-fol.near { fill: color-mix(in srgb, var(--hud) 26%, #1b4330); }
+.yg-stalk { fill: none; stroke: #2c3a2c; stroke-width: 0.7; }
+.yg-stalk.near { stroke: #3a4a36; }
+
+/* the trunk's heartwood glows through its crack with the CPU, warmer with the heat */
+.yg-heart { fill: var(--yg-heat, var(--hud)); opacity: calc(0.3 + var(--cpu) * 0.7); transition: opacity 1.5s ease; }
+.yg-heart.glow { filter: url(#yg-glow); }
+.yg-runes { fill: none; stroke: var(--yg-heat, var(--hud)); stroke-width: 1.5; stroke-linecap: round; opacity: calc(0.35 + var(--cpu) * 0.5);
+  filter: drop-shadow(0 0 3px var(--yg-heat, var(--hud))); transition: opacity 1.5s ease; }
 
 /* roots and wells */
-.yg-root { fill: #2a221c; stroke: rgb(var(--hud-rgb) / 0.2); stroke-width: 1; }
 .yg-rootglow { fill: none; stroke: var(--s4); stroke-width: 2; stroke-linecap: round; opacity: 0; stroke-dasharray: 3 9; transition: opacity 0.6s ease; }
 .yg-rootglow.busy { opacity: 0.85; animation: yg-flow 1.4s linear infinite reverse; }
-.yg-rim { fill: #0b0e12; stroke: rgb(var(--hud-rgb) / 0.35); stroke-width: 1.5; }
+.yg-rim { fill: #0b0e12; stroke: rgb(var(--hud-rgb) / 0.3); stroke-width: 1.5; }
+.yg-stones ellipse { fill: #262b30; stroke: rgb(0 0 0 / 0.5); stroke-width: 0.8; }
 .yg-water { fill: rgb(var(--hud2-rgb) / 0.35); filter: drop-shadow(0 0 6px rgb(var(--hud2-rgb) / 0.6)); }
 .yg-fill { fill: none; stroke: var(--s4); stroke-width: 4; stroke-linecap: round; vector-effect: non-scaling-stroke; transition: stroke-dasharray 1.2s ease; }
 .yg-w.warn .yg-fill { stroke: var(--ag-warn); }
@@ -278,32 +306,29 @@ svg.yg { display: block; width: 100%; height: auto; overflow: visible; --wind: 0
 .yg-w.ripple .yg-ripple { animation: yg-ripple 1.6s ease-out; }
 @keyframes yg-ripple { from { opacity: 1; transform: scale(0.4); } to { opacity: 0; transform: scale(5); } }
 
-/* the limbs */
-.yg-limb { fill: url(#yg-bark); stroke: rgb(0 0 0 / 0.35); stroke-width: 0.6; }
-.yg-limb.tw { fill: #3a2e24; }
-/* the light catching each limb's upper edge — its zone's colour, faintly */
-.yg-vein { fill: none; stroke: color-mix(in srgb, var(--zc) 55%, #fff); stroke-width: 1.1; stroke-linecap: round; opacity: 0.32; }
-
-/* the leaves: a cluster per service, swaying with the wind, brighter when busy */
+/* a service's cluster: swaying with the wind, brighter (and glowing) when busy */
 .yg-sway { transform-box: view-box; animation: yg-sway var(--sd, 7s) ease-in-out var(--sl, 0s) infinite alternate; }
 @keyframes yg-sway {
   from { transform: rotate(calc(-1deg - var(--wind) * 5deg)); }
   to   { transform: rotate(calc(1deg + var(--wind) * 5deg)); }
 }
-.yg-twig { fill: none; stroke: #4a3b2e; stroke-width: 2.4; stroke-linecap: round; }
-.yg-leaf { stroke: rgb(0 0 0 / 0.35); stroke-width: 0.6; transition: fill 1.2s ease, opacity 1.2s ease; }
-.yg-leaf.a { fill: color-mix(in srgb, var(--zc) 72%, #0b2016); }
-.yg-leaf.b { fill: color-mix(in srgb, var(--zc) 55%, #ffffff); }
 .yg-c { --act: 0; }
-.yg-c .yg-sway { filter: drop-shadow(0 0 calc(2px + var(--act) * 12px) color-mix(in srgb, var(--zc) calc(25% + var(--act) * 60%), transparent))
-  brightness(calc(0.8 + var(--act) * 0.55)); transition: filter 1.5s ease; }
-.yg-c.unknown .yg-leaf { opacity: 0.75; }
+.yg-glow { fill: var(--zc); filter: url(#yg-soft); opacity: calc(0.07 + var(--act) * 0.4); transition: opacity 1.5s ease; }
+.yg-twigs { fill: #3a2e24; }
+.yg-leaf { transition: fill 1.2s ease, opacity 1.2s ease; }
+.yg-leaf.a { fill: color-mix(in srgb, var(--zc) 52%, #0c2016); }
+.yg-leaf.b { fill: color-mix(in srgb, color-mix(in srgb, var(--zc) 78%, #1c4631), #fff calc(var(--act) * 32%)); }
+.yg-rib { fill: none; stroke: color-mix(in srgb, var(--zc) 35%, #2a3b2a); stroke-width: 0.8; }
+.yg-vein { fill: none; stroke: color-mix(in srgb, var(--zc) 40%, #fff); stroke-width: 0.5; opacity: 0.35; }
+.yg-c.unknown .yg-leaf { opacity: 0.8; }
 /* part of it stopped: some leaves turn */
 .yg-c.part .yg-leaf.b { fill: #9a7a4c; }
 /* stopped: withered — brown, drooping, falling */
-.yg-c.down .yg-leaf { fill: #6e5a42; opacity: 0.8; }
-.yg-c.down .yg-leaf.b { fill: #4f4132; }
-.yg-c.down .yg-sway { animation: none; transform: rotate(16deg); filter: saturate(0.4) brightness(0.8); }
+.yg-c.down .yg-leaf.a { fill: #4f4132; }
+.yg-c.down .yg-leaf.b { fill: #6e5a42; }
+.yg-c.down .yg-vein { opacity: 0.1; }
+.yg-c.down .yg-glow { opacity: 0; }
+.yg-c.down .yg-sway { animation: none; transform: rotate(14deg); }
 .yg-c.down text { fill: var(--ag-bad); }
 .yg-fall { fill: #7a6248; opacity: 0; transform-box: fill-box; }
 .yg-c.down .yg-fall { animation: yg-fall var(--fd, 4.5s) ease-in var(--fl, 0s) infinite; }
@@ -314,18 +339,20 @@ svg.yg { display: block; width: 100%; height: auto; overflow: visible; --wind: 0
 }
 /* the plugs' leaves warm while a lamp is lit */
 .yg-c.lit .yg-leaf.b { fill: #ffd27a; }
-.yg-c.lit .yg-sway { filter: drop-shadow(0 0 10px rgb(255 190 90 / 0.7)); }
+.yg-c.lit .yg-glow { fill: #ffbe5a; opacity: 0.45; }
 .yg-c.sel text, .yg-k.sel text, .yg-w.sel text, .yg-s.sel text { fill: var(--ag-text); font-weight: 700; }
-.yg-c.sel .yg-sway { filter: drop-shadow(0 0 8px #fff) brightness(1.2); }
+.yg-c.sel .yg-glow { fill: #fff; opacity: 0.32; }
+.yg-c.sel .yg-leaf.b { fill: color-mix(in srgb, var(--zc) 55%, #fff); }
 
-/* the doors: knots on the limbs */
+/* the doors: burls on the limbs with a light inside */
+.yg-burl { fill: #241c16; stroke: #5a4836; stroke-width: 2; }
 .yg-knot { fill: var(--zc); filter: drop-shadow(0 0 6px var(--zc)); }
 .yg-ring { fill: none; stroke: var(--zc); stroke-width: 1.5; opacity: 0.5; transform-box: fill-box; transform-origin: center; animation: yg-breath 3.2s ease-in-out infinite; }
 .yg-k.down .yg-knot { fill: var(--ag-bad); filter: drop-shadow(0 0 6px var(--ag-bad)); }
 .yg-k.sel .yg-ring { opacity: 1; stroke-width: 2.5; }
 
 /* sap, beams, seeds */
-.yg-sap { fill: none; stroke: var(--hud2); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 5 15; opacity: 0;
+.yg-sap { fill: none; stroke: var(--hud2); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 5 15; opacity: 0;
   filter: drop-shadow(0 0 5px var(--hud2)); transition: opacity 0.8s ease; }
 .yg-sap.on { opacity: 0.95; animation: yg-flow 1.1s linear infinite; }
 @keyframes yg-flow { to { stroke-dashoffset: -40; } }
@@ -368,9 +395,9 @@ svg.yg { display: block; width: 100%; height: auto; overflow: visible; --wind: 0
   .ov-views { display: grid; width: 100%; }
   .ov-views button { min-width: 0; }
   .yg text:not(.trunk) { display: none; }       /* too small to read here — the chips below name everything */
+  .yg-fill { stroke-width: 2.5; }
   .yg-row > b { min-width: 0; flex-basis: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ov-thumb, .yg-sway, .yg-sky circle, .yg-halo, .yg-ring, .yg-sap, .yg-beam, .yg-fall, .yg-rootglow { animation: none !important; transition: none !important; }
 }
-.yg-aura { fill: url(#yg-aura); }

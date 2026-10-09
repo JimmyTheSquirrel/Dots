@@ -115,7 +115,7 @@ temperatures could not be read at all.
 | **Suwayomi**       | 4567 | Tailscale only | Manga server (native NixOS service). **Package pinned to 2.3.x on purpose — nixpkgs' 2.1 finds ZERO sources.** See *Manga* below |
 | ~~Homepage~~       | ~~3000~~ | — | Removed — replaced by Glance |
 | File Browser       | 8081 | Tailscale only | Quantum fork. Credentials synced from sops |
-| asgard-stats       | 9552 | Tailscale only | `GET /stream` (SSE: 3 min of CPU/memory history on connect, then a snapshot every 2 s), `GET /snapshot`. Read-only: no verbs. CPU per thread, temps, fans, memory, every disk + the pool (`ismount`-checked, fs type, inodes), per-drive read/write rate (`/proc/diskstats`), SMART + drive identity/wear/self-test from `asgard-smart`; Jellyfin now-playing and SABnzbd queue/history only while a dashboard is connected. CORS only for `_origins.nix` |
+| asgard-stats       | 9552 | Tailscale only | `GET /stream` (SSE: 3 min of CPU/memory history on connect, then a snapshot every 2 s), `GET /snapshot`. Read-only: no verbs. CPU per thread, temps, fans, memory, every disk + the pool (`ismount`-checked, fs type, inodes), per-drive read/write rate (`/proc/diskstats`), SMART + drive identity/wear/self-test from `asgard-smart`; Jellyfin now-playing and SABnzbd queue/history only while a dashboard is connected. `units`: per service (the Living tree's leaves) how many of its systemd units are up and their CPU %, read from `/sys/fs/cgroup/system.slice/<unit>.service` (no D-Bus — the sandbox has no unix sockets); the map is `ASGARD_UNITS` in `stats.nix`. CORS only for `_origins.nix` |
 | tailscale-status-proxy | 9553 | **loopback only** | `GET /status` — the tailnet device list behind Glance's Yggdrasil widget (read server-side by Glance; no CORS) |
 | **Glance**         | 8888 | Tailscale only | Main dashboard (native systemd service, not container). Pages Asgard / Eclipse / Power / Terminal — see *Dashboard — Glance* |
 | network-panel      | 9555 | Tailscale only | `GET /events` (SSE: LAN + tailnet throughput every second, latency, speed tests + history summary), `GET /api` (snapshot), `GET /history[?day=]`, `GET /history.csv`, `POST /run` and `POST /history/clear` (need `X-Dash: 1`). Backs the Network card on both dashboards; CORS only for `_origins.nix` |
@@ -605,8 +605,8 @@ API, power from Home Assistant, light state from ha-bridge. For logs, use `journ
 
 ### Glance Dashboard (port 8888)
 
-**Pages:** Asgard · Eclipse · Power · Terminal (rebuilt 2026-10-04 — the Downloads page
-was folded into a live card, Monitoring became Power and took the lights).
+**Pages:** Asgard · Overview · Eclipse · Power · Terminal (rebuilt 2026-10-04 — the Downloads page
+was folded into a live card, Monitoring became Power and took the lights; Overview added 2026-10-09).
 
 **Files:** `Modules/Server/glance.nix` (config + unit) · `Resources/Glance/`:
 `asgard.css` (this dashboard's theme + home/Power cards), `hud.py` (the HUD's artwork and
@@ -615,7 +615,11 @@ icons — generated at build time, see The look), `theme.js` (the **UI colour pi
 **shared with MarsBar**: Eclipse panel, network card, now playing), `dash.js` (helpers every
 live card uses: stream lifecycle, DOM morphing, sparklines, hover read-outs), `lights.js`
 (**shared with MarsBar**), `asgard.js` (Power page), `stats.js` (home live cards), `net.js`
-and `eclipse.js` (**shared with MarsBar**), `tailscale-status.py`, `yggdrasil-banner.png`.
+and `eclipse.js` (**shared with MarsBar**), `tailscale-status.py`, `yggdrasil-banner.png`,
+`overview.js` + `overview.css` (the Overview page) and `ygg-live.js` (its Living tree),
+`garden-hud.css` (the Tech + Garden skin; with MarsBar's `garden.css` / `garden.js`),
+`ravens.css` + `ravens.js` (the one fun theme). `cats.*` and `fx.*` live here too but only
+MarsBar loads them.
 `Modules/Server/_livecard.nix` builds the card frame both dashboards use. Plugs come from
 `Modules/Server/_plugs.nix`, services from the `services` list in `glance.nix`.
 
@@ -779,7 +783,12 @@ picker, which asgard.css hides (its presets fight the HUD's tokens).
   the buttons — Glance's own `button { background: none; border: 0 }` would otherwise
   blank every swatch); asgard.css restyles them into the HUD and takes the base's
   rounding back off (`border-radius: 0`; the HUD cuts corners with `clip-path`).
-- **Cats** — the "Just for fun" row: a ginger-and-pink theme (`#ffb36b+#ff9ec4` through
+- **Just for fun here is one theme: the Ravens** (rock, 2026-10-09: "I just want one clean for
+  fun, not that many options"). Cats and the fx themes below are **MarsBar's only** now — theme.js
+  tags each fun theme `mb` or `hud` and offers a dashboard only its own; a stale pick from the
+  other list (an old Sakura on Asgard) falls back to the house colours. Their files still live in
+  `Resources/Glance/` (her dashboard loads them from there), so they're documented here.
+- **Cats** (MarsBar) — a "Just for fun" theme: a ginger-and-pink theme (`#ffb36b+#ff9ec4` through
   the normal palette) that also sets `html[data-cats]` and pulls in
   `Resources/Glance/cats.css` + `cats.js` (`data-cats` / `data-cats-js` on the script tag;
   fetched only when picked — theme.js only switches them on and off: `Cats.on()` /
@@ -829,7 +838,7 @@ picker, which asgard.css hides (its presets fight the HUD's tokens).
   - Cats only ever go *into* a `.widget` or `<body>` — never inside a `Dash.paint` target,
     which would morph them away. Reduced motion: no acts, no chase, no scattering (they
     just vanish), no trotting; they still answer a tap with a word.
-- **Snow, Sakura, Starry night, Spooky, Ocean** — the rest of the "Just for fun" row
+- **Snow, Sakura, Starry night, Spooky, Ocean** (MarsBar) — the rest of her "Just for fun" row
   (2026-10-09, "maybe some other themes"). Each is a two-tone of its own plus something
   living on the page, all in `Resources/Glance/fx.css` + `fx.js` (`data-fx` / `data-fx-js`
   on the script tag, fetched only when one is picked; theme.js sets `html[data-fx="<kind>"]`
@@ -886,6 +895,25 @@ picker, which asgard.css hides (its presets fight the HUD's tokens).
     phone's menu bar, and of the other raven**; a card with no clear spot (the 12 px gap under
     the Storage card's drive row) is skipped, and a raven that can't land clear waits for the
     next look. Reduced motion: no acts, no flights (news is just the mark); a tap still answers.
+
+**Skins** (2026-10-09, Asgard only) — the *whole look*, not its colour. The picker (now
+"Skin & colour") opens on a **Skin** row of two tiles; the pick is `asgard-skin` in
+localStorage (none = Tech), applied before first paint like the colour, and **any colour works in
+either skin**. The skin's **switches** sit under the row (stored as `asgard-garden-<part>` =
+`off`; on is the default). Its files are fetched only when it's picked (`data-garden` /
+`data-garden-js` / `data-vine` on theme.js's tag) and taken back out when you change skin.
+- **Tech** — the HUD as it ships.
+- **Tech + Garden** — Kit-Kat's garden grown over your HUD (rock: "merge my tech skin with
+  kitkats garden theme"). It runs **her own files** — `Resources/MarsBar/garden.css` (blossoms,
+  butterflies, fireflies) and `garden.js` (the same script MarsBar runs; `data-dash` tells it
+  which dashboard it's on) — plus `garden-hud.css`, which fits them to the HUD: on MarsBar her vine
+  climbs inside each card, here **it climbs the neon frame** — up the left edge and along the top
+  from the corner, where the crown blossom grows over the bracket — and the glass takes a little
+  leaf-green. Switches: **Vines · Blossoms · Butterflies · Fireflies**. Colour: her `vine.svg`
+  recoloured to the pick (`gardenPaint()`: purples → the petals' hue `--mb-h`, greens → the
+  leaves' `--mb-h2`); the house colours give **her lavender flowers on his mint leaves**, and a
+  pick puts its partner in the flowers (unless it's within 45° of the main — then lavender).
+- (A **Star Wars** skin was built the same day and taken out — rock: "looks very basic".)
 
 **The colour system** — the default the picker starts from (table and reasoning at the
 top of `asgard.css`): **mint** `#3be8a8`
@@ -997,9 +1025,54 @@ and points the arrows down.
 - **MarsBar is deliberately not on it** (rock, 2026-10-09: "it's just a dashboard, not a real
   part of the system infrastructure") — neither is her marsbar node. Her *access* stays (the
   "Her" box: on the tailnet, limited by the ACL), because that is infrastructure.
-- **Not live** — nothing polls; it is a picture of the config. **Keep it in step**: a new service,
+- **The map is not live** — nothing polls; it is a picture of the config (the Living tree,
+  below, is the live one). **Keep it in step**: a new service,
   port or connection is a line in `NODES`, its place in `ZONES`, a line in `EDGES` (maybe a
   `STORIES` step) at the top of overview.js. Colours are HUD tokens only, so the picker recolours it.
+
+**Map | Living tree** (2026-10-09) — a slider at the top of the card (`.ov-views`, the choice is
+`asgard-ov-view`) switches between the map above and **the Living Yggdrasil**: the same system
+grown as the world-ash, and **live**. `Resources/Glance/ygg-live.js` (+ the `.yg-*` rules in
+`overview.css`), fetched the first time the tree is shown (`data-tree` on overview.js's tag,
+with the four live-feed ports beside it).
+
+| Part of the tree | What it is | Live from |
+|---|---|---|
+| Three **wells**, one per root | NVMe · media pool · photos & state; a ring = how full | asgard-stats (disks, pool) |
+| A **root** glowing | that disk busy | asgard-stats (disk I/O) |
+| The **trunk** | Asgard: the heartwood glows through a crack, the hollow and the carved runes (ᚨᛋᚷᚨᚱᛞ) with the CPU, warming to amber with the heat | asgard-stats |
+| The **limbs** | the Map's zones, each lit along its edge in its zone colour — the two tailnet limbs part where the leader carries **Tailscale** | — |
+| **Burls** on the limbs | the doors: Cloudflare, Tailscale, Mullvad, the home LAN | — |
+| A **cluster of leaves** per service | in leaf and swaying when up, brighter when busy; **withered** (brown, drooping, leaves falling) when stopped, part-turned when part of it is | asgard-stats `units` (systemd units' cgroups) |
+| **Sap** rising from the pool up the trunk to Jellyfin | something is streaming | asgard-stats (Jellyfin sessions) |
+| A beam Jellyfin → Eclipse / Sisyphus → Eclipse | the TV is playing / a game is streaming (Wolf) | eclipse-control |
+| **Seeds** drifting from Usenet to SABnzbd; one falling into the pool | downloads arriving; one landing (a ripple in the well) | asgard-stats (SABnzbd) |
+| The plugs' leaves warm | a lamp is on | ha-bridge |
+| **Wind** | the LAN's traffic sways the leaves | network-panel |
+
+- **How it's drawn** (rock, after the first version: "way more tree like and detailed — the small
+  leaves on nothing isn't looking great"): every cluster hangs on wood. The trunk, its leader and
+  the crown's top are hand-placed; each zone's limb **grows** toward its services and forks as it
+  goes (`grow()` → `reach()`: the services ahead split at their widest gap; widths by the pipe
+  rule), so each service ends up with a branch of its own. The leaves are **ash leaves** (stalks
+  of paired leaflets) — a cluster at each service's tip in front of a mass of the canopy's own,
+  plus twigs all along the wood. Bark is one shared body path (seamless forks) with shadow and
+  sunlit bands and a rim of light; stones ring the wells, grass the hill. It's seeded, so it grows
+  the same shape on every visit.
+- **Two SVGs on one viewBox**: `.yg-back` — the still picture, ~8000 leaflets, drawn once on its
+  own compositing layer (`will-change`) so it never repaints — and `.yg-live` over it (the
+  clusters, burls, wells' rings, sap, beams, seeds, labels — whatever moves or answers a tap).
+  The clusters' glow is a static blurred disc, not a filter on what sways.
+- **Tap** a cluster, burl, well, star or the trunk for overview.js's words about it plus how it
+  is doing now; under the tree every service is a chip, by branch (a phone hides the names on the
+  tree and reads the chips).
+- **Streams only while you look**: `LivingTree.mount()` opens the four feeds, `unmount()` (Map,
+  or leaving) closes them — `Dash.stream()` returns `{reconnect, close}` for this.
+- **Keep it in step**: a new service is a line in `LEAVES` (its limb, where its cluster sits —
+  hand-placed so no name sits on another), an entry in `ASGARD_UNITS` (stats.nix) for its live
+  state, and its NODES line in overview.js for the words.
+- Colours are HUD tokens mixed with bark and leaf, so the picker recolours it (a pink two-tone
+  gives a blossom tree). Reduced motion: nothing sways, flows or falls; the states still show.
 
 #### Page 3 — Eclipse
 

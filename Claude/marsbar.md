@@ -297,10 +297,11 @@ shown only while the phone bar is hidden).
   the playhead on "On the TV", scatter when Eclipse goes down and nap on its SoC
   temperature when the Pi runs hot. Plus paw prints, paw glyphs on the headings, and
   kitten faces in place of the blossoms
-  (`html[data-cats][data-dash="marsbar"]` — on Asgard that spot is the Yggdrasil tree).
-  Details in `Claude/server-info.md` → The colour picker → Cats.
-- **Snow, Sakura, Starry night, Spooky, Ocean** — the other fun themes (fx.css + fx.js,
-  shared with Asgard; details in `Claude/server-info.md` → The colour picker): snowfall,
+  (`html[data-cats][data-dash="marsbar"]`).
+  Details in `Claude/server-info.md` → The colour picker → Cats. (Asgard offered Cats and the fx
+  themes too until 2026-10-09, when rock cut his *Just for fun* to the Ravens alone — they're hers now.)
+- **Snow, Sakura, Starry night, Spooky, Ocean** — the other fun themes (fx.css + fx.js, in
+  `Resources/Glance/`; details in `Claude/server-info.md` → The colour picker): snowfall,
   drifting petals, a night sky with shooting stars, bats and a spider, bubbles and fish.
   Her crowns become the theme's mark (a snowflake, a moon, a bat, a fish), swaying —
   except in **Sakura**, where her living blossoms stay (they already are the theme). Her
@@ -311,7 +312,7 @@ shown only while the phone bar is hidden).
 ## The garden (garden.js)
 
 Her vine is alive, whatever colour she has picked (`Resources/MarsBar/garden.js`, loaded
-deferred after dash.js; styles at the end of marsbar.css) — in **three parts, each on unless
+deferred after dash.js; styles in `Resources/MarsBar/garden.css`) — in **three parts, each on unless
 she turns it off**: her colour picker's *Just for fun* section has a switch for each —
 **Blossoms**, **Butterflies**, **Fireflies** (theme.js, MarsBar profile only) — kept in her
 browser as `localStorage["marsbar-blossoms" | "marsbar-butterflies" | "marsbar-fireflies"] =
@@ -347,6 +348,12 @@ switch, `marsbar-garden = "off"`, then split into three the same day at rock's r
   which is still the browser's own. Do the same in any new script that animates an
   HTML element with the Web Animations API.
 - Reduced motion: crowns stand still, no butterflies or fireflies are ever made.
+- **Shared with Asgard** (2026-10-09): rock's dashboard has a **Tech + Garden** skin that runs
+  these same two files over his HUD (with `Resources/Glance/garden-hud.css` fitting them to the
+  neon frames — see `Claude/server-info.md` → Skins). `garden.css` was split out of marsbar.css
+  for that; garden.js tells the two dashboards apart by `<html data-dash>` (her keys stay
+  `marsbar-<part>`, his are `asgard-garden-<part>`, and his skin adds a fourth part, the vines).
+  ⚠ A change to either file shows on **both** dashboards — check both.
 
 ## Live lights (no polling)
 
