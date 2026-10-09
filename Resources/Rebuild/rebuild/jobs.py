@@ -308,6 +308,115 @@ async def sync_repo(job) -> bool:
     return True
 
 
+async def reset_repo(job) -> bool:
+    """Make ~/Dots exactly GitHub's main — the "just overwrite it" pull. What
+    would go (changed files, files git doesn't track, commits that are on no
+    branch on GitHub) is listed first and asked about — twice when anything
+    would be lost — and kept before the reset: the files in a stash, the
+    commits on a backup/reset-<when> branch. Files git ignores (result links,
+    .direnv) are left alone. Git sync is the one that keeps your changes and
+    brings GitHub's in."""
+    repo = job.app.repo
+    job.begin(["Fetch", "Check", "Overwrite"], YELLOW, "RESET", "match GitHub", "overwrite ~/Dots with origin/main",
+              repo.label, kind="reset")
+
+    def git(*a: str):
+        return P.run(["git", *a], timeout=30, cwd=repo.path)
+
+    job.stage("Fetch", "running")
+    sec = await job.section("git fetch", YELLOW, "")
+    if await job.run(sec, ["git", "fetch", "--prune", "origin"]) != 0:
+        job.stage("Fetch", "failed")
+        job.card(False, "Couldn't reach GitHub", [("", "Nothing was changed. The output is above.")])
+        return False
+    job.stage("Fetch", "done")
+    job.stage("Check", "running")
+    if (await git("rev-parse", "-q", "--verify", "origin/main"))[0] != 0:
+        job.stage("Check", "failed")
+        job.card(False, "GitHub has no main branch", [("", "Nothing was changed.")])
+        return False
+    (_, branch, _), (_, st, _), (_, lost, _), (_, behind, _), (_, head, _), (_, main, _), (_, now, _), (_, then, _) = \
+        await asyncio.gather(git("branch", "--show-current"), git("status", "--porcelain", "--untracked-files=all"),
+                             git("log", "--format=%h %s", "HEAD", "--not", "--remotes"),
+                             git("rev-list", "--count", "HEAD..origin/main"), git("rev-parse", "HEAD"),
+                             git("rev-parse", "origin/main"), git("log", "-1", "--format=%h %s", "HEAD"),
+                             git("log", "-1", "--format=%h %s", "origin/main"))
+    files = [l for l in st.splitlines() if l.strip()]
+    commits = [l for l in lost.splitlines() if l.strip()]
+    branch, then = branch.strip(), then.strip()
+    if not files and not commits and branch == "main" and head.strip() == main.strip():
+        job.stage("Check", "done")
+        job.stage("Overwrite", "skipped")
+        job.card(True, "already exactly GitHub's main", [("main", then)])
+        return True
+    sec = await job.section("What changes", YELLOW, "")
+    await sec.mount(info(f"now      {branch or 'no branch'} · {now.strip()}"))
+    await sec.mount(info(f"becomes  main · {then}"))
+    n = int(behind.strip() or 0)
+    if n:
+        await sec.mount(info(f"brings in {n} new commit{'s' if n > 1 else ''} from GitHub"))
+    if files:
+        sec = await job.section(f"{len(files)} file{'s' if len(files) > 1 else ''} changed or not in git — these go",
+                                RED, "")
+        await sec.mount(info("\n".join(files[:15]) + (f"\n… and {len(files) - 15} more" if len(files) > 15 else "")))
+    if commits:
+        one = len(commits) == 1
+        sec = await job.section(f"{len(commits)} commit{'' if one else 's'} that {'isn' if one else 'aren'}'t on GitHub — "
+                                f"{'it goes' if one else 'these go'}", RED, "")
+        await sec.mount(info("\n".join(commits[:10]) + (f"\n… and {len(commits) - 10} more" if len(commits) > 10 else "")))
+    job.stage("Check", "done")
+
+    def cancelled() -> bool:
+        job.stage("Overwrite", "skipped")
+        job.card(False, "Nothing done", [("", "~/Dots is as it was.")])
+        return False
+
+    # The safe answer comes first, so a stray ⏎ never overwrites anything.
+    if await job.choose("Overwrite ~/Dots with GitHub's main?", [("no", "Cancel"), ("go", "Overwrite")],
+                        "~/Dots becomes exactly what's on GitHub.", danger=True) != "go":
+        return cancelled()
+    if files or commits:
+        lose = " and ".join(x for x in (
+            f"{len(files)} changed file{'s' if len(files) > 1 else ''}" if files else "",
+            f"{len(commits)} unpushed commit{'s' if len(commits) > 1 else ''}" if commits else "") if x)
+        if await job.choose(f"Sure? {lose} will leave ~/Dots.", [("no", "No, keep them"), ("go", "Yes, overwrite")],
+                            "A copy is kept first (a stash for the files, a backup branch for the commits), "
+                            "so they can still be got back.", danger=True) != "go":
+            return cancelled()
+    job.stage("Overwrite", "running")
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    sec = await job.section("Overwrite", YELLOW, "")
+    kept: list[tuple[str, str]] = []
+    if files:
+        if await job.run(sec, ["git", "stash", "push", "--include-untracked", "-m", f"before reset {stamp}"]) != 0:
+            job.stage("Overwrite", "failed")
+            job.card(False, "Couldn't put the changes aside", [("", "So nothing was overwritten. The output is above.")])
+            return False
+        kept.append(("files", f"stash \"before reset {stamp}\" — git stash list"))
+    if commits:
+        if await job.run(sec, ["git", "branch", f"backup/reset-{stamp}", "HEAD"]) != 0:
+            job.stage("Overwrite", "failed")
+            job.card(False, "Couldn't keep the commits", [("", "So nothing was overwritten. The output is above.")])
+            return False
+        kept.append(("commits", f"branch backup/reset-{stamp}"))
+    rc = await job.run(sec, ["git", "checkout", "-B", "main", "origin/main"])
+    if rc == 0:
+        rc = await job.run(sec, ["git", "branch", "--set-upstream-to=origin/main", "main"])
+    job.stage("Overwrite", "done" if rc == 0 else "failed")
+    if rc != 0:
+        job.card(False, "The overwrite didn't finish", [("", "The output is above.")] + kept)
+        return False
+    _, new, _ = await git("log", "-1", "--format=%h %s")
+    job.card(True, "~/Dots is GitHub's main", [("main", new.strip())] + kept,
+             [("pulled", str(n), "new commits"), ("kept", str(len(kept)), "copies of yours")])
+    if H.THIS:
+        pick = await job.choose(f"Rebuild {H.THIS.name} on it?",
+                                [("switch", "Switch now"), ("build", "Build only (see the diff)"), ("later", "Later")])
+        if pick in ("switch", "build"):
+            job.next_job(lambda j: rebuild(j, H.THIS, pick))
+    return True
+
+
 async def clone_repo(job) -> bool:
     dest = Path(os.environ.get("DOTS_DIR") or Path.home() / "Dots")
     job.begin(["Clone"], YELLOW, "CLONE", "the repo", H.DOTS_URL, str(dest), kind="clone")

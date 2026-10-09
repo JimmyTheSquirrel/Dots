@@ -282,12 +282,26 @@ MACHINES panel: this machine's generation, every other machine's tailnet state
   Remote      every other machine, live status; per machine its generation,
               uptime and its checkout, probed over ssh, then
                 every machine         Switch · Boot · Build · SSH
-  Utilities   Git sync · Update inputs (changelog, then offers a rebuild) ·
-              Garbage collect · Check hosts (the four-host drvPath eval)
+  Utilities   Git sync · Reset to GitHub · Update inputs (changelog, then offers a
+              rebuild) · Garbage collect · Check hosts (the four-host drvPath eval)
   Apollo      Deploy (host → Dry run / VM test / INSTALL) · SSH · Build ISO · Tailnet key
   Help        a page per section — what every row does — plus Getting around (the
               home screen, keys, colours), The machines, Command line and Words
 ```
+
+**Git sync vs Reset to GitHub** (2026-10-09). *Git sync* keeps your changes and brings
+GitHub's in (commit, `pull --rebase`, push) — it is the "merge" one. *Reset to GitHub* is
+the "just overwrite it" pull: `git fetch`, then `~/Dots` becomes exactly `origin/main`
+(`checkout -B main origin/main`, upstream set). Before it touches anything it lists what
+would go — changed files, files git doesn't track, and commits that are on **no** branch
+on GitHub (`HEAD --not --remotes`) — and asks; when any of that would be lost it asks a
+second time, and both questions default to *no* (in the app the safe answer comes first,
+so a stray ⏎ cancels). What would go is kept first: the files in a stash ("before reset
+<when>", `git stash list`), the commits on a `backup/reset-<when>` branch. Ignored files
+(`result` links, `.direnv`) are left alone. Already on main with nothing local: it says so
+and does nothing. Afterwards it offers to rebuild this machine. It lives twice, like
+every job — `reset_repo` in `system-rebuild.sh` and in `Resources/Rebuild/rebuild/jobs.py`
+— so a change to one is a change to both.
 
 Keys: ↑↓ or j/k, ⏎ (or →/l) to pick, the digit picks directly, esc/←/h goes back,
 q quits. **Every section menu ends with Help** (its page: what each row does) and

@@ -105,7 +105,7 @@ find_repo
 I_REBUILD=$'' I_REMOTE=$'' I_UTILS=$'' I_APOLLO=$''
 I_SWITCH=$'' I_BOOT=$'' I_BUILD=$'' I_OTHER=$''
 I_SSH=$''
-I_GIT=$'' I_UPDATE=$'' I_GC=$'' I_CHECK=$'' I_CLONE=$''
+I_GIT=$'' I_UPDATE=$'' I_GC=$'' I_CHECK=$'' I_CLONE=$'' I_RESET=$''
 I_DEPLOY=$'' I_ISO=$'' I_KEY=$'' I_DRY=$'' I_VM=$'' I_WARN=$''
 I_HELP=$'' I_KEYS=$'' I_HOSTS=$'' I_TERM=$'' I_BOOK=$''
 
@@ -505,6 +505,68 @@ sync_repo() {
   ui_ok "in sync with origin"
 }
 
+# reset_repo — the "just overwrite it" pull: make ~/Dots exactly GitHub's
+# main. What would go (changed files, files git doesn't track, commits that are
+# on no branch on GitHub) is listed and asked about — twice when anything would
+# be lost — and kept before the reset: the files in a stash, the commits on a
+# backup/reset-<when> branch. Ignored files (result links, .direnv) stay.
+# Git sync is the one that keeps your changes and brings GitHub's in.
+reset_repo() {
+  local branch files lost behind stamp what
+  ui_banner "$UI_RED" RESET "match GitHub" "overwrite ~/Dots with origin/main" "$FLAKE_LABEL"
+  ui_info "fetching origin…"
+  git fetch --prune origin || { ui_err "couldn't reach GitHub — nothing changed"; return 1; }
+  git rev-parse -q --verify origin/main >/dev/null || { ui_err "GitHub has no main branch — nothing changed"; return 1; }
+  branch=$(git branch --show-current)
+  files=$(git status --porcelain --untracked-files=all | wc -l)
+  lost=$(git rev-list --count HEAD --not --remotes)
+  behind=$(git rev-list --count HEAD..origin/main)
+  if (( files == 0 && lost == 0 )) && [[ "$branch" == main && "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]]; then
+    ui_ok "already exactly GitHub's main  $(ui_dim "· $(git log -1 --format='%h %s')")"
+    return 0
+  fi
+  echo
+  ui_kv now "${branch:-no branch} · $(git log -1 --format='%h %s' HEAD)"
+  ui_kv becomes "main · $(git log -1 --format='%h %s' origin/main)"
+  (( behind )) && ui_kv "brings in" "$behind new commit$( (( behind > 1 )) && echo s) from GitHub"
+  if (( files )); then
+    echo; ui_warn "$files file$( (( files > 1 )) && echo s) changed or not in git — these go:"
+    git status --short --untracked-files=all | head -15 | sed 's/^/      /'
+    (( files > 15 )) && printf '      %s\n' "$(ui_dim "… and $(( files - 15 )) more")"
+  fi
+  if (( lost )); then
+    if (( lost > 1 )); then echo; ui_warn "$lost commits that aren't on GitHub — these go:"
+    else echo; ui_warn "1 commit that isn't on GitHub — it goes:"; fi
+    git log --format='%h %s' HEAD --not --remotes | head -10 | sed 's/^/      /'
+  fi
+  echo
+  ui_confirm "Overwrite ~/Dots with GitHub's main?" default-no || { ui_info "nothing changed"; return 1; }
+  if (( files || lost )); then
+    what=""
+    (( files )) && what="$files changed file$( (( files > 1 )) && echo s)"
+    (( lost )) && what="${what:+$what and }$lost unpushed commit$( (( lost > 1 )) && echo s)"
+    ui_confirm "Sure? $what will leave ~/Dots (a copy is kept first)." default-no || { ui_info "nothing changed"; return 1; }
+  fi
+  stamp=$(date +%Y%m%d-%H%M%S)
+  if (( files )); then
+    git stash push --include-untracked -m "before reset $stamp" >/dev/null
+    ui_info "your files are kept in a stash: \"before reset $stamp\" $(ui_dim "(git stash list)")"
+  fi
+  if (( lost )); then
+    git branch "backup/reset-$stamp" HEAD
+    ui_info "your commits are kept on the branch backup/reset-$stamp"
+  fi
+  git checkout -q -B main origin/main
+  git branch -q --set-upstream-to=origin/main main
+  ui_ok "$FLAKE_LABEL is GitHub's main  $(ui_dim "· $(git log -1 --format='%h %s')")"
+  [[ -n "$THIS_HOST" ]] || return 0
+  case "$(ui_choose "Rebuild $THIS_HOST on it?" "Switch now:switch" "Build only (see the diff):build" "Later:later" || echo later)" in
+    switch) rebuild "$THIS_HOST" switch ;;
+    build)  rebuild "$THIS_HOST" build ;;
+    *)      ui_info "run system-rebuild when you're ready" ;;
+  esac
+}
+
 clone_repo() {
   local dest="${DOTS_DIR:-$HOME/Dots}"
   ui_banner "$UI_YELLOW" CLONE "the repo" "$DOTS_URL" "$dest"
@@ -699,7 +761,8 @@ help_remote() {
 
 help_utils() {
   hp_new "$UI_YELLOW"
-  hp_item "Git sync" "Commit every change (it asks for a message), pull --rebase, push. Anything it can't commit is stashed and put back. The same as running git-sync."
+  hp_item "Git sync" "Keep your changes and bring GitHub's in: commit every change (it asks for a message), pull --rebase (GitHub's new commits go underneath yours), push. Anything it can't commit is stashed and put back. The same as running git-sync."
+  hp_item "Reset to GitHub" "The \"just overwrite it\" pull: fetch, then make ~/Dots exactly GitHub's main, throwing away whatever is different here. It lists what would go (changed files, files git doesn't track, commits that aren't on GitHub) and asks — twice if anything would be lost — and keeps a copy first: the files in a stash (git stash list), the commits on a backup/reset-<when> branch. Then it offers to rebuild."
   hp_item "Update inputs" "nix flake update: fetch the newest nixpkgs, home-manager and every other input, then list what moved (old → new, and how old each was). flake.lock changes but isn't committed. Then it offers to Switch, Build only (to see the diff), or leave it for later."
   hp_item "Garbage collect" "Delete every old generation, then everything in the Nix store only they used; hard-link duplicate files; on Sisyphus also prune stopped Docker containers. Frees disk space, but you can't roll back past the current generation afterwards — it asks first."
   hp_item "Check hosts" "Evaluate all four machines' configs without building anything. A fast \"did my edit break something\" check; a failure shows its error."
@@ -1003,6 +1066,7 @@ menu_utilities() {
       if (( dirty )); then meta=$(ui_c "$UI_YELLOW" "● $dirty changed")
       else meta=$(ui_c "$UI_GREEN" "✔ clean"); fi
       ui_item sync "$I_GIT" "Git sync" "commit · pull --rebase · push" "$meta"
+      ui_item reset "$I_RESET" "Reset to GitHub" "overwrite ~/Dots with GitHub's main" "$(ui_c "$UI_RED" "asks first")" "$UI_RED"
       ui_item update "$I_UPDATE" "Update inputs" "nix flake update + changelog" \
         "locked $(ui_ago "$(jq -r '.nodes[.nodes.root.inputs.nixpkgs].locked.lastModified // 0' flake.lock 2>/dev/null || echo 0)")"
     else
@@ -1018,6 +1082,7 @@ menu_utilities() {
     case "$UI_CHOICE" in
       help) help_show utils ;;
       sync)   job sync_repo ;;
+      reset)  job reset_repo ;;
       update) job update_inputs ;;
       clone)  job clone_repo ;;
       gc)     job collect_garbage ;;

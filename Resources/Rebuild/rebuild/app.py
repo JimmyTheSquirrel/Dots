@@ -61,7 +61,7 @@ from .ui import (AQUA, BG, BLUE, DIM, FAINT, FG, GREEN, LINE, ORANGE, PURPLE, RE
 
 I = dict(rebuild="", remote="", utils="", apollo="", switch="", boot="",
          build="", other="", ssh="", git="", update="", gc="", check="",
-         clone="", deploy="", iso="", key="", dry="", vm="", warn="",
+         clone="", reset="", deploy="", iso="", key="", dry="", vm="", warn="",
          help="", history="", wait="", tip="")
 
 Job = Callable[["JobScreen"], Awaitable[bool]]
@@ -219,6 +219,8 @@ class RebuildApp(App):
             out.append(Action(f"go:host:{h.name}", h.icon, h.name, h.role, BLUE, "Remote", "menu machine"))
         if self.repo.path:
             out.append(Action("job:sync", I["git"], "Git sync", "commit · pull --rebase · push", YELLOW, "Utilities"))
+            out.append(Action("job:reset", I["reset"], "Reset to GitHub", "overwrite ~/Dots with GitHub's main", RED,
+                              "Utilities", "pull overwrite hard discard"))
             out.append(Action("job:update", I["update"], "Update inputs", "nix flake update + changelog", YELLOW,
                               "Utilities", "flake lock"))
         else:
@@ -248,7 +250,8 @@ class RebuildApp(App):
                 h = H.BY_NAME[host]
                 self.push_screen(JobScreen(lambda j, a=what, h=h: J.rebuild(j, h, a)))
             else:
-                self.push_screen(JobScreen({"sync": J.sync_repo, "update": J.update_inputs, "clone": J.clone_repo,
+                self.push_screen(JobScreen({"sync": J.sync_repo, "reset": J.reset_repo, "update": J.update_inputs,
+                                            "clone": J.clone_repo,
                                             "gc": J.collect_garbage, "check": J.check_hosts}[what]))
         elif kind == "ssh":
             h = H.BY_NAME[rest]
@@ -618,6 +621,8 @@ class UtilsMenu(MenuScreen):
             meta = Text("…", DIM) if not st else (Text("✔ clean", GREEN) if not st.dirty else Text(f"● {st.dirty} changed", YELLOW))
             items.append(Item("sync", I["git"], "Git sync", "commit · pull --rebase · push", meta, YELLOW,
                               preview=lambda: PN.pv_sync(app)))
+            items.append(Item("reset", I["reset"], "Reset to GitHub", "overwrite ~/Dots with GitHub's main",
+                              Text("asks first", RED), RED, preview=lambda: PN.pv_reset(app)))
             items.append(Item("update", I["update"], "Update inputs", "nix flake update + changelog",
                               Text(f"locked {P.ago(H.lock_age(app.repo))}", DIM), YELLOW,
                               preview=lambda: PN.pv_update(app)))
@@ -639,7 +644,7 @@ class UtilsMenu(MenuScreen):
         if key == "history":
             self.app.push_screen(HistoryScreen())
             return
-        self.job({"sync": J.sync_repo, "update": J.update_inputs, "clone": J.clone_repo,
+        self.job({"sync": J.sync_repo, "reset": J.reset_repo, "update": J.update_inputs, "clone": J.clone_repo,
                   "gc": J.collect_garbage, "check": J.check_hosts}[key])
 
 
