@@ -163,3 +163,63 @@ HDMI jacks and the power button), so it lands in the keymap's `<remote>` section
 `mod="longpress"` is **silently ignored** there. Only `<keyboard>` and joystick `holdtime` support
 hold actions. CEC is configured with `button_repeat_rate_ms=0` and `double_tap_timeout_ms=300`, so
 holding OK produces exactly one Select event.
+
+---
+
+## `network/` — wired-only pinning (added 2026-10-09)
+
+**Eclipse must use `eth0` on the LAN and must never auto-swap to Wi-Fi.**
+
+It had silently dual-homed: `eth0` 192.168.0.182 (wired → RP-BE58 extender) *and* `wlan0`
+192.168.0.183 ("Kandy Cane") were both up on the same subnet, and **the Wi-Fi won the default
+route**. Every byte — including a 4K60 game stream — went over the Pi's own −66 dBm radio while
+the extender sat idle. Measured idle, the difference is not subtle:
+
+| path | throughput | ping (1400 B) |
+|---|---|---|
+| `eth0` → extender | **376 Mbps** | **2.17 / 2.99 / 7.03 ms**, mdev 0.96 |
+| `wlan0` → router direct | 158 Mbps | 5.79 / 14.3 ms, mdev 2.65 |
+
+Full diagnosis: `evidence/cotl-lag-2026-10-09.md`.
+
+### What enforces it
+
+1. **`connman_main.conf`** → deployed to **`/storage/.config/connman_main.conf`**. connman's
+   startup wrapper (`/usr/lib/connman/connman-setup`) uses that path **in preference to
+   `/etc/connman/main.conf`** if it exists, which is the supported way to override a config on a
+   read-only `/etc`. It is a verbatim copy of the stock file with **one** line changed:
+   ```
+   SingleConnectedTechnology = true     # was: # SingleConnectedTechnology = false
+   ```
+   With `PreferredTechnologies = ethernet,wifi,cellular` (already stock), connman will now keep
+   **exactly one** technology connected and prefers ethernet — so Wi-Fi cannot coexist with wired.
+2. **`AutoConnect=false` on every saved Wi-Fi network**, in
+   `/storage/.cache/connman/wifi_*/settings`. Currently two: `Kandy Cane`, `QB-Guest`.
+   ⚠️ `connmanctl config <svc> --autoconnect off` **only works for a service that is in range** —
+   out-of-range ones throw `Method "SetProperty" ... doesn't exist`. Edit the file with connman
+   stopped instead; it rewrites them on exit.
+
+Wi-Fi is still *available* — it just never connects on its own. Bring it up deliberately with
+`connmanctl connect <svc>` if the box ever needs it (e.g. reaching it over Tailscale with no
+wired link).
+
+### `wired-only-apply.sh`
+
+The script that applied it, kept because it is the safe way to re-apply after a re-flash. It
+stops connman, flips the autoconnect flags, installs the override, restarts connman, **and
+self-reverts if the gateway is unreachable 25 s later** — the box is headless, so a connman
+config that fails to come up would otherwise mean a physical trip. Run it detached:
+
+```bash
+systemd-run --unit=wired-only /storage/wired-only-apply.sh   # log: /storage/wired-only-apply.log
+```
+
+### Verifying
+
+```bash
+connmanctl services          # Wired = *AO ; every wifi = '*' (neither auto nor connected)
+ip -o addr show | grep -v inet6   # wlan0 must have NO address
+ip route | grep default      # exactly one, dev eth0
+```
+⚠️ **`ip route get <dest>` is the honest check** — with both interfaces on one subnet, the
+address a service binds to is decided by the route, not by what looks "primary".

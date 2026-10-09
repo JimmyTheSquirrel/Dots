@@ -596,3 +596,31 @@ taking off", and `Claude/misc.md` → Audio. These are the gaps they uncovered.
    `DXVK_FRAME_RATE=60` for D3D titles). Sisyphus has neither — it is AMD, where
    `MESA_VK_WSI_PRESENT_MODE=fifo` can force vsync externally, so it has an escape hatch
    NVIDIA does not. Consider whether rock's host wants an equivalent cap.
+
+## Opened 2026-10-09 — Eclipse streaming: path fixed, bitrate still open
+
+Diagnosed from a live Cult of the Lamb session. Evidence and all the numbers:
+**`Resources/Eclipse-Box/evidence/cotl-lag-2026-10-09.md`**; summary in `Claude/wolf.md`.
+
+1. ✅ **DONE — Eclipse pinned to wired.** It had silently dual-homed (`eth0` .182 wired →
+   extender *and* `wlan0` .183 at −66 dBm), with **Wi-Fi holding the default route**; the whole
+   4K60 stream went over the Pi's own radio. Idle: **eth0 376 Mbps / 2.99 ms** vs
+   **wlan0 158 Mbps / 5.79 ms**. Enforced by `SingleConnectedTechnology = true` in
+   `/storage/.config/connman_main.conf` plus `AutoConnect=false` on every saved Wi-Fi.
+   Mirrored in **`Resources/Eclipse-Box/network/`**; standing rule is wired-only on the LAN.
+2. ⏳ **Open — does `bitrate=100000` still spike on the good path?** At 376 Mbps a 101 Mbps
+   stream is ~28 % utilisation, so there should be far less loss. But the **255-packet FEC
+   block ceiling is still crossed**, so whatever loss remains is unrecoverable.
+   **Play a session at 100000 and re-check the client log**; if freezes persist, drop to
+   40000-50000. ⚠️ Set it in Moonlight's own settings screen on the TV, or with Moonlight
+   stopped — `Moonlight.conf` is Qt `QSettings` and is rewritten on exit.
+3. **The dashboard's *Test link* measures whatever holds the default route**, and will happily
+   run during a stream. A 64.3 ↓ reading was leftover capacity on the saturated radio, not an
+   extender fault. Worth making the panel refuse to test while a Wolf session is live, and label
+   which interface it measured.
+4. **`Moonlight.conf` is not mirrored in `Resources/Eclipse-Box/`.** Bitrate, resolution and
+   codec live only on the SD card — exactly the kind of setting nobody will remember after a
+   re-flash. (`network/` now is mirrored; this one still is not.)
+5. Consider whether Wolf should **cap what it accepts** rather than honouring any bitrate a
+   client asks for. Nothing on the host side warns that a request is unservable — the only
+   symptom is 27,628 FEC warnings buried in the journal.
