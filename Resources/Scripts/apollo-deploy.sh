@@ -16,9 +16,9 @@ done
 attr="${1:-}"
 if [[ -z "$attr" ]]; then
   echo "Usage: apollo-deploy [--vm-test|--dry-run] <flake-attr> [ssh-target]"
-  echo "   e.g. apollo-deploy kitkat-Kit-Kat"
-  echo "        apollo-deploy --dry-run kitkat-Kit-Kat   # print the disko script"
-  echo "        apollo-deploy --vm-test kitkat-Kit-Kat   # apply it in a VM (see caveat)"
+  echo "   e.g. apollo-deploy kitkat-Elektra"
+  echo "        apollo-deploy --dry-run kitkat-Elektra   # print the disko script"
+  echo "        apollo-deploy --vm-test kitkat-Elektra   # apply it in a VM (see caveat)"
   echo ""
   echo "Env: APOLLO_EXTRA_FILES=<dir>  override; default ~/.local/share/apollo/<Host>"
   exit 2
@@ -46,7 +46,7 @@ if [[ "$vm_test" == 1 ]]; then
   echo -e "\033[1;33m:: caveat: disko's test harness hardcodes a 4 GiB disk"
   echo -e "   (emptyDiskImages = 4096, lib/tests.nix — not settable from our config),"
   echo -e "   so a layout with more than ~4 GiB of fixed-size partitions can never"
-  echo -e "   pass here. Kit-Kat's 16 G swap puts it over; use --dry-run for those.\033[0m"
+  echo -e "   pass here. Elektra's 16 G swap puts it over; use --dry-run for those.\033[0m"
   echo ""
 
   # ⚠ `nixos-anywhere --vm-test` EXITS 0 EVEN WHEN THE TEST FAILS. A failed
@@ -101,7 +101,7 @@ args=(
 # PRE-GENERATED ssh host key whose age identity is already a recipient of
 # that host's sops file. Without it the machine generates its own host key
 # at first boot, sops has never heard of that identity, and the very first
-# activation cannot decrypt anything — which for Kit-Kat means no login
+# activation cannot decrypt anything — which for Elektra means no login
 # password. The only fix at that point is to reinstall or hand-copy a key.
 #
 # Default location is OUTSIDE the repo on purpose: this repo is public and
@@ -127,7 +127,7 @@ else
   [[ "$ok" == "y" || "$ok" == "Y" ]] || { echo "aborted"; exit 1; }
 fi
 
-# Show the MACHINE, not just the config name. Typing "Kit-Kat" proves you
+# Show the MACHINE, not just the config name. Typing "Elektra" proves you
 # know which config you are installing; it proves nothing about which
 # physical box is on the other end of the tailnet. If a different machine
 # were booted from an Apollo stick, the old prompt would happily wipe it.

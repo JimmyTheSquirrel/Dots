@@ -1,7 +1,7 @@
-# NVIDIA graphics — Kit-Kat only.
+# NVIDIA graphics — Elektra only.
 #
 # Every other machine in this repo is AMD, and shared modules hardcode that:
-# both compositor modules — Modules/Desktop/hyprland.nix, which is what Kit-Kat
+# both compositor modules — Modules/Desktop/hyprland.nix, which is what Elektra
 # runs, and niri.nix — set videoDrivers = ["amdgpu"], and
 # Modules/Boot/plymouth.nix defaults its initrd GPU module to amdgpu. This module
 # overrides the first (mkForce); the host sets `my.plymouth.initrdGpuModules`
@@ -33,7 +33,7 @@
       # nvidia-suspend / -hibernate / -resume units and sets
       # NVreg_PreserveVideoMemoryAllocations=1, i.e. what saves VRAM contents
       # across suspend and hibernate. Without it a resume can come back to
-      # corrupted or black surfaces. Her 32G swap (Hosts/Kit-Kat/_disko.nix) is
+      # corrupted or black surfaces. Her 32G swap (Hosts/Elektra/_disko.nix) is
       # sized for hibernate, so if she suspends or hibernates, this probably
       # wants to be true.
       powerManagement.enable = false;

@@ -1,5 +1,5 @@
 # Desktop — everything a machine with a screen needs and a headless server does
-# not. Imported by Sisyphus and Kit-Kat; NOT by Asgard (headless) and NOT by
+# not. Imported by Sisyphus and Elektra; NOT by Asgard (headless) and NOT by
 # Apollo (the deployer ISO carries its own trimmed-down set).
 #
 # Split out of Modules/Core/base.nix, which every host imports — before the
@@ -138,7 +138,7 @@
     # The X server is not what the desktop runs on — both compositors are
     # Wayland — but SDDM's greeter is an X11 client, so it needs one.
     # `videoDrivers` is a per-machine hardware fact and lives with the host
-    # (Hosts/Sisyphus/_hardware.nix; Modules/Core/nvidia.nix on Kit-Kat).
+    # (Hosts/Sisyphus/_hardware.nix; Modules/Core/nvidia.nix on Elektra).
     services.xserver.enable = true;
     services.xserver.xkb = {
       layout = "au";

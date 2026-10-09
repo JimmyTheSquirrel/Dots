@@ -1,21 +1,23 @@
-# Kit-Kat — her machine. A separate physical box on the tailnet: NVIDIA (RTX 3070),
+# Elektra — her machine (she is Kit-Kat; the user is kitkat). A separate physical box on the tailnet: NVIDIA (RTX 3070),
 # Hyprland + noctalia + skwd, GRUB with the Celeste theme.
 #
-# This host used to be "Elektra", a KDE boot profile on Sisyphus's own disk. It is
-# now real hardware, which is why:
+# The name has history: "Elektra" was first a KDE boot profile on Sisyphus's own
+# disk; this box then took that slot as "Kit-Kat", and on 2026-10-09 got the name
+# Elektra back (the machine — her user is still kitkat). It is real hardware,
+# which is why:
 #   - Modules/Boot/grub.nix is NOT imported: it hardcodes Sisyphus's root UUID and
 #     emits Sisyphus's profile entries. She gets Modules/Boot/grub-celeste.nix.
 #   - the disks come from disko (./_disko.nix), not hand-written fileSystems.
 #   - the rest of the hardware comes from nixos-facter (./_hardware.nix +
 #     ./facter.json), generated over SSH during the install (see `apollo-deploy`).
 #
-# Deploy:    apollo-deploy kitkat-Kit-Kat        (first install — ERASES the disk)
-# Rebuild:   system-rebuild kitkat Kit-Kat       (from Sisyphus: pushes over the
-#            tailnet; on Kit-Kat itself: rebuilds in place — same command)
+# Deploy:    apollo-deploy kitkat-Elektra        (first install — ERASES the disk)
+# Rebuild:   system-rebuild kitkat Elektra       (from Sisyphus: pushes over the
+#            tailnet; on Elektra itself: rebuilds in place — same command)
 { self, ... }: {
-  flake.nixosConfigurations.kitkat-Kit-Kat = self.lib.mkHost {
+  flake.nixosConfigurations.kitkat-Elektra = self.lib.mkHost {
     activeUser = "kitkat";
-    hostName = "Kit-Kat";
+    hostName = "Elektra";
     stateVersion = "26.05";
 
     modules = [
@@ -72,7 +74,7 @@
         my.sddm.theme = "women-umbrella";
 
         # system-rebuild, git-sync and nix-gc, so a rebuild can be run sitting at
-        # her machine (system-rebuild sees it is ON Kit-Kat and rebuilds in place,
+        # her machine (system-rebuild sees it is ON Elektra and rebuilds in place,
         # from ~/Dots or, without one, github:JimmyTheSquirrel/Dots). Not the
         # Apollo commands or rock's cheats: Modules/Shell/deploy-tools.nix.
         my.deploy-tools.admin = false;
@@ -164,6 +166,12 @@
 
         # Dark browser chrome AND dark pages, not just the frame.
         my.brave.forceDarkMode = true;
+
+        # Her Brave profile was made while this machine was called Kit-Kat, and
+        # its folder is named after the host (Brave-Browser-<name>). Keeping the
+        # old name means the rename to Elektra leaves her bookmarks, logins and
+        # extensions exactly where Brave looks for them — nothing moves.
+        my.brave.profileName = "Kit-Kat";
 
         # Google, not Brave Search. This is an enterprise policy, which means the
         # Settings dropdown locks and shows the "managed" badge — change it here,
@@ -305,7 +313,7 @@
         # machine from a copy of this repo.
         nix.settings.trusted-users = [ activeUser ];
 
-        # Needed for `system-rebuild kitkat Kit-Kat --target` to reach her. Your
+        # Needed for `system-rebuild kitkat Elektra --target` to reach her. Your
         # pubkey arrives via Modules/Core/base.nix.
         services.openssh = {
           enable = true;

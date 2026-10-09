@@ -9,7 +9,7 @@ Uses **sops-nix** with age keys. Secrets decrypted at system activation, availab
 
 - `.sops.yaml` — **at the repo ROOT** (not in `Secrets/`) — age public keys and path rules
 - `Secrets/secrets.yaml` — encrypted secrets, rock's machines (safe to commit)
-- `Secrets/kit-kat.yaml` — Kit-Kat's machine only, its own recipients (see below)
+- `Secrets/kit-kat.yaml` — Elektra's machine only, its own recipients (see below)
 - `Modules/Core/sops.nix` — sops-nix module config
 
 ## Key Locations
@@ -29,7 +29,7 @@ Uses **sops-nix** with age keys. Secrets decrypted at system activation, availab
 5. Available at `/run/secrets/my-api-key` after rebuild
 
 **Editor:** `EDITOR` is `codium --wait` wherever `Modules/Apps/vscodium.nix` is imported
-(Sisyphus, Kit-Kat), so sops opens VSCodium there. Everywhere else it falls back to
+(Sisyphus, Elektra), so sops opens VSCodium there. Everywhere else it falls back to
 `zsh.nix`'s `lib.mkDefault "nano"`. Asgard edits secrets in nano.
 
 ## Useful Commands
@@ -87,7 +87,7 @@ A host must not also set `initialPassword`/`password`. nixpkgs warns at eval tim
 when a user has more than one password option. `hashedPasswordFile` wins the
 precedence either way.
 
-## Per-machine secrets (Kit-Kat)
+## Per-machine secrets (Elektra)
 
 sops encrypts a **whole file to every recipient**, so adding a machine as a recipient
 of `Secrets/secrets.yaml` gives it everything in there — including
@@ -112,7 +112,7 @@ ssh-to-age -i /etc/ssh/ssh_host_ed25519_key.pub     # → the &kitkat age recipi
 with `sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ]` on her host. Pair
 that with `nixos-anywhere --extra-files` planting a **pre-generated** host key during
 the install and sops decrypts on the very first activation — no copying a key by
-hand, no install-then-reinstall. See `Claude/kit-kat.md`.
+hand, no install-then-reinstall. See `Claude/elektra.md`.
 
 `Modules/Core/sops.nix`'s original module still uses the old pattern
 (`age.keyFile = /home/<user>/.config/sops/age/keys.txt`, one shared key copied to every

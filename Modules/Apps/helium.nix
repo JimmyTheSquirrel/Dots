@@ -51,7 +51,7 @@
       };
 
       # lib.mkDefault: Helium is the browser of last resort here. A host that
-      # also imports Modules/Apps/brave.nix (Kit-Kat) gets Brave, whose
+      # also imports Modules/Apps/brave.nix (Elektra) gets Brave, whose
       # normal-priority definition replaces these outright instead of being
       # concatenated with them in whatever order the modules were imported.
       #

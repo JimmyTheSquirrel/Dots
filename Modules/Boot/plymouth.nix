@@ -13,7 +13,7 @@
         file (Hosts/Sisyphus/_hardware.nix, Hosts/Asgard/_hardware.nix) sets
         `boot.initrd.kernelModules = [ ]` at normal priority, which would
         silently discard a lower-priority default and take the splash with it —
-        with no error to explain why. (Kit-Kat's facter-generated hardware does
+        with no error to explain why. (Elektra's facter-generated hardware does
         not set it, but the option keeps every host working the same way.)
       '';
     };

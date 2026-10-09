@@ -13,15 +13,15 @@ apollo-iso                        # build + copy the ISO onto the stick
 apollo-key                        # put the tailnet auth key on the stick
 # boot the stick on the target machine
 apollo-connect                    # waits for it to appear, then SSHes in
-apollo-deploy --vm-test kitkat-Kit-Kat    # prove the disk layout, touch nothing
-apollo-deploy kitkat-Kit-Kat              # install (ERASES the target's disks)
+apollo-deploy --vm-test kitkat-Elektra    # prove the disk layout, touch nothing
+apollo-deploy kitkat-Elektra              # install (ERASES the target's disks)
 ```
 
 Afterwards, ongoing rebuilds go over the tailnet:
 
 ```bash
-system-rebuild kitkat Kit-Kat     # from Sisyphus: nixos-rebuild --target-host kitkat@kit-kat
-                                  # on Kit-Kat itself: the same command rebuilds in place
+system-rebuild kitkat Elektra     # from Sisyphus: nixos-rebuild --target-host kitkat@elektra
+                                  # on Elektra itself: the same command rebuilds in place
 ```
 
 ## Why this works at all
@@ -32,7 +32,7 @@ so nothing re-boots mid-install and the SSH session — along with the tailnet l
 carrying it — survives from start to finish. Without that, kexec would drop the
 connection the moment the install began.
 
-`nixos-anywhere` is already in `Modules/Desktop/desktop.nix` (Sisyphus, Kit-Kat) and on the
+`nixos-anywhere` is already in `Modules/Desktop/desktop.nix` (Sisyphus, Elektra) and on the
 Apollo ISO, so it needs no flake input.
 
 ## The auth key lives on the stick, not in the ISO
@@ -98,7 +98,7 @@ throwaway node that self-removes when it goes offline.
   working knob is `image.baseName`, and it is set unconditionally upstream, so it
   needs `lib.mkForce`.
 - **`nixos-rebuild --store-path` dies on `<nixpkgs/nixos>` — ✅ FIXED 2026-10-04 (`--no-reexec`).**
-  A remote switch to Kit-Kat, and then a local one on Sisyphus, failed during
+  A remote switch to Elektra, and then a local one on Sisyphus, failed during
   *activation*, after a clean build, with
   `error: file 'nixos-config' was not found in the Nix search path`, from
   `nix-build '<nixpkgs/nixos>' --attr config.system.build.nixos-rebuild`. Nothing was
@@ -143,7 +143,7 @@ because the flake is public, so the target needs no credentials.
 *Pull & switch* / *Switch there* / *Push ours…*, all running on Asgard from its
 own `~/Dots`.
 
-That is gone. Asgard is now an ordinary push target like Kit-Kat — Remote → Asgard
+That is gone. Asgard is now an ordinary push target like Elektra — Remote → Asgard
 gives *Switch · Boot · Build · SSH*, and `system-rebuild rock Asgard` just works.
 The `managed` mode, `on_host()` and `push_managed()` were deleted with it; no host
 used them any more.
@@ -197,13 +197,13 @@ but two traps:
 2. **The test disk is a hardcoded 4 GiB.** disko's harness sets
    `emptyDiskImages = builtins.genList (_: 4096) num-disks` in `lib/tests.nix`, with no
    option to change it. So any layout with more than ~4 GiB of **fixed-size** partitions
-   can never pass — Kit-Kat's 16 G swap puts it over, and the failure looks like bad
+   can never pass — Elektra's 16 G swap puts it over, and the failure looks like bad
    partitioning when it is purely the harness.
 
    `disko.devices.disk.<n>.imageSize` does **not** help here: that only sizes
    `make-disk-image` output (building a raw/qcow image), not the test VM.
 
-So: `--dry-run` for a layout like Kit-Kat's, `--vm-test` only for layouts that fit in
+So: `--dry-run` for a layout like Elektra's, `--vm-test` only for layouts that fit in
 4 GiB of fixed partitions.
 
 ## Never pass `--ssh` to `tailscale up` on a node you SSH into
@@ -320,8 +320,8 @@ opts in with `UI_MENU_HELP=1` before `ui_menu`, then gets `UI_CHOICE=help`; the
 
 **Host-aware.** It matches the hostname against its machine list (`DOTS_HOST`
 overrides), so "local" is wherever it runs. On Sisyphus, `system-rebuild kitkat
-Kit-Kat` pushes to her; on Kit-Kat the same command — and Rebuild in the menu —
-rebuilds Kit-Kat in place, never trying to reach itself over the tailnet. Kit-Kat
+Elektra` pushes to her; on Elektra the same command — and Rebuild in the menu —
+rebuilds Elektra in place, never trying to reach itself over the tailnet. Elektra
 imports `deploy-tools` with `my.deploy-tools.admin = false`: system-rebuild,
 git-sync and nix-gc, none of the Apollo commands (rock's sops key), so its menu has
 no Apollo section. Without a `~/Dots` it builds `github:JimmyTheSquirrel/Dots`

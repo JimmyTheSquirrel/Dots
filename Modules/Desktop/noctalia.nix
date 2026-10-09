@@ -144,7 +144,7 @@ in {
       # noctalia has its own idle manager (src/idle/idle_manager.cpp), so this
       # needs no swayidle/hypridle. It takes the timeout from the compositor via
       # ext-idle-notify-v1 and drives DPMS through the compositor's own IPC — on
-      # niri that is PowerOffMonitors / PowerOnMonitors, on Hyprland (Kit-Kat)
+      # niri that is PowerOffMonitors / PowerOnMonitors, on Hyprland (Elektra)
       # the equivalent dispatcher. Same as `noctalia msg dpms-off` by hand.
       #
       # This is DPMS, NOT an output disable: the outputs stay configured, so

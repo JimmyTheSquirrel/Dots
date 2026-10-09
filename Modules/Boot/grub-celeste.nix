@@ -1,4 +1,4 @@
-# GRUB with the CelesteGRUB theme — Kit-Kat only.
+# GRUB with the CelesteGRUB theme — Elektra only.
 #
 # Deliberately separate from Modules/Boot/grub.nix, which is the multi-profile
 # bootloader for THIS machine: it hardcodes Sisyphus's rootFsUuid and generates a
@@ -51,7 +51,7 @@
     };
   in {
     boot.loader = {
-      # Nothing else on Kit-Kat enables systemd-boot today; this is a guard so
+      # Nothing else on Elektra enables systemd-boot today; this is a guard so
       # that a module which does can never leave two bootloaders claiming the ESP.
       systemd-boot.enable = lib.mkForce false;
 

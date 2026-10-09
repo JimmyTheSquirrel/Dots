@@ -1,19 +1,19 @@
 # SKWD Wallpaper Selector
 
-**One version: v2 (Rust)**, on Sisyphus (niri) and Kit-Kat (Hyprland), from
+**One version: v2 (Rust)**, on Sisyphus (niri) and Elektra (Hyprland), from
 `Modules/Desktop/skwd.nix`. Config `~/.config/skwd-wall-v2/config.json`, cache
 `~/.cache/skwd-wall-v2/`, daemon `skwd-walld.service`, launched as
 `skwd-wall-v2` (Mod+W on both machines).
 
 v1 (QuickShell, `Modules/skwd-wall.nix`, the `skwd-wall` flake input) was retired
-on 2026-10-03 together with Elektra and Odysseus, the last hosts that used it —
+on 2026-10-03 together with the old KDE Elektra profile and Odysseus, the last hosts that used it —
 see the short [v1 section](#v1-quickshell--retired-2026-10-03) at the end for what
 is worth remembering from it. Its `~/.config/skwd-wall/` and `~/.cache/skwd-wall/`
 are not read by v2 and can be deleted wherever they are left over.
 
 ---
 
-# v2 (Rust) — Sisyphus, Kit-Kat
+# v2 (Rust) — Sisyphus, Elektra
 
 **Flake input:** `skwd-wall-v2` → `github:liixini/skwd-wall/nix`
 **Module:** `Modules/Desktop/skwd.nix`
@@ -149,7 +149,7 @@ v2 uses three, and **none of them is `wallpaper`**:
 
 **Sisyphus uses `skwd-paper-backdrop` for the overview backdrop since 2026-09-15.**
 The `^wallpaper$` layer-rule and the swaybg instance behind it are gone — see
-"swaybg retired" below. Kit-Kat is on Hyprland: no niri overview, so no backdrop
+"swaybg retired" below. Elektra is on Hyprland: no niri overview, so no backdrop
 surface either (see below).
 
 **Do NOT apply the layer-rule the v2 README gives for Niri.** It says to put
@@ -186,10 +186,10 @@ UI toggle would otherwise leave **no backdrop at all**. The look knobs
 (`overviewBackdropBlurEnabled`, `overviewBackdropBlur`, `backdropDim`,
 `backdropTheme`) are *not* pinned — tune those freely.
 
-Everywhere else — Kit-Kat — it forces `niri.overviewBackdrop = false`: there is
+Everywhere else — Elektra — it forces `niri.overviewBackdrop = false`: there is
 no niri overview and no `place-within-backdrop` rule, so a backdrop surface could
 only paint over the wallpaper. (Until 2026-10-03 the module forced it **on** for
-every host, so Kit-Kat's config.json had it on.)
+every host, so Elektra's config.json had it on.)
 
 > The script and `pkgs.swaybg` lived on for a while in `Modules/skwd-wall.nix`
 > (the v1 module), because Odysseus still registered it as its postProcessing
@@ -273,8 +273,8 @@ v1**, so the whole colour pipeline carried over unchanged:
 | `discord` | `discord-colors.css` | `~/.config/vesktop/themes/matugen.theme.css` | *(none — Vencord hot-reloads)* |
 
 The two `spicetify*` rows exist only while `my.spicetify.theme` is `null` (the
-local Text theme — Sisyphus); a host on an upstream theme (Kit-Kat's Sleek) has
-them deleted. Same for `steam` and Millennium: Kit-Kat runs plain Steam, so it
+local Text theme — Sisyphus); a host on an upstream theme (Elektra's Sleek) has
+them deleted. Same for `steam` and Millennium: Elektra runs plain Steam, so it
 has no `steam` integration.
 
 ### GTK apps are deliberately NOT in this pipeline
@@ -476,7 +476,7 @@ the wallpaper** — the fastest way to test template changes.
 
 # v1 (QuickShell) — retired 2026-10-03
 
-`Modules/skwd-wall.nix` and the `skwd-wall` input were deleted along with Elektra
+`Modules/skwd-wall.nix` and the `skwd-wall` input were deleted along with the old KDE Elektra profile
 and Odysseus. Lessons from it that are still worth having:
 
 - **The one-wallpaper-behind bug.** v1 wrote `~/.cache/skwd-wall/last-wallpaper.json`

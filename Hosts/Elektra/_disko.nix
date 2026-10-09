@@ -1,4 +1,4 @@
-# Kit-Kat disks. Disko owns the partition table — `apollo-deploy` runs the
+# Elektra disks. Disko owns the partition table — `apollo-deploy` runs the
 # formatting script against installDisk during the first install.
 # (A plain NixOS module: import-tree skips paths containing "/_".)
 { inputs, ... }:

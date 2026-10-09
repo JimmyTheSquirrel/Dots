@@ -16,7 +16,7 @@ let
   # Keeping one generator means the two can't drift.
   mkTheme = c: ''
     # btop theme — generated from Modules/Shell/btop.nix. Do not edit by hand.
-    # On skwd hosts (Sisyphus, Kit-Kat) this file is overwritten by matugen on
+    # On skwd hosts (Sisyphus, Elektra) this file is overwritten by matugen on
     # every wallpaper change (the skwd "btop" integration).
 
     # main_bg is deliberately empty: btop then paints nothing behind itself and

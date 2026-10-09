@@ -27,7 +27,7 @@ Custom system info display:
 ## btop
 
 **Module:** `Modules/Shell/btop.nix`
-**Used on:** all four hosts (Sisyphus, Kit-Kat, Asgard, Apollo)
+**Used on:** all four hosts (Sisyphus, Elektra, Asgard, Apollo)
 
 Home Manager `programs.btop` — the package is installed by this module, **not** by `base.nix`.
 
@@ -113,10 +113,10 @@ If you ever want the "quiet at idle" look back, the only safe way to get it is a
 `navi.nix` is only the UI: `programs.navi` (config via `programs.navi.settings`, so no
 `NAVI_CONFIG`/`NAVI_PATH`), the `c` alias, the preview pane, and a `navi()` wrapper that
 blanks `FZF_DEFAULT_OPTS` for that one command. It ships no cheats of its own. Every entry
-that existed was rock-only, so on Kit-Kat `c` now opens an empty list where it used to
+that existed was rock-only, so on Elektra `c` now opens an empty list where it used to
 offer commands that could not run there.
 
-`deploy-tools.nix` is imported on **Sisyphus** (everything) and **Kit-Kat**
+`deploy-tools.nix` is imported on **Sisyphus** (everything) and **Elektra**
 (`my.deploy-tools.admin = false`: only `system-rebuild`, `git-sync`, `nix-gc` and their
 three cheats). It installs the commands below and `~/.config/navi/cheats/dots.cheat`
 (navi reads every `*.cheat` under its cheats path):
@@ -132,7 +132,7 @@ three cheats). It installs the commands below and `~/.config/navi/cheats/dots.ch
 - `apollo-iso`, `apollo-key`, `apollo-connect`, `apollo-deploy`: see `Claude/deploy.md`.
   `apollo-connect` and `apollo-deploy` share one live-node lookup, `apollo-resolve`,
   which is their runtime input and not on PATH.
-- `sops ~/Dots/Secrets/secrets.yaml`, `ssh asgard`, `ssh kitkat@kit-kat`: cheats only.
+- `sops ~/Dots/Secrets/secrets.yaml`, `ssh asgard`, `ssh kitkat@elektra`: cheats only.
 
 Each command is a `pkgs.writeShellApplication` whose body is
 `Resources/Scripts/<name>.sh`, plain bash read with `builtins.readFile`. **shellcheck runs
@@ -160,20 +160,20 @@ With the monitor off, PipeWire registers no A2DP endpoint with bluetoothd, so bl
 src/service.c:btd_service_connect() a2dp-sink profile connect failed for <MAC>: Protocol not available
 ```
 
-**One-command fingerprint — `bluetoothctl show`.** A healthy controller lists `Audio Sink (110b)`, `Audio Source (110a)`, `Handsfree (111e)` and `Handsfree AG (111f)`; a broken one has `A/V Remote Control` but none of those four, because AVRCP comes from bluez itself while the audio endpoints come from PipeWire. Compare against a known-good host first — doing exactly that isolated a 2026-10-04 fault to Kit-Kat in one step, since she and Sisyphus share this module.
+**One-command fingerprint — `bluetoothctl show`.** A healthy controller lists `Audio Sink (110b)`, `Audio Source (110a)`, `Handsfree (111e)` and `Handsfree AG (111f)`; a broken one has `A/V Remote Control` but none of those four, because AVRCP comes from bluez itself while the audio endpoints come from PipeWire. Compare against a known-good host first — doing exactly that isolated a 2026-10-04 fault to Elektra in one step, since she and Sisyphus share this module.
 
 Two things make it hide, and both cost real time:
 
 - **It is not in `/etc`.** It arrives via `services.pipewire.wireplumber.configPackages` as a store path on the unit's `XDG_DATA_DIRS`, so `ls /etc/wireplumber` (absent) and `grep -r disable-bluez /etc` (no hits) both say "clean". Read the running unit instead: `systemctl --user show wireplumber -p Environment`. A clean host's generated `wireplumber-configs` package is **empty**.
 - **Running `wireplumber` by hand works.** A manual run does not inherit that `XDG_DATA_DIRS`, so it uses upstream defaults, registers every endpoint and exits 0 — which looks like proof the config is fine. Only the systemd instance is broken. Get the truth with `systemctl --user set-environment WIREPLUMBER_DEBUG=I`, restart, then grep the journal for `opening fragment file:`, which names the culprit outright.
 
-A dead end worth skipping: `hardware.bluetooth` is `required` in WirePlumber's `main` profile, so it looks like a failed monitor would kill WirePlumber outright — it runs clean, which seems to exonerate it. It does not. The fragment *disables* the feature rather than failing it, so nothing errors; `wpctl status` showing no Bluetooth section and a 3-line WirePlumber log are both consistent with "switched off", not "broken". See `Claude/kit-kat.md`.
+A dead end worth skipping: `hardware.bluetooth` is `required` in WirePlumber's `main` profile, so it looks like a failed monitor would kill WirePlumber outright — it runs clean, which seems to exonerate it. It does not. The fragment *disables* the feature rather than failing it, so nothing errors; `wpctl status` showing no Bluetooth section and a 3-line WirePlumber log are both consistent with "switched off", not "broken". See `Claude/elektra.md`.
 
 **Hardware:** Corsair Virtuoso XT Wireless (USB dongle, default sink/source). USB autosuspend is NOT an issue — the receiver is hardlocked to `power/control = on` by the kernel.
 
 **WirePlumber startup warnings** — `wp_event_dispatcher_unregister_hook: assertion ... failed` appears on every boot. Known WirePlumber 0.5.x bug, harmless, audio works fine.
 
-**Every noctalia host (Sisyphus, Kit-Kat, Apollo) has a second sink, `spotify_tap`** — a loopback that Spotify plays into and
+**Every noctalia host (Sisyphus, Elektra, Apollo) has a second sink, `spotify_tap`** — a loopback that Spotify plays into and
 which forwards to the default sink, so noctalia's bar visualizer can tap Spotify alone instead of
 the speaker monitor. Defined in `Modules/Desktop/noctalia.nix`, not `audio.nix`, because it exists purely
 for that widget. If Spotify has no sound, check that loopback before anything else:

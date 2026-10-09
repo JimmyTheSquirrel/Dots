@@ -1,28 +1,73 @@
-# Kit-Kat — her machine
+# Elektra — her machine
 
-`Hosts/Kit-Kat/system.nix`, flake attr **`kitkat-Kit-Kat`**, login `kitkat`
-("Kit Kat"), tailnet node `kit-kat`. Runs **Hyprland** (`Modules/Desktop/hyprland.nix`
-— she is its only host now that Odysseus is retired) with noctalia and skwd v2, on
-her own NVIDIA hardware.
+`Hosts/Elektra/system.nix`, flake attr **`kitkat-Elektra`**, login `kitkat`
+("Kit Kat" — she is Kit-Kat; the machine is Elektra), tailnet node `elektra`. Runs
+**Hyprland** (`Modules/Desktop/hyprland.nix` — she is its only host now that Odysseus
+is retired) with noctalia and skwd v2, on her own NVIDIA hardware.
 
-This replaced **Elektra**, which was a KDE boot profile on *Sisyphus's own disk* —
-all three local profiles shared one root UUID, one ESP and one swap, selected from
-the GRUB "System Select" submenu. Elektra is therefore gone from
-`Modules/Boot/grub.nix` and from the `system-rebuild` local menu, and
-`kde.nix` / `Claude/kde.md` have since been deleted.
+**The name has history.** "Elektra" was first a KDE boot profile on *Sisyphus's own
+disk* (all three local profiles shared one root UUID, one ESP and one swap, selected
+from the GRUB "System Select" submenu). This box replaced it as **Kit-Kat**, and on
+2026-10-09 the machine got the name **Elektra** back — her user stayed `kitkat`. Older
+notes elsewhere that say "Elektra" and KDE mean that first one.
+
+### The 2026-10-09 rename, Kit-Kat → Elektra
+
+- **Brave keeps her profile.** Its folder is named after the host
+  (`Brave-Browser-<name>`), so `my.brave.profileName = "Kit-Kat"` keeps it pointing at
+  the existing one — bookmarks, logins, extensions stay put. `brave.nix` also clears a
+  profile lock left under the *old* hostname (it would read as "in use by another
+  computer"), and only when Brave isn't running.
+- **The first push goes to the old tailnet name**, because `elektra` doesn't resolve
+  until the rename is live: `system-rebuild kitkat Elektra --target kit-kat` (from
+  Sisyphus, after Sisyphus has the new `system-rebuild`). From then on, plain
+  `system-rebuild kitkat Elektra`.
+- **Tailscale renames the node itself** from the new OS hostname — unless the machine
+  name was ever edited by hand in the admin console, in which case set it back to
+  auto-generate there (Machines → kit-kat → Edit machine name). Her MarsBar grants are
+  by *user*, not machine name, so they don't change.
+- **Sisyphus's ssh** will ask once to trust `elektra` (same host key, new name).
+- **Reinstalls**: `apollo-deploy` reads her pre-generated host key from
+  `~/.local/share/apollo/<Host>` — on Sisyphus, `mv ~/.local/share/apollo/Elektra
+  ~/.local/share/apollo/Elektra` before the next install.
+- Not renamed: her user (`kitkat`), her sops file (`Secrets/kit-kat.yaml`, module
+  `sops-kitkat`) — those are hers, not the machine's.
+
+## Her Mod+B cheatsheet (2026-10-09)
+
+Same panel as rock's (noctalia's `kenn/keybind-cheatsheet`), and now the same look: every
+bind titled and grouped into the same six categories as his niri one — Applications,
+Window Management, Workspace - Navigation, Workspace - Movement, Screenshots, Media.
+
+- **One list, two readers.** `keybinds` at the top of `Modules/Desktop/hyprland.nix`
+  holds every Hyprland bind with a `title` and `category` (`type` = `bindm` / `bindel` /
+  `bindl` where it isn't a plain `bind`). It is rendered into `extraConfig` as
+  `# N. Category` headings and `bind = … #"Title"` lines: Hyprland drops both as
+  comments (hyprlang cuts a line at an unescaped `#`; a literal `#` in a command is
+  written `##`, which the renderer does for you), and the plugin reads exactly that
+  format for Hyprland. `settings.bind` can't carry comments, so **add or change a bind in
+  `keybinds`, never in `settings.bind`** — or it works but shows untitled on Mod+B.
+- The screenshot binds moved there from `Modules/Desktop/screenshot.nix` (which keeps the
+  grim/slurp/wl-clipboard/jq packages), so they're listed too.
+- Workspace 1–5 render as one "Workspace N" row — the plugin folds number runs itself.
+- `home.activation.hyprCheatsheet` deletes the plugin's `bindings-cache.json`:
+  `hyprland.conf` is a store symlink (mtime 1970), so the plugin can't tell it changed.
+- Checked 2026-10-09: the rendered binds are the same 47 as before (same keys, same
+  actions), Hyprland 0.55.4's `--verify-config` says `config ok`, and the plugin's own
+  parser (`parseHyprContent`, run under luau) reads all 47 with their titles and categories.
 
 ## Deploy / rebuild
 
 ```bash
-apollo-deploy --vm-test kitkat-Kit-Kat   # prove the disk layout first
-apollo-deploy kitkat-Kit-Kat             # first install — ERASES the disk
-system-rebuild kitkat Kit-Kat            # every rebuild after that
+apollo-deploy --vm-test kitkat-Elektra   # prove the disk layout first
+apollo-deploy kitkat-Elektra             # first install — ERASES the disk
+system-rebuild kitkat Elektra            # every rebuild after that
 ```
 
 `system-rebuild` is on her machine too (`deploy-tools` with
 `my.deploy-tools.admin = false`), and it knows where it is: run on Sisyphus it
-pushes over the tailnet; run on Kit-Kat — the command above, or Rebuild in the
-menu — it rebuilds Kit-Kat in place. With no `~/Dots` there it builds
+pushes over the tailnet; run on Elektra — the command above, or Rebuild in the
+menu — it rebuilds Elektra in place. With no `~/Dots` there it builds
 `github:JimmyTheSquirrel/Dots` (main), so push to main first; *Utilities → Get the
 repo* clones one if you want to edit on her machine.
 
@@ -35,7 +80,7 @@ joining is a one-time manual `tailscale up` on every host in this repo. Hers had
 been done, so a push had nothing to reach for her machine's whole existence and the only
 config she ever received came from a **local clone rebuilt on her own machine**. That is
 the root of every "her machine has drifted" symptom, including the Bluetooth fault below.
-Her node is `kit-kat` / `100.122.12.125`.
+Her node is `elektra` (`kit-kat` until the 2026-10-09 rename; the address stays) / `100.122.12.125`.
 
 - An absent node and an offline node look different: `tailscale status` lists an offline
   peer as `offline, last seen …`. **Missing from the list entirely means it is not in the
@@ -57,18 +102,18 @@ Her node is `kit-kat` / `100.122.12.125`.
 
 ## Before the first install
 
-1. **Confirm `installDisk`** in `Hosts/Kit-Kat/_disko.nix`. It is `/dev/nvme0n1`
+1. **Confirm `installDisk`** in `Hosts/Elektra/_disko.nix`. It is `/dev/nvme0n1`
    by default and it is the one value that must be right — everything on that
    device is destroyed. Check from the booted stick: `apollo-connect`, then
    `lsblk -o NAME,SIZE,MODEL`.
 2. ~~Pre-generate her ssh host key~~ ✅ **DONE 2026-10-02.** The key lives at
-   `~/.local/share/apollo/Kit-Kat/etc/ssh/ssh_host_ed25519_key` (outside the repo —
+   `~/.local/share/apollo/Elektra/etc/ssh/ssh_host_ed25519_key` (outside the repo —
    this repo is public), its age identity
    `age185mqahaq2pac7szxvzkmlg5mdv4lcjgvtjkwu2ly24cc3mva3pssh4yuw2` is in `.sops.yaml`
    as `&kitkat`, and `Secrets/kit-kat.yaml` has been re-encrypted to include it.
    `apollo-deploy` now finds `~/.local/share/apollo/<Host>/` automatically and plants
    it — no env var to remember, and it refuses to proceed silently if it is missing.
-3. ✅ `Hosts/Kit-Kat/facter.json` has been generated and committed. Without it the
+3. ✅ `Hosts/Elektra/facter.json` has been generated and committed. Without it the
    host still evaluates (and warns), but **must not be switched onto real hardware**
    — there is no microcode, no detected kernel modules and no firmware without it.
 
@@ -219,7 +264,7 @@ utilisation means "nothing is holding it back", never "this card is outmatched".
   power ceiling against her **270 W**, is the whole reason the same game behaves on his
   machine and screams on hers. Nothing is misconfigured on hers.
 - **Fix: MangoHud's `fps_limit`, because it is a Vulkan *layer*** — it caps native Vulkan,
-  DXVK and vkd3d alike. Wired in `Hosts/Kit-Kat/system.nix` as `programs.mangohud` with
+  DXVK and vkd3d alike. Wired in `Hosts/Elektra/system.nix` as `programs.mangohud` with
   `enableSessionWide = true` (sets `MANGOHUD=1` so the implicit layer loads) and
   `no_display = true`. It reaches the game because `mangohud` is in
   `programs.steam.extraPackages` (`Modules/Gaming/steam.nix`), putting the layer **inside
@@ -236,7 +281,7 @@ utilisation means "nothing is holding it back", never "this card is outmatched".
 - `sensors` is **not installed** on either desktop (only `Hosts/Asgard/_hardware.nix` has
   `lm_sensors`), and her board exposes **no fan-RPM inputs at all** (`gigabyte_wmi` gives
   `temp1..6`; no `nct6775`). GPU fan % comes from `nvidia-smi`, CPU temp from the hwmon
-  named `k10temp` (`Tctl`/`Tccd1`). **CPU fan RPM is not measurable on Kit-Kat** — don't
+  named `k10temp` (`Tctl`/`Tccd1`). **CPU fan RPM is not measurable on Elektra** — don't
   promise a reading you cannot take.
 
 ## Deliberately left out

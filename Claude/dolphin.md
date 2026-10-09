@@ -81,7 +81,7 @@ Would become `Modules/dolphin.nix`, self-contained like every other module:
 - niri: `Mod+E` currently spawns `lib.getExe pkgs.xfce.thunar`
   (`Modules/Desktop/niri.nix:59`)
 
-⚠️ `Modules/Desktop/thunar.nix` is imported by **all three hosts**, and Elektra's KDE
+⚠️ `Modules/Desktop/thunar.nix` is imported by **all three hosts**, and the old Elektra profile's KDE
 already has Dolphin. Check the host matrix before moving anything shared.
 
 ## Theming — do NOT repeat the GTK mistake
@@ -136,7 +136,7 @@ exist. The module has to set it, e.g.
 environment.profileRelativeSessionVariables.QT_PLUGIN_PATH = [ "/lib/qt-6/plugins" ];
 ```
 
-(or `qt.enable = true`, which sets this plus a platform theme). Elektra does not
+(or `qt.enable = true`, which sets this plus a platform theme). The old KDE Elektra profile did not
 hit this — Plasma sets it there. Test by right-clicking a `.zip` after adopting;
 if Extract is missing, this is why.
 

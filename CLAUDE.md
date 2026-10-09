@@ -10,10 +10,10 @@ Detailed topic docs live in `Claude/` — read the relevant file before working 
 | **Architecture** | `Claude/architecture.md` | Folder layout, the module pattern, **the `/_` rule**, `mkHost`, per-host hardware/disko files, GRUB profiles, Plymouth |
 | **Next up / backlog** | `Claude/next-up.md` | Open work. **Read before a fresh install or wipe** |
 | **Deploying / installer USB** | `Claude/deploy.md` | `system-rebuild` — a **full-screen app** (Resources/Rebuild, Textual) with no args, the bash CLI with args — its menus (Rebuild · Remote · Utilities · Apollo · Help — every menu ends with a Help row; `?` opens the same page) and how to extend them. The Apollo stick: `apollo-iso` / `apollo-key` / `apollo-connect` / `apollo-deploy`. **nixos-anywhere skips kexec on our ISO, so an SSH-over-tailnet install survives.** Ventoy + Secure Boot caveats |
-| **Kit-Kat** (her machine) | `Claude/kit-kat.md` | Separate NVIDIA hardware running Hyprland. **Her own sops file**, disko + facter, what was left out |
+| **Elektra** (her machine — she is Kit-Kat) | `Claude/elektra.md` | Separate NVIDIA hardware running Hyprland. **Her own sops file**, disko + facter, what was left out |
 | Niri compositor | `Claude/niri.md` | Layout, keybinds, window rules, startup, Spotify/Steam launchers |
 | Noctalia shell | `Claude/noctalia.md` | Bar, IPC, font packaging, **idle/monitor power-save**. **Nix owns `settings.toml`** — the bar/lockscreen/widget layout lives in `lockedSettings` and a rebuild forces it back over any GUI change, so edit Nix, not the GUI |
-| SKWD wallpaper | `Claude/skwd-wall.md` | skwd v2 (Rust) on Sisyphus + Kit-Kat: matugen flow, integrations, troubleshooting |
+| SKWD wallpaper | `Claude/skwd-wall.md` | skwd v2 (Rust) on Sisyphus + Elektra: matugen flow, integrations, troubleshooting |
 | Spicetify | `Claude/spicetify.md` | Text theme, CDP color injection, CSS fixes |
 | Helium browser | `Claude/helium.md` | Extensions, policies, dark theme, Bitwarden |
 | Game streaming | `Claude/streaming.md` | Moonlight clients, Sunshine (installed, not autostarted), Tailscale |
@@ -45,7 +45,7 @@ When making changes, always ask: "Will this work on a fresh install without manu
 system-rebuild                          # Interactive menu (recommended)
 system-rebuild rock Sisyphus            # Build and switch immediately
 system-rebuild rock Sisyphus --boot     # Build for GRUB, don't switch
-system-rebuild kitkat Kit-Kat           # Push to her machine (on Kit-Kat: rebuilds in place)
+system-rebuild kitkat Elektra           # Push to her machine (on Elektra: rebuilds in place)
 nix build .#apollo-iso                  # The Apollo ISO (or: apollo-iso)
 nix flake update                        # Update flake inputs
 ```
@@ -60,7 +60,7 @@ old inline menus. Machine cards, a preview panel beside every menu, ctrl+p to ju
 to any action, a run history (`~/.local/state/system-rebuild/`). It keeps its own
 host table + rebuild pipeline (`hosts.py`, `jobs.py`) — change both. See
 `Claude/deploy.md` → The app. Sisyphus gets all of them;
-Kit-Kat gets `system-rebuild`/`git-sync`/`nix-gc` (`my.deploy-tools.admin = false`).
+Elektra gets `system-rebuild`/`git-sync`/`nix-gc` (`my.deploy-tools.admin = false`).
 `system-rebuild` is **host-aware**: the machine it runs on rebuilds in place, any other
 is pushed over the tailnet. Sisyphus builds into the named profile `-p sisyphus` (see
 `Claude/architecture.md` → GRUB); the others use the default profile.
@@ -72,7 +72,7 @@ checkout anywhere, so this repo is the only copy. See `Claude/deploy.md`.
 
 **Check a change evaluates** (all four hosts, no build):
 `nix eval --raw .#nixosConfigurations.<attr>.config.system.build.toplevel.drvPath`
-for `rock-Sisyphus`, `kitkat-Kit-Kat`, `rock-Asgard`, `rock-Apollo`.
+for `rock-Sisyphus`, `kitkat-Elektra`, `rock-Asgard`, `rock-Apollo`.
 
 ## Directory Structure
 
@@ -81,13 +81,13 @@ flake.nix                 # inputs + flake-parts; import-tree loads Hosts/ and M
 .sops.yaml                # sops creation rules — MUST live at the repo root
 Hosts/
   Sisyphus/               # system.nix, _hardware.nix
-  Kit-Kat/                # system.nix, _hardware.nix (facter), _disko.nix, facter.json
+  Elektra/                # system.nix, _hardware.nix (facter), _disko.nix, facter.json
   Asgard/                 # system.nix, _hardware.nix (+ it87 fans), _disko.nix
   Apollo/                 # system.nix — the deployer/rescue ISO
 Modules/
   Core/                   # base (every host incl. the server), locale, audio, polkit,
                           #   sops (+ sops-kitkat), nvidia, tailscale, flake-lib (mkHost)
-  Boot/                   # grub (Sisyphus profiles), grub-celeste (Kit-Kat), plymouth,
+  Boot/                   # grub (Sisyphus profiles), grub-celeste (Elektra), plymouth,
                           #   sddm (qylock theme picked by my.sddm.theme)
   Desktop/                # desktop (GUI packages + bits both compositors share), niri,
                           #   hyprland, noctalia, skwd (v2), thunar, screenshot
@@ -124,12 +124,12 @@ Claude/                   # topic docs
 | System | Desktop | Entry Point | Where | Key Modules |
 |--------|---------|-------------|-------|-------------|
 | **Sisyphus** | Niri | `Hosts/Sisyphus/system.nix` | rock's desktop, AMD | niri, noctalia, skwd, spicetify, wolf, sunshine, rpcs3, deploy-tools, grub, sddm (nier-automata) |
-| **Kit-Kat** | Hyprland | `Hosts/Kit-Kat/system.nix` | her machine, **NVIDIA** | hyprland, noctalia, skwd, nvidia, grub-celeste, sddm (women-umbrella), sops-kitkat, brave, sleepy-cat, deploy-tools (no admin); disko + facter |
+| **Elektra** | Hyprland | `Hosts/Elektra/system.nix` | her machine, **NVIDIA** | hyprland, noctalia, skwd, nvidia, grub-celeste, sddm (women-umbrella), sops-kitkat, brave, sleepy-cat, deploy-tools (no admin); disko + facter |
 | **Asgard** | headless | `Hosts/Asgard/system.nix` | media server | server, home-assistant, marsbar; disko; systemd-boot |
 | **Apollo** | Niri (live, not autostarted) | `Hosts/Apollo/system.nix` | USB stick | the deployer/rescue ISO — `Claude/deploy.md` |
 
-Flake attributes are `<user>-<Host>`: `rock-Sisyphus`, `kitkat-Kit-Kat`,
-`rock-Asgard`, `rock-Apollo`. Sisyphus is the only machine on this disk; Kit-Kat
+Flake attributes are `<user>-<Host>`: `rock-Sisyphus`, `kitkat-Elektra`,
+`rock-Asgard`, `rock-Apollo`. Sisyphus is the only machine on this disk; Elektra
 and Asgard are separate hardware on the tailnet, pushed to with `--target-host`.
 
 - **Every host:** locale, zsh, starship, git, fastfetch, btop.
@@ -139,7 +139,7 @@ and Asgard are separate hardware on the tailnet, pushed to with `--target-host`.
 
 **Displays (Sisyphus):** DP-2 (2560x1080 @ 144Hz primary, 8-bit) + HDMI-A-1
 (1920x1080 @ 60Hz secondary). DP-2's 144Hz needs an explicit `mode` line — its
-EDID advertises 60Hz as *preferred*. See `Claude/niri.md`. Kit-Kat's monitors
+EDID advertises 60Hz as *preferred*. See `Claude/niri.md`. Elektra's monitors
 (one pivoted) are in her host file under `my.hyprland.monitors`.
 
 ## Module Patterns
@@ -171,11 +171,11 @@ via `perSystem`. See `Claude/architecture.md`.
 - `flake-parts` + `import-tree` — modular flake organization
 - `wrapper-modules` — wraps niri with its settings baked in
 - `noctalia` — desktop shell (follows nixpkgs-unstable)
-- `skwd-wall-v2` — wallpaper selector v2/Rust (`github:liixini/skwd-wall/nix`), Sisyphus + Kit-Kat. **Never add `nixpkgs.follows`** — the binaries are autoPatchelf'd against upstream's pinned nixpkgs, and matching it keeps our derivations hash-identical to upstream's published store paths
+- `skwd-wall-v2` — wallpaper selector v2/Rust (`github:liixini/skwd-wall/nix`), Sisyphus + Elektra. **Never add `nixpkgs.follows`** — the binaries are autoPatchelf'd against upstream's pinned nixpkgs, and matching it keeps our derivations hash-identical to upstream's published store paths
 - `qylock` — SDDM greeter themes (only the one picked by `my.sddm.theme` is copied)
 - `helium` — browser (github:amaanq/helium-flake, not in nixpkgs)
 - `spicetify-nix` — declarative Spotify theming
 - `millennium` — Steam client CSS/JS injector (`?dir=packages/nix`). **Never add `nixpkgs.follows`** — upstream's pinned nixpkgs is load-bearing for a Bun FOD hash
 - `sops-nix` — encrypted secrets with age keys
-- `disko` — declarative disk partitioning (Kit-Kat, Asgard)
+- `disko` — declarative disk partitioning (Elektra, Asgard)
 - `nixflix` — declarative media server (arr stack + Jellyfin + Seerr), Asgard only

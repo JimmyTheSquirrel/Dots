@@ -928,7 +928,7 @@ Under it, **History** (a toggle; remembered per browser):
 ```
 CONTROL CENTRE   Sisyphus — the repo; builds & deploys every machine over the tailnet
       ┌─────────────┼─────────────┐
-   Kit-Kat        ASGARD         Apollo
+   Elektra        ASGARD         Apollo
                     │
  ┌─ INSIDE ASGARD — sorted by who can reach it ─────────────────────────────┐
  │ OPEN TO THE INTERNET  anyone → Cloudflare Tunnel → Jellyfin · Jellyseerr · Immich
