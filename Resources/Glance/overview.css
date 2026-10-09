@@ -1,0 +1,133 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   overview.css — the Overview page's map (overview.js draws it into #ov-map).
+   Asgard only (glance.nix). Every colour is the HUD's: var(--hud…), --s1…--s6,
+   --ag-* — the viewer's picked colour recolours the map like everything else.
+   A box's own colour comes in as --c (its group's, set by overview.js).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#ov-map .ags-skel { height: 620px; }
+.ov { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }   /* a long caption never widens the map */
+
+/* ── the story chips and the step caption ── */
+.ov-stories { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ov-lead { font-family: var(--ag-title); font-size: 1.05rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ag-text-faint); margin-right: 4px; }
+button.ov-chip {
+  font: inherit; font-size: 1.25rem; font-weight: 600; color: var(--ag-text-dim); cursor: pointer;
+  padding: 6px 14px; border: 1px solid var(--ag-line); background: var(--ag-tile);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+button.ov-chip:hover { color: var(--ag-text); border-color: var(--hud); }
+button.ov-chip[aria-pressed="true"] { color: var(--ag-on-acc); background: var(--hud); border-color: var(--hud); }
+
+.ov-cap {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: 1px solid rgb(var(--hud-rgb) / 0.4);
+  background: linear-gradient(90deg, rgb(var(--hud-rgb) / 0.10), rgb(var(--hud-rgb) / 0.02)), var(--ag-pop);
+  animation: ov-in 0.3s ease;
+  /* pinned while the map scrolls under it (a phone's map is taller than the screen) */
+  position: sticky; top: 8px; z-index: 3;
+}
+.ov-cap[hidden] { display: none; }
+.ov-cap-t { flex: 1; font-size: 1.4rem; line-height: 1.45; color: var(--ag-text); }
+.ov-cap-t b { font-family: var(--ag-title); font-size: 1.05rem; letter-spacing: 0.12em; color: var(--hud); margin-right: 6px; }
+.ov-pips { display: flex; gap: 5px; margin-top: 7px; }
+.ov-pips i { width: 18px; height: 3px; background: var(--ag-line); }
+.ov-pips i.done { background: rgb(var(--hud-rgb) / 0.5); }
+.ov-pips i.on { background: var(--hud); box-shadow: 0 0 8px rgb(var(--hud-rgb) / 0.7); }
+.ov-cap button {
+  flex: none; width: 34px; height: 34px; font: inherit; font-size: 1.6rem; line-height: 1; cursor: pointer;
+  color: var(--ag-text-dim); background: var(--ag-well); border: 1px solid var(--ag-line);
+}
+.ov-cap button:hover:not(:disabled) { color: var(--ag-text); border-color: var(--hud); }
+.ov-cap button:disabled { opacity: 0.3; cursor: default; }
+.ov-cap .ov-play { font-size: 1.1rem; }
+@keyframes ov-in { from { opacity: 0; transform: translateY(-4px); } }
+
+/* ── the map ── */
+.ov-map { position: relative; }
+.ov-map.tall { max-width: 520px; margin: 0 auto; width: 100%; }
+.ov-svg { display: block; width: 100%; height: auto; overflow: visible; font-family: inherit; }
+.ov-svg text { pointer-events: none; }
+
+.ov-band { font-family: var(--ag-title); font-size: 12px; font-weight: 500; letter-spacing: 0.22em; fill: var(--ag-text-faint); }
+.ov-map.tall .ov-band { font-size: 10px; }
+.ov-zone { font-family: var(--ag-title); font-size: 11px; font-weight: 500; letter-spacing: 0.2em; fill: var(--c); opacity: 0.85; }
+.ov-map.tall .ov-zone { font-size: 9.5px; }
+
+.ov-frame path { fill: rgb(var(--hud-rgb) / 0.025); stroke: rgb(var(--hud-rgb) / 0.32); stroke-width: 1.4; transition: stroke 0.2s ease, fill 0.2s ease; }
+.ov-frame.main { cursor: pointer; outline: none; }
+.ov-frame.main:hover path, .ov-frame.main:focus-visible path { stroke: rgb(var(--hud-rgb) / 0.6); }
+.ov-frame.main.on path { stroke: var(--hud); fill: rgb(var(--hud-rgb) / 0.06); }
+.ov-frame-t { font-family: var(--ag-title); font-size: 18px; font-weight: 700; letter-spacing: 0.3em; fill: var(--hud); }
+.ov-frame-s { font-size: 12.5px; fill: var(--ag-text-faint); letter-spacing: 0.04em; }
+.ov-map.tall .ov-frame-t { font-size: 14px; }
+.ov-map.tall .ov-frame-s { font-size: 10.5px; }
+.ov-frame.vpn path { fill: rgb(var(--hud2-rgb) / 0.04); stroke: rgb(var(--hud2-rgb) / 0.55); stroke-dasharray: 6 5; }
+.ov-frame.vpn .ov-frame-s { font-size: 11px; fill: var(--hud2); opacity: 0.85; }
+
+/* a box */
+.ov-n { cursor: pointer; outline: none; transition: opacity 0.25s ease; }
+.ov-box { fill: color-mix(in srgb, var(--c) 6%, var(--ag-surface)); stroke: color-mix(in srgb, var(--c) 45%, transparent); stroke-width: 1.3;
+  transition: fill 0.2s ease, stroke 0.2s ease; }
+.ov-tick { stroke: var(--c); stroke-width: 3; opacity: 0.8; }
+.ov-t { fill: var(--ag-text); font-weight: 700; letter-spacing: 0.01em; }
+.ov-s { fill: var(--ag-text-dim); }
+.ov-p { fill: var(--c); font-family: ui-monospace, "JetBrains Mono", monospace; opacity: 0.8; }
+.ov-warn { fill: var(--ag-warn); stroke: rgb(0 0 0 / 0.5); stroke-width: 1; }
+.ov-n:hover .ov-box, .ov-n:focus-visible .ov-box { stroke: var(--c); fill: color-mix(in srgb, var(--c) 12%, var(--ag-surface)); }
+.ov-n.on .ov-box { stroke: var(--c); stroke-width: 2.2; fill: color-mix(in srgb, var(--c) 20%, var(--ag-surface));
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--c) 55%, transparent)); }
+.ov-n.near .ov-box { stroke: var(--c); fill: color-mix(in srgb, var(--c) 10%, var(--ag-surface)); }
+
+/* a line */
+.ov-e path { fill: none; stroke: rgb(var(--hud-rgb) / 0.16); stroke-width: 1.4; transition: stroke 0.25s ease, opacity 0.25s ease; }
+.ov-e.ctl path { stroke-dasharray: 4 5; }
+.ov-arrowhead { fill: rgb(var(--hud-rgb) / 0.45); }
+.ov-e.on path { stroke: var(--c); stroke-width: 2.4; opacity: 1; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--c) 60%, transparent)); }
+.ov-dot { fill: var(--c); filter: drop-shadow(0 0 5px var(--c)); }
+
+/* Something lit: everything else steps back. */
+.ov-svg.focus .ov-n:not(.on):not(.near) { opacity: 0.28; }
+.ov-svg.focus .ov-e:not(.on) path { opacity: 0.25; }
+.ov-svg.focus .ov-frame.vpn { opacity: 0.6; }
+
+/* ── what a box is ── */
+.ov-detail { min-height: 64px; padding: 12px 14px; border-left: 3px solid rgb(var(--hud-rgb) / 0.45); background: var(--ag-tile); }
+.ov-d-empty { font-size: 1.3rem; color: var(--ag-text-faint); }
+.ov-d-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.ov-d-h b { font-family: var(--ag-title); font-size: 1.6rem; letter-spacing: 0.06em; color: var(--c); }
+.ov-d-h span { font-size: 1.3rem; color: var(--ag-text-dim); }
+.ov-d-h code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 1.2rem; color: var(--ag-text); padding: 1px 7px; background: var(--ag-well); border: 1px solid var(--ag-line); }
+.ov-d-h em { margin-left: auto; font-style: normal; font-family: var(--ag-title); font-size: 1rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ag-text-faint); }
+.ov-detail p { margin: 8px 0 0; font-size: 1.35rem; line-height: 1.55; color: var(--ag-text); max-width: 90ch; }
+.ov-d-warn { color: var(--ag-warn) !important; }
+.ov-d-warn::before { content: "▲ "; }
+.ov-d-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+button.ov-link {
+  display: inline-flex; align-items: baseline; gap: 6px; font: inherit; font-size: 1.2rem; color: var(--ag-text); cursor: pointer;
+  padding: 4px 10px; background: var(--ag-well); border: 1px solid var(--ag-line);
+}
+button.ov-link small { font-size: 1.05rem; color: var(--ag-text-faint); }
+button.ov-link:hover { border-color: var(--hud); }
+
+/* ── the key ── */
+.ov-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; font-size: 1.15rem; color: var(--ag-text-faint); }
+.ov-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.ov-legend i { display: inline-block; width: 26px; height: 0; border-top: 2px solid rgb(var(--hud-rgb) / 0.6); }
+.ov-legend i.l-ctl { border-top-style: dashed; }
+.ov-legend i.l-warn { width: 9px; height: 9px; border: none; border-radius: 50%; background: var(--ag-warn); }
+.ov-tip { margin-left: auto; }
+
+.ov-cap-t { min-width: 0; }
+@media (max-width: 760px) {
+  /* a phone: the words on a line of their own, the buttons in a row under them */
+  .ov-cap { flex-wrap: wrap; gap: 8px; }
+  .ov-cap-t { flex: 1 1 100%; order: -1; font-size: 1.3rem; }
+  .ov-cap .ov-close { margin-left: auto; }
+  .ov-tip { margin-left: 0; }
+  button.ov-chip { font-size: 1.15rem; padding: 6px 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-cap, .ov-n, .ov-box, .ov-e path { animation: none !important; transition: none !important; }
+}

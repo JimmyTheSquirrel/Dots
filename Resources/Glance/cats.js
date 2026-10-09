@@ -189,8 +189,7 @@
 
   // ── on the cards ─────────────────────────────────────────────────────────────
   // One cat per card (a group's tabs are .widgets too — skipped), alternating
-  // which cat, which side and which coat; a stroller and the paw prints once
-  // per page. Glance adds the cards after load, so the observer calls this
+  // which cat, which side and which coat; the paw prints once per page. Glance adds the cards after load, so the observer calls this
   // again as they arrive.
   var KINDS = ["peek", "sit", "loaf"];
   function decorate() {
@@ -210,23 +209,15 @@
       }
       n++;
     });
-    ["cat-walk", "cat-paws"].forEach(function (k) {
-      if (document.querySelector("." + k)) return;
+    // (There was a cat strolling along the bottom of the screen too — taken
+    // out 2026-10-09 at rock's request; the runner below still uses its sprite.)
+    if (!document.querySelector(".cat-paws")) {
       var e = document.createElement("i");
-      e.className = k;
+      e.className = "cat-paws";
       e.setAttribute("aria-hidden", "true");
       document.body.appendChild(e);
-    });
-    floor();
+    }
     soon();
-  }
-  // The stroller walks along the bottom of the SCREEN — on a phone, just above
-  // Glance's bottom bar. The bar (its icons row) only: the rest of
-  // .mobile-navigation is the ☰ panel, parked off-screen below it.
-  function floor() {
-    var nav = document.querySelector(".mobile-navigation"), bar = document.querySelector(".mobile-navigation-icons");
-    var h = nav && bar && getComputedStyle(nav).display !== "none" ? bar.getBoundingClientRect().height : 0;
-    root.style.setProperty("--cat-floor", Math.round(h + 4) + "px");
   }
   // A perched cat overlaps the card above it, and sometimes that card's
   // buttons: such a cat takes no taps (.tap is off), so the button still
@@ -412,7 +403,7 @@
 
   // The laser pointer. A double-click on the page itself (not a card, not a
   // control) starts it; the nearest cat jumps off its perch and a runner —
-  // the stroller's two-frame sprite, in that cat's coat — chases the dot
+  // the two-frame running sprite, in that cat's coat — chases the dot
   // until it catches it (a pounce), and again whenever it moves off.
   function onDbl(e) {
     if (laser) { home(); return; }
@@ -672,7 +663,7 @@
   }
 
   // ── on / off ─────────────────────────────────────────────────────────────────
-  function onResize() { floor(); layout(); }
+  function onResize() { layout(); }
   function on() {
     if (live) return;
     live = true;
@@ -690,7 +681,7 @@
       if (!REDUCE) ticker = setInterval(idle, 1100);
       slow = setInterval(function () {
         if (document.hidden) return;
-        layout(); tv(); hot(); floor();
+        layout(); tv(); hot();
       }, 3000);
       document.addEventListener("click", onTap, true);
       document.addEventListener("ha:state", soon);
@@ -715,7 +706,7 @@
     if (laser) { cancelAnimationFrame(laser.raf); laser = null; }
     root.classList.remove("cat-lasering");
     cats.concat(extras).forEach(function (c) { c.t.forEach(clearTimeout); });
-    document.querySelectorAll(".cat, .cat-walk, .cat-paws, .cat-carry, .cat-defs, .cat-runner, .cat-laser").forEach(function (e) { e.remove(); });
+    document.querySelectorAll(".cat, .cat-paws, .cat-carry, .cat-defs, .cat-runner, .cat-laser").forEach(function (e) { e.remove(); });
     document.querySelectorAll(".widget").forEach(function (w) { w._catBat = null; });
     cats = []; extras = []; naps = {}; seen = {};
     document.removeEventListener("click", onTap, true);

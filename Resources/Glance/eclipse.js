@@ -288,6 +288,15 @@
         (busy ? '<i class="bt-spin"></i>Pairing…' : "Pair") + '</button></div>';
   }
 
+  // Search results open or folded: S.btOpen.results, kept in this browser so a
+  // fold survives a reload.
+  var RES = "eclipse-bt-results";
+  try { if (localStorage.getItem(RES) === "folded") S.btOpen.results = false; } catch (e) { /* private window */ }
+  function results(open) {
+    S.btOpen.results = open;
+    try { if (open) localStorage.removeItem(RES); else localStorage.setItem(RES, "folded"); } catch (e) { /* private window */ }
+  }
+
   function addSection(c) {
     var sc = S.scan || { active: false, found: [] };
     var now = Date.now() / 1000;
@@ -307,13 +316,22 @@
           '<span class="bt-state">' + (sc.ended ? "Last search found " + (sc.found || []).length + " — still pairable below" : "Controllers, headphones, keyboards near the TV") + '</span></span>' +
         '<i class="bt-chev go" aria-hidden="true"></i></button>';
     }
+    // What the search found folds away: a new search opens it, a pair closes
+    // it (the device is up in My devices now), and a tap on its header hides
+    // or shows it any time — remembered in this browser. My devices above
+    // never folds.
     var found = sc.found || [];
-    if (found.length) {
-      h += '<div class="bt-list">' + found.map(foundRow).join("") + '</div>';
-    } else if (sc.active) {
-      h += '<div class="bt-empty">Nothing yet — make sure it’s flashing (pairing mode) and close to the TV.</div>';
+    if (found.length || sc.active || sc.unnamed) {
+      var n = found.length;
+      var what = sc.active ? (n ? n + " found so far" : "Looking…") : "Found " + n + " device" + (n === 1 ? "" : "s");
+      h += '<details class="bt-results" data-bt="results"' + (S.btOpen.results !== false ? " open" : "") + '>' +
+        '<summary class="bt-rsum"><span class="bt-main"><b>' + what + '</b>' +
+          (sc.unnamed ? '<span class="bt-state">+ ' + sc.unnamed + ' without a name, hidden</span>' : "") + '</span>' +
+          '<span class="bt-rhint" aria-hidden="true"></span><i class="bt-chev" aria-hidden="true"></i></summary>';
+      if (n) h += '<div class="bt-list">' + found.map(foundRow).join("") + '</div>';
+      else if (sc.active) h += '<div class="bt-empty">Nothing yet — make sure it’s flashing (pairing mode) and close to the TV.</div>';
+      h += '</details>';
     }
-    if (sc.unnamed) h += '<div class="bt-note">+ ' + sc.unnamed + ' nearby device' + (sc.unnamed > 1 ? "s" : "") + ' without a name, hidden</div>';
     // A DualSense only advertises while physically held in pairing mode, so
     // say how — a search that finds nothing otherwise reads as broken.
     h += '<details class="bt-howto"' + (S.btOpen.howto ? " open" : "") + ' data-bt="howto"><summary>How to put a controller in pairing mode</summary><ul>' +
@@ -463,8 +481,9 @@
       if ((mac = bt.getAttribute("data-bt-pair"))) {
         btPost("pair/" + encodeURIComponent(mac)).then(function (j) {
           btSay(j);
-          // Paired: open it and put the cursor in its name, so it gets one.
-          if (j.ok) { S.btOpen[mac] = true; S.focusName = mac; soon(); }
+          // Paired: open it and put the cursor in its name, so it gets one —
+          // and fold the search results away; it's in My devices now.
+          if (j.ok) { S.btOpen[mac] = true; S.focusName = mac; results(false); soon(); }
         });
         return;
       }
@@ -513,7 +532,15 @@
       tv: function (d) { S.tv = d; soon(); },
       wolf: function (d) { S.wolf = d; soon(); },
       ctl: function (d) { S.ctl = d; soon(); },
-      scan: function (d) { S.scan = d; if (!d.active && !(d.found || []).length) S.hint = null; soon(); },
+      scan: function (d) {
+        // A search starting while we watch: show what it finds. (Not the
+        // first state after a page load — a search already under way then,
+        // and a fold made before the reload should stay folded.)
+        if (d.active && S.scan && !S.scan.active) results(true);
+        S.scan = d;
+        if (!d.active && !(d.found || []).length) S.hint = null;
+        soon();
+      },
       ctlbusy: function (d) { S.ctlbusy = d || {}; soon(); },
       activity: function (d) { S.activity = d; soon(); },
       busy: function (d) { S.busy = d; soon(); }
@@ -523,7 +550,10 @@
     // rendered `open`, so the page has to remember it).
     document.addEventListener("toggle", function (e) {
       var d = e.target;
-      if (d && d.matches && d.matches("#ec-ctl details[data-bt]")) S.btOpen[d.getAttribute("data-bt")] = d.open;
+      if (!d || !d.matches || !d.matches("#ec-ctl details[data-bt]")) return;
+      var k = d.getAttribute("data-bt");
+      if (k === "results") results(d.open);
+      else S.btOpen[k] = d.open;
     }, true);
     // Names: Enter saves, Esc puts it back; leaving the field lets the card
     // repaint again (renderCtl holds off while it has focus).

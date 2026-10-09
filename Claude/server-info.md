@@ -754,10 +754,11 @@ Glance's own theme picker, which asgard.css hides (its presets fight the HUD's t
     top-level card, alternating pose, side and coat (ginger, `.coat1` cream, `.coat2`
     grey, `.coat3` pink): `.cat-peek` (head and paws over the card's top edge — the head
     is clipped at the edge so it can duck behind it), `.cat-sit` (sitting on the edge,
-    tail hanging down the front), `.cat-loaf` (a sleeper, tail round its paws). A
-    `.cat-walk` strolls along the foot of the screen (above the phone's bottom bar —
-    `--cat-floor`, from `.mobile-navigation-icons`), paw prints sit behind everything,
-    the section headings get paws and the logo a cat face.
+    tail hanging down the front), `.cat-loaf` (a sleeper, tail round its paws). Paw
+    prints sit behind everything, the section headings get paws and the logo a cat face.
+    (A `.cat-walk` used to stroll along the foot of the screen — **removed 2026-10-09** at
+    rock's request. Its two-frame sprite, `--cat-walk` in cats.css, lives on as the laser
+    runner and the download carrier.)
   - **Idle**: CSS keeps them blinking (each its own rhythm), a sitter's tail swishing, a
     loaf breathing. One ticker (1.1 s, only cats on screen, only in a shown tab) hands
     out "acts" — a class for as long as its animation runs: ear twitch, head tilt,
@@ -858,7 +859,31 @@ Under it, **History** (a toggle; remembered per browser):
 - **Export CSV**, and **Clear** (two taps within 4 s; admin only — MarsBar shows the history
   read-only).
 
-#### Page 2 — Eclipse
+#### Page 2 — Overview (added 2026-10-09)
+
+**"So how does your setup work?"** — one card, `#ov-map`, drawn by `Resources/Glance/overview.js`
+(+ `overview.css`, both Asgard-only assets). A top-down map of the whole system: **People &
+screens** (you, Sisyphus, Kit-Kat, her, the TV, family & friends) → **Ways in** (Tailscale, the
+marsbar node, the home LAN, the Cloudflare Tunnel) → **Asgard**, its services in four groups (Ask
+for it · Watch, read, listen · Find & fetch, with SABnzbd drawn inside the Mullvad namespace ·
+Keep an eye on it) → **Where it lives** (NVMe, the mergerfs pool, photos + arr state), with **Out
+on the internet** (indexers, Mullvad, Usenet) and the smart plugs down the right. Lines are the
+real connections, solid for data (arrow = the way it moves), dashed for control/config; an amber
+dot marks something that needs attention (no photo backup).
+
+- **Tap a box** → it and everything it talks to light up; the panel under the map says what it
+  is, its port(s), why it's there, and lists its connections as buttons that jump to them.
+- **Story chips** (A film, start to finish · Watching from anywhere · This dashboard · A book ·
+  Game night · Changing anything) walk one path a step at a time: the step's boxes and lines
+  light up with dots running along them, a caption says what's happening; it plays itself
+  (5.2 s a step), ‹ › step, ❚❚ pauses. The caption is pinned while the map scrolls under it.
+- **Two layouts** from the same tables: a 1600-unit-wide drawing scaled to the card, and a
+  two-column tall one under 760 px (a phone), where a story also scrolls its lit box into view.
+- **Not live** — nothing polls; it is a picture of the config. **Keep its tables in step**: a
+  new service, port or connection is a line in `NODES` / `EDGES` (and maybe a `STORIES` step)
+  at the top of overview.js. Colours are HUD tokens only, so the picker recolours it.
+
+#### Page 3 — Eclipse
 
 Drawn natively by `eclipse.js` from eclipse-control's `/events` (it was an iframe). **The same
 file runs on MarsBar** — she has every control here. Eclipse card (status, SoC temperature,
@@ -868,7 +893,7 @@ Sisyphus, End a stuck one) | On the TV (Jellyfin, filtered to the Kodi addon) ·
 last actions from EITHER dashboard, from eclipse-control's memory). Reboot, the path switch and
 End need a second tap within 3 s. See `Claude/eclipse.md`.
 
-#### Page 3 — Power (was Monitoring)
+#### Page 4 — Power (was Monitoring)
 
 Full column: **Lights** — two sections, **Groups** (the Living Room Lights master switch, full
 width) and **Lamps** (one warm tile each); moved here from the home page so every switch and
@@ -885,7 +910,7 @@ All first frames POST the **same generated Jinja query** to HA's `/api/template`
 in `glance.nix`. Projections are **instantaneous draw × 24 h, labelled "at current draw"** —
 never "average"; see `Claude/home-assistant.md` for why.
 
-#### Page 4 — Terminal
+#### Page 5 — Terminal
 
 ttyd (:7681), sized to the window (`.term-widget`) instead of a fixed 700 px box.
 

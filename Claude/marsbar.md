@@ -286,15 +286,21 @@ shown only while the phone bar is hidden).
   behind her cards and peek back, answer a tap with a "mrrp?" or a purr (and hide if she
   keeps poking them), curl up asleep on the Lights card when every light is off, bat at
   the playhead on "On the TV", scatter when Eclipse goes down and nap on its SoC
-  temperature when the Pi runs hot. Plus one strolling along the bottom of the screen,
-  paw prints, paw glyphs on the headings, and kitten faces in place of the blossoms
+  temperature when the Pi runs hot. Plus paw prints, paw glyphs on the headings, and
+  kitten faces in place of the blossoms
   (`html[data-cats][data-dash="marsbar"]` — on Asgard that spot is the Yggdrasil tree).
   Details in `Claude/server-info.md` → The colour picker → Cats.
 
 ## The garden (garden.js)
 
-Her vine is alive — always on, whatever colour she has picked (`Resources/MarsBar/garden.js`,
-loaded deferred after dash.js; styles at the end of marsbar.css):
+Her vine is alive, whatever colour she has picked (`Resources/MarsBar/garden.js`, loaded
+deferred after dash.js; styles at the end of marsbar.css) — **on unless she turns it off**:
+her colour picker's *Just for fun* section has a **Garden** switch (theme.js, MarsBar profile
+only), kept in her browser as `localStorage["marsbar-garden"] = "off"`. garden.js reads that key
+when it starts and exposes `window.Garden.{on,off,enabled}` for the switch: off removes the
+crowns, any butterfly, the fireflies and the `data-mb-night` / `data-mb-dark` attributes, and the
+static bloom.svg blossom is back on every card; on brings it all back without a reload (added
+2026-10-09).
 
 - **Blossoms open and close.** Each card's crowning blossom is redrawn as inline SVG
   (`.mb-crown` in the `.widget-header`, same spot and drawing as bloom.svg) with its five

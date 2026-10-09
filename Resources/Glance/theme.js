@@ -301,10 +301,24 @@
         '" title="' + p[0] + '" aria-label="' + p[0] + '" style="--sw:' + c[0] + (c[1] ? ";--sw2:" + c[1] : "") + '"></button>';
     }).join("") + '</div>';
   }
+  // MarsBar's living garden (garden.js: blossoms that open and close,
+  // butterflies, fireflies) is a switch, not a colour: on unless she turns it
+  // off, kept in this browser as marsbar-garden = "off". garden.js reads the
+  // same key when it starts, and window.Garden switches it live.
+  var GARDEN = "marsbar-garden";
+  function gardenOn() { return get(GARDEN) !== "off"; }
+  function garden(on) {
+    set(GARDEN, on ? null : "off");
+    if (window.Garden) { if (on) window.Garden.on(); else window.Garden.off(); }
+    sync();
+  }
   function allSwatches() {
     return swatches(PRESETS) + '<div class="hud-sub">Two-tone</div>' + swatches(DUOS) +
       '<div class="hud-sub">Just for fun</div>' + swatches([["Cats — cats everywhere", "cats"]]) +
-      '<div class="hud-tip">Tap a cat.' + (FINE ? " Double-click an empty bit of page for a laser pointer." : "") + '</div>';
+      (MB ? '<button type="button" class="hud-tg" data-hud-toggle="garden" aria-pressed="true">' +
+              '<span>Garden<small>blossoms · butterflies · fireflies</small></span><i></i></button>' : "") +
+      '<div class="hud-tip">Tap a cat' + (MB ? " — or a butterfly" : "") + '.' +
+      (FINE ? " Double-click an empty bit of page for a laser pointer." : "") + '</div>';
   }
   function sync() {
     document.querySelectorAll(".hud-sw").forEach(function (b) {
@@ -312,12 +326,16 @@
     });
     var c = (current === "cats" ? CATS : current).split("+")[0];
     document.querySelectorAll(".hud-custom").forEach(function (i) { i.value = c; });
+    document.querySelectorAll('.hud-tg[data-hud-toggle="garden"]').forEach(function (b) {
+      b.setAttribute("aria-pressed", gardenOn() ? "true" : "false");
+    });
   }
   function wire(el) {
     el.addEventListener("click", function (e) {
       var sw = e.target.closest(".hud-sw");
       if (sw) choose(sw.getAttribute("data-hud-colour"));
       if (e.target.closest(".hud-reset")) choose(null);
+      if (e.target.closest('.hud-tg[data-hud-toggle="garden"]')) garden(!gardenOn());
     });
     el.querySelectorAll(".hud-custom").forEach(function (i) {
       i.addEventListener("input", function () { apply(i.value); sync(); });   // live while dragging

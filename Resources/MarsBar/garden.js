@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════════════
-// garden.js — MarsBar's vine, alive (marsbar:1111 only; always on, whatever
-// colour she has picked).
+// garden.js — MarsBar's vine, alive (marsbar:1111 only; whatever colour she
+// has picked). On unless she turns it off: the colour picker's "Just for fun"
+// section has a Garden switch (theme.js), kept in THIS browser's localStorage
+// as marsbar-garden = "off". Off, everything below goes — crowns, butterflies,
+// fireflies, the night/dark attributes — and the static bloom.svg blossom is
+// back on every card; on again, it all comes back without a reload.
 //
 //   blossoms     every card's crown blossom is redrawn as a rigged inline SVG
 //                (.mb-crown) whose five petals slowly fold shut and open again
@@ -47,6 +51,7 @@
 //   .mb-crown               a card's blossom, in its .widget-header
 //   .mb-sky > .mb-fly       the butterfly (.rest while it sits; .bolt fleeing)
 //   .mb-fireflies           the firefly layer (.on while shown)
+//   window.Garden           { on(), off(), enabled } — for theme.js's switch
 // ════════════════════════════════════════════════════════════════════════════
 (function () {
   "use strict";
@@ -55,6 +60,8 @@
 
   var root = document.documentElement;
   var still = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+  var enabled = true;
+  try { enabled = localStorage.getItem("marsbar-garden") !== "off"; } catch (e) { /* private window: on */ }
 
   // ⚠ Glance's templating.js replaces HTMLElement.prototype.animate with its
   // own animate({keyframes, options}, callback), which returns the ELEMENT, not
@@ -140,6 +147,7 @@
   // Idempotent: runs once Glance's markup is in, then every minute, so a card
   // that arrives late (or is re-rendered) still gets its blossom.
   function crowns() {
+    if (!enabled) return;
     var ws = cards(), made = 0;
     for (var i = 0; i < ws.length; i++) {
       var head = ws[i].firstElementChild;
@@ -194,6 +202,7 @@
   // The attribute is the truth (so a hand-set one is honoured until the next
   // minute's check, and anything else can read it).
   function clock() {
+    if (!enabled) return;
     var h = new Date().getHours(), night = h >= 20 || h < 6;
     if (night === root.hasAttribute("data-mb-night")) return;
     if (night) nightfall();
@@ -205,6 +214,7 @@
   // lights.js paints data-ha-state before it fires ha:state; no switch on the
   // page (or no answer yet) is not "dark".
   function dusk() {
+    if (!enabled) return;
     var hero = document.querySelector(".mb-hero[data-ha-state]");
     var dark = !!hero && hero.getAttribute("data-ha-state") === "off";
     if (dark !== root.hasAttribute("data-mb-dark")) {
@@ -491,7 +501,7 @@
 
   function spawn() {
     nextT = null;
-    if (fly || still.matches) return;
+    if (fly || still.matches || !enabled) return;
     if (document.hidden) return later(rnd(8000, 20000));
     var ps = perches(null);
     if (!ps.length) return later(rnd(15000, 30000));
@@ -504,14 +514,42 @@
     visit(b, pick(ps));
   }
 
-  // ── wiring ─────────────────────────────────────────────────────────────────
-  clock();   // before the crowns exist, so a night-time page draws them shut
+  // ── on / off ───────────────────────────────────────────────────────────────
+  // Off takes every living thing off the page at once; the intervals and
+  // listeners below stay, but each of them checks `enabled` first.
+  function off() {
+    if (!enabled) return;
+    enabled = false;
+    clearTimeout(nextT);
+    nextT = null;
+    gone(fly);
+    clearTimeout(ffOff);
+    [".mb-crown", ".mbg-defs", ".mb-sky", ".mb-fireflies"].forEach(function (q) {
+      document.querySelectorAll(q).forEach(function (e) { e.remove(); });
+    });
+    ff = sky = null;
+    root.classList.remove("mb-garden");          // the static bloom.svg blossom is back
+    root.removeAttribute("data-mb-night");
+    root.removeAttribute("data-mb-dark");
+  }
+  function on() {
+    if (enabled) return;
+    enabled = true;
+    start();
+  }
+  window.Garden = { on: on, off: off, get enabled() { return enabled; } };
 
-  Dash.ready(".widget", function () {
-    crowns();
-    dusk();
-    if (!still.matches) later(rnd(6000, 15000));
-  });
+  // ── wiring ─────────────────────────────────────────────────────────────────
+  function start() {
+    clock();   // before the crowns exist, so a night-time page draws them shut
+    Dash.ready(".widget", function () {
+      if (!enabled) return;
+      crowns();
+      dusk();
+      if (!still.matches && !fly && !nextT) later(rnd(6000, 15000));
+    });
+  }
+  if (enabled) start();
 
   document.addEventListener("ha:state", dusk);
   setInterval(function () { clock(); crowns(); }, 60000);
@@ -528,6 +566,7 @@
 
   // Reduced motion switched on mid-visit: the butterfly and fireflies go now.
   function onStill() {
+    if (!enabled) return;
     if (still.matches) { clearTimeout(nextT); nextT = null; gone(fly); }
     else if (!fly && !nextT && root.classList.contains("mb-garden")) later(rnd(6000, 15000));
     dusk();
