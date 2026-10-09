@@ -294,13 +294,16 @@ shown only while the phone bar is hidden).
 ## The garden (garden.js)
 
 Her vine is alive, whatever colour she has picked (`Resources/MarsBar/garden.js`, loaded
-deferred after dash.js; styles at the end of marsbar.css) — **on unless she turns it off**:
-her colour picker's *Just for fun* section has a **Garden** switch (theme.js, MarsBar profile
-only), kept in her browser as `localStorage["marsbar-garden"] = "off"`. garden.js reads that key
-when it starts and exposes `window.Garden.{on,off,enabled}` for the switch: off removes the
-crowns, any butterfly, the fireflies and the `data-mb-night` / `data-mb-dark` attributes, and the
-static bloom.svg blossom is back on every card; on brings it all back without a reload (added
-2026-10-09).
+deferred after dash.js; styles at the end of marsbar.css) — in **three parts, each on unless
+she turns it off**: her colour picker's *Just for fun* section has a switch for each —
+**Blossoms**, **Butterflies**, **Fireflies** (theme.js, MarsBar profile only) — kept in her
+browser as `localStorage["marsbar-blossoms" | "marsbar-butterflies" | "marsbar-fireflies"] =
+"off"`. garden.js reads those keys when it starts and exposes `window.Garden.set(part, on)` for
+the switches; each part comes and goes live, no reload. Blossoms off puts the static bloom.svg
+flower back on every card; with blossoms and fireflies both off, the `data-mb-night` /
+`data-mb-dark` attributes go too (nothing else reads them). (2026-10-09: first one **Garden**
+switch, `marsbar-garden = "off"`, then split into three the same day at rock's request — an old
+`marsbar-garden = "off"` is read once as all three off and removed.)
 
 - **Blossoms open and close.** Each card's crowning blossom is redrawn as inline SVG
   (`.mb-crown` in the `.widget-header`, same spot and drawing as bloom.svg) with its five

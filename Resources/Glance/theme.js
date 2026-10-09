@@ -301,22 +301,27 @@
         '" title="' + p[0] + '" aria-label="' + p[0] + '" style="--sw:' + c[0] + (c[1] ? ";--sw2:" + c[1] : "") + '"></button>';
     }).join("") + '</div>';
   }
-  // MarsBar's living garden (garden.js: blossoms that open and close,
-  // butterflies, fireflies) is a switch, not a colour: on unless she turns it
-  // off, kept in this browser as marsbar-garden = "off". garden.js reads the
-  // same key when it starts, and window.Garden switches it live.
-  var GARDEN = "marsbar-garden";
-  function gardenOn() { return get(GARDEN) !== "off"; }
-  function garden(on) {
-    set(GARDEN, on ? null : "off");
-    if (window.Garden) { if (on) window.Garden.on(); else window.Garden.off(); }
+  // MarsBar's living garden (garden.js) is three switches, not colours —
+  // the blossoms that open and close, the butterflies, the fireflies — each
+  // on unless she turns it off, kept in this browser as marsbar-<part> =
+  // "off". garden.js reads the same keys when it starts, and window.Garden
+  // switches a part live.
+  var GARDEN = [["blossoms", "Blossoms", "open and close on every card"],
+                ["butterflies", "Butterflies", "land on the vine · tap one"],
+                ["fireflies", "Fireflies", "at night, or lights off"]];
+  function gardenOn(part) { return get("marsbar-" + part) !== "off"; }
+  function garden(part, on) {
+    set("marsbar-" + part, on ? null : "off");
+    if (window.Garden && window.Garden.set) window.Garden.set(part, on);
     sync();
   }
   function allSwatches() {
     return swatches(PRESETS) + '<div class="hud-sub">Two-tone</div>' + swatches(DUOS) +
       '<div class="hud-sub">Just for fun</div>' + swatches([["Cats — cats everywhere", "cats"]]) +
-      (MB ? '<button type="button" class="hud-tg" data-hud-toggle="garden" aria-pressed="true">' +
-              '<span>Garden<small>blossoms · butterflies · fireflies</small></span><i></i></button>' : "") +
+      (MB ? GARDEN.map(function (g) {
+              return '<button type="button" class="hud-tg" data-hud-toggle="' + g[0] + '" aria-pressed="true">' +
+                '<span>' + g[1] + '<small>' + g[2] + '</small></span><i></i></button>';
+            }).join("") : "") +
       '<div class="hud-tip">Tap a cat' + (MB ? " — or a butterfly" : "") + '.' +
       (FINE ? " Double-click an empty bit of page for a laser pointer." : "") + '</div>';
   }
@@ -326,8 +331,8 @@
     });
     var c = (current === "cats" ? CATS : current).split("+")[0];
     document.querySelectorAll(".hud-custom").forEach(function (i) { i.value = c; });
-    document.querySelectorAll('.hud-tg[data-hud-toggle="garden"]').forEach(function (b) {
-      b.setAttribute("aria-pressed", gardenOn() ? "true" : "false");
+    document.querySelectorAll(".hud-tg[data-hud-toggle]").forEach(function (b) {
+      b.setAttribute("aria-pressed", gardenOn(b.getAttribute("data-hud-toggle")) ? "true" : "false");
     });
   }
   function wire(el) {
@@ -335,7 +340,8 @@
       var sw = e.target.closest(".hud-sw");
       if (sw) choose(sw.getAttribute("data-hud-colour"));
       if (e.target.closest(".hud-reset")) choose(null);
-      if (e.target.closest('.hud-tg[data-hud-toggle="garden"]')) garden(!gardenOn());
+      var tg = e.target.closest(".hud-tg[data-hud-toggle]");
+      if (tg) { var part = tg.getAttribute("data-hud-toggle"); garden(part, !gardenOn(part)); }
     });
     el.querySelectorAll(".hud-custom").forEach(function (i) {
       i.addEventListener("input", function () { apply(i.value); sync(); });   // live while dragging

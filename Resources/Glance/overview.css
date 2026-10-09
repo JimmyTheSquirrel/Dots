@@ -1,12 +1,18 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   overview.css — the Overview page's map (overview.js draws it into #ov-map).
+   overview.css — the Overview page's tree (overview.js builds it in #ov-map).
    Asgard only (glance.nix). Every colour is the HUD's: var(--hud…), --s1…--s6,
-   --ag-* — the viewer's picked colour recolours the map like everything else.
-   A box's own colour comes in as --c (its group's, set by overview.js).
+   --ag-* — the viewer's picked colour recolours it like everything else. A
+   row's colour comes in as --c (set on its <section> by overview.js).
+
+   The only lines are the tree's own (Sisyphus → its machines → Asgard's
+   panel), drawn with borders, and the arrows between neighbours in a row:
+   nothing can cross anything. A phone stacks every row and points the
+   arrows down.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 #ov-map .ags-skel { height: 620px; }
-.ov { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }   /* a long caption never widens the map */
+.ov { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }   /* nothing inside widens the card */
+.ov { --ov-line: rgb(var(--hud-rgb) / 0.45); }
 
 /* ── the story chips and the step caption ── */
 .ov-stories { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -25,11 +31,10 @@ button.ov-chip[aria-pressed="true"] { color: var(--ag-on-acc); background: var(-
   border: 1px solid rgb(var(--hud-rgb) / 0.4);
   background: linear-gradient(90deg, rgb(var(--hud-rgb) / 0.10), rgb(var(--hud-rgb) / 0.02)), var(--ag-pop);
   animation: ov-in 0.3s ease;
-  /* pinned while the map scrolls under it (a phone's map is taller than the screen) */
-  position: sticky; top: 8px; z-index: 3;
+  position: sticky; top: 8px; z-index: 3;      /* pinned while the tree scrolls under it */
 }
 .ov-cap[hidden] { display: none; }
-.ov-cap-t { flex: 1; font-size: 1.4rem; line-height: 1.45; color: var(--ag-text); }
+.ov-cap-t { flex: 1; min-width: 0; font-size: 1.4rem; line-height: 1.45; color: var(--ag-text); }
 .ov-cap-t b { font-family: var(--ag-title); font-size: 1.05rem; letter-spacing: 0.12em; color: var(--hud); margin-right: 6px; }
 .ov-pips { display: flex; gap: 5px; margin-top: 7px; }
 .ov-pips i { width: 18px; height: 3px; background: var(--ag-line); }
@@ -44,62 +49,108 @@ button.ov-chip[aria-pressed="true"] { color: var(--ag-on-acc); background: var(-
 .ov-cap .ov-play { font-size: 1.1rem; }
 @keyframes ov-in { from { opacity: 0; transform: translateY(-4px); } }
 
-/* ── the map ── */
-.ov-map { position: relative; }
-.ov-map.tall { max-width: 520px; margin: 0 auto; width: 100%; }
-.ov-svg { display: block; width: 100%; height: auto; overflow: visible; font-family: inherit; }
-.ov-svg text { pointer-events: none; }
+/* ── the tree: Sisyphus → its machines → Asgard's panel ── */
+.ov-tree { display: flex; flex-direction: column; align-items: center; padding: 4px 0 2px; }
+.ov-tier { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; --c: var(--hud); }
+.ov-tier-l { display: inline-flex; align-items: center; gap: 8px; font-family: var(--ag-title); font-size: 1.05rem;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--hud); }
+.ov-box.root { width: min(460px, 100%); padding: 12px 16px; }
+.ov-box.root .ov-bt { font-size: 1.75rem; }
 
-.ov-band { font-family: var(--ag-title); font-size: 12px; font-weight: 500; letter-spacing: 0.22em; fill: var(--ag-text-faint); }
-.ov-map.tall .ov-band { font-size: 10px; }
-.ov-zone { font-family: var(--ag-title); font-size: 11px; font-weight: 500; letter-spacing: 0.2em; fill: var(--c); opacity: 0.85; }
-.ov-map.tall .ov-zone { font-size: 9.5px; }
+.ov-fan { position: relative; display: flex; width: min(960px, 100%); margin-top: 52px; --c: var(--s5); }
+.ov-fan::before { content: ""; position: absolute; left: 50%; top: -52px; height: 26px; border-left: 2px solid var(--ov-line); }
+.ov-fan::after { content: attr(data-why); position: absolute; left: calc(50% + 12px); top: -50px; font-size: 1.15rem;
+  color: var(--ag-text-faint); white-space: nowrap; }
+.ov-kid { position: relative; flex: 1 1 0; display: flex; justify-content: center; padding: 0 10px; min-width: 0; }
+.ov-kid::before { content: ""; position: absolute; left: 50%; top: -26px; height: 26px; border-left: 2px solid var(--ov-line); }
+.ov-kid::after { content: ""; position: absolute; top: -26px; left: 0; right: 0; border-top: 2px solid var(--ov-line); }
+.ov-kid:first-child::after { left: 50%; }
+.ov-kid:last-child::after { right: 50%; }
+.ov-kid > .ov-box { width: 100%; max-width: 280px; }
+.ov-box.server { --c: var(--hud); border-width: 2px; }
 
-.ov-frame path { fill: rgb(var(--hud-rgb) / 0.025); stroke: rgb(var(--hud-rgb) / 0.32); stroke-width: 1.4; transition: stroke 0.2s ease, fill 0.2s ease; }
-.ov-frame.main { cursor: pointer; outline: none; }
-.ov-frame.main:hover path, .ov-frame.main:focus-visible path { stroke: rgb(var(--hud-rgb) / 0.6); }
-.ov-frame.main.on path { stroke: var(--hud); fill: rgb(var(--hud-rgb) / 0.06); }
-.ov-frame-t { font-family: var(--ag-title); font-size: 18px; font-weight: 700; letter-spacing: 0.3em; fill: var(--hud); }
-.ov-frame-s { font-size: 12.5px; fill: var(--ag-text-faint); letter-spacing: 0.04em; }
-.ov-map.tall .ov-frame-t { font-size: 14px; }
-.ov-map.tall .ov-frame-s { font-size: 10.5px; }
-.ov-frame.vpn path { fill: rgb(var(--hud2-rgb) / 0.04); stroke: rgb(var(--hud2-rgb) / 0.55); stroke-dasharray: 6 5; }
-.ov-frame.vpn .ov-frame-s { font-size: 11px; fill: var(--hud2); opacity: 0.85; }
+.ov-server {
+  position: relative; width: 100%; margin-top: 34px; padding: 14px 14px 16px;
+  border: 1px solid rgb(var(--hud-rgb) / 0.42);
+  background: linear-gradient(180deg, rgb(var(--hud-rgb) / 0.05), rgb(var(--hud-rgb) / 0.01));
+}   /* (no clip-path: it would clip the line coming down into it) */
+.ov-server::before { content: ""; position: absolute; left: 50%; top: -34px; height: 34px; border-left: 2px solid var(--ov-line); }
+.ov-server-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin: 0 0 12px 4px; }
+.ov-server-h b { white-space: nowrap; font-family: var(--ag-title); font-size: 1.5rem; letter-spacing: 0.24em; text-transform: uppercase; color: var(--hud); }
+.ov-server-h span { font-size: 1.25rem; color: var(--ag-text-faint); }
 
-/* a box */
-.ov-n { cursor: pointer; outline: none; transition: opacity 0.25s ease; }
-.ov-box { fill: color-mix(in srgb, var(--c) 6%, var(--ag-surface)); stroke: color-mix(in srgb, var(--c) 45%, transparent); stroke-width: 1.3;
-  transition: fill 0.2s ease, stroke 0.2s ease; }
-.ov-tick { stroke: var(--c); stroke-width: 3; opacity: 0.8; }
-.ov-t { fill: var(--ag-text); font-weight: 700; letter-spacing: 0.01em; }
-.ov-s { fill: var(--ag-text-dim); }
-.ov-p { fill: var(--c); font-family: ui-monospace, "JetBrains Mono", monospace; opacity: 0.8; }
-.ov-warn { fill: var(--ag-warn); stroke: rgb(0 0 0 / 0.5); stroke-width: 1; }
-.ov-n:hover .ov-box, .ov-n:focus-visible .ov-box { stroke: var(--c); fill: color-mix(in srgb, var(--c) 12%, var(--ag-surface)); }
-.ov-n.on .ov-box { stroke: var(--c); stroke-width: 2.2; fill: color-mix(in srgb, var(--c) 20%, var(--ag-surface));
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--c) 55%, transparent)); }
-.ov-n.near .ov-box { stroke: var(--c); fill: color-mix(in srgb, var(--c) 10%, var(--ag-surface)); }
+/* A row of Asgard: who can reach it, how, what. */
+.ov-zone { position: relative; padding: 12px 14px 14px 16px; border-left: 3px solid var(--c);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 8%, transparent), transparent 70%); }
+.ov-zone + .ov-zone { margin-top: 12px; }
+.ov-zh { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 12px; }
+.ov-zh b { font-family: var(--ag-title); font-size: 1.2rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c); }
+.ov-zh span { font-size: 1.25rem; color: var(--ag-text-dim); }
+.ov-ico { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--c); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ov-tier-l .ov-ico { stroke: var(--hud); }
+.ov-note { margin-top: 10px; font-size: 1.2rem; color: var(--ag-text-faint); }
 
-/* a line */
-.ov-e path { fill: none; stroke: rgb(var(--hud-rgb) / 0.16); stroke-width: 1.4; transition: stroke 0.25s ease, opacity 0.25s ease; }
-.ov-e.ctl path { stroke-dasharray: 4 5; }
-.ov-arrowhead { fill: rgb(var(--hud-rgb) / 0.45); }
-.ov-e.on path { stroke: var(--c); stroke-width: 2.4; opacity: 1; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--c) 60%, transparent)); }
-.ov-dot { fill: var(--c); filter: drop-shadow(0 0 5px var(--c)); }
+.ov-flow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ov-flow > .ov-box { flex: 0 0 auto; width: 196px; }
+.ov-set { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.ov-set > .ov-box { width: 190px; }
+.ov-reach { margin: 12px 0 8px; font-size: 1.2rem; color: var(--ag-text-faint); }
+.ov-reach::before { content: "↓ "; color: var(--c); }
+.ov-groups { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }   /* one group a row: it reads down */
+.ov-group { padding: 10px 12px; border: 1px solid rgb(var(--hud-rgb) / 0.12); background: rgb(0 0 0 / 0.16); }
+.ov-gh { font-family: var(--ag-title); font-size: 1rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ag-text-faint); margin-bottom: 8px; }
+.ov-set.more { margin-top: 8px; }
+.ov-also { margin-top: 6px; font-size: 1.15rem; color: var(--ag-text-faint); }
+.ov-also::before { content: "+ "; }
 
-/* Something lit: everything else steps back. */
-.ov-svg.focus .ov-n:not(.on):not(.near) { opacity: 0.28; }
-.ov-svg.focus .ov-e:not(.on) path { opacity: 0.25; }
-.ov-svg.focus .ov-frame.vpn { opacity: 0.6; }
+/* an arrow between neighbours; the tunnel's is a dashed pipe */
+.ov-arr { position: relative; flex: 0 0 24px; height: 2px; background: color-mix(in srgb, var(--c) 70%, transparent); }
+.ov-arr::after { content: ""; position: absolute; right: -2px; top: -4px; border-left: 7px solid color-mix(in srgb, var(--c) 70%, transparent);
+  border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.ov-arr.tunnel { flex-basis: 42px; height: 8px; background: repeating-linear-gradient(90deg, var(--c) 0 7px, transparent 7px 11px);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--c) 45%, transparent); }
+.ov-arr.tunnel::after { top: -1px; }
+
+/* ── a box ── */
+button.ov-box {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0;
+  padding: 8px 12px 9px; font: inherit; text-align: left; cursor: pointer; color: var(--ag-text);
+  background: color-mix(in srgb, var(--c) 6%, var(--ag-surface));
+  border: 1px solid color-mix(in srgb, var(--c) 42%, transparent); border-left-width: 3px;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.25s ease, box-shadow 0.2s ease;
+}
+button.ov-box:hover, button.ov-box:focus-visible { border-color: var(--c); background: color-mix(in srgb, var(--c) 13%, var(--ag-surface)); outline: none; }
+.ov-bt { display: flex; align-items: center; gap: 6px; max-width: 100%; font-size: 1.4rem; font-weight: 700; line-height: 1.25; }
+.ov-bs { max-width: 100%; font-size: 1.15rem; line-height: 1.35; color: var(--ag-text-dim); }
+.ov-box code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 1.05rem; color: var(--c); opacity: 0.85; }
+.ov-warn { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--ag-warn); box-shadow: 0 0 6px var(--ag-warn); }
+/* kinds: a door is the way in or out; outside is not on Asgard; who is people */
+button.ov-box.k-door { clip-path: none; border-radius: 22px; border-left-width: 1px; border-color: color-mix(in srgb, var(--c) 70%, transparent);
+  background: color-mix(in srgb, var(--c) 14%, var(--ag-surface)); padding-left: 16px; padding-right: 16px; }
+button.ov-box.k-out { border-style: dashed; border-left-width: 1px; background: rgb(0 0 0 / 0.2); }
+button.ov-box.k-who { border-left-width: 1px; background: transparent; border-color: color-mix(in srgb, var(--c) 28%, transparent); }
+button.ov-box.k-host .ov-bt { font-family: var(--ag-title); font-size: 1.35rem; letter-spacing: 0.08em; }
+
+/* lit: the tapped box (or a story's step) bright, its neighbours (or the
+   story's earlier steps) softer, everything else steps back */
+.ov-tree.focus .ov-box:not(.on):not(.near) { opacity: 0.3; }
+button.ov-box.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 22%, var(--ag-surface));
+  box-shadow: 0 0 0 1px var(--c), 0 0 18px color-mix(in srgb, var(--c) 45%, transparent); clip-path: none; }
+button.ov-box.near { border-color: color-mix(in srgb, var(--c) 80%, transparent); }
+button.ov-box[data-n]::before {
+  content: attr(data-n); position: absolute; top: -1px; right: -1px; z-index: 1;
+  min-width: 20px; height: 20px; padding: 0 5px; display: grid; place-items: center;
+  font-family: var(--ag-title); font-size: 1rem; font-weight: 700; color: var(--ag-on-acc); background: var(--c);
+}
 
 /* ── what a box is ── */
 .ov-detail { min-height: 64px; padding: 12px 14px; border-left: 3px solid rgb(var(--hud-rgb) / 0.45); background: var(--ag-tile); }
 .ov-d-empty { font-size: 1.3rem; color: var(--ag-text-faint); }
 .ov-d-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
-.ov-d-h b { font-family: var(--ag-title); font-size: 1.6rem; letter-spacing: 0.06em; color: var(--c); }
+.ov-d-h b { font-family: var(--ag-title); font-size: 1.6rem; letter-spacing: 0.06em; color: var(--hud); }
 .ov-d-h span { font-size: 1.3rem; color: var(--ag-text-dim); }
 .ov-d-h code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 1.2rem; color: var(--ag-text); padding: 1px 7px; background: var(--ag-well); border: 1px solid var(--ag-line); }
-.ov-d-h em { margin-left: auto; font-style: normal; font-family: var(--ag-title); font-size: 1rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ag-text-faint); }
 .ov-detail p { margin: 8px 0 0; font-size: 1.35rem; line-height: 1.55; color: var(--ag-text); max-width: 90ch; }
 .ov-d-warn { color: var(--ag-warn) !important; }
 .ov-d-warn::before { content: "▲ "; }
@@ -114,20 +165,40 @@ button.ov-link:hover { border-color: var(--hud); }
 /* ── the key ── */
 .ov-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; font-size: 1.15rem; color: var(--ag-text-faint); }
 .ov-legend span { display: inline-flex; align-items: center; gap: 7px; }
-.ov-legend i { display: inline-block; width: 26px; height: 0; border-top: 2px solid rgb(var(--hud-rgb) / 0.6); }
-.ov-legend i.l-ctl { border-top-style: dashed; }
+.ov-legend i { display: inline-block; width: 22px; height: 13px; border: 1px solid rgb(var(--hud-rgb) / 0.55); border-left-width: 3px; }
+.ov-legend i.l-door { border-radius: 8px; border-left-width: 1px; background: rgb(var(--hud-rgb) / 0.15); }
+.ov-legend i.l-out { border-style: dashed; border-left-width: 1px; }
 .ov-legend i.l-warn { width: 9px; height: 9px; border: none; border-radius: 50%; background: var(--ag-warn); }
-.ov-tip { margin-left: auto; }
+.ov-legend i.l-tun { height: 6px; border: none; background: repeating-linear-gradient(90deg, var(--hud2) 0 5px, transparent 5px 8px); }
 
-.ov-cap-t { min-width: 0; }
+/* ── a phone: every row stacks, arrows point down ── */
 @media (max-width: 760px) {
-  /* a phone: the words on a line of their own, the buttons in a row under them */
   .ov-cap { flex-wrap: wrap; gap: 8px; }
   .ov-cap-t { flex: 1 1 100%; order: -1; font-size: 1.3rem; }
   .ov-cap .ov-close { margin-left: auto; }
-  .ov-tip { margin-left: 0; }
   button.ov-chip { font-size: 1.15rem; padding: 6px 11px; }
+
+  .ov-fan { margin-top: 40px; }
+  .ov-fan::before { top: -40px; height: 20px; }
+  .ov-fan::after { display: none; }
+  .ov-kid { padding: 0 3px; }
+  .ov-kid::before, .ov-kid::after { top: -20px; }
+  .ov-kid::before { height: 20px; }
+  .ov-kid > .ov-box { padding: 7px 8px; }
+  .ov-kid .ov-bs { white-space: normal; font-size: 1.05rem; }
+  .ov-server { padding: 10px 8px 12px; }
+  .ov-zone { padding: 10px 8px 12px 10px; }
+
+  .ov-flow { flex-direction: column; align-items: stretch; gap: 8px; }
+  .ov-flow > .ov-box, .ov-set > .ov-box { width: auto; }
+  .ov-set { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .ov-arr { align-self: center; flex: 0 0 18px; width: 2px; height: 18px; }
+  .ov-arr::after { right: auto; left: -4px; top: auto; bottom: -2px; border-top: 7px solid color-mix(in srgb, var(--c) 70%, transparent);
+    border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 0; }
+  .ov-arr.tunnel { flex-basis: 28px; width: 8px; height: 28px; background: repeating-linear-gradient(180deg, var(--c) 0 7px, transparent 7px 11px); }
+  .ov-arr.tunnel::after { left: -1px; }
+  .ov-group { padding: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ov-cap, .ov-n, .ov-box, .ov-e path { animation: none !important; transition: none !important; }
+  .ov-cap, button.ov-box { animation: none !important; transition: none !important; }
 }

@@ -859,29 +859,48 @@ Under it, **History** (a toggle; remembered per browser):
 - **Export CSV**, and **Clear** (two taps within 4 s; admin only — MarsBar shows the history
   read-only).
 
-#### Page 2 — Overview (added 2026-10-09)
+#### Page 2 — Overview (added 2026-10-09, redrawn the same day)
 
-**"So how does your setup work?"** — one card, `#ov-map`, drawn by `Resources/Glance/overview.js`
-(+ `overview.css`, both Asgard-only assets). A top-down map of the whole system: **People &
-screens** (you, Sisyphus, Kit-Kat, her, the TV, family & friends) → **Ways in** (Tailscale, the
-marsbar node, the home LAN, the Cloudflare Tunnel) → **Asgard**, its services in four groups (Ask
-for it · Watch, read, listen · Find & fetch, with SABnzbd drawn inside the Mullvad namespace ·
-Keep an eye on it) → **Where it lives** (NVMe, the mergerfs pool, photos + arr state), with **Out
-on the internet** (indexers, Mullvad, Usenet) and the smart plugs down the right. Lines are the
-real connections, solid for data (arrow = the way it moves), dashed for control/config; an amber
-dot marks something that needs attention (no photo backup).
+**"So how does your setup work?"** — one card, `#ov-map`, built by `Resources/Glance/overview.js`
+(+ `overview.css`, both Asgard-only assets). It reads **top-down like a family tree**:
 
-- **Tap a box** → it and everything it talks to light up; the panel under the map says what it
-  is, its port(s), why it's there, and lists its connections as buttons that jump to them.
+```
+CONTROL CENTRE   Sisyphus — the repo; builds & deploys every machine over the tailnet
+      ┌─────────────┼─────────────┐
+   Kit-Kat        ASGARD         Apollo
+                    │
+ ┌─ INSIDE ASGARD — sorted by who can reach it ─────────────────────────────┐
+ │ OPEN TO THE INTERNET  anyone → Cloudflare Tunnel → Jellyfin · Jellyseerr · Immich
+ │ TAILNET ONLY          you, her → Tailscale ↓ Watch & read · Getting new things
+ │                       (arrs → Prowlarr → indexers) · Dashboards & control
+ │ INSIDE THE VPN TUNNEL SABnzbd ⇒ Mullvad → Usenet providers (kill switch)
+ │ AROUND THE HOUSE      the TV, the plugs → home network
+ │ THE DISKS             NVMe · media pool · photos & state
+ └──────────────────────────────────────────────────────────────────────────┘
+```
+
+Every row reads left to right — who or what comes in, the **door** it comes through (a pill),
+what it reaches — so the only arrows are between neighbours in a row and **nothing crosses
+anything**. Outside-Asgard boxes are dashed; an amber dot = needs attention (no photo backup).
+It is plain HTML (flex rows + border-drawn tree lines), not a drawing: a phone stacks every row
+and points the arrows down.
+
+> **Why not a network graph:** the first version (same day) was an SVG of boxes with a line for
+> every connection. Forty lines between thirty boxes crossed each other and ran behind boxes, and
+> it read as a tangle — rock: "I can't really understand how it flows down". The connections now
+> live in the panel (and the stories), not as lines.
+
+- **Tap a box** → it lights up, its connections (`EDGES`, not drawn) light softer, the rest
+  steps back; the panel under the tree says what it is, its port(s), why it's there, and lists
+  its connections as buttons that jump to them.
 - **Story chips** (A film, start to finish · Watching from anywhere · This dashboard · A book ·
-  Game night · Changing anything) walk one path a step at a time: the step's boxes and lines
-  light up with dots running along them, a caption says what's happening; it plays itself
-  (5.2 s a step), ‹ › step, ❚❚ pauses. The caption is pinned while the map scrolls under it.
-- **Two layouts** from the same tables: a 1600-unit-wide drawing scaled to the card, and a
-  two-column tall one under 760 px (a phone), where a story also scrolls its lit box into view.
-- **Not live** — nothing polls; it is a picture of the config. **Keep its tables in step**: a
-  new service, port or connection is a line in `NODES` / `EDGES` (and maybe a `STORIES` step)
-  at the top of overview.js. Colours are HUD tokens only, so the picker recolours it.
+  Changing anything · Game night) walk one path a step at a time: each step's boxes light up and
+  get the step's **number**, earlier steps stay softly lit, so the path reads 1 → 2 → 3 down the
+  tree; a pinned caption says what's happening. Plays itself (5.2 s a step), ‹ › step, ❚❚ pauses;
+  on a phone it scrolls each step's box into view.
+- **Not live** — nothing polls; it is a picture of the config. **Keep it in step**: a new service,
+  port or connection is a line in `NODES`, its place in `ZONES`, a line in `EDGES` (maybe a
+  `STORIES` step) at the top of overview.js. Colours are HUD tokens only, so the picker recolours it.
 
 #### Page 3 — Eclipse
 
