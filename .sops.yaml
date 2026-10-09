@@ -11,6 +11,7 @@ keys:
   #
   # Generated 2026-10-02 from her ssh host key, which lives OUTSIDE this repo at
   #   ~/.local/share/apollo/Elektra/etc/ssh/ssh_host_ed25519_key
+  # (…/Kit-Kat/ until the next apollo-deploy moves it — the machine was renamed)
   # and is planted during the install by nixos-anywhere --extra-files, so sops can
   # decrypt on her very first activation. Derive with: ssh-to-age -i <that>.pub
   - &kitkat age185mqahaq2pac7szxvzkmlg5mdv4lcjgvtjkwu2ly24cc3mva3pssh4yuw2
