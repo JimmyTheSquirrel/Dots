@@ -1,11 +1,18 @@
 // ════════════════════════════════════════════════════════════════════════════
-// garden.js — MarsBar's vine, alive (marsbar:1111 only; whatever colour she
-// has picked). Three parts, each on unless she turns it off — three switches
-// in the colour picker's "Just for fun" section (theme.js), kept in THIS
-// browser's localStorage as marsbar-blossoms / marsbar-butterflies /
-// marsbar-fireflies = "off". Blossoms off: the static bloom.svg flower is back
-// on every card. Any part comes and goes live, no reload. (Until 2026-10-09
-// it was one Garden switch, marsbar-garden = "off": read once, as all three off.)
+// garden.js — MarsBar's vine, alive (whatever colour she has picked) — and,
+// since 2026-10-09, the same garden grown over Asgard's HUD when rock picks
+// the Tech + Garden skin (theme.js loads it there, with garden.css and
+// garden-hud.css). Which dashboard it is on: <html data-dash="marsbar">,
+// which theme.js sets before this runs. Styles: garden.css (shared).
+//
+// Three parts, each on unless switched off — switches in the colour picker
+// (theme.js), kept in THIS browser's localStorage as marsbar-<part> = "off"
+// (asgard-garden-<part> on Asgard). Blossoms off on MarsBar: the static
+// bloom.svg flower is back on every card. Any part comes and goes live, no
+// reload. (Until 2026-10-09 MarsBar had one Garden switch, marsbar-garden =
+// "off": read once, as all three off.) Asgard has a fourth part, vines: her
+// vine rail climbing each card's frame and running along its top from the
+// crown (on MarsBar marsbar.css draws the rails, always).
 //
 //   blossoms     every card's crown blossom is redrawn as a rigged inline SVG
 //                (.mb-crown) whose five petals slowly fold shut and open again
@@ -61,15 +68,17 @@
 
   var root = document.documentElement;
   var still = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+  var MB = root.getAttribute("data-dash") === "marsbar";
+  var KEY = MB ? "marsbar-" : "asgard-garden-";
   // Which parts are on. A private window (no storage) has them all.
-  var PARTS = ["blossoms", "butterflies", "fireflies"];
-  var on = { blossoms: true, butterflies: true, fireflies: true };
+  var PARTS = MB ? ["blossoms", "butterflies", "fireflies"] : ["vines", "blossoms", "butterflies", "fireflies"];
+  var on = { vines: !MB, blossoms: true, butterflies: true, fireflies: true };
   try {
-    if (localStorage.getItem("marsbar-garden") === "off") {          // the old single switch
+    if (MB && localStorage.getItem("marsbar-garden") === "off") {    // her old single switch
       PARTS.forEach(function (k) { localStorage.setItem("marsbar-" + k, "off"); });
       localStorage.removeItem("marsbar-garden");
     }
-    PARTS.forEach(function (k) { on[k] = localStorage.getItem("marsbar-" + k) !== "off"; });
+    PARTS.forEach(function (k) { on[k] = localStorage.getItem(KEY + k) !== "off"; });
   } catch (e) { /* private window: all on */ }
   function any() { return on.blossoms || on.butterflies || on.fireflies; }
 
@@ -149,9 +158,41 @@
     var out = [], ws = document.querySelectorAll(".widget");
     for (var i = 0; i < ws.length; i++) {
       var up = ws[i].parentElement;
+      if (ws[i].classList.contains("header")) continue;     // Glance's nav bar is a .widget too
       if (!up || !up.closest(".widget")) out.push(ws[i]);
     }
     return out;
+  }
+
+  // ── the vines (Asgard) ─────────────────────────────────────────────────────
+  // Her vine rail, on the HUD: one climbing each card's frame up its left edge
+  // and one running along its top from the corner the crown grows on, both
+  // fading out. Two plain elements per card (garden-hud.css draws them: the
+  // card's ::before and ::after are its glass and its frame). Never a tap.
+  var RAIL = 2;           // the rail's middle, px from the card's left edge (garden-hud.css)
+  function vines() {
+    if (MB || !on.vines) return;
+    var ws = cards();
+    for (var i = 0; i < ws.length; i++) {
+      if (ws[i].querySelector(":scope > .gd-vine")) continue;
+      var r = ws[i].getBoundingClientRect();
+      if (r.width < 120) continue;
+      // Each card starts the pattern somewhere else, so no two look stamped.
+      var off = Math.round(rnd(0, 240));
+      ws[i].insertAdjacentHTML("beforeend",
+        '<i class="gd-vine gd-side" aria-hidden="true" style="background-position: 0 -' + off + 'px"></i>' +
+        '<i class="gd-vine gd-top" aria-hidden="true" style="background-position: 0 -' + ((off + 97) % 240) + 'px"></i>');
+    }
+    root.classList.add("gd-vines");
+    reach();
+  }
+  // The top vine runs a share of its card's width (a CSS % would be of the
+  // card's height — it is turned on its side).
+  function reach() {
+    document.querySelectorAll(".gd-top").forEach(function (v) {
+      var w = v.parentElement.getBoundingClientRect().width;
+      if (w) v.style.height = Math.round(Math.min(w * 0.42, 340)) + "px";
+    });
   }
 
   // Idempotent: runs once Glance's markup is in, then every minute, so a card
@@ -183,13 +224,13 @@
   // browser starts no CSS transition when an animation and the value under it
   // change in the same breath (Chrome snaps), so each petal and heart is
   // walked there from wherever its cycle had it by a one-off animation.
-  var PARTS = ".mb-crown .pet, .mb-crown .mbc-hrt";
+  var FOLDS = ".mb-crown .pet, .mb-crown .mbc-hrt";
   function pose(el) {
     var cs = getComputedStyle(el);
     return { transform: cs.transform, strokeOpacity: cs.strokeOpacity, opacity: cs.opacity };
   }
   function nightfall() {
-    var parts = document.querySelectorAll(PARTS), from = [], i;
+    var parts = document.querySelectorAll(FOLDS), from = [], i;
     for (i = 0; i < parts.length; i++) from.push(pose(parts[i]));
     root.setAttribute("data-mb-night", "");
     if (still.matches || !parts.length || !nativeAnimate) return;
@@ -225,7 +266,7 @@
   // page (or no answer yet) is not "dark".
   function dusk() {
     if (!on.fireflies && !on.blossoms) return;
-    var hero = document.querySelector(".mb-hero[data-ha-state]");
+    var hero = document.querySelector(".mb-hero[data-ha-state], .ag-hero[data-ha-state]");
     var dark = !!hero && hero.getAttribute("data-ha-state") === "off";
     if (dark !== root.hasAttribute("data-mb-dark")) {
       if (dark) root.setAttribute("data-mb-dark", "");
@@ -359,10 +400,11 @@
   }
   function spot(p) {
     var sx = window.scrollX, sy = window.scrollY;
-    // The vine rail's middle: 4 + 36/2 px into the card (1 + 36/2 on a phone).
+    // The vine rail's middle: 4 + 36/2 px into the card (1 + 36/2 on a phone)
+    // — on Asgard's frames it climbs the edge itself (garden-hud.css: RAIL).
     return {
       card: p.el,
-      x: p.r.left + sx + (window.innerWidth <= 420 ? 19 : 22),
+      x: p.r.left + sx + (!MB ? RAIL : window.innerWidth <= 420 ? 19 : 22),
       y: rnd(p.lo, p.hi) + sy,
       top: p.r.top + sy, left: p.r.left + sx
     };
@@ -531,7 +573,10 @@
   function set(part, want) {
     if (!(part in on) || on[part] === want) return;
     on[part] = want;
-    if (part === "blossoms") {
+    if (part === "vines") {
+      if (want) vines();
+      else { drop(".gd-vine"); root.classList.remove("gd-vines"); }
+    } else if (part === "blossoms") {
       if (want) { clock(); crowns(); }
       else { drop(".mb-crown"); drop(".mbg-defs"); root.classList.remove("mb-garden"); }   // bloom.svg is back
     } else if (part === "butterflies") {
@@ -551,13 +596,14 @@
   // ── wiring ─────────────────────────────────────────────────────────────────
   clock();   // before the crowns exist, so a night-time page draws them shut
   Dash.ready(".widget", function () {
+    vines();
     crowns();
     dusk();
     if (on.butterflies && !still.matches && !fly && !nextT) later(rnd(6000, 15000));
   });
 
   document.addEventListener("ha:state", dusk);
-  setInterval(function () { clock(); crowns(); }, 60000);
+  setInterval(function () { clock(); vines(); crowns(); }, 60000);
   document.addEventListener("visibilitychange", function () { if (!document.hidden) clock(); });
 
   // A turned phone or a resized window moves every card: a resting butterfly
@@ -566,6 +612,7 @@
   window.addEventListener("resize", function () {
     if (window.innerWidth === lastW) return;
     lastW = window.innerWidth;
+    if (!MB && on.vines) reach();
     if (fly && fly.card) leave(fly);
   });
 

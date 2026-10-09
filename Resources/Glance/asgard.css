@@ -1376,6 +1376,33 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
   box-shadow: inset 0 0 0 1px rgb(var(--hud-rgb) / 0.5), inset 0 0 22px rgb(var(--hud-rgb) / 0.08);
 }
 .hud-pop[hidden] { display: none; }
+.hud-pop { max-height: calc(100vh - 84px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+/* Skins (theme.js): three tiles, the one on lit in both colours; its
+   switches (.hud-opts) under the row. */
+.hud-sub.hud-first { margin-top: 0; }
+.hud-skins { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.hud-skin {
+  display: grid; justify-items: center; gap: 5px;
+  padding: 9px 4px 8px;
+  font: inherit; font-family: var(--ag-title); font-size: 0.95rem; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ag-text-dim);
+  background: rgb(var(--hud-rgb) / 0.05);
+  border: none;
+  clip-path: var(--cut-s);
+  box-shadow: inset 0 0 0 1px rgb(var(--hud-rgb) / 0.28);
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.hud-skin svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.hud-skin:hover { color: var(--ag-text); background: rgb(var(--hud-rgb) / 0.12); }
+.hud-skin[aria-pressed="true"] {
+  color: var(--ag-on-acc);
+  background: linear-gradient(135deg, var(--hud-hot), var(--hud) 55%, color-mix(in srgb, var(--hud2) 80%, var(--hud)));
+  box-shadow: none;
+}
+.hud-skin:focus-visible { outline: 2px solid var(--hud); outline-offset: 2px; }
+.hud-opts { margin-top: 2px; }
+.hud-opts[hidden] { display: none; }
 .hud-pop-h {
   font-family: var(--ag-title);
   font-size: 1.15rem;

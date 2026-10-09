@@ -135,6 +135,29 @@
         # path Glance and speedtest.service use.
         SABNZBD_URL = "http://127.0.0.1:8080";
         DASH_ORIGINS = lib.concatStringsSep "," (import ./_origins.nix config.asgard);
+        # The Overview's living tree: which units make up each of its services
+        # (ids as in Resources/Glance/overview.js's NODES). Up = a populated
+        # cgroup; busy = its CPU. A service added to the Overview goes here too.
+        # Not listed: wg-mullvad, a oneshot with nothing left running (the tree
+        # reads the tunnel from SABnzbd), and the timer jobs.
+        ASGARD_UNITS = builtins.toJSON {
+          jellyfin = [ "jellyfin" ];
+          seerr = [ "seerr" ];
+          immich = [ "immich-server" "immich-machine-learning" "postgresql" "redis-immich" ];
+          abs = [ "podman-audiobookshelf" ];
+          suwayomi = [ "suwayomi-server" ];
+          arrs = [ "sonarr" "radarr" "lidarr" ];
+          prowlarr = [ "prowlarr" ];
+          shelfarr = [ "podman-shelfarr" ];
+          flare = [ "podman-flaresolverr" ];
+          ha = [ "home-assistant" ];
+          feeds = [ "asgard-stats" "ha-bridge" "network-panel" "eclipse-control" "tailscale-status-proxy" ];
+          glance = [ "glance" "glance-marsbar" ];
+          tools = [ "ttyd" "podman-filebrowser" ];
+          sab = [ "sabnzbd" "sabnzbd-proxy" ];
+          cf = map (t: "cloudflared-tunnel-" + t) (lib.attrNames config.services.cloudflared.tunnels);
+          tailnet = [ "tailscaled" ];
+        };
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${../../Resources/Asgard-Stats/asgard-stats.py}";

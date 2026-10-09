@@ -345,6 +345,45 @@ _snap = {"version": 0, "body": b""}
 # Kept here, not just in the browser, so a freshly opened page draws a full
 # chart at once instead of growing one from the right for three minutes.
 _hist = {"cpu": deque(maxlen=HIST), "mem": deque(maxlen=HIST), "ts": None}
+# ── Services, for the Overview's living tree ───────────────────────────────
+# Is each service up, and how busy is it? Straight from cgroupfs: a unit that
+# runs has a populated cgroup.procs under system.slice, and cpu.stat counts
+# the CPU its processes have used. World-readable — so no D-Bus (this unit
+# may only open AF_INET sockets) and no privileges. ASGARD_UNITS (stats.nix)
+# maps the Overview's ids to their units: {"arrs": ["sonarr", "radarr", …]}.
+# A oneshot (wg-mullvad) has no processes once it has run: it isn't listed.
+CGROUP = os.environ.get("ASGARD_CGROUP_ROOT", "/sys/fs/cgroup/system.slice")
+try:
+    UNITS = json.loads(os.environ.get("ASGARD_UNITS", "{}"))
+except ValueError:
+    UNITS = {}
+UNITS_EVERY = 5.0
+_cg_prev = {}
+
+
+def units_sample(now):
+    out = {}
+    for nid, units in UNITS.items():
+        up, cpu, down = 0, 0.0, []
+        for u in units:
+            d = os.path.join(CGROUP, u if u.endswith((".service", ".scope")) else u + ".service")
+            if read(os.path.join(d, "cgroup.procs")):
+                up += 1
+            else:
+                down.append(u)
+            usec = None
+            for line in read(os.path.join(d, "cpu.stat")).splitlines():
+                k, _, v = line.partition(" ")
+                if k == "usage_usec" and v.strip().isdigit():
+                    usec = int(v)
+            prev = _cg_prev.get(u)
+            if usec is not None and prev and now > prev[1] and usec >= prev[0]:
+                cpu += (usec - prev[0]) / 1e6 / (now - prev[1]) * 100
+            _cg_prev[u] = (usec, now) if usec is not None else None
+        out[nid] = {"up": up, "of": len(units), "cpu": round(cpu, 1), "down": down}
+    return out
+
+
 _watchers = {"n": 0}  # open /stream connections; 0 → skip the HTTP-backed samples
 _wake = threading.Event()  # a viewer just connected: sample now, don't wait out FAST
 
@@ -361,8 +400,8 @@ def publish(data):
 
 
 def sampler():
-    slow_at = jf_at = sab_at = sabh_at = 0.0
-    disks, pool, smart_at, streams, sab, sabh = [], {}, None, None, None, None
+    slow_at = jf_at = sab_at = sabh_at = units_at = 0.0
+    disks, pool, smart_at, streams, sab, sabh, units = [], {}, None, None, None, None, None
     while True:
         now = time.time()
         watched = _watchers["n"] > 0
@@ -373,8 +412,8 @@ def sampler():
             # Nobody to show it to: forget both the timers and the values, so a
             # new viewer is never shown what was playing an hour ago. `media`
             # tells the page whether these fields are real yet.
-            jf_at = sab_at = sabh_at = 0.0
-            streams = sab = sabh = None
+            jf_at = sab_at = sabh_at = units_at = 0.0
+            streams = sab = sabh = units = None
         else:
             if now - jf_at >= JF_EVERY:
                 streams = jellyfin_sample()
@@ -385,6 +424,9 @@ def sampler():
             if now - sabh_at >= SAB_HIST_EVERY:
                 sabh = sab_history()
                 sabh_at = now
+            if UNITS and now - units_at >= UNITS_EVERY:
+                units = units_sample(now)
+                units_at = now
         temps, fans = hwmon_sample()
         io = io_sample(now)
         load = read("/proc/loadavg").split()[:3]
@@ -398,6 +440,7 @@ def sampler():
             "streams": streams,
             "downloads": dict(sab, history=sabh) if sab else None,
             "media": watched,
+            "units": units,
         })
         _wake.wait(max(0.2, FAST - (time.time() - now)))
         _wake.clear()
