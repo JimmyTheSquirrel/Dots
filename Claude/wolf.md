@@ -721,3 +721,90 @@ activity list, whichever dashboard did it.
   allowlist narrow it to Asgard (`self.lib.tailnet.asgard`) and localhost.
   Browsers never call it directly — Asgard's eclipse-control proxies it.
 - **Check by hand on Sisyphus:** `curl -s localhost:9560/sessions | jq`.
+
+## ⭐ Lag spikes on Eclipse = 100 Mbps over its own Wi-Fi (2026-10-09)
+
+**Reported as:** "crazy lag spikes" playing Cult of the Lamb, suspected Proton.
+Full measured write-up: **`Resources/Eclipse-Box/evidence/cotl-lag-2026-10-09.md`**.
+
+Eclipse's Moonlight asks for **4K60 at `bitrate=100000`** and Wolf delivers it — 101 Mbps
+measured on `enp9s0`. One session logged **16,283 lost frames (7.1 %)** and **437 freezes
+during gameplay** — a visible stutter every ~7 s.
+
+### ⭐ First: find out which interface Eclipse is actually using
+
+**Eclipse has both NICs up on the same subnet, and `wlan0` wins the route.**
+
+| iface | address | path | rx during the stream |
+|---|---|---|---|
+| `eth0` | 192.168.0.182 | wired → RP-BE58 extender | **0 Mbps** |
+| `wlan0` | 192.168.0.183 | direct to "Kandy Cane", 5 GHz ch36, **−67 dBm** | **101 Mbps** |
+
+connman carries **both** `Wired` and `Kandy Cane` with `AutoConnect=true`. On 2026-10-09 the
+Wi-Fi had been associated 5 h on a box up 4 days — it joined mid-afternoon and silently took
+the default route. `eth0` stayed healthy and unused.
+
+```bash
+ssh root@eclipse 'ip route get 192.168.0.13; ip -o addr show | grep -v inet6'
+# and the decisive one — which interface is actually moving bytes:
+ssh root@eclipse 'for i in eth0 wlan0; do echo -n "$i "; cat /sys/class/net/$i/statistics/rx_bytes; done'
+```
+
+**So every extender tuning is bypassed, and every dashboard reading measures the radio.**
+
+### The mechanism, and the bit that is easy to miss
+
+At 100 Mbps a 4K frame is ~294 packets across **3 FEC blocks**. Moonlight's FEC block index is
+8-bit, so **a block over 255 packets gets no FEC at all** — Wolf says
+`Size of frame too large, N packets is bigger than the max (255); skipping FEC`
+(27,628 times). **83 % of the frames that failed had zero parity**, so a single lost packet was
+fatal; the decoder then discards every dependent frame and sits in `Waiting for IDR frame` for
+up to 46 frames ≈ **0.77 s of frozen picture**.
+
+101 Mbps of *bursty* UDP on a −67 dBm link is ~60 % airtime before retries. Bursts overrun the
+queues. So it is two faults compounding: the link sheds packets at the peaks, *and* the frames
+that matter most are shipped unprotected.
+
+### ✅ Settled 2026-10-09: eth0 (the extender) is the right path — measured idle
+
+| path | throughput | ping (idle, 1400 B) |
+|---|---|---|
+| `eth0` → RP-BE58 extender | **376 Mbps** | **2.17 / 2.99 / 7.03 ms**, mdev 0.96 |
+| `wlan0` → router direct, −66 dBm | 158 Mbps | 5.79 / 14.3 ms, mdev 2.65 |
+
+**2.4× faster and lower latency.** Fixed by turning the Wi-Fi off for good:
+
+```bash
+connmanctl config wifi_88a29ed653de_4b616e64792043616e65_managed_psk --autoconnect off
+connmanctl disconnect wifi_88a29ed653de_4b616e64792043616e65_managed_psk
+# run detached via systemd-run — it kills its own transport
+```
+`AutoConnect=false` persists in `/storage/.cache/connman/<svc>/settings`, so it survives a reboot.
+Tailscale re-homed onto eth0 by itself.
+
+### ⚠️ Two traps that gave the wrong answer first time
+
+1. **Never compare two wireless paths while one carries a stream.** eth0 first measured
+   8.92 avg / 35.7 max — *because wlan0 was saturated beside it in the same airspace*. Idle, the
+   same interface measures **2.99 / 7.03**.
+2. ⭐ **Latency does not predict throughput, and hop count does not either.** wlan0 pinged better
+   and moved less than half the data; "eth0 adds a hop so it's worse" was wrong, because the extra
+   hop is on far better radios. **Measure throughput — never infer it.**
+3. ⚠️ And a clean ping never clears a path: 5.79 ms avg with 0 % ICMP loss, while 7.1 % of frames
+   died. Small probes sail through; loss only hits the 60 Hz bursts.
+
+### Bitrate: now second-order
+
+At 364 Mbps a 101 Mbps stream is ~28 % utilisation (was ~60 % airtime on wlan0). The 255-packet
+FEC ceiling is still crossed at `bitrate=100000`, so what loss remains is unrecoverable — but
+there should be far less of it. **Play at 100000 first; if spikes persist, drop to 40000-50000.**
+⚠️ Set it from Moonlight's settings screen on the TV, or with Moonlight stopped — `Moonlight.conf`
+is Qt `QSettings`, rewritten on exit.
+
+### Don't re-diagnose these — all measured clean
+
+- **Proton Experimental 11.0-100** ran the game at a steady 59.6 fps throughout.
+- **GPU 54-74 %, 74 W.** Genuinely GPU-bound on this box looks like 86-100 % and
+  **172 W of a 182 W cap** (the Witcher 3 4K test). Not close.
+- **The Pi is fine** — HEVC **V4L2 stateless hardware** decode, `throttled=0x0`,
+  59.3 °C, load 1.36.
