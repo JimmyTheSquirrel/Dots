@@ -17,12 +17,11 @@
 //
 // Every pick is a TWO-tone (a main light and its partner) or one of the "Just
 // for fun" themes — a two-tone of its own that also puts something living on
-// the page. MarsBar: Cats (cats.css + cats.js, data-cats / data-cats-js), or
-// Snow, Sakura, Starry night, Spooky and Ocean (fx.css + fx.js, data-fx /
-// data-fx-js). Asgard has just the one (rock, 2026-10-09: "one clean for fun,
-// not that many options"): Ravens, Huginn and Muninn bringing the news
-// (ravens.css + ravens.js, data-ravens / data-ravens-js). Those files are
-// fetched only when someone picks one.
+// the page: Cats (cats.css + cats.js, data-cats / data-cats-js), or Snow,
+// Starry night, Spooky and Ocean (fx.css + fx.js, data-fx / data-fx-js) on
+// both dashboards; Sakura (fx too) on MarsBar only; and, Asgard only, Ravens —
+// Huginn and Muninn bringing the news (ravens.css + ravens.js, data-ravens /
+// data-ravens-js). Those files are fetched only when someone picks one.
 //
 // Asgard also has SKINS (2026-10-09) — the whole look, not its colour, so any
 // skin wears any colour: Tech (the HUD as it ships) and Tech + Garden
@@ -116,20 +115,21 @@
     ["Iðunn — apples and leaves", "#ff8f8f+#b5e67a"], ["Freyja — rose and the falcon's green", "#ffa6c9+#5ee8b0"],
   ];
   // The fun themes: a two-tone of their own, and something living on the page.
-  // MarsBar's: Cats is cats.css + cats.js; the rest are fx.css + fx.js
-  // (data-fx, data-fx-js) — each pair fetched only when one of its themes is
-  // picked. Asgard's one: the Ravens. A stale pick from the other's list (an
-  // old Sakura on Asgard) falls back to the house colours.
+  // Cats is cats.css + cats.js; the rest are fx.css + fx.js (data-fx,
+  // data-fx-js) — each pair fetched only when one of its themes is picked.
+  // A fourth field keeps a theme to one dashboard: "mb" MarsBar only (Sakura —
+  // rock didn't want it on Asgard), "hud" Asgard only (Ravens). A stale pick
+  // from the other's list falls back to the house colours.
   var FUN = [
-    ["cats", "Cats — cats everywhere", "#ffb36b+#ff9ec4", "mb"],             // ginger and a pink nose
-    ["snow", "Snow — a quiet snowfall", "#e3f1ff+#9fc8ff", "mb"],
+    ["cats", "Cats — cats everywhere", "#ffb36b+#ff9ec4"],             // ginger and a pink nose
+    ["snow", "Snow — a quiet snowfall", "#e3f1ff+#9fc8ff"],
     ["sakura", "Sakura — blossom petals on the wind", "#ffb7d5+#b5e6a0", "mb"],
-    ["stars", "Starry night — a moon, stars, the odd shooting star", "#a99bff+#ffe08a", "mb"],   // night, and starlight
-    ["spooky", "Spooky — bats at dusk, and a spider", "#ffa95c+#b99cff", "mb"],
-    ["ocean", "Ocean — bubbles, light through the water, fish", "#7fe3e8+#ffa697", "mb"],
+    ["stars", "Starry night — a moon, stars, the odd shooting star", "#a99bff+#ffe08a"],   // night, and starlight
+    ["spooky", "Spooky — bats at dusk, and a spider", "#ffa95c+#b99cff"],
+    ["ocean", "Ocean — bubbles, light through the water, fish", "#7fe3e8+#ffa697"],
     // ravens.css + ravens.js: Odin's two, perched on the cards.
     ["ravens", "Ravens — Huginn and Muninn bring you the news", "#c9d2ec+#9d8cff", "hud"],
-  ].filter(function (f) { return f[3] === (MB ? "mb" : "hud"); });
+  ].filter(function (f) { return !f[3] || f[3] === (MB ? "mb" : "hud"); });
   var FUNS = {};
   FUN.forEach(function (f) { FUNS[f[0]] = f[2]; });
   var VALID = new RegExp("^(" + Object.keys(FUNS).join("|") + "|#[0-9a-f]{6}(\\+#[0-9a-f]{6})?)$");

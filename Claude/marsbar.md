@@ -298,10 +298,10 @@ shown only while the phone bar is hidden).
   temperature when the Pi runs hot. Plus paw prints, paw glyphs on the headings, and
   kitten faces in place of the blossoms
   (`html[data-cats][data-dash="marsbar"]`).
-  Details in `Claude/server-info.md` → The colour picker → Cats. (Asgard offered Cats and the fx
-  themes too until 2026-10-09, when rock cut his *Just for fun* to the Ravens alone — they're hers now.)
-- **Snow, Sakura, Starry night, Spooky, Ocean** — the other fun themes (fx.css + fx.js, in
-  `Resources/Glance/`; details in `Claude/server-info.md` → The colour picker): snowfall,
+  Details in `Claude/server-info.md` → The colour picker → Cats.
+- **Snow, Sakura, Starry night, Spooky, Ocean** — the other fun themes (fx.css + fx.js,
+  shared with Asgard — **Sakura is hers alone**; details in `Claude/server-info.md` → The
+  colour picker): snowfall,
   drifting petals, a night sky with shooting stars, bats and a spider, bubbles and fish.
   Her crowns become the theme's mark (a snowflake, a moon, a bat, a fish), swaying —
   except in **Sakura**, where her living blossoms stay (they already are the theme). Her
