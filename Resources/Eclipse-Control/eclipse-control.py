@@ -472,7 +472,17 @@ CTL_CMD = (
     " bluetoothctl info \"$m\" 2>/dev/null"
     " | sed -n \"s/^[[:space:]]*Battery Percentage: .*(\\([0-9]*\\)).*/btbat=$m \\1/p\"; done; "
     "grep -E '^(N: Name|U: Uniq)=' /proc/bus/input/devices 2>/dev/null | sed 's/^/input=/'; "
-    "for b in /sys/class/power_supply/*; do [ -r \"$b/capacity\" ] &&"
+    # `|| continue`, never `&& echo`. A for-loop exits with the status of the
+    # LAST command its body ran, and hid-playstation only creates a
+    # power_supply while a pad is connected — with none, /sys/class/power_supply
+    # is empty, the glob stays literal, `[ -r ]` is false and the whole CTL_CMD
+    # exited 1. ssh() reports that as not-ok, so _fetch_ctl returned
+    # reachable=False and the card painted "Eclipse unreachable" with this
+    # command's entire (perfectly good) output as the error string — the card
+    # you would use to reconnect a pad went dark exactly when none was
+    # connected. `continue` always returns 0, so the loop can no longer decide
+    # whether Eclipse is reachable.
+    "for b in /sys/class/power_supply/*; do [ -r \"$b/capacity\" ] || continue;"
     " echo \"bat=${b##*/} $(cat \"$b/capacity\" 2>/dev/null) $(cat \"$b/status\" 2>/dev/null)\"; done"
 )
 

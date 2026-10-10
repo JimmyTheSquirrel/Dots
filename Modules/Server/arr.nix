@@ -14,11 +14,20 @@
   {
 
     nixflix = {
+      # ⚠ mediaManagement.deleteEmptyFolders is pinned to false on Sonarr and
+      # Radarr deliberately. nixflix gained *-mediamanagement.service in v2.0.0,
+      # which PUTs /config/mediamanagement on every boot; its default for this
+      # one key is `true`, and every other key in that payload already matched
+      # what both apps were running. Left unset, the v1.2.0 → v3.2.0 bump would
+      # have silently started pruning empty library folders — a behaviour change
+      # nobody asked for, smuggled in on a bug fix. Drop these two lines to adopt
+      # nixflix's default.
       sonarr = {
         enable = true;
         config = {
           apiKey._secret = config.sops.secrets."sonarr-api-key".path;
           hostConfig.password._secret = config.sops.secrets."admin-password".path;
+          mediaManagement.deleteEmptyFolders = false;
         };
       };
 
@@ -27,6 +36,7 @@
         config = {
           apiKey._secret = config.sops.secrets."radarr-api-key".path;
           hostConfig.password._secret = config.sops.secrets."admin-password".path;
+          mediaManagement.deleteEmptyFolders = false;
         };
       };
 

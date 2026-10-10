@@ -70,7 +70,7 @@
 
     # --- Nixflix (declarative media server — arr stack + Jellyfin auto-wiring) ---
     nixflix = {
-      url = "github:kiriwalawren/nixflix/v1.2.0";
+      url = "github:kiriwalawren/nixflix/v3.2.0";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
 
