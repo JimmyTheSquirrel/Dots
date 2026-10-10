@@ -618,8 +618,7 @@ live card uses: stream lifecycle, DOM morphing, sparklines, hover read-outs), `l
 and `eclipse.js` (**shared with MarsBar**), `tailscale-status.py`, `yggdrasil-banner.png`,
 `overview.js` + `overview.css` (the Overview page) and `ygg-live.js` (its Living tree),
 `garden-hud.css` (the Tech + Garden skin; with MarsBar's `garden.css` / `garden.js`),
-`ravens.css` + `ravens.js` (the one fun theme). `cats.*` and `fx.*` live here too but only
-MarsBar loads them.
+`cats.css` + `cats.js`, `fx.css` + `fx.js` and `ravens.css` + `ravens.js` (the fun themes).
 `Modules/Server/_livecard.nix` builds the card frame both dashboards use. Plugs come from
 `Modules/Server/_plugs.nix`, services from the `services` list in `glance.nix`.
 
@@ -783,12 +782,11 @@ picker, which asgard.css hides (its presets fight the HUD's tokens).
   the buttons — Glance's own `button { background: none; border: 0 }` would otherwise
   blank every swatch); asgard.css restyles them into the HUD and takes the base's
   rounding back off (`border-radius: 0`; the HUD cuts corners with `clip-path`).
-- **Just for fun here is one theme: the Ravens** (rock, 2026-10-09: "I just want one clean for
-  fun, not that many options"). Cats and the fx themes below are **MarsBar's only** now — theme.js
-  tags each fun theme `mb` or `hud` and offers a dashboard only its own; a stale pick from the
-  other list (an old Sakura on Asgard) falls back to the house colours. Their files still live in
-  `Resources/Glance/` (her dashboard loads them from there), so they're documented here.
-- **Cats** (MarsBar) — a "Just for fun" theme: a ginger-and-pink theme (`#ffb36b+#ff9ec4` through
+- **Which fun themes each dashboard gets**: Cats, Snow, Starry night, Spooky and Ocean on both;
+  **Sakura on MarsBar only** (rock, 2026-10-09: not on Asgard); **Ravens on Asgard only**. theme.js
+  tags a one-dashboard theme `mb` or `hud` in `FUN`; a stale pick from the other's list (an old
+  Sakura on Asgard) falls back to the house colours.
+- **Cats** — the "Just for fun" row: a ginger-and-pink theme (`#ffb36b+#ff9ec4` through
   the normal palette) that also sets `html[data-cats]` and pulls in
   `Resources/Glance/cats.css` + `cats.js` (`data-cats` / `data-cats-js` on the script tag;
   fetched only when picked — theme.js only switches them on and off: `Cats.on()` /
@@ -838,7 +836,7 @@ picker, which asgard.css hides (its presets fight the HUD's tokens).
   - Cats only ever go *into* a `.widget` or `<body>` — never inside a `Dash.paint` target,
     which would morph them away. Reduced motion: no acts, no chase, no scattering (they
     just vanish), no trotting; they still answer a tap with a word.
-- **Snow, Sakura, Starry night, Spooky, Ocean** (MarsBar) — the rest of her "Just for fun" row
+- **Snow, Sakura, Starry night, Spooky, Ocean** — the rest of the "Just for fun" row (Sakura is MarsBar's only)
   (2026-10-09, "maybe some other themes"). Each is a two-tone of its own plus something
   living on the page, all in `Resources/Glance/fx.css` + `fx.js` (`data-fx` / `data-fx-js`
   on the script tag, fetched only when one is picked; theme.js sets `html[data-fx="<kind>"]`
