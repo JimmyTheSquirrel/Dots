@@ -376,3 +376,36 @@ browser locally). Details in `Claude/home-assistant.md`.
   and reconnect).
 - A hidden tab parks its stream after 60s and re-syncs on return; a page without a
   light tile never opens one.
+
+## Bedroom bulb colour (added 2026-10-31)
+
+Under a **Bedroom** heading in the Lights card: a tile per bedside bulb, a row of
+colour **swatches** (Candle · Ember · Amber · Honey · Gold · Warm · Neutral · Cool ·
+**Custom**) and a **brightness** slider, plus a shared **Mix your own** panel —
+five 0-255 channel sliders behind the Custom swatch. ⚠ The mix panel is shared by
+both lamps and mirrored on the admin dashboard; change one, change the other. She is the one who actually uses these, which is why the colour control exists
+here and not only on the admin Power page.
+
+⚠ **The SAME controls as the admin dashboard** (`glance.nix` → `bulbCard` /
+`.ag-bulb` in asgard.css; here `marsbar.nix` → `bulbCard` / `.mb-bulb` in marsbar.css).
+Separate markup, one shared `data-ha-*` contract in `lights.js` — **add a control to one
+and it must go in the other**, exactly like the Eclipse cards.
+
+- A swatch is a tap, not a slider: these bulbs bottom out at 3000 K, which is a *white*,
+  so a warmth slider physically cannot reach amber — the colour dies can, and the
+  swatches are that choice pre-made. Full reasoning in `Claude/home-assistant.md`.
+- Each preset is **five channel values** (`rgbww` in `_plugs.nix`), not a hue or a
+  kelvin. The bulbs were reflashed 2026-10-31 to drop Athom's `color_interlock`, which
+  had forbidden the colour dies and the white dies being lit together — that is why the
+  oranges used to be dark and why `Honey` could not exist. ⚠ A replacement bulb must be
+  reflashed or its amber goes dark again.
+- The active swatch and the slider position are painted from HA
+  (`input_select.<slug>_preset` / `input_number.<slug>_brightness`), not from local
+  state, so both dashboards and the HA app always agree.
+- ⚠ Each swatch's `--sw` is a **literal colour** — the one exception to marsbar.css's
+  "every colour is `hsl(var(--mb-h)…)`". A swatch shows what the lamp will look like, so
+  it must not follow her picker.
+- `.mb-bulb` is `grid-column: 1 / -1` (full width, like the hero): six swatches plus a
+  slider do not fit a 250px grid column.
+- The bedroom bulbs are **not** in the All Lights group, deliberately — that tap must not
+  come on in the bedroom at 11pm.

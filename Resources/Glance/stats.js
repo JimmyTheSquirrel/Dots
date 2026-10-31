@@ -20,6 +20,63 @@
   var hist = { cpu: [], mem: [], ts: null, dl: [] };
   var esc = D.esc, $ = D.$, level = D.level;
 
+  // ── The room, from Home Assistant ──────────────────────────────────────────
+  // asgard-stats reads the MACHINE. The room's air comes from an ESPHome
+  // temp/humidity sensor in Home Assistant, and it reaches this page on the
+  // ha-bridge stream that lights.js already holds open — so there is no second
+  // poll here and no Home Assistant token anywhere on this path. lights.js
+  // dispatches a `ha:state` event for every entity in _plugs.nix's `watched`;
+  // the three that matter are named on the script tag by glance.nix.
+  //
+  // Drawn inside the host card rather than on a card of its own so the room sits
+  // beside the CPU temperature and the two can be read in one glance. It is the
+  // room's OWN temperature and humidity and nothing derived — rock asked for the
+  // room temperature, not a computed figure, so don't reintroduce a delta row
+  // here. See `room` in Modules/Server/_plugs.nix.
+  var RM = {
+    temp: (me && me.dataset.roomTemp) || "",
+    hum: (me && me.dataset.roomHumidity) || "",
+    online: (me && me.dataset.roomOnline) || "",
+    floor: num(me && me.dataset.roomFloor, 10),
+    ceiling: num(me && me.dataset.roomCeiling, 40),
+    warn: num(me && me.dataset.roomWarn, 30),
+    bad: num(me && me.dataset.roomBad, 35)
+  };
+  var room = { temp: null, hum: null, online: null };
+  var lastHost = null;               // the last payload, so a room update can repaint
+
+  function num(v, dflt) { var n = parseFloat(v); return isFinite(n) ? n : dflt; }
+
+  // A reading that is not a number nulls the value rather than becoming 0: a
+  // sensor that has gone `unavailable` must not be drawn as a 0 °C cupboard.
+  function fin(v) { var n = parseFloat(v); return isFinite(n) ? n : null; }
+
+  document.addEventListener("ha:state", function (e) {
+    var d = e.detail || {}, hit = true;
+    if (d.entity === RM.temp) room.temp = fin(d.state);
+    else if (d.entity === RM.hum) room.hum = fin(d.state);
+    else if (d.entity === RM.online) room.online = d.state === "on";
+    else hit = false;
+    // The host card is rendered from an asgard-stats payload, so there is
+    // nothing to repaint into until the first one has arrived. The room values
+    // are kept regardless and appear with it.
+    if (hit && lastHost) renderHost(lastHost);
+  });
+
+  // The room ring. Its own axis (floor..ceiling from the inventory) because a
+  // room moves through a few degrees where a CPU moves through fifty, and on
+  // the CPU's 25-100 scale a room would sit motionless at the bottom.
+  // ⚠ The label is "Room temp", not "Room". It sits immediately beside "CPU temp",
+  // and labelled only "Room" it does not read as a temperature at all — rock
+  // reported seeing the humidity but "no temp" while this ring was showing 24 °C
+  // right next to it. Keep the two labels parallel.
+  function roomRing() {
+    if (room.temp == null) return ring(0, "–", "", "Room temp", "hue-room stale", "ok");
+    var frac = (room.temp - RM.floor) / (RM.ceiling - RM.floor);
+    if (room.online === false) return ring(frac, Math.round(room.temp), "°C", "Room temp", "hue-room", "warn", "stale");
+    return ring(frac, Math.round(room.temp), "°C", "Room temp", "hue-room", level(room.temp, RM.warn, RM.bad), "hot");
+  }
+
   function push(arr, v, n) { arr.push(v); if (arr.length > (n || HIST)) arr.shift(); }
   function gib(bytes) { return (bytes / 1073741824).toFixed(bytes >= 10737418240 ? 0 : 1) + " GB"; }
 
@@ -80,6 +137,7 @@
 
   function renderHost(s) {
     var el = $("ags-host"); if (!el) return;
+    lastHost = s;
     var memFrac = s.mem.total ? s.mem.used / s.mem.total : 0;
     var t = s.temps || {};
     var facts = [
@@ -89,6 +147,15 @@
     ];
     if (s.mem.swap_total) facts.push(["swap", gib(s.mem.swap_used) + " / " + gib(s.mem.swap_total), "swap"]);
     if (t.nvme != null) facts.push(["nvme", Math.round(t.nvme) + " °C", "nvme"]);
+    // ⚠ The room temperature is deliberately in BOTH places: the ring, and here
+    // as a plain fact beside humidity. That is not an oversight and it is not
+    // clutter — it is exactly how memory is already presented on this card (a
+    // ring for the proportion, a fact for the raw figure). rock looked for the
+    // room temperature in this list three times running, because humidity is
+    // here; the two room readings belong next to each other. Don't "tidy" one
+    // of them away.
+    if (room.temp != null) facts.push(["room temp", Math.round(room.temp) + " °C", "room"]);
+    if (room.hum != null) facts.push(["humidity", Math.round(room.hum) + " %", "humidity"]);
     (s.fans || []).forEach(function (f) {
       facts.push([/fan/i.test(f.label) ? f.label : f.label + " fan", f.rpm + " rpm", "fan"]);
     });
@@ -100,6 +167,7 @@
           (t.cpu != null
             ? ring((t.cpu - 25) / 75, Math.round(t.cpu), "°C", "CPU temp", "hue-temp", level(t.cpu, 75, 88), "hot")
             : ring(0, "–", "", "CPU temp", "hue-temp", "ok")) +
+          roomRing() +
         '</div>' +
         '<dl class="ags-facts">' + facts.map(function (f) {
           // data-k: which icon the dashboard's CSS puts beside it

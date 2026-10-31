@@ -539,6 +539,10 @@ ICONS = {
     "swap": "<path d='M4 8h14l-3-3M20 16H6l3 3'/>",
     "nvme": "<path d='M12 3a2 2 0 0 0-2 2v9.5a4 4 0 1 0 4 0V5a2 2 0 0 0-2-2z'/>",
     "fan": "<circle cx='12' cy='12' r='2'/><path d='M12 10c0-4 2-7 5-7 0 3-2 5-5 7zM14 12c4 0 7 2 7 5-3 0-5-2-7-5zM12 14c0 4-2 7-5 7 0-3 2-5 5-7zM10 12c-4 0-7-2-7-5 3 0 5 2 7 5z'/>",
+    # the room sensor. `room` is a thermometer WITH scale marks so it does not
+    # read as `nvme`, which is a plain thermometer sitting two facts away.
+    "room": "<path d='M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z'/><path d='M16 7h2.5M16 10h2.5M16 13h2.5'/>",
+    "humidity": "<path d='M12 2.5C12 2.5 5.5 9.9 5.5 14.4a6.5 6.5 0 0 0 13 0C18.5 9.9 12 2.5 12 2.5z'/><path d='M9.5 14.6a2.6 2.6 0 0 0 2.2 2.3'/>",
 }
 
 

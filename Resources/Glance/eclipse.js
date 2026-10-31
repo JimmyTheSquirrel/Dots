@@ -21,6 +21,8 @@
 //             network path                                         (#ec-ctl)
 //   scan      a Bluetooth search and what it has found             (#ec-ctl)
 //   ctlbusy   which device is pairing / connecting / … right now
+//   ctlpair   the code a pairing is waiting on — a keyboard asks for six
+//             digits, and they are only ever on this stream       (#ec-ctl)
 //   net       the cable, Wi-Fi saved and in range, wired-only or not  (#ec-net)
 //   netscan   a Wi-Fi search running
 //   netsw     a cable ⇄ Wi-Fi switch in flight, until the Pi reports back
@@ -41,7 +43,7 @@
   var API = cfg.api || D.api(cfg.apiPort || "9554");
   var JF = cfg.jellyfin || D.api("8096");
   var esc = D.esc, $ = D.$;
-  var S = { status: null, tv: null, wolf: null, ctl: null, scan: null, ctlbusy: {}, activity: [], busy: {},
+  var S = { status: null, tv: null, wolf: null, ctl: null, scan: null, ctlbusy: {}, ctlpair: null, activity: [], busy: {},
             armed: null, killing: {}, local: {}, btOpen: {}, btMsg: null, focusName: null, hint: null,
             net: null, netscan: null, netsw: null, netOpen: {}, netMsg: null, netJoin: null, netPass: "",
             netShow: false, netFocus: false, logOpen: false };
@@ -254,6 +256,22 @@
       '<i style="--p:' + p + '%"></i>' + p + '%' + (d.charging ? " ⚡" : "") + '</span>';
   }
 
+  // The code a pairing is waiting on. A keyboard has no screen of its own, so
+  // the six digits BlueZ picked are no use at all unless they get in front of
+  // whoever is holding it — they go on the card itself, big, on every open
+  // dashboard, and vanish the moment the attempt ends.
+  function codeBox(mac) {
+    var p = S.ctlpair;
+    if (!p || p.mac !== mac) return "";
+    var typeIt = p.kind !== "confirm";
+    return '<div class="bt-code" role="status" aria-live="assertive">' +
+      '<span class="bt-digits" aria-label="' + esc(p.code.split("").join(" ")) + '">' + esc(p.code) + '</span>' +
+      '<span class="bt-main"><b>' + (typeIt ? "Type this on " + esc(p.name) + ", then press Enter"
+                                            : "It should be showing this code too") + '</b>' +
+        '<span class="bt-state">' + (typeIt ? "It is waiting for it — about 20 seconds"
+                                            : "Confirmed from here") + '</span></span></div>';
+  }
+
   function devRow(d) {
     var busy = S.ctlbusy[d.mac];
     var st, cls;
@@ -293,7 +311,7 @@
             (d.stale ? "" : '<button type="button" class="bt-btn' + (rArmed ? " armed" : "") + '" data-bt-repair="' + esc(d.mac) + '"' + (busy ? " disabled" : "") + '>' + (rArmed ? "Tap to confirm" : "Re-pair") + '</button>') +
             '<button type="button" class="bt-btn danger' + (fArmed ? " armed" : "") + '" data-bt-forget="' + esc(d.mac) + '"' + (busy ? " disabled" : "") + '>' + (fArmed ? "Tap to forget" : "Forget") + '</button>' +
           '</span></div>' +
-      '</div></details>';
+      '</div></details>' + codeBox(d.mac);
   }
 
   function foundRow(f) {
@@ -304,7 +322,7 @@
         '<span class="bt-state">' + esc(KIND[f.kind] || "device") + (f.rssi != null ? " · " + signalWord(f.rssi) : "") + '</span></span>' +
       bars(f.rssi) +
       '<button type="button" class="bt-btn go" data-bt-pair="' + esc(f.mac) + '"' + (busy ? " disabled" : "") + '>' +
-        (busy ? '<i class="bt-spin"></i>Pairing…' : "Pair") + '</button></div>';
+        (busy ? '<i class="bt-spin"></i>Pairing…' : "Pair") + '</button></div>' + codeBox(f.mac);
   }
 
   // Search results open or folded: S.btOpen.results, kept in this browser so a
@@ -358,6 +376,7 @@
       '<li><b>Xbox</b> turn it on, then hold the <b>pair</b> button on top until the X flashes fast</li>' +
       '<li><b>Switch Pro</b> hold the small <b>sync</b> button on top</li>' +
       '<li><b>8BitDo</b> hold <b>pair</b> for 3 seconds</li>' +
+      '<li><b>Keyboard</b> hold its Bluetooth key until the light flashes fast — then a code appears here to type on it, ending with <b>Enter</b></li>' +
       '<li>Headphones and others: usually hold the power button — see its manual</li></ul>' +
       '<small>Pairing a pad here takes it off Sisyphus: a controller only talks to the last thing it paired with.</small></details>';
     return h;
@@ -877,6 +896,7 @@
         soon();
       },
       ctlbusy: function (d) { S.ctlbusy = d || {}; soon(); },
+      ctlpair: function (d) { S.ctlpair = d && d.code ? d : null; soon(); },
       net: function (d) { S.net = d; soon(); },
       netscan: function (d) {
         if (d.active && S.netscan && !S.netscan.active) nresults(true);   // a new search: show it

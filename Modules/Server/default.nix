@@ -15,7 +15,7 @@
   #   photos.nix     Immich
   #   files.nix      FileBrowser
   #   network.nix    Tailscale, status proxy, speed test, network panel,
-  #                  Cloudflare tunnel, WAN egress shaping
+  #                  Cloudflare tunnel
   #   eclipse.nix    Eclipse TV-box control endpoint
   #   glance.nix     the Glance dashboard and its whole config
   #   ttyd.nix       web terminal
@@ -58,8 +58,8 @@
             default = "enp3s0";
             readOnly = true;
             description = ''
-              The wired LAN NIC — the one WAN egress is shaped on, the network panel
-              samples, and the few LAN-scoped firewall holes are opened on.
+              The wired LAN NIC — the one the network panel samples and the few
+              LAN-scoped firewall holes are opened on.
             '';
           };
           vethHostIp = lib.mkOption {

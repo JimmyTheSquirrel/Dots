@@ -1,0 +1,99 @@
+# ══════════════════════════════════════════════════════════════════════════
+# Athom 12W RGBCW bulb (ESP32-C3) — the two bedside touch lamps.
+#
+# WHY THIS FILE EXISTS: exactly one substitution.
+#
+#     color_interlock: "false"
+#
+# Athom ship these with the interlock ON, which makes the firmware refuse to
+# light the RGB dies and the white dies at the same time. The bulb therefore
+# has two mutually exclusive modes, and Home Assistant shows two separate
+# colour pickers:
+#
+#   cwww  the two white dies, 3000 K .. 6500 K. Bright — these are the dies
+#         that carry the bulb's rated 1000 lm — but 3000 K is still a WHITE,
+#         so this mode cannot make a yellow at all.
+#   rgb   the three colour dies. Reaches a real amber, but the white dies are
+#         switched OFF, so it is a small fraction of the brightness.
+#
+# That is the whole of "the orange is too dark and there's nothing in between":
+# there IS nothing in between, by design. No service call from HA can bridge
+# it, because the bulb will not accept both at once.
+#
+# With the interlock off all five channels run together, HA sees ONE combined
+# mode (rgbww), and a soft amber becomes warm-white-at-full with red laid over
+# the top — bright AND deep, with a continuous slide from white to deep orange.
+#
+# ── ⚠⚠⚠ WHY IT IS `-light.yaml` AND NOT `-bulb.yaml` ───────────────────────
+# athom-tech/esp32-configs has TWO files for what looks like the same product,
+# and they are NOT interchangeable — the GPIO-to-die map is different:
+#
+#                     athom-rgbcw-bulb.yaml   athom-rgbcw-light.yaml  (OURS)
+#     red                   GPIO3                   GPIO6
+#     green                 GPIO4                   GPIO7
+#     blue                  GPIO5                   GPIO5
+#     cold white            GPIO6                   GPIO3
+#     warm white            GPIO7                   GPIO4
+#
+# Flashing `-bulb.yaml` onto these bulbs produced a light that worked perfectly
+# and was completely wrong: asking for pure RED drove GPIO3, which on this
+# hardware is the COLD WHITE die, so the lamp lit bright white; and any preset
+# with warm white in it drove GPIO7, the GREEN die, so some presets came out
+# green. Nothing in Home Assistant or the logs looked broken — ESPHome happily
+# reported `r:255 g:0 b:0 c:0 w:0` while the bulb glowed white.
+#
+# ⭐ **The bulb tells you which one it is.** Its `comment` is the tell, and it
+# survives in the device's own /events ping:
+#
+#     curl -sN http://<ip>/events | grep -m1 comment
+#     "comment":"athom esp32c3 12w rgbcw bulb"    → athom-rgbcw-light.yaml
+#     "comment":"athom esp32c3 rgbcw bulb"        → athom-rgbcw-bulb.yaml
+#
+# Match on THAT, never on the filename. Check it before flashing a replacement.
+#
+# ── Why the revision is pinned ──────────────────────────────────────────────
+# Athom's `main` bumped `min_version` to 2026.10.0 on 2026-10-29. The newest
+# esphome in ANY nixpkgs is 2026.9.1 and ours is 2026.5.1, so `main` cannot be
+# built here at all. v3.2.2 asks for 2026.5.0, which our own stable nixpkgs
+# satisfies — no new flake input.
+#
+# v3.1.4 (this file's version at that commit) is also before Athom added the `update:` +
+# `http_request:` managed-update platform and the ESP-NOW switch. Neither of
+# those entities exists on these bulbs today, which is how we know the factory
+# image is v3.2.2-era: so this is a true one-word delta, not a firmware upgrade
+# wearing one. Don't bump it without checking what new entities arrive — the
+# `update:` platform in particular lets the bulb pull firmware from Athom on
+# its own, which is not something this house wants happening unannounced.
+#
+# Everything else comes from Athom's package untouched, including the
+# `power_mode` select that is the OTHER half of the touch-lamp fix.
+#
+# ── One binary, both bulbs ─────────────────────────────────────────────────
+# Athom set `name_add_mac_suffix: true`, so the node name is derived from each
+# bulb's own MAC at runtime. One build therefore serves both bulbs and neither
+# changes identity in Home Assistant — the entity ids in _plugs.nix survive.
+# ⚠ Do NOT set `name:` or `friendly_name:` here. Setting either would rename
+# the node, and HA would adopt it as a NEW device with new entity ids.
+#
+# Build and flash: Claude/home-assistant.md → Reflashing the bedside bulbs.
+# ══════════════════════════════════════════════════════════════════════════
+
+substitutions:
+  color_interlock: "false"
+
+packages:
+  athom: github://athom-tech/esp32-configs/athom-rgbcw-light.yaml@43939c1816c4e64447228f59faaef914e246c06f
+
+# Athom's config carries no ssid/password — a factory bulb is onboarded through
+# its captive portal and keeps the credentials in NVS. An OTA replaces the whole
+# app image, so spell the network out here rather than trusting that saved copy.
+# A bulb that comes back up in AP mode has to be re-onboarded from a phone,
+# standing at the lamp, which is the one genuinely annoying failure mode here.
+#
+# secrets.yaml is NOT in the repo and never will be. flash.sh copies this file
+# into a scratch build directory, writes secrets.yaml beside it from sops there,
+# and removes the whole directory afterwards — so the plaintext never touches
+# the working tree and there is nothing to .gitignore.
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password

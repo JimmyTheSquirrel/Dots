@@ -18,12 +18,18 @@
 #          cards have her crown blossom instead
 #   badge  id of a live/reconnecting badge in the header, for the script
 #   link   { href; text; } — a header link out to the service's own UI
+#   haStream  true → the card carries `data-ha-watch`, which is lights.js's
+#          opt-in for the ha-bridge stream. Needed by a card that draws Home
+#          Assistant state but owns no light tile of its own: lights.js only
+#          opens its EventSource on a page where something asks for it, so
+#          without this the card's HA values never arrive. It sits on the
+#          OUTER widget div, which no script repaints.
 # ══════════════════════════════════════════════════════════════════════════
 lib:
-{ id, title, acc ? null, rune ? null, badge ? null, link ? null }: {
+{ id, title, acc ? null, rune ? null, badge ? null, link ? null, haStream ? false }: {
   type = "html";
   source = ''
-    <div class="widget widget-type-asgard-stats${lib.optionalString (acc != null) " acc-${acc}"}${lib.optionalString (rune != null) " rune-${rune}"}">
+    <div class="widget widget-type-asgard-stats${lib.optionalString (acc != null) " acc-${acc}"}${lib.optionalString (rune != null) " rune-${rune}"}"${lib.optionalString haStream " data-ha-watch"}>
       <div class="widget-header"><h2 class="uppercase">${title}</h2>${
         lib.optionalString (badge != null) ''<span class="ags-live" id="${badge}">connecting</span>''}${
         lib.optionalString (link != null) ''<a class="ags-open" href="${link.href}" target="_blank" rel="noopener">${link.text} ↗</a>''}</div>

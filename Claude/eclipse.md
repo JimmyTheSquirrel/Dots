@@ -167,6 +167,10 @@ the two dashboards in sync; nothing is per-browser.
   search ends, so a pad that appeared at the last second can still be paired.
 - **`ctlbusy`**: `{MAC: "pairing" | "connecting" | …}` — a Pair tapped on one dashboard shows
   "Pairing…" on that device on the other.
+- **`ctlpair`** (2026-10-10): the **code** a pairing is waiting on, only while it waits —
+  `{mac, name, code, kind}`. A keyboard has no screen, so the six digits BlueZ picked are drawn
+  big on the card (`.bt-code`), under the device they belong to, on every open dashboard. See
+  *Pairing something that asks for a code* below.
 
 **My devices** — a row per paired device: icon, our name, a status line (dot + "Connected ·
 working" / "Connected, but no input — re-pair it" / "Not connected"), battery, and its one main
@@ -176,9 +180,9 @@ rows are open survives the repaints; the card does not repaint while someone is 
 
 **Add a device** — Search runs in the **background** (`start_scan`: `bluetoothctl --timeout 45
 scan on` on its own ssh channel), so it never greys the rest of the panel the way an `/act/` does;
-while it runs the poller pushes what it has found every 3 s. **Pair** stops the search (BlueZ pairs
-badly while discovering), then `pair` → `trust` → checks `info`; the new device lands in My devices
-and its name field opens with the cursor in it. A "how to put it in pairing mode" list sits under
+while it runs the poller pushes what it has found every 3 s. **Pair** runs a search of its own,
+waits for the device to be there, then `pair` → `trust` → checks `info`; the new device lands in My
+devices and its name field opens with the cursor in it. A "how to put it in pairing mode" list sits under
 the search (DualSense: hold **Create + PS** until the light bar flashes).
 
 **What a search found folds away** (2026-10-09): the found devices sit in a `<details
@@ -201,8 +205,9 @@ while the page is watching does. **My devices never folds.** Both dashboards, on
   two DualSenses apart, and they share a name. The combination connected + not live is `stale`,
   and the card's fix for it is **Re-pair** (forget, then search with the pad in pairing mode) —
   `connect` does not recover from `-5`.
-- **Auto-connect = BlueZ `Trusted`.** There is no pairing agent on the Pi, so a device switched on
-  can only reconnect *by itself* when it is trusted. Pairing from the card trusts it.
+- **Auto-connect = BlueZ `Trusted`.** No agent runs between pairings (one exists only for the
+  length of a Pair), so a device switched on can only reconnect *by itself* when it is trusted.
+  Pairing from the card trusts it.
 - **Names live on Asgard** (`ctl_rename`, `StateDirectory` in `eclipse.nix`). Setting BlueZ's own
   Alias would need a typed string in the Pi's root shell, `bluetoothctl set-alias` only works on a
   connected device, and Kodi never shows it anyway. Names are kept when a device is forgotten, so a
@@ -211,39 +216,67 @@ while the page is watching does. **My devices never folds.** Both dashboards, on
 - **Stopping a search kills its ssh channel.** BlueZ tracks discovery per D-Bus client, so a second
   `bluetoothctl scan off` would not stop the first one's; closing the channel makes sshd hang it up,
   and BlueZ ends a departed client's discovery.
-- **No agent is needed to pair a gamepad.** With none registered, BlueZ pairs "just works" (no PIN),
-  which is what a DualSense / Xbox / Switch Pro pad uses. A device that wants a PIN (some
-  keyboards) will not pair from the card.
+- **No agent is needed to pair a gamepad**, and that is exactly why a keyboard could not pair at
+  all until 2026-10-10 — see below.
 - Battery comes from the kernel (`/sys/class/power_supply/ps-controller-battery-<mac>`, the
   DualSense driver) or BlueZ's `Battery Percentage` for anything else that reports one.
 
 ⚠️ Connecting a pad to Eclipse **steals it from Sisyphus** — a DualSense only ever talks to its
 last host — so Connect, Re-pair and Forget are arm/confirm ("Tap to confirm"), like Reboot.
 
-**Subtitles are a Jellyfin USER setting, not a Kodi one.** `jellyfin-kodi` runs `set_audio_subs()`
-~2 s into every playback and calls `showSubtitles(False)` when no track resolves, so anything set
-Kodi-side is overwritten on every single play. The toggle writes `SubtitleMode`
-(`Always`/`Default`) on the user Eclipse logs in as — `JELLYFIN_TV_USER` in `eclipse.nix`.
-Jellyfin wants the **whole** Configuration object back, so it is read-modify-write; POSTing one
-key silently resets the rest.
+#### Pairing something that asks for a code (2026-10-10, Corsair K100 AIR)
 
-**Status** now also carries the SoC temperature, `vcgencmd get_throttled` decoded into
-what is wrong *now* and what has happened *since boot* (under-voltage is the Pi 5's classic
-silent problem — the panel raises a banner for it), load and memory. **On the TV** is
-Jellyfin's session list filtered to the Kodi addon (client `Kodi`), with the poster — not Kodi's
-JSON-RPC, which is loopback-only and is exactly what a wedged Kodi cannot answer.
+A keyboard tapped in the results list failed with **no code appearing anywhere**, so there was
+nothing to type and it sat waiting until it gave up. Three separate causes, and it takes all three
+fixes to pair one — each was found only after the one before it was fixed.
 
-**Driven over SSH, not Kodi JSON-RPC** — deliberately. The headline action is restarting a *wedged*
-Kodi, and a wedged Kodi cannot answer its own API. Kodi's HTTP server is disabled here anyway
-(`services.webserver=false`; JSON-RPC binds `127.0.0.1:9090`).
+1. **No pairing agent.** A pad pairs "just works" and needs none, which is why the card never had
+   one. A keyboard insists on **Passkey Entry** — six digits typed on it — and BlueZ asks a
+   registered **agent** for those. With none registered it does *not* fall back to asking: it pairs
+   with no interaction at all, which the keyboard refuses —
+   `auth failed with status 0x05 (Authentication Failed)`, instantly, no prompt in the output.
+2. **The pair stopped the search first** (right for a pad: the radio cannot page and scan at once).
+   BlueZ **drops an LE device it has never bonded with** soon after discovery stops, so the
+   keyboard was already `Device … not available` before the pair began. Pads are BR/EDR, so nobody
+   had hit this.
+3. **The code has to be ours, not BlueZ's** — see the capability note below.
 
-The status encodes the "no signal on a healthy box" trap: HDMI `connected` + Kodi `active` +
-**no output mode** raises a banner and highlights Restart Kodi. Re-flashing the SD card means
-re-appending the public key, or the panel shows `reachable: false`.
+Now: Pair opens **one interactive `bluetoothctl` on the Pi over a pty** (`_PairSession`), registers
+a `KeyboardOnly` agent, runs `scan on`, waits for the Pi to list the device, then types
+`pair <mac>` at its prompt. When BlueZ asks the agent for the passkey, the six digits were already
+chosen here: they go to every open dashboard as `ctlpair` (drawn big on the card) and are typed
+back at the prompt. The person types the same on the keyboard, ending with **Enter**. Then
+`trust` → `connect` → `info`, as before. ✅ Verified on the K100 AIR: `Request passkey` →
+`Pairing successful`, `Bonded: yes`, and real input nodes (`CORSAIR K100 AIR Keyboard` on `event6`
+with `Uniq=d8:80:1f:ad:51:0b`, plus a Mouse node).
 
-The panel used to be an HTML page this service served, iframed into Glance at a fixed height,
-with its own copy of JetBrains Mono so it matched — on the belief that Glance's `html` widget
-sanitises markup. It does not (0.8.5 emits it raw), so the page, the fonts and the iframe are gone.
+- 🔑 **`bluetoothctl` registers an agent ONLY IN INTERACTIVE MODE.** Giving it a command on the
+  command line — `pair`, *even with `--agent DisplayOnly`* — puts it in non-interactive mode where
+  it silently registers none, and bluetoothd says so for every attempt:
+  `src/device.c:new_auth() No agent available for request type 2` /
+  `device_confirm_passkey: Operation not permitted`. **That log line is the fingerprint** — if it
+  is there, the agent never existed, whatever the command line said.
+- 🔑 **Interactive mode needs a terminal, and the Pi cannot make one.** No `script`, no `socat`,
+  and bluetoothctl 5.83 **SEGVs** the moment its stdin is a pipe or fifo with no terminal behind it
+  (`status=11/SEGV`). So the pty is allocated from Asgard with **`ssh -tt`** — nothing to install
+  on the Pi.
+- 🔑 **The capability decides who picks the code, and only one choice works from a dashboard.**
+  `DisplayOnly`/`KeyboardDisplay` make BlueZ invent the digits and hand them to the agent
+  (`[agent] Passkey: 350638`); the person then has the ~30 s SMP timeout to be told them and type
+  them, and **every** attempt that way died on `AuthenticationCanceled`. `KeyboardOnly` at both
+  ends is Passkey Entry where *both* sides type the same digits (`Request passkey`), so the code is
+  chosen before the window opens. A device needing no code (a pad, headphones) is only asked to be
+  accepted, which the session answers `yes` to — exactly as BlueZ accepted on its own with no agent.
+- ⚠️ **`remove` evicts the device**, so a `pair` sent straight after one always answers
+  `not available`. Never clear a bond and pair in the same breath — wait for the device to be
+  listed again first.
+- **Nothing watches for pairings.** The session lives for one attempt and is closed in a `finally`;
+  between pairings nothing of this runs, nothing is installed on the Pi, `bluetoothd` is untouched.
+- Nothing of ours reaches a shell on the Pi for a pair: the whole remote command is
+  `bluetoothctl`, and the MAC and the code are typed at its prompt. The MAC is still MAC_RE-checked
+  and matched against the Pi's own device list first.
+- A device that **displays** a code of its own (a phone) still cannot pair from the card: the
+  session would send its own digits and be refused. Pads, keyboards and headphones are the point.
 
 ### Network · `#ec-net` (added 2026-10-09)
 
@@ -601,8 +634,9 @@ chunk" pattern — direct play's progressive-HTTP + the filecache tuning above n
 mode.
 
 **Fix applied:** raised `RemoteClientBitrateLimit` to 40,000,000 (40 Mbps) via
-`POST /System/Configuration` — comfortably above real-world remux bitrates, while still under the
-`wan-egress-shaping` 30 Mbit htb cap so the number isn't a promise the WAN link can't keep.
+`POST /System/Configuration` — comfortably above real-world remux bitrates, and at the time still
+under the `wan-egress-shaping` 30 Mbit htb cap so the number wasn't a promise the WAN link couldn't
+keep. **That cap was removed 2026-10-21** — the uplink is ~109 Mbit, so 40 Mbps is now comfortable.
 **This is imperative Jellyfin state, not declared in Nix** — nixflix has no option for it. A fresh
 Jellyfin deploy needs this reapplied by hand (same category as the branding CSS in the Fresh Deploy
 Checklist, `Claude/server-info.md`):
@@ -622,6 +656,11 @@ instead — deliberate choice, not oversight — which keeps the cap meaningful 
 CF-tunnel clients (`jellyfin.bifrost-vault.com`) rather than exempting all of the tailnet.
 
 ### Still stuttered after the above — `wan-egress-shaping`'s burst was the real bug
+
+> **Historical.** `wan-egress-shaping` was removed on 2026-10-21 once the router's QoS was found
+> capping the whole house to the previous ISP's 500/50 plan. Kept because the diagnosis — an htb
+> class whose auto-computed burst is one packet — applies to any future shaper.
+
 
 Raising the bitrate limit got `PlayMethod` to `DirectStream`, but playback kept pausing. Root cause
 was one level down: `wan-egress-shaping.service`'s 30 Mbit htb class had **no explicit burst**, so

@@ -34,6 +34,45 @@
 //                               with it (a group toggle moves them all)
 //   data-ha-link-label          textContent is set to the connection status
 //
+// ── Colour-capable bulbs (the bedside lamps) ────────────────────────────────
+// A bulb is a tile like any other — data-ha-entity + data-ha-toggle — wrapped
+// in a container that adds the colour controls:
+//
+//   <div data-ha-light="light.x"
+//        data-ha-preset-of="input_select.x_preset"
+//        data-ha-bright-of="input_number.x_brightness">
+//     <button data-ha-entity="light.x" data-ha-toggle>…</button>
+//     <button data-ha-preset="Amber">…</button>   ← one per preset
+//                                                 (.is-active = the chosen one)
+//     <input type="range" data-ha-bright>
+//     <b data-ha-bright-label></b>  <b data-ha-preset-label></b>
+//
+// "Mix your own" is ONE shared panel, not one per bulb — both bedside lamps
+// take the same mix. Each row names its own input_number; moving any of them
+// POSTs all five to /mix, which stores them and previews on whichever lamps
+// are already showing Custom (it never switches a lamp on):
+//
+//   <div data-ha-mix>
+//     <div data-ha-chan-of="input_number.bedroom_custom_red">
+//       <input type="range" min="0" max="255" data-ha-chan>
+//       <b data-ha-chan-label></b>
+//     </div>   ← one per channel, in rgbww order
+//   </div>
+//   </div>
+//
+// Clicking a swatch POSTs {preset} and tapping/releasing the slider POSTs
+// {brightness_pct} to the bridge's /light/<entity>, which sets the bulb AND
+// remembers the choice in those two HA helper entities. Their states come down
+// the same stream as everything else — an input_select's state is just a
+// string — so the active swatch (data-ha-active) and the slider's position are
+// painted from HA, not from local state, and both dashboards stay in step. The
+// active swatch is marked with the CLASS `is-active`, which the server can also
+// render directly for a correct first paint.
+//
+// Why the choice lives in HA at all: these are TOUCH LAMPS. The base cuts
+// mains, so the bulb reboots and HA loses its colour attributes; the helpers
+// are what survives, and an automation re-applies them when it comes back.
+//
 // <html data-ha-link="connecting|live|delayed|reconnecting|offline"> is set for
 // CSS: "reconnecting" means the stream is down and what is on screen may be
 // stale — style it that way instead of showing confident, possibly wrong lights.
@@ -46,10 +85,17 @@
   var API = cfg.api ||
     (cfg.apiPort ? location.protocol + "//" + location.hostname + ":" + cfg.apiPort : "/ha");
 
-  var SELECTOR = "[data-ha-entity],[data-ha-toggle]";
+  // The start gate, and ONLY the start gate — never used to pick elements to
+  // paint. `data-ha-watch` is the opt-in for a page that needs HA state but
+  // owns no light tile: the Asgard page draws the room temperature from the
+  // `ha:state` events below, and without this the stream never opened there
+  // and that ring sat at "–" forever.
+  var SELECTOR = "[data-ha-entity],[data-ha-toggle],[data-ha-watch]";
   var PENDING_MS = 5000;   // give up on an unconfirmed optimistic flip after this
   var STALE_MS = 40000;    // the bridge pings every 15s; this much silence = dead stream
   var PARK_MS = 60000;     // close the stream after this long hidden (a pocketed phone)
+  var HOLD_MS = 2500;      // keep an optimistic swatch/slider while HA catches up
+  var BRIGHT_DEBOUNCE_MS = 180; // coalesce a repeating brightness change
 
   var confirmed = {};      // entity -> last state the bridge reported
   var pending = {};        // entity -> { state, timer } — optimistic, unconfirmed
@@ -59,6 +105,10 @@
   var lastSeen = 0;
   var retryTimer = null, retryDelay = 1000;
   var parkTimer = null, watchTimer = null;
+  // helper entity (a bulb's input_select / input_number) -> ignore stream repaints
+  // until this timestamp, so a tapped swatch does not flick back to the old one
+  // in the moment between our POST and HA reporting the change.
+  var hold = {};
 
   function shown(entity) {
     return pending[entity] ? pending[entity].state : confirmed[entity];
@@ -80,6 +130,66 @@
     else el.removeAttribute(name);
   }
 
+  // ── a bulb's colour controls ──────────────────────────────────────────────
+  // Painted from the two HA helper entities rather than from the light itself:
+  // a touch lamp's light is `unavailable` half the time, while the helpers are
+  // always there and always hold the choice. Both are ordinary watched
+  // entities, so this needs nothing the stream does not already carry.
+
+  function holding(entity) {
+    return hold[entity] !== undefined && Date.now() < hold[entity];
+  }
+
+  function paintPreset(entity, value) {
+    each('[data-ha-preset-of="' + entity + '"]', function (box) {
+      var btns = box.querySelectorAll("[data-ha-preset]");
+      for (var i = 0; i < btns.length; i++) {
+        var on = btns[i].getAttribute("data-ha-preset") === value;
+        // A CLASS, not a data- flag: the server renders the remembered swatch
+        // active on first paint, and Go's html/template will put a class into
+        // an attribute VALUE but not emit a bare attribute NAME. One mechanism
+        // for both, so there is nothing stale to clear.
+        btns[i].classList.toggle("is-active", on);
+        btns[i].setAttribute("aria-pressed", on ? "true" : "false");
+      }
+      var lab = box.querySelector("[data-ha-preset-label]");
+      if (lab) lab.textContent = (value && value !== "unknown" && value !== "unavailable") ? value : "—";
+    });
+  }
+
+  function paintBright(entity, value) {
+    var n = parseFloat(value);
+    each('[data-ha-bright-of="' + entity + '"]', function (box) {
+      var r = box.querySelector("[data-ha-bright]");
+      // Never move the slider out from under a thumb that is still on it.
+      if (r && isFinite(n) && !r.hasAttribute("data-ha-dragging")) r.value = String(Math.round(n));
+      var lab = box.querySelector("[data-ha-bright-label]");
+      if (lab) lab.textContent = isFinite(n) ? Math.round(n) + "%" : "—";
+    });
+  }
+
+  // Which of the two a state belongs to is decided by its domain, so paint()
+  // does not have to run two querySelectorAll per plug sensor change.
+  // A custom-mix channel. Same rules as the brightness slider: the stream never
+  // moves a thumb that a finger is on, and never inside the debounce window
+  // after a release (see `hold`).
+  function paintChan(entity, value) {
+    var n = parseFloat(value);
+    each('[data-ha-chan-of="' + entity + '"]', function (box) {
+      var r = box.querySelector("[data-ha-chan]");
+      if (r && isFinite(n) && !r.hasAttribute("data-ha-dragging")) r.value = String(Math.round(n));
+      var lab = box.querySelector("[data-ha-chan-label]");
+      if (lab && isFinite(n)) lab.textContent = String(Math.round(n));
+    });
+  }
+
+  function paintHelper(entity, st) {
+    if (holding(entity)) return;
+    if (entity.lastIndexOf("input_select.", 0) === 0) paintPreset(entity, st);
+    else if (entity.lastIndexOf("input_number.bedroom_custom_", 0) === 0) paintChan(entity, st);
+    else if (entity.lastIndexOf("input_number.", 0) === 0) paintBright(entity, st);
+  }
+
   function paint(entity) {
     var st = shown(entity);
     var text = label(st);
@@ -94,6 +204,8 @@
         if (inner[i].closest("[data-ha-entity]") === el) inner[i].textContent = text;
       }
     });
+    paintHelper(entity, st);
+
     document.dispatchEvent(new CustomEvent("ha:state", { detail: { entity: entity, state: st } }));
   }
 
@@ -287,7 +399,79 @@
       });
   }
 
+  // POST a colour or a brightness to one bulb. The chosen value is applied to
+  // the control at once and HELD briefly, so a tap feels instant rather than
+  // waiting on the round trip; the reply — or a failure — always settles it
+  // back to whatever HA actually ended up with, which matters because HA
+  // clamps brightness to the input_number's step.
+  function sendLight(box, body, helper, optimistic, el) {
+    var entity = box.getAttribute("data-ha-light");
+    if (!entity) return;
+
+    if (helper) {
+      hold[helper] = Date.now() + HOLD_MS;
+      if (helper.lastIndexOf("input_select.", 0) === 0) paintPreset(helper, optimistic);
+      else paintBright(helper, optimistic);
+    }
+    // The bridge uses light.turn_on, so a swatch tapped on a dark lamp lights
+    // it — predict the tile with it rather than letting it lag a beat behind.
+    if (shown(entity) !== "on") predict(entity, "on");
+
+    function settleHelper() {
+      if (!helper) return;
+      delete hold[helper];
+      // Only hand the control back to the stream once the stream has actually
+      // said something about this helper. A tap in the moment between page load
+      // and the first snapshot would otherwise settle onto `undefined` and
+      // blank every swatch for a frame.
+      if (confirmed[helper] !== undefined) paintHelper(helper, confirmed[helper]);
+    }
+
+    fetch(API + "/light/" + encodeURIComponent(entity), {
+      method: "POST",
+      cache: "no-store",
+      // X-Dash for the same reason as a toggle (see above); Content-Type is
+      // what makes this a JSON body the bridge will parse.
+      headers: { "X-Dash": "1", "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+          return d;
+        });
+      })
+      .then(function (d) {
+        merge(d.states);
+        if (d.state !== undefined) confirmed[entity] = d.state;
+        settle(entity);
+        settleHelper();
+      })
+      .catch(function () {
+        settleHelper();
+        settle(entity);
+        each('[data-ha-light="' + entity + '"]', function (t) { setFlag(t, "data-ha-error", true); });
+        if (el) setFlag(el, "data-ha-error", true);
+        setTimeout(function () {
+          each("[data-ha-error]", function (t) { setFlag(t, "data-ha-error", false); });
+        }, 2500);
+      });
+  }
+
   document.addEventListener("click", function (e) {
+    // A swatch first: it sits BESIDE the tile, not inside it (a button cannot
+    // nest), so this never competes with the tile's own toggle.
+    var sw = e.target && e.target.closest ? e.target.closest("[data-ha-preset]") : null;
+    if (sw) {
+      e.preventDefault();
+      e.stopPropagation();
+      var box = sw.closest("[data-ha-light]");
+      var name = sw.getAttribute("data-ha-preset");
+      if (box && name) {
+        sendLight(box, { preset: name }, box.getAttribute("data-ha-preset-of"), name, sw);
+      }
+      return;
+    }
     var t = e.target && e.target.closest ? e.target.closest("[data-ha-toggle]") : null;
     if (!t) return;
     // The main Glance puts its toggles inside <summary>; without this the click
@@ -302,6 +486,116 @@
     toggle(entity, members, t);
   });
 
+
+  // ── the brightness slider ─────────────────────────────────────────────────
+  // Dragging updates the label only; the POST waits for `change` (the release),
+  // so a drag across the track is one request and not forty.
+  function slider(e) {
+    var r = e.target;
+    if (!r || !r.hasAttribute || !r.hasAttribute("data-ha-bright")) return null;
+    return r.closest("[data-ha-light]") ? r : null;
+  }
+
+  document.addEventListener("input", function (e) {
+    var r = slider(e);
+    if (!r) return;
+    var lab = r.closest("[data-ha-light]").querySelector("[data-ha-bright-label]");
+    if (lab) lab.textContent = Math.round(r.value) + "%";
+  });
+
+  // Releasing a drag fires `change` once, but an arrow key held down fires it
+  // per repeat — so coalesce to the last value a moment after the input stops.
+  var brightTimer = {};
+  document.addEventListener("change", function (e) {
+    var r = slider(e);
+    if (!r) return;
+    var box = r.closest("[data-ha-light]");
+    var helper = box.getAttribute("data-ha-bright-of");
+    var v = Math.round(parseFloat(r.value));
+    if (!isFinite(v)) return;
+    // Hold from the RELEASE, not from the deferred fetch: otherwise a stream
+    // event landing inside the debounce window would snap the thumb back to the
+    // old value for a fifth of a second.
+    hold[helper] = Date.now() + HOLD_MS;
+    clearTimeout(brightTimer[helper]);
+    brightTimer[helper] = setTimeout(function () {
+      delete brightTimer[helper];
+      sendLight(box, { brightness_pct: v }, helper, v, r);
+    }, BRIGHT_DEBOUNCE_MS);
+  });
+
+  // ── the custom-mix sliders ────────────────────────────────────────────────
+  // Five channels, one shared mix. `input` moves the label only; `change` sends
+  // all five together, because /mix takes a whole colour rather than one
+  // channel — sending them singly would walk the lamp through four wrong
+  // colours on the way to the right one.
+  function chanSlider(e) {
+    var r = e.target;
+    if (!r || !r.hasAttribute || !r.hasAttribute("data-ha-chan")) return null;
+    return r.closest("[data-ha-mix]") ? r : null;
+  }
+
+  function mixRows(panel) {
+    return panel.querySelectorAll("[data-ha-chan-of]");
+  }
+
+  document.addEventListener("input", function (e) {
+    var r = chanSlider(e);
+    if (!r) return;
+    var lab = r.closest("[data-ha-chan-of]").querySelector("[data-ha-chan-label]");
+    if (lab) lab.textContent = String(Math.round(r.value));
+  });
+
+  var mixTimer = null;
+  document.addEventListener("change", function (e) {
+    var r = chanSlider(e);
+    if (!r) return;
+    var panel = r.closest("[data-ha-mix]");
+    var rows = mixRows(panel), vals = [], i;
+    for (i = 0; i < rows.length; i++) {
+      var inp = rows[i].querySelector("[data-ha-chan]");
+      var v = inp ? Math.round(parseFloat(inp.value)) : NaN;
+      if (!isFinite(v)) return;
+      vals.push(v);
+      // Hold every channel, not just the one touched: the answer repaints all
+      // five, and a stream event must not snap any thumb back mid-adjust.
+      hold[rows[i].getAttribute("data-ha-chan-of")] = Date.now() + HOLD_MS;
+    }
+    clearTimeout(mixTimer);
+    mixTimer = setTimeout(function () {
+      mixTimer = null;
+      sendMix(panel, vals);
+    }, BRIGHT_DEBOUNCE_MS);
+  });
+
+  function sendMix(panel, vals) {
+    setFlag(panel, "data-ha-error", false);
+    fetch(API + "/mix", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Dash": "1" },
+      body: JSON.stringify({ channels: vals })
+    }).then(function (res) {
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.json();
+    }).then(function (d) {
+      if (d && d.states) merge(d.states);
+    })["catch"](function () {
+      setFlag(panel, "data-ha-error", true);
+    });
+  }
+
+  // While a thumb is down the slider belongs to the finger, not to the stream
+  // (paintBright honours this flag). Cleared from the window, not the element,
+  // because a pointer released off the track still ends the drag.
+  document.addEventListener("pointerdown", function (e) {
+    var r = slider(e) || chanSlider(e);
+    if (r) r.setAttribute("data-ha-dragging", "");
+  });
+  function endDrag() {
+    each("[data-ha-dragging]", function (r) { r.removeAttribute("data-ha-dragging"); });
+  }
+  window.addEventListener("pointerup", endDrag);
+  window.addEventListener("pointercancel", endDrag);
   // ── lifecycle ─────────────────────────────────────────────────────────────
   function start() {
     // Seed from the server-rendered state so a tap before the snapshot lands
@@ -327,10 +621,11 @@
     window.addEventListener("online", function () { if (!document.hidden) wake(); });
   }
 
-  // Only pages that actually carry a light get a stream. Glance fetches widget
-  // markup after DOMContentLoaded and inserts it in one go, then marks #page
-  // `content-ready` — so watch until either a light appears (start) or the page
-  // finishes without one (stand down for good).
+  // Only pages that actually want HA state get a stream — a light tile, or an
+  // explicit `data-ha-watch`. Glance fetches widget markup after
+  // DOMContentLoaded and inserts it in one go, then marks #page `content-ready`
+  // — so watch until either one appears (start) or the page finishes without
+  // one (stand down for good).
   function boot() {
     if (document.querySelector(SELECTOR)) { start(); return; }
     var page = document.getElementById("page");

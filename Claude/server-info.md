@@ -166,7 +166,7 @@ stack), 5000 (Kavita), 25600 (Komga) or 2049/111 (NFS) any more.
     if you want a belt-and-braces copy of the originals too (it's small).
 - Tailscale — `services.tailscale` (stock, no login-server flag)
 - Cloudflared — `services.cloudflared`
-- **WAN egress shaping** — `wan-egress-shaping.service` (in `Modules/Server/network.nix`) caps WAN-bound upload on enp3s0 at 30 Mbit via HTB + fq_codel. Home uplink is 50 Mbit; Jellyfin transcode segments burst at full line rate every ~3s, spiking latency ~180ms and rubber-banding LAN game sessions. RFC1918 destinations bypass the cap (LAN direct-play unaffected). Inspect with `tc -s qdisc show dev enp3s0`.
+- **WAN egress shaping — REMOVED 2026-10-21**. `wan-egress-shaping.service` used to cap WAN-bound upload on enp3s0 at 30 Mbit (HTB + fq_codel), sized for what was believed to be a 50 Mbit uplink. The real constraint was the router: TP-Link **HomeShield → QoS** was still set to the previous ISP's 500/50 plan, shaping the whole house to ~417/43. With that corrected the line measures **~900 down / ~109 up**, so the local cap was removed — Asgard's speed test must report the household's real numbers. Don't reintroduce a shaper without a measured reason; `tc -s qdisc show dev enp3s0` should show no htb root.
 
 ### Native NixOS service (background sync)
 - **Recyclarr** — `recyclarr-config.service` generates `/var/lib/recyclarr/recyclarr.yml` with API keys from sops. `recyclarr-sync.service` runs via a systemd timer (5min after boot, then daily). Check with `journalctl -u recyclarr-sync`.
@@ -321,7 +321,7 @@ every rebuild, so a fresh install converges. Config lives in Nix; nothing is cli
 What it does: series→profile mapping · `seriesType=anime` on the 5 anime · the
 `Asgard - fake dual audio` release profile · repoints Radarr collections · deletes stock quality
 profiles · sets Jellyfin `AudioLanguagePreference=eng` + `PlayDefaultAudioTrack=false` for every
-user except Rhys.
+user except Rhys · creates and arms the Sonarr/Radarr → Jellyfin connection so the library updates on import.
 
 Ordered **after** nixflix's `seerr-sonarr` / `seerr-radarr` on purpose — Jellyseerr pointed at the
 stock "Any" profile, which this service deletes. Repoint first, then delete. (It used to be ordered
@@ -340,6 +340,47 @@ Two things that block a profile delete and cost time if you don't know them:
   refused to delete — 29 and 19 collections referenced them. Repoint collections first.
 - Profile deletion uses an explicit **NAME list**, never "everything unused", so a profile created
   later on purpose is never silently destroyed.
+
+### Telling Jellyfin a file landed (added 2026-10-17)
+
+`arr-policy` also owns the **"Emby / Jellyfin" connection** in Sonarr and Radarr — the thing that
+makes Jellyfin rescan the moment a file is imported.
+
+**It had never fired once.** Both apps had the connection, pointed at `127.0.0.1:8096` with
+`updateLibrary: true` — the correct setting — but **every event toggle was `false`**
+(`onDownload` / `onUpgrade` / `onRename` and the delete events). A connection with no events
+enabled is inert, so Jellyfin only ever learned about new files from its own
+**"Scan Media Library" task, and its trigger here is a 12-HOUR interval**. Every new episode was
+therefore invisible for up to 12 hours; the ones that seemed to work were just the ones a scan
+happened to land on.
+
+Found chasing *"Dark Matter S02E08 isn't on Kodi or Jellyfin"*: the file was on disk, correctly
+named and renamed, owned `sonarr:media`, and Sonarr had imported it. Nothing was wrong with the
+download — **the library was simply never told.**
+
+- **Fingerprint:** the missing episode is the only one in its folder with **no `-thumb.jpg`**.
+  Jellyfin writes those, so no thumb means Jellyfin never ingested that file.
+- **Kodi is downstream of Jellyfin** (the Jellyfin-for-Kodi addon), so it can only ever be as
+  current as Jellyfin is. Don't debug Kodi for a missing episode — check Jellyfin first. Kodi's
+  JSON-RPC server is disabled on Eclipse on purpose, so read its library on the Pi instead:
+  `sqlite3 -readonly /storage/.kodi/userdata/Database/MyVideos131.db` → `episode_view`.
+- **Immediate unblock** is a *targeted* refresh, not a full scan:
+  `POST /Items/<seriesId>/Refresh?Recursive=true` → 204, visible in under 10 s.
+
+The connection was also **hand-made in a UI and in no `.nix` file**, so a fresh install had no
+Jellyfin notifier at all — `arr-policy` now creates it when missing, which is the part that makes
+a wipe converge.
+
+⚠️ **Two traps when writing this over the API:**
+
+- **`apiKey` reads back masked as `********`.** PUTting a fetched record straight back is how a
+  connection silently loses its key — the real key must be written in explicitly. For the
+  idempotency comparison, diff with the mask still in place on *both* sides, or the service
+  rewrites the connection on every single run.
+- Only force flags the implementation **advertises** (`supportsOnX`). Sonarr and Radarr have
+  different delete events (`onEpisodeFileDelete` vs `onMovieFileDelete`), so a hardcoded list
+  breaks on one of them. `?forceSave=true` skips the reachability test, so one app being
+  mid-restart can't fail the run.
 
 ---
 
@@ -667,6 +708,7 @@ something at least every 15 s, so 40 s of silence = a half-open link → reconne
 | Power: watts, V, A, kWh today, cost today, signal, plug online, projections | `asgard.js` | lights.js's `ha:state` events | ha-bridge (watches all of them — `_plugs.nix`) |
 | Power: 24 h chart | `asgard.js` | `GET /history` every 5 min | ha-bridge (2 min cache) |
 | Asgard, Storage, Now Playing, Downloads | `stats.js` | `/stream` | asgard-stats :9552 |
+| Asgard: the **room** ring + humidity | `stats.js` | lights.js's `ha:state` events | ha-bridge :9556. Needs **both** the sensor in `_plugs.nix`'s `watched` **and** `haStream = true` on the card (`_livecard.nix` → `data-ha-watch`), because lights.js only opens its stream on a page that asks — and this page has no light tile |
 | Network | `net.js` | `/events` | network-panel :9555 |
 | Eclipse, On the TV, Streams, Activity | `eclipse.js` | `/events` | eclipse-control :9554 |
 
@@ -699,7 +741,12 @@ ground, the glass and the text stay grey whatever is picked:
   per card) picks its icon and tag in asgard.css; tags drop in the narrow column;
 - the **host's facts** each sit beside a boxed icon (`stats.js` marks them `data-k`), the
   **gauges** wear a ring of ticks, inner tiles and controls are squared off and edged in
-  the HUD's colour, buttons and section headings are in Orbitron, numbers stay JetBrains Mono;
+  the HUD's colour, buttons and section headings are in Orbitron, numbers stay JetBrains Mono.
+  There are **four** gauges: CPU, memory, CPU temp and the **room** (added 2026-10-31) —
+  the room reads on its own 10-40 °C axis and through the sky rather than the weave, so a
+  glance never confuses "the room is warm" with "the CPU is warm". On a phone they fold
+  2x2 on a fixed-track grid, *not* flex-wrap: `.ags-ring-v` is absolutely positioned at
+  the ring's own left edge, so the box must stay exactly as wide as the svg;
 - the **navigation** is a HUD bar of angled tabs, the current page lit solid; the logo is
   a **Yggdrasil emblem** — a symmetric tree, forking crown and spread roots with a lit
   node at every tip, in a ring (also the tab icon; the phone home-screen icon is still
@@ -1164,11 +1211,15 @@ already handled, both of which cost a debugging round:
   `latest.json` is a licence notice. Result is written to a temp file and renamed,
   so a failed run never replaces a good one.
 
-**Upload reads ~28-30 Mb/s and that is correct**, not a broken uplink:
-`wan-egress-shaping` puts every WAN-bound packet in a 30 Mbit htb class. The widget
-footnote says "shaped to 30" for exactly this reason. It shapes Asgard's own egress
-only, so a test from the desktop will legitimately show a much higher upload.
-Download is unshaped (~420 Mb/s measured 2026-08-22).
+**Both figures are real as of 2026-10-21** (~900 down / ~109 up, measured against
+Ookla server id `65184`, Superloop Sydney — pin that one for comparisons).
+
+Historical trap, now gone: upload used to read ~28-30 Mb/s because `wan-egress-shaping`
+put every WAN-bound packet in a 30 Mbit htb class, and the widget carried a "shaped to 30"
+footnote saying so. Both the unit and the footnote were removed when the router's QoS was
+found capping the house to the old 500/50 plan. A desktop test and an Asgard test should
+now agree on download; Asgard reads a little lower on upload only because of its 1 Gbps NIC
+and normal overhead.
 
 **The run pauses SABnzbd first (added 2026-08-24).** Ookla measures spare capacity,
 not link capacity, so before this the timer fired mid-download and published the

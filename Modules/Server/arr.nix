@@ -410,6 +410,57 @@
           fi
         done
 
+        # --- Sonarr/Radarr -> Jellyfin: rescan the moment a file lands -------
+        # The "Emby / Jellyfin" connection existed in both apps with
+        # updateLibrary=true but EVERY event toggle off (found 2026-10-17), so
+        # it had never fired once. Jellyfin therefore only ever learned about
+        # new files from its own "Scan Media Library" task, whose trigger here
+        # is a 12-HOUR interval. Dark Matter S02E08 imported at 22:44Z and the
+        # previous scan had run at 15:36Z, so the file sat on disk, imported
+        # and renamed by Sonarr, yet invisible in Jellyfin - and so in Kodi,
+        # which only ever sees what Jellyfin exposes. Nothing was wrong with
+        # the download; the library just never got told.
+        #
+        # The connection was also hand-made in the UI and in no .nix file, so
+        # a fresh install had NO Jellyfin notifier at all. It is created here
+        # when missing, which is the part that makes a wipe converge.
+        #
+        # apiKey is written explicitly instead of round-tripped: both apps
+        # return it masked as "********", and PUTting that mask back is how a
+        # connection silently loses its key. forceSave skips the reachability
+        # test so one app being mid-restart cannot fail the whole run.
+        JF_FLAGS='["onDownload","onUpgrade","onRename","onSeriesDelete","onEpisodeFileDelete","onMovieDelete","onMovieFileDelete"]'
+        for APP in sonarr radarr; do
+          if [ "$APP" = sonarr ]; then BASE=$SONARR; AK=$SK; else BASE=$RADARR; AK=$RK; fi
+          NOTIF=$(curl -sf -m 15 -H "X-Api-Key: $AK" "$BASE/api/v3/notification") || NOTIF="[]"
+          CUR=$(echo "$NOTIF" | jq -c '.[]|select(.implementation=="MediaBrowser")' | head -1)
+          if [ -z "$CUR" ]; then
+            curl -sf -m 15 -X POST -H "X-Api-Key: $AK" -H 'Content-Type: application/json' \
+              -d "{\"name\":\"Emby / Jellyfin\",\"implementation\":\"MediaBrowser\",\"configContract\":\"MediaBrowserSettings\",\"onDownload\":true,\"onUpgrade\":true,\"onRename\":true,\"tags\":[],\"fields\":[{\"name\":\"host\",\"value\":\"127.0.0.1\"},{\"name\":\"port\",\"value\":8096},{\"name\":\"useSsl\",\"value\":false},{\"name\":\"apiKey\",\"value\":\"$JK\"},{\"name\":\"notify\",\"value\":false},{\"name\":\"updateLibrary\",\"value\":true}]}" \
+              "$BASE/api/v3/notification?forceSave=true" >/dev/null \
+              && echo "arr-policy: created $APP -> Jellyfin connection" \
+              || echo "arr-policy: FAILED to create $APP -> Jellyfin connection"
+            continue
+          fi
+          # Only flags the implementation actually advertises, so this stays
+          # correct across Sonarr/Radarr (different delete events) and upgrades.
+          WANT=$(echo "$CUR" | jq -c --argjson f "$JF_FLAGS" '
+            reduce $f[] as $k (.;
+              if has($k) and (.["supports" + ($k|sub("^on";"On"))] == true)
+              then .[$k] = true else . end)
+            | .fields = [.fields[] | if .name=="updateLibrary" then .value=true else . end]')
+          # Compared with the mask still in place on both sides, so an
+          # already-correct connection is a true no-op.
+          [ "$(echo "$WANT" | jq -cS .)" = "$(echo "$CUR" | jq -cS .)" ] && continue
+          NID=$(echo "$CUR" | jq -r .id)
+          echo "$WANT" | jq -c --arg jk "$JK" '.fields=[.fields[]|if .name=="apiKey" then .value=$jk else . end]' \
+            | curl -sf -m 15 -X PUT -H "X-Api-Key: $AK" \
+                   -H 'Content-Type: application/json' --data-binary @- \
+                   "$BASE/api/v3/notification/$NID?forceSave=true" >/dev/null \
+            && echo "arr-policy: $APP -> Jellyfin rescan on import/upgrade/rename/delete" \
+            || echo "arr-policy: FAILED to update $APP -> Jellyfin connection"
+        done
+
         # --- Jellyfin: make English actually play ----------------------------
         # PlayDefaultAudioTrack=true makes Jellyfin honour the file's default
         # track and IGNORE AudioLanguagePreference entirely. Most anime here

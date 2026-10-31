@@ -172,6 +172,65 @@ CTL_NAME_MAX = 24
 # Same precedent as wolf_stop()'s session_id.isdigit().
 MAC_RE = re.compile(r"^([0-9A-F]{2}:){5}[0-9A-F]{2}$")
 
+# ── Pairing something that wants a code: the agent ──────────────────────────
+# A gamepad pairs "just works": no code, no questions. A KEYBOARD is the
+# opposite — it insists on Passkey Entry, six digits typed on it — and BlueZ
+# asks a registered *agent* for those. With none registered it does not fall
+# back to asking: it pairs with no interaction at all, which a keyboard refuses
+# outright. That is what this card did until 2026-10-10 (Corsair K100 AIR): no
+# prompt, no code, nothing to type, just
+#     auth failed with status 0x05 (Authentication Failed)
+#
+# Three things had to be true before one would pair. All proven on the Pi.
+#
+# 1. 🔑 bluetoothctl registers an agent ONLY IN INTERACTIVE MODE. Giving it a
+#    command on the command line — `pair`, even with `--agent DisplayOnly` —
+#    puts it in non-interactive mode where it silently registers none, and
+#    bluetoothd says so on every attempt:
+#        src/device.c:new_auth() No agent available for request type 2
+#        device_confirm_passkey: Operation not permitted
+#    Interactive mode wants a terminal; the Pi has no `script` and no `socat`,
+#    and bluetoothctl 5.83 SEGVs the moment its stdin is a pipe or fifo with no
+#    terminal behind it (status=11/SEGV). So the pty is allocated from HERE
+#    with `ssh -tt`, and commands are typed at its prompt.
+#
+# 2. 🔑 The capability decides WHO PICKS THE CODE, and only one choice works
+#    from a dashboard. DisplayOnly/KeyboardDisplay make BlueZ invent the digits
+#    and hand them to the agent (`[agent] Passkey: 350638`) — the person then
+#    has the ~30 s of the SMP timeout to be told them and type them, and every
+#    attempt that way died on AuthenticationCanceled. KeyboardOnly at both ends
+#    is Passkey Entry where BOTH sides type the same digits (`Request passkey`),
+#    so WE choose them, the card shows them, and nothing has to be read back
+#    out of a log in a hurry. A device that needs no code (a pad, headphones) is
+#    only asked to be accepted, which this answers "yes" to — exactly as BlueZ
+#    accepted on its own when there was no agent at all.
+#
+# 3. 🔑 Discovery has to be live. BlueZ drops an LE device it has never bonded
+#    with soon after discovery stops, so stopping the search first — right for a
+#    pad, whose radio cannot page and scan at once — left a keyboard tapped in
+#    the results list `not available` before the pair had even begun. The
+#    session runs `scan on`, waits for the Pi to list the device, and BlueZ ends
+#    its own discovery when the pair starts (`hci0 type 7 discovering off`).
+#    ⚠️ `remove` EVICTS the device, so a `pair` straight after one always says
+#    "not available" — never clear a bond and pair in the same breath.
+#
+# An agent is NOT a daemon and nothing here watches for pairings: the session
+# lives for one attempt and is closed in a finally. Between pairings nothing of
+# this runs, nothing is installed on the Pi, and bluetoothd is untouched.
+PAIR_AGENT = "KeyboardOnly"
+# The whole remote command. Nothing of ours — not the MAC, not the code — ever
+# reaches a shell on the Pi for a pair: both are typed at bluetoothctl's own
+# prompt. The MAC is still MAC_RE-checked and matched against the Pi's own
+# device list first, as _ctl_guard() does.
+PAIR_CMD = "bluetoothctl"
+PAIR_FIND_S = 20        # waiting for the device to turn up in the session's search
+PAIR_MAX_S = 45         # the attempt itself; SMP allows ~30 s to type the code
+PAIR_POLL_S = 0.5
+PAIR_START_S = 2.5      # bluetoothctl's own start-up, before it reads commands
+# bluetoothctl's colour escapes and its re-drawn prompt sit in the middle of
+# every line read back, so they come out before anything is matched.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
+
 # ── Network: the cable, Wi-Fi, and switching between them ───────────────────
 # Wired-only is the house rule (Resources/Eclipse-Box/network/, 2026-10-09): the
 # Pi once dual-homed and sent a 4K game stream over its own weak radio while the
@@ -821,39 +880,200 @@ def ctl_forget(mac):
     return _with_ctl_busy(mac, "forgetting", go)
 
 
+class _PairSession:
+    """One interactive bluetoothctl on the Pi, over a pty, for one attempt.
+
+    Its output is read by a thread into one buffer; `text(since)` gives it back
+    with the escapes stripped. Commands are typed at its prompt, so nothing is
+    interpolated into a shell. It counts against _inflight for as long as it
+    lives, so a failure elsewhere cannot pull the shared ssh master out from
+    under it (same as the background search)."""
+
+    def __init__(self):
+        self.proc = None
+        self._buf = bytearray()
+        self._lock = threading.Lock()
+
+    def open(self):
+        global _inflight
+        self.proc = subprocess.Popen(
+            SSH_BASE[:-1] + ["-tt", SSH_BASE[-1], PAIR_CMD],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, bufsize=0)
+        with _inflight_lock:
+            _inflight += 1
+        threading.Thread(target=self._read, daemon=True).start()
+        time.sleep(PAIR_START_S)
+
+    def _read(self):
+        fd = self.proc.stdout.fileno()
+        while True:
+            try:
+                chunk = os.read(fd, 4096)
+            except OSError:
+                return
+            if not chunk:
+                return
+            with self._lock:
+                self._buf.extend(chunk)
+
+    def text(self, since=0):
+        with self._lock:
+            raw = bytes(self._buf)
+        return _ANSI_RE.sub("", raw.decode("utf-8", "replace")).replace("\r", "\n")[since:]
+
+    def mark(self):
+        """Where the output is now — so one attempt never reads another's."""
+        return len(self.text())
+
+    def send(self, line):
+        try:
+            self.proc.stdin.write((line + "\n").encode())
+            self.proc.stdin.flush()
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.4)
+
+    def close(self):
+        global _inflight
+        if self.proc is None:
+            return
+        self.send("quit")
+        try:
+            self.proc.wait(timeout=4)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+        with _inflight_lock:
+            _inflight -= 1
+        self.proc = None
+
+
+def _pair_show(mac, name, code, kind):
+    """Put a code in front of whoever is holding the device, on every open
+    dashboard. The card draws it big; it goes nowhere else."""
+    HUB.publish("ctlpair", {"mac": mac, "name": name, "code": code,
+                            "kind": kind, "t": int(time.time())})
+
+
+def _pair_why(log, told):
+    """Why it failed, in the words of someone standing at the TV."""
+    low = (log or "").lower()
+    if "not available" in low or "does not exist" in low:
+        return "it dropped out of range — put it back in pairing mode and search again"
+    if "already exists" in low:
+        return "it is already paired — Forget it first, then pair it again"
+    if "authenticationcanceled" in low.replace("-", "").replace(" ", ""):
+        return ("the code was not typed in time — tap Pair and type it, ending with Enter"
+                if told else "it stopped pairing — put it back in pairing mode, then Pair")
+    if "authentication" in low.replace(" ", ""):
+        return ("the code was refused — tap Pair again and type it exactly, ending with Enter"
+                if told else
+                "it stopped pairing — put it back in pairing mode (its light should flash), then Pair")
+    return _last_meaningful(log) or "pairing failed"
+
+
+def _pair_done(mac, name):
+    """Paired. Trust it (so it comes back by itself) and say whether it is up."""
+    _, out = ssh("bluetoothctl trust " + mac + " >/dev/null 2>&1; "
+                 "bluetoothctl connect " + mac + " >/dev/null 2>&1; "
+                 "sleep 2; "
+                 "bluetoothctl info " + mac + " 2>/dev/null | grep -E 'Paired:|Connected:'",
+                 timeout=25)
+    with SCAN_LOCK:
+        SCAN["found"] = [d for d in SCAN["found"] if d["mac"] != mac]
+    _publish_scan()
+    return 200, {"ok": True, "mac": mac, "message": name + " paired" + (
+        " and connected" if "connected: yes" in (out or "").lower()
+        else " — switch it on to connect")}
+
+
+def _pair_run(mac, name, session):
+    """One attempt, from a registered agent to a bond."""
+    for cmd in ("agent off", "agent " + PAIR_AGENT, "default-agent",
+                "power on", "pairable on", "scan on"):
+        session.send(cmd)
+    if "Agent registered" not in session.text():
+        return 502, {"ok": False, "error": name + ": the Pi would not take a pairing agent"}
+
+    # The device has to be there, or `pair` only answers "not available". It
+    # usually is (the search just listed it); an LE one dropped when that
+    # search ended comes back a second or two into this one.
+    deadline = time.monotonic() + PAIR_FIND_S
+    while mac not in _known_macs():
+        if time.monotonic() >= deadline:
+            return 502, {"ok": False, "error": name + ": not in range — put it in pairing "
+                                               "mode (its light should flash) and search again"}
+        time.sleep(PAIR_POLL_S)
+
+    # Ours to choose, because the agent is KeyboardOnly — so it can be on the
+    # card the moment BlueZ asks for it, instead of being read back out of the
+    # output against the SMP clock.
+    code = "%06d" % (int.from_bytes(os.urandom(3), "big") % 1000000)
+    at = session.mark()
+    session.send("pair " + mac)
+
+    answered, told = set(), False
+    deadline = time.monotonic() + PAIR_MAX_S
+    while time.monotonic() < deadline:
+        out = session.text(at)
+        if "Pairing successful" in out:
+            return _pair_done(mac, name)
+        if "Failed to pair" in out or "not available" in out:
+            return 502, {"ok": False, "error": name + ": " + _pair_why(out, told)}
+        if "Enter passkey" in out and "passkey" not in answered:
+            # Both ends type the same digits: these.
+            answered.add("passkey")
+            told = True
+            _pair_show(mac, name, code, "type")
+            session.send(code)
+        elif "Enter PIN code" in out and "pin" not in answered:
+            answered.add("pin")
+            told = True
+            _pair_show(mac, name, code[:4], "type")
+            session.send(code[:4])
+        m = re.search(r"Passkey:\s*(\d{4,6})", out)
+        if m and not told:
+            # BlueZ picked its own instead (another agent is registered, or it
+            # chose Display): show that one, there is nothing to send.
+            told = True
+            _pair_show(mac, name, m.group(1), "type")
+        m = re.search(r"Confirm passkey\D*(\d{4,6})", out)
+        if m and "confirm" not in answered:
+            answered.add("confirm")
+            _pair_show(mac, name, m.group(1), "confirm")
+            session.send("yes")
+        if ("Accept pairing" in out or "Authorize service" in out) and "accept" not in answered:
+            answered.add("accept")
+            session.send("yes")
+        time.sleep(PAIR_POLL_S)
+    return 502, {"ok": False, "error": name + ": " + (
+        "the code was not typed in time — tap Pair and type it, ending with Enter" if told
+        else "it never answered — put it back in pairing mode, then Pair")}
+
+
 def ctl_pair(mac):
-    """Pair, trust (auto-connect) and connect a device a search found. Pairing
-    stops the search first: BlueZ pairs badly while it is still discovering.
-    No agent is needed — a gamepad pairs "just works" (no PIN), which is what
-    BlueZ does by itself when there is none."""
-    mac, bad = _ctl_guard(mac, paired_only=False)
-    if bad:
-        return bad
+    """Pair, trust (auto-connect) and connect a device a search found.
+
+    Anything that wants a code goes through the agent above: a keyboard has no
+    screen of its own, so the six digits are chosen here, drawn on the card,
+    and typed on the keyboard itself. A pad is only asked to be accepted and
+    never shows a code, as before."""
+    mac = (mac or "").upper()
+    if not MAC_RE.match(mac):
+        return 400, {"ok": False, "error": "bad MAC"}
 
     def go():
         name = _display(mac)
-        stop_scan(quiet=True)
-        ok, out = ssh(
-            "bluetoothctl pairable on >/dev/null 2>&1; "
-            "bluetoothctl --timeout 30 pair " + mac + " 2>&1 | tail -6; "
-            "bluetoothctl trust " + mac + " >/dev/null 2>&1; "
-            "sleep 2; "
-            "bluetoothctl info " + mac + " 2>/dev/null | grep -E 'Paired:|Connected:'; "
-            "bluetoothctl pairable off >/dev/null 2>&1",
-            timeout=55)
-        low = (out or "").lower()
-        if ok and "paired: yes" in low:
-            with SCAN_LOCK:
-                SCAN["found"] = [d for d in SCAN["found"] if d["mac"] != mac]
-            _publish_scan()
-            return 200, {"ok": True, "mac": mac, "message": name + " paired" + (
-                " and connected" if "connected: yes" in low else " — switch it on to connect")}
-        why = _last_meaningful(out.replace("Paired: no", "").replace("Connected: no", "")) if out else ""
-        if "authenticationfailed" in low.replace(" ", "") or "authentication" in low:
-            why = "it stopped pairing — hold the buttons again until the light flashes, then Pair"
-        elif "not available" in low or "does not exist" in low:
-            why = "it's gone from range — search again"
-        return 502, {"ok": False, "error": name + ": " + (why or "pairing failed")}
+        session = _PairSession()
+        try:
+            session.open()
+            return _pair_run(mac, name, session)
+        except OSError as exc:
+            return 502, {"ok": False, "error": name + ": " + str(exc)[:120]}
+        finally:
+            session.close()
+            ssh("bluetoothctl pairable off >/dev/null 2>&1", timeout=12)
+            HUB.publish("ctlpair", {})
 
     return _with_ctl_busy(mac, "pairing", go)
 
@@ -1689,6 +1909,8 @@ ACTIONS = {
 #   scan      a running (or just-finished) search: what it has found
 #   ctlbusy   {MAC: "pairing" | "connecting" | …} — so a Pair tapped on one
 #             dashboard shows "Pairing…" on that device on the other too
+#   ctlpair   the code a pairing is waiting on, while it waits: the six digits
+#             BlueZ picked for a keyboard, on every open dashboard at once
 #   net       the cable, Wi-Fi in range and saved, wired-only or not (_fetch_net)
 #   netscan   a Wi-Fi search running / just ended
 #   netsw     a cable ⇄ Wi-Fi switch in flight, until the Pi reports back
@@ -1702,7 +1924,7 @@ class Hub:
                       "scan": {"active": False, "found": [], "unnamed": 0},
                       "net": None, "netscan": {"active": False, "ended": 0},
                       "netsw": {"active": False},
-                      "activity": [], "busy": {}, "ctlbusy": {}}
+                      "activity": [], "busy": {}, "ctlbusy": {}, "ctlpair": {}}
         self.watchers = 0
         self.wake = threading.Event()
 

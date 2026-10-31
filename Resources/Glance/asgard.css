@@ -472,6 +472,8 @@ html[data-ha-link="offline"] .ag-live i { background: var(--ag-warn); animation:
    heading: the group switch gets the full width, the lamps two across. */
 .ag-lights + .ag-sec { margin-top: 18px; }
 .ag-sec + .ag-lights { margin-top: 10px; }
+.ag-lights + .ag-sec, .ag-bulbs + .ag-sec { margin-top: 18px; }
+.ag-sec + .ag-bulbs { margin-top: 10px; }
 .ag-groups { grid-template-columns: 1fr; }
 .ag-lights .ag-hero .ag-name { white-space: normal; line-height: 1.2; }
 
@@ -542,6 +544,158 @@ html[data-ha-link="reconnecting"] :is(.ag-light, .ag-card),
 html[data-ha-link="offline"] :is(.ag-light, .ag-card) { filter: saturate(0.3); }
 html[data-ha-link="reconnecting"] .ag-light,
 html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
+
+/* ── The bedside bulbs: tile + colour swatches + brightness ─────────────────
+   One stacked block per bulb, two across like the lamps. The tile keeps its
+   own on/off behaviour; the swatches and the slider sit under it as siblings,
+   because a <button> cannot contain another one.
+   Markup: Modules/Server/glance.nix → bulbCard. Behaviour: lights.js. */
+.ag-bulbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: var(--ag-gap);
+}
+.ag-bulb {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--ag-line-soft);
+  border-radius: var(--ag-r-tile);
+  background: var(--ag-tile-lo);
+}
+.ag-bulb .ag-light { min-height: 60px; }
+
+/* The swatch row. `--sw` is the lamp colour the button stands for, set inline
+   from the preset table — see the warning in glance.nix: this is the one place
+   on the page a literal colour is correct, because it is showing the LIGHT,
+   not the dashboard. Everything else here stays on --hud. */
+.ag-swatches {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+}
+.ag-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 2px 6px;
+  border: 1px solid var(--ag-line-soft);
+  border-radius: var(--ag-r-small);
+  background: var(--ag-well);
+  cursor: pointer;
+  font: inherit;
+  color: var(--ag-text-faint);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition:
+    border-color 0.25s var(--ag-ease),
+    background 0.25s var(--ag-ease),
+    color 0.25s var(--ag-ease);
+}
+.ag-swatch-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--sw);
+  /* A ring, so a pale swatch still reads as a disc on a dark ground, and its
+     own colour glows rather than the theme's. */
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5), 0 0 10px -2px var(--sw);
+}
+.ag-swatch-name {
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+@media (hover: hover) {
+  .ag-swatch:hover { border-color: rgb(var(--hud-rgb) / 0.34); color: var(--ag-text-dim); }
+}
+.ag-swatch:focus-visible { outline: 2px solid var(--c-green); outline-offset: 2px; }
+/* The one in use — painted by lights.js from the bulb's input_select, so it is
+   right whoever set it and from wherever. */
+.ag-swatch.is-active {
+  border-color: rgb(var(--hud-rgb) / 0.6);
+  background: rgb(var(--hud-rgb) / 0.1);
+  color: var(--ag-text);
+}
+.ag-swatch.is-active .ag-swatch-dot {
+  box-shadow: 0 0 0 2px rgb(var(--hud-rgb) / 0.75), 0 0 14px -1px var(--sw);
+}
+
+/* Brightness. A native range, themed — one slider is not worth a custom
+   control, and the native one gets keyboard and screen-reader behaviour free. */
+.ag-bright {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px 0;
+}
+.ag-bright .ag-k { flex: none; }
+.ag-bright b {
+  flex: none;
+  min-width: 3.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--ag-text-dim);
+}
+.ag-bright input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ag-bright input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgb(var(--hud-rgb) / 0.18), rgb(var(--hud-rgb) / 0.6));
+}
+.ag-bright input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgb(var(--hud-rgb) / 0.18), rgb(var(--hud-rgb) / 0.6));
+}
+.ag-bright input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border: 1px solid rgb(0 0 0 / 0.5);
+  border-radius: 50%;
+  background: var(--hud);
+  box-shadow: 0 0 10px -2px rgb(var(--hud-rgb) / 0.8);
+}
+.ag-bright input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgb(0 0 0 / 0.5);
+  border-radius: 50%;
+  background: var(--hud);
+  box-shadow: 0 0 10px -2px rgb(var(--hud-rgb) / 0.8);
+}
+.ag-bright input[type="range"]:focus-visible { outline: 2px solid var(--c-green); outline-offset: 2px; }
+
+/* A failed POST — the bridge refused it, or it never arrived. */
+.ag-bulb[data-ha-error], .ag-swatch[data-ha-error] { border-color: var(--ag-bad); }
+
+/* Stream down: the swatch and the slider may be showing a stale choice, so
+   drain them like every other live control on the page. */
+html[data-ha-link="reconnecting"] :is(.ag-swatches, .ag-bright),
+html[data-ha-link="offline"] :is(.ag-swatches, .ag-bright) { filter: saturate(0.3); opacity: 0.72; }
+
+/* On a phone the six names do not fit side by side — keep the discs, drop the
+   labels (each button still has its title and aria-label). */
+@media (max-width: 560px) {
+  .ag-swatch-name { display: none; }
+  .ag-swatch { padding: 9px 2px; }
+}
 
 /* The master switch reads as the primary control: deeper, with a stripe down
    its leading edge that warms up with it. */
@@ -952,16 +1106,25 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
    ════════════════════════════════════════════════════════════════════════════ */
 /* ── hero: rings + facts ── */
 .ags-hero { display: grid; grid-template-columns: auto 1fr; gap: 26px; align-items: center; }
-.ags-rings { display: flex; gap: 18px; }
+/* wrap: with the room there are FOUR rings, and four at 104px overflow a
+   narrow card. They fold 2x2 rather than scrolling sideways. */
+.ags-rings { display: flex; gap: 18px; flex-wrap: wrap; }
 .ags-ring { position: relative; width: 104px; text-align: center; --c: var(--s1); }
-/* One palette slot per gauge, in order — so three rings read as three things
-   and the CPU/memory chart below wears the same two colours. warn/bad come
-   after and win (with a word under the ring — never colour alone). */
+/* One palette slot per gauge, in order — so the four rings read as four
+   things, and the CPU/memory chart below wears the same two colours. warn/bad
+   come after and win (with a word under the ring — never colour alone). */
 .ags-ring.hue-mem { --c: var(--s2); }
 /* Temperature is the weave itself: --f (0 at 25 °C, 1 at 100 °C, set by
    stats.js) mixes leaf into berry in oklch — through amber, the way a berry
    ripens, not through the mud an sRGB mix of red and green makes. */
 .ags-ring.hue-temp { --c: color-mix(in oklch, var(--hud2), #ffb347 calc(var(--f, 0) * 100%)); }
+/* The room reads cool-to-warm on the same principle, but on its own axis
+   (10-40 °C, from _plugs.nix) and through the sky rather than the weave, so a
+   glance never confuses "the room is warm" with "the CPU is warm". */
+.ags-ring.hue-room { --c: color-mix(in oklch, #6fb6ff, #ffb347 calc(var(--f, 0) * 100%)); }
+/* A room reading nobody has heard from is drawn flat, not cold: a stale sensor
+   must not look like a cold cupboard. */
+.ags-ring.hue-room.stale { --c: var(--ag-text-faint); }
 .ags-ring-ticks { fill: none; stroke: color-mix(in srgb, var(--c) 45%, transparent); stroke-width: 3; stroke-dasharray: 1 3.73; }
 .ags-ring.warn { --c: var(--ag-warn); }
 .ags-ring.bad { --c: var(--ag-bad); }
@@ -1174,7 +1337,12 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 /* ── Narrow phones ────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
   .ags-hero { grid-template-columns: 1fr; gap: 18px; }
-  .ags-rings { justify-content: space-between; gap: 6px; }
+  /* Four rings never fit one phone row. A GRID of two fixed 92px tracks, not
+     flex-wrap: .ags-ring-v is absolutely positioned at the ring's own left
+     edge, so the box has to stay exactly as wide as the svg — a percentage
+     basis would widen it and strand the number off to one side. */
+  .ags-rings { display: grid; grid-template-columns: repeat(2, 92px);
+               justify-content: space-between; gap: 10px; }
   .ags-ring, .ags-ring svg, .ags-ring-v { width: 92px; }
   .ags-ring svg, .ags-ring-v { height: 92px; }
   .ags-ring-v { padding-top: 31px; }
@@ -1295,6 +1463,8 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .ags-facts [data-k="swap"]   { --ic: var(--ic-swap); }
 .ags-facts [data-k="nvme"]   { --ic: var(--ic-nvme); }
 .ags-facts [data-k="fan"]    { --ic: var(--ic-fan); }
+.ags-facts [data-k="room"]     { --ic: var(--ic-room); }
+.ags-facts [data-k="humidity"] { --ic: var(--ic-humidity); }
 
 /* Live badges: a bracketed readout, its light a small square. */
 .ags-live {
@@ -1462,3 +1632,40 @@ html[data-ha-link="offline"] .ag-light { opacity: 0.72; }
 .hud-row-h { margin: 0 0 12px; }
 .hud-row-h span { flex: 1; font-family: var(--ag-title); font-size: 1.2rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ag-text-dim); }
 .hud-row .hud-sws { grid-template-columns: repeat(6, 34px); justify-content: space-between; gap: 8px 0; }
+
+/* ── Mix your own ─────────────────────────────────────────────────────────
+   The ninth swatch and the five channel sliders behind it. ONE panel for both
+   bedside lamps — they take the same mix (see `customChannels` in _plugs.nix).
+   ⚠ Mirrored in marsbar.css; the Bedroom controls are shared. */
+.ag-swatch-custom .ag-swatch-dot {
+  /* No literal here on purpose: Custom has no one colour, it is whatever the
+     sliders say. A spectrum says "pick anything" without lying about it. */
+  background: conic-gradient(from 210deg, #ff5410, #ffbe5c, #eef3ff, #7fd4ff, #ff5410);
+}
+.ag-mix { margin-top: 12px; border: 1px solid var(--ag-line-soft); border-radius: var(--ag-r-small); background: var(--ag-tile-lo); }
+.ag-mix-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 9px 12px; cursor: pointer; list-style: none;
+  font-family: var(--ag-title); font-size: 1.05rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ag-text-dim);
+  -webkit-tap-highlight-color: transparent;
+}
+.ag-mix-head::-webkit-details-marker { display: none; }
+.ag-mix-head::before { content: "+"; font-weight: 700; color: var(--ag-accent); }
+.ag-mix[open] .ag-mix-head::before { content: "−"; }
+.ag-mix-hint { font-family: inherit; font-size: 0.92rem; letter-spacing: 0.04em; text-transform: none; color: var(--ag-text-faint); }
+.ag-mix-rows { padding: 2px 12px 12px; display: grid; gap: 8px; }
+.ag-mix-row { display: grid; grid-template-columns: 86px 1fr 38px; align-items: center; gap: 10px; }
+.ag-mix-row .ag-k { font-size: 1rem; color: var(--ag-text-dim); letter-spacing: 0.06em; }
+.ag-mix-row b { font-variant-numeric: tabular-nums; text-align: right; color: var(--ag-text); font-size: 1.05rem; }
+.ag-mix-row input[type="range"] { width: 100%; }
+.ag-mix[data-ha-error] { border-color: var(--ag-bad); }
+html[data-ha-link="reconnecting"] .ag-mix-rows,
+html[data-ha-link="offline"] .ag-mix-rows { filter: saturate(0.3); opacity: 0.72; }
+@media (max-width: 560px) {
+  /* The label drops above the track rather than squeezing the slider to a stub. */
+  .ag-mix-row { grid-template-columns: 1fr 38px; grid-template-areas: "k k" "s v"; }
+  .ag-mix-row .ag-k { grid-area: k; }
+  .ag-mix-row input[type="range"] { grid-area: s; }
+  .ag-mix-row b { grid-area: v; }
+}

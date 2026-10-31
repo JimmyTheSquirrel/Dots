@@ -113,8 +113,90 @@
     # dot means "nested": `switch.x` would look for {"switch": {"x": …}}.
     # Escaping the dot (`switch\.x`) makes it a literal key. Written `\\.` here
     # because the Go template string literal unescapes it once.
-    stateOf = entity:
-      ''{{ .JSON.String "${builtins.replaceStrings [ "." ] [ "\\\\." ] entity}" }}'';
+    keyOf = builtins.replaceStrings [ "." ] [ "\\\\." ];
+    stateOf = entity: ''{{ .JSON.String "${keyOf entity}" }}'';
+
+
+    # Same, printed — a remembered brightness has to land in a slider's value.
+    numOf = entity: fmt:
+      ''{{ printf "${fmt}" (.JSON.Float "${keyOf entity}") }}'';
+
+    # ── The bedside bulbs ───────────────────────────────────────────────────
+    # The SAME controls as the admin dashboard's Power page (glance.nix →
+    # bulbCard), against the same data-ha-* contract in lights.js, because she
+    # is the one who actually uses them. ⚠ Add a control to one and it must go
+    # in the other, or the two dashboards drift — see Claude/marsbar.md.
+    #
+    # Why there is a colour control here at all: the bedroom lamps are TOUCH
+    # LAMPS, and the warm end of their colour-temperature range is a white, not
+    # an amber — a deep yellow is only reachable through saturation, which no
+    # ordinary warmth slider exposes. The swatches are that, pre-chosen.
+    bulbs = inventory.bulbs;
+
+    # ⚠ A literal colour on purpose, and the one exception to marsbar.css's
+    # "every colour is hsl(var(--mb-h)…)" rule: a swatch shows what the LAMP
+    # will look like, so it must not follow her picker.
+    swatch = b: p: ''
+      <button type="button"
+        class="mb-swatch{{ if eq (.JSON.String "${keyOf b.preset}") "${p.name}" }} is-active{{ end }}"
+        data-ha-preset="${p.name}" style="--sw: ${p.css}"
+        title="${p.name}" aria-label="${p.name}"
+        aria-pressed="{{ if eq (.JSON.String "${keyOf b.preset}") "${p.name}" }}true{{ else }}false{{ end }}">
+        <span class="mb-swatch-dot" aria-hidden="true"></span>
+        <span class="mb-swatch-name">${p.name}</span>
+      </button>
+    '';
+
+    # ⚠ Mirrors glance.nix's customSwatch / mixPanel — the Bedroom controls are
+    # shared between the two dashboards. Change one and change the other.
+    customSwatch = b: ''
+      <button type="button"
+        class="mb-swatch mb-swatch-custom{{ if eq (.JSON.String "${keyOf b.preset}") "${inventory.customName}" }} is-active{{ end }}"
+        data-ha-preset="${inventory.customName}"
+        title="${inventory.customName} — mix your own, below"
+        aria-label="${inventory.customName}"
+        aria-pressed="{{ if eq (.JSON.String "${keyOf b.preset}") "${inventory.customName}" }}true{{ else }}false{{ end }}">
+        <span class="mb-swatch-dot" aria-hidden="true"></span>
+        <span class="mb-swatch-name">${inventory.customName}</span>
+      </button>
+    '';
+
+    mixPanel = ''
+      <details class="mb-mix" data-ha-mix>
+        <summary class="mb-mix-head">Mix your own<span class="mb-mix-hint">tap ${inventory.customName} on a lamp, then dial it in</span></summary>
+        <div class="mb-mix-rows">
+          ${lib.concatMapStrings (c: ''
+            <div class="mb-mix-row" data-ha-chan-of="${c.entity}">
+              <span class="mb-k">${c.label}</span>
+              <input type="range" min="0" max="255" step="1" data-ha-chan
+                value="${numOf c.entity "%.0f"}" aria-label="${c.label}">
+              <b data-ha-chan-label>${numOf c.entity "%.0f"}</b>
+            </div>
+          '') inventory.customChannels}
+        </div>
+      </details>
+    '';
+
+    bulbCard = b: ''
+      <div class="mb-bulb" data-ha-light="${b.entity}" data-ha-preset-of="${b.preset}" data-ha-bright-of="${b.bright}">
+        ${lightCard {
+          inherit (b) entity icon;
+          name = b.her.name or b.name;
+          sub = ''${b.room} · <span data-ha-preset-label>${stateOf b.preset}</span>'';
+          hero = false;
+          members = [ ];
+        }}
+        <div class="mb-swatches" role="group" aria-label="${b.name} colour">
+          ${lib.concatMapStrings (swatch b) inventory.presets}${customSwatch b}
+        </div>
+        <label class="mb-bright">
+          <span class="mb-k">Brightness</span>
+          <input type="range" min="1" max="100" step="5" data-ha-bright
+            value="${numOf b.bright "%.0f"}" aria-label="${b.name} brightness">
+          <b data-ha-bright-label>${numOf b.bright "%.0f"}%</b>
+        </label>
+      </div>
+    '';
 
     # One tile. A <button>, so it is focusable and gets the right semantics for
     # free; data-ha-* is the contract with lights.js (see the top of that file).
@@ -138,6 +220,9 @@
         ${lightCard hero}
         <div class="mb-sec">Individual</div>
         ${lib.concatMapStrings lightCard lamps}
+        <div class="mb-sec">Bedroom</div>
+        ${lib.concatMapStrings bulbCard bulbs}
+        ${mixPanel}
       </div>
     '';
 

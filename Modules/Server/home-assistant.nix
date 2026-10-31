@@ -10,6 +10,152 @@
     # from it below — see Modules/Server/_plugs.nix.
     inventory = import ./_plugs.nix;
 
+    # ══════════════════════════════════════════════════════════════════════
+    # BEDSIDE BULBS — a remembered colour, and getting it back after a cut
+    # ══════════════════════════════════════════════════════════════════════
+    # The bedroom lamps are TOUCH LAMPS: the base cuts mains, so the bulb
+    # reboots every time it is switched off and on. Two separate things were
+    # broken by that, and they need different fixes:
+    #
+    #  1. It came back DARK. Each bulb's `select.<slug>_power_on_state` ships
+    #     as "Always Off", so the firmware deliberately boots the light off.
+    #     holdPowerOn, below, parks every one of them on
+    #     "Restore Power Off State" and keeps it there — that alone makes the
+    #     bulb come back on, by itself, as it was, with no HA involved.
+    #
+    #  2. HA could not put the colour back even if it wanted to, because an
+    #     unavailable light has no attributes to read. So the choice lives in
+    #     HA instead of in the bulb: one input_select + one input_number per
+    #     bulb (the inventory's `preset` and `bright`), which is what survives
+    #     the power cut. restoreAutomation re-applies them when the bulb
+    #     reappears, as a backstop to the firmware restore, and both dashboards
+    #     read the same two entities back to light the right swatch and place
+    #     the slider.
+    #
+    # Everything below is generated from inventory.presets, so a colour cannot
+    # exist in the automation and not on the dashboards, or the other way.
+    bulbs = inventory.bulbs;
+    # The fixed presets, plus "Custom" — which is a real option on the
+    # input_select but has no fixed colour: it means "whatever the five sliders
+    # currently say". Everything that validates a preset name has to accept it.
+    presetNames = (map (p: p.name) inventory.presets) ++ [ inventory.customName ];
+    customChannels = inventory.customChannels;
+    powerOnEntities = map (b: b.powerOn) bulbs;
+
+    # Jinja literals built from the preset table.
+    jStrList = xs: "[${lib.concatMapStringsSep ", " (x: "'${x}'") xs}]";
+
+    # Every preset is now one service key — rgbww_color — because the reflashed
+    # firmware gives the bulb a single combined colour mode. That is worth more
+    # than it looks: the old table mixed `hs_color` with `color_temp_kelvin`,
+    # and since a Jinja template can choose a VALUE but never a KEY, the restore
+    # automation needed a two-branch `choose` to pick between them. One key
+    # removes the branch entirely.
+    rgbwwMap = "{${lib.concatMapStringsSep ", " (p:
+      "'${p.name}': [${lib.concatMapStringsSep ", " toString p.rgbww}]")
+      inventory.presets}}";
+    rgbwwFallback = "[${lib.concatMapStringsSep ", " toString
+      (builtins.head (builtins.filter (p: p.name == inventory.defaultPreset) inventory.presets)).rgbww}]";
+
+    # "Custom" reads the five sliders instead of the table. Order matters and is
+    # the rgbww order: red, green, blue, cold white, warm white.
+    customList = "[${lib.concatMapStringsSep ", " (c:
+      "states('${c.entity}') | float(${toString c.defaultValue}) | round | int")
+      customChannels}]";
+
+    # One expression for every case: the sliders when Custom is picked, the
+    # table otherwise, and the default preset's own channels if the remembered
+    # name has since been removed from the table.
+    colourOf = "{{ ${customList} if pick == '${inventory.customName}'"
+      + " else ${rgbwwMap}.get(pick, ${rgbwwFallback}) }}";
+
+    # Never 0 % (which reads as "broken bulb", not "dim"), and never the
+    # cold-start 1 % an untouched input_number holds — see the note on
+    # input_number below for why neither carries an `initial`.
+    brightOf = b:
+      "{{ [5, (states('${b.bright}') | float(${toString inventory.defaultBrightness}) | round | int)] | max }}";
+
+    # One automation per bulb: it needs that bulb's own two helper entities.
+    # `pick` normalises the remembered preset once per run, so a helper left at
+    # `unknown` on a fresh install still produces a sane colour rather than
+    # falling through to whatever the choose's default happens to be.
+    restoreAutomation = b: {
+      alias = "Bedroom · ${b.name} — restore colour after power-on";
+      id = "bedroom_restore_${b.slug}";
+      # restart: the bulb can flap while its wifi settles, and the last
+      # power-on is the only one whose colour anybody is waiting for.
+      mode = "restart";
+      variables.pick =
+        "{{ states('${b.preset}') if states('${b.preset}') in ${jStrList presetNames}"
+        + " else '${inventory.defaultPreset}' }}";
+      triggers = [
+        # Coming back from `unavailable` IS the touch lamp being switched on:
+        # mains returning is the only thing that makes the bulb reappear. A
+        # dashboard turn-off leaves it available ("off"), so this never fights
+        # someone deliberately switching a lamp off.
+        { trigger = "state"; entity_id = b.entity; from = "unavailable"; }
+      ];
+      actions = [
+        # The bulb answers HA before it will accept a colour; without this the
+        # turn_on lands on a half-booted light and is silently dropped.
+        { delay.seconds = 4; }
+        {
+          condition = "template";
+          value_template = "{{ states('${b.entity}') not in ['unavailable', 'unknown'] }}";
+        }
+        {
+          # One key for every preset, so no branch. `.get` with the default
+          # preset's own channels as the fallback means a preset name that has
+          # been removed from the table since the helper was last written still
+          # restores something sane rather than failing the template.
+          action = "light.turn_on";
+          target.entity_id = b.entity;
+          data = {
+            rgbww_color = colourOf;
+            brightness_pct = brightOf b;
+          };
+        }
+      ];
+    };
+
+    # Hold every bulb's power-on behaviour at "Restore Power Off State".
+    # This is the declarative answer to a setting that lives in the bulb's own
+    # flash and so cannot be declared: HA re-asserts it instead, on every start
+    # and any time one drifts — including after a factory reset.
+    holdPowerOn = {
+      alias = ''Bedroom bulbs — hold "${inventory.restoreState}"'';
+      id = "bedroom_bulbs_power_on_state";
+      mode = "single";
+      triggers = [
+        { trigger = "homeassistant"; event = "start"; }
+        { trigger = "state"; entity_id = powerOnEntities; }
+      ];
+      conditions = [{
+        condition = "template";
+        # Only when a bulb that is actually REACHABLE has the wrong value. A
+        # bulb whose lamp is switched off at the base is `unavailable`, and
+        # trying to write to it would just log an error on every HA start.
+        value_template =
+          "{{ expand(${jStrList powerOnEntities})"
+          + " | rejectattr('state', 'in', ['unavailable', 'unknown', '${inventory.restoreState}'])"
+          + " | list | count > 0 }}";
+      }];
+      actions = [
+        # A bulb that just booted is reachable before it is settled.
+        { delay.seconds = 10; }
+        {
+          action = "select.select_option";
+          continue_on_error = true;
+          # Target only the wrong ones, recomputed after the delay.
+          target.entity_id =
+            "{{ expand(${jStrList powerOnEntities})"
+            + " | rejectattr('state', 'in', ['unavailable', 'unknown', '${inventory.restoreState}'])"
+            + " | map(attribute='entity_id') | list }}";
+          data.option = inventory.restoreState;
+        }
+      ];
+    };
+
     # ── Glance → HA bridge ───────────────────────────────────────────────────
     # Glance renders every widget server-side and injects the markup with
     # innerHTML, so the dashboards cannot talk to HA by themselves: a <script>
@@ -34,6 +180,30 @@
       # preflight its X-Dash header forces) — see Modules/Server/_origins.nix.
       # config.asgard is declared by nixosModules.server (default.nix), which
       # every host running this module imports alongside it.
+      # ── What POST /light may recolour ─────────────────────────────────
+      # The same kind of boundary as `allowed`, for colour rather than power:
+      # only these light entities accept a colour, and only one of `presets`.
+      # Each names the two helper entities the bridge writes the choice into —
+      # which is also the only reason the bridge may touch an input_select or
+      # an input_number at all. Nothing else in HA is reachable through it.
+      lights = builtins.listToAttrs (map (c: {
+        name = c.entity;
+        value = { inherit (c) preset bright; };
+      }) inventory.colourable);
+      # The preset table as the bridge needs it: a name, and either hs or
+      # kelvin. Generated from the same list the swatches and the restore
+      # automation come from, so a swatch can never ask for a colour the
+      # bridge would reject.
+      presets = builtins.listToAttrs (map (p: {
+        name = p.name;
+        value = { inherit (p) rgbww; };
+      }) inventory.presets);
+
+      # The "mix your own" swatch: the option name that means "use the
+      # sliders", and the five input_numbers behind it in rgbww order. The
+      # bridge writes these and nothing else when a caller sends `channels`.
+      customName = inventory.customName;
+      customChannels = map (c: { inherit (c) key entity label; }) inventory.customChannels;
       origins = import ./_origins.nix config.asgard;
     });
 
@@ -108,6 +278,65 @@
             entities = inventory.group.members;
           }
         ];
+
+        # ── The bedside bulbs' memory ─────────────────────────────────────
+        # One pair per bulb, generated from the inventory: the remembered
+        # colour and brightness that a touch lamp's power cut cannot erase,
+        # because they live here and not in the bulb. Both dashboards write
+        # them through ha-bridge and read them straight back off its state
+        # stream — an input_select's state is a plain string like any relay's,
+        # which is what lets a swatch light up and a slider find its place
+        # without the bridge ever streaming light attributes.
+        #
+        # ⚠ Deliberately NO `initial:` on either. `initial` is re-applied on
+        # every Home Assistant start, which would throw her choice away on
+        # every rebuild of this module; without it HA restores the last value
+        # from .storage instead. The cost is that a FRESH install starts at the
+        # first option and at min, not at defaultPreset/defaultBrightness —
+        # cosmetic, self-correcting on the first tap, and the restore
+        # automation substitutes the proper defaults for `unknown` anyway.
+        # See Claude/home-assistant.md → the declarative limit.
+        input_select = builtins.listToAttrs (map (b: {
+          name = "${b.slug}_preset";
+          value = {
+            name = "${b.name} colour";
+            options = presetNames;
+            icon = "mdi:palette";
+          };
+        }) bulbs);
+
+        # Per-bulb brightness, plus the five shared custom-colour channels.
+        # ⚠ The custom five are 0-255 RAW CHANNEL VALUES, not percentages, and
+        # they are NOT perceptually linear — the firmware's gamma_correct: 2.8
+        # means the interesting part of the range is bunched low. step = 1 so a
+        # mix can actually be dialled in; see the tuning note in _plugs.nix.
+        input_number = builtins.listToAttrs (map (c: {
+          name = "bedroom_custom_${c.key}";
+          value = {
+            name = "Bedroom custom ${c.label}";
+            min = 0;
+            max = 255;
+            step = 1;
+            mode = "slider";
+            inherit (c) icon;
+          };
+        }) customChannels) // builtins.listToAttrs (map (b: {
+          name = "${b.slug}_brightness";
+          value = {
+            name = "${b.name} brightness";
+            min = 1;
+            max = 100;
+            step = 5;
+            unit_of_measurement = "%";
+            mode = "slider";
+            icon = "mdi:brightness-6";
+          };
+        }) bulbs);
+
+        # The two touch-lamp fixes — see the long note in the `let` above.
+        # These are YAML automations, so they are read-only in HA's UI by
+        # design: this file is where they are changed.
+        automation = [ holdPowerOn ] ++ map restoreAutomation bulbs;
       };
     };
 

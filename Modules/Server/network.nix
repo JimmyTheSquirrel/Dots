@@ -1,7 +1,6 @@
 { ... }: {
   # Asgard — networking: Tailscale (+ the status proxy behind Glance's Yggdrasil
-  # widget), the Ookla speed test and network panel, the Cloudflare tunnel, and
-  # WAN egress shaping.
+  # widget), the Ookla speed test and network panel, and the Cloudflare tunnel.
   #
   # Part of `flake.nixosModules.server`: every Modules/Server/*.nix file except
   # home-assistant.nix, marsbar.nix and _lib.nix defines that same module, and the
@@ -66,10 +65,16 @@
     # Ookla's official CLI, not speedtest-cli/librespeed — it is the number the
     # ISP will actually argue about, and it needs no server-list curation.
     #
-    # Reading the result: DOWNLOAD is the honest line rate. UPLOAD is not — every
-    # WAN-bound packet goes through the 30 Mbit htb class in wan-egress-shaping
-    # below, so this reports ~30 on a 50 Mbit uplink **by design**. The widget
-    # says so next to the figure; don't go hunting for a broken uplink.
+    # Reading the result: BOTH figures are the real household line rate, and are
+    # meant to stay that way — this panel is what the house is judged on.
+    #
+    # Until 2026-10-21 a `wan-egress-shaping` unit put every WAN-bound packet in
+    # a 30 Mbit htb class (sized for what was believed to be a 50 Mbit uplink),
+    # so UPLOAD read ~30 **by design**. It turned out the router's QoS was
+    # holding the whole house to the previous ISP's 500/50 plan; with that
+    # corrected the line measures ~900 down / ~109 up. The cap was removed so
+    # the figures here are the household's real, current numbers.
+    # Don't reintroduce a local shaper without changing this comment too.
     #
     # The download figure is only honest because the run pauses SABnzbd first
     # (see the script). Ookla measures whatever capacity is spare, so before that
@@ -250,48 +255,6 @@
           };
         };
       };
-    };
-
-    # --- WAN egress shaping ---
-    # Jellyfin's transcoder delivers segments in on/off bursts that momentarily
-    # saturate the full 50 Mbit uplink (~180ms latency spikes every ~3s, which
-    # rubber-bands game sessions on the LAN). Cap WAN-bound traffic at 30 Mbit
-    # so it flows smoothly below line rate; LAN/tailnet destinations (RFC1918)
-    # bypass the cap so local direct-play of high-bitrate remuxes is unaffected.
-    systemd.services.wan-egress-shaping = {
-      description = "Cap WAN-bound upload at 30 Mbit (smooth Jellyfin transcode bursts)";
-      after = [ "network-online.target" ];
-      wants = [ "network-online.target" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-      };
-      script = ''
-        tc=${pkgs.iproute2}/bin/tc
-        dev=${lanInterface}
-        # htb doesn't support in-place change, so "replace" fails on an existing
-        # root — tear down and rebuild from scratch (also clears classes/filters)
-        $tc qdisc del dev $dev root 2>/dev/null || true
-        $tc qdisc add dev $dev root handle 1: htb default 20
-        $tc class add dev $dev parent 1: classid 1:1 htb rate 940mbit
-        $tc class add dev $dev parent 1:1 classid 1:10 htb rate 910mbit ceil 940mbit
-        # burst/cburst explicit — htb's auto-computed default at this rate is
-        # ~1600 bytes (one packet), which sounds harmless but isn't: it means
-        # every burst above a single packet gets throttled by the token
-        # bucket itself, not just rate-limited on average. Discovered
-        # 2026-09-11 chasing Eclipse's remote Jellyfin playback "plays a
-        # chunk, stalls, plays a chunk" stutter — `tc -s class show` had 190M
-        # cumulative overlimits and a token count sitting in permanent
-        # deficit. 300KB (~80ms at 30 Mbit) lets Kodi's aggressive read-ahead
-        # bursts (filecache readfactor 20x, see Claude/eclipse.md) through
-        # smoothly while the long-run average is still capped at 30 Mbit.
-        $tc class add dev $dev parent 1:1 classid 1:20 htb rate 30mbit ceil 30mbit burst 300k cburst 300k
-        $tc qdisc add dev $dev parent 1:20 fq_codel
-        $tc filter add dev $dev parent 1: protocol ip prio 1 u32 match ip dst 192.168.0.0/16 flowid 1:10
-        $tc filter add dev $dev parent 1: protocol ip prio 1 u32 match ip dst 10.0.0.0/8 flowid 1:10
-        $tc filter add dev $dev parent 1: protocol ip prio 1 u32 match ip dst 172.16.0.0/12 flowid 1:10
-      '';
     };
 
     sops.secrets."cloudflare-tunnel"        = {};

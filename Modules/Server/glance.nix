@@ -208,6 +208,9 @@
     key = entity: builtins.replaceStrings [ "." ] [ "\\\\." ] entity;
     bridgeState = entity: ''{{ .JSON.String "${key entity}" }}'';
     bridgeWatts = entity: ''(.JSON.Float "${key entity}")'';
+    # Same, printed rather than raw — the bulbs' remembered brightness has to
+    # land in a slider's value attribute, not in an arithmetic expression.
+    bridgeNum = entity: fmt: ''{{ printf "${fmt}" (.JSON.Float "${key entity}") }}'';
 
     # The master switch's toggle moves every lamp, so lights.js flips them
     # optimistically with it.
@@ -221,6 +224,97 @@
         <span class="ag-txt"><span class="ag-name">${name}</span><span class="ag-sub">${sub}</span></span>
         <span class="ag-right"><span class="ag-state"></span><span class="ag-sw" aria-hidden="true"></span></span>
       </button>
+    '';
+
+
+    # ── The bedside bulbs ───────────────────────────────────────────────────
+    # These are NOT plugs (no relay, no power sensors), so they appear here and
+    # nowhere else on this page — not on the 24 h chart, not as device cards,
+    # not in Plug Health, all of which iterate inventory.plugs.
+    #
+    # A bulb is an ordinary tile plus two controls, wrapped in the
+    # data-ha-light container lights.js looks for (its header documents the
+    # whole contract). The swatches sit BESIDE the tile rather than inside it
+    # because a <button> cannot nest — the tile stays the on/off tap target and
+    # a swatch is its own button.
+    #
+    # Everything is generated from inventory.presets, and the active swatch and
+    # the slider's position are rendered server-side from the bulb's two HA
+    # helper entities, so the controls are already right on first paint.
+    bulbs = inventory.bulbs;
+
+    # The room temp/humidity sensor. Not a card of its own: stats.js draws it
+    # as a fourth ring inside the host card, beside the CPU temperature, and
+    # spells out the gap between them. It rides the ha-bridge stream (it is in
+    # the inventory's `watched`), so nothing here needs an HA token and the
+    # reading moves live rather than being a page-load snapshot.
+    room = inventory.room;
+
+    # ⚠ A literal colour, by design — the one place CLAUDE.md's "never a
+    # literal, always var(--hud…)" rule does not apply on this page. A swatch
+    # shows what the LAMP will look like; recolouring it to the viewer's theme
+    # would make it a lie.
+    swatch = b: p: ''
+      <button type="button"
+        class="ag-swatch{{ if eq (.JSON.String "${key b.preset}") "${p.name}" }} is-active{{ end }}"
+        data-ha-preset="${p.name}" style="--sw: ${p.css}"
+        title="${p.name}" aria-label="${p.name}"
+        aria-pressed="{{ if eq (.JSON.String "${key b.preset}") "${p.name}" }}true{{ else }}false{{ end }}">
+        <span class="ag-swatch-dot" aria-hidden="true"></span>
+        <span class="ag-swatch-name">${p.name}</span>
+      </button>
+    '';
+
+    # The ninth swatch. Its colour is whatever the five sliders say, so it gets
+    # a rainbow dot rather than a literal — there is no one colour to show.
+    customSwatch = b: ''
+      <button type="button"
+        class="ag-swatch ag-swatch-custom{{ if eq (.JSON.String "${key b.preset}") "${inventory.customName}" }} is-active{{ end }}"
+        data-ha-preset="${inventory.customName}"
+        title="${inventory.customName} — mix your own, below"
+        aria-label="${inventory.customName}"
+        aria-pressed="{{ if eq (.JSON.String "${key b.preset}") "${inventory.customName}" }}true{{ else }}false{{ end }}">
+        <span class="ag-swatch-dot" aria-hidden="true"></span>
+        <span class="ag-swatch-name">${inventory.customName}</span>
+      </button>
+    '';
+
+    # One mix for both lamps — see `customChannels` in _plugs.nix for why it is
+    # shared rather than per-bulb. <details> so it stays out of the way of the
+    # swatches, which are what anyone actually taps.
+    mixPanel = ''
+      <details class="ag-mix" data-ha-mix>
+        <summary class="ag-mix-head">Mix your own<span class="ag-mix-hint">tap ${inventory.customName} on a lamp, then dial it in</span></summary>
+        <div class="ag-mix-rows">
+          ${lib.concatMapStrings (c: ''
+            <div class="ag-mix-row" data-ha-chan-of="${c.entity}">
+              <span class="ag-k">${c.label}</span>
+              <input type="range" min="0" max="255" step="1" data-ha-chan
+                value="${bridgeNum c.entity "%.0f"}" aria-label="${c.label}">
+              <b data-ha-chan-label>${bridgeNum c.entity "%.0f"}</b>
+            </div>
+          '') inventory.customChannels}
+        </div>
+      </details>
+    '';
+
+    bulbCard = b: ''
+      <div class="ag-bulb" data-ha-light="${b.entity}" data-ha-preset-of="${b.preset}" data-ha-bright-of="${b.bright}">
+        ${lightTile {
+          inherit (b) entity name icon;
+          state = bridgeState b.entity;
+          sub = ''${b.room} · <span data-ha-preset-label>${bridgeState b.preset}</span>'';
+        }}
+        <div class="ag-swatches" role="group" aria-label="${b.name} colour">
+          ${lib.concatMapStrings (swatch b) inventory.presets}${customSwatch b}
+        </div>
+        <label class="ag-bright">
+          <span class="ag-k">Brightness</span>
+          <input type="range" min="1" max="100" step="5" data-ha-bright
+            value="${bridgeNum b.bright "%.0f"}" aria-label="${b.name} brightness">
+          <b data-ha-bright-label>${bridgeNum b.bright "%.0f"}%</b>
+        </label>
+      </div>
     '';
 
     # Live-link badge (lights.js paints it), parked in the widget's header row.
@@ -258,6 +352,11 @@
           sub = ''${p.room} · <span data-ag-w="${p.power}">{{ printf "%.1f" ${bridgeWatts p.power} }}</span> W'';
         }) lamps}
       </div>
+      <div class="ag-sec">Bedroom<span class="ag-sec-end">tap a colour</span></div>
+      <div class="ag-bulbs">
+        ${lib.concatMapStrings bulbCard bulbs}
+      </div>
+      ${mixPanel}
     '';
 
     # ── The shared power query (Power page) ────────────────────────────────
@@ -697,7 +796,7 @@
         <script src="${asset "dash.js"}" defer></script>
         <script src="${asset "lights.js"}" data-api-port="${toString bridgePort}" defer></script>
         <script src="${asset "asgard.js"}" data-api-port="${toString bridgePort}" defer></script>
-        <script src="${asset "stats.js"}" data-api-port="${toString statsPort}" data-jellyfin-port="${toString jellyfinPort}" defer></script>
+        <script src="${asset "stats.js"}" data-api-port="${toString statsPort}" data-jellyfin-port="${toString jellyfinPort}" data-room-temp="${room.temp}" data-room-humidity="${room.humidity}" data-room-online="${room.online}" data-room-floor="${toString room.floor}" data-room-ceiling="${toString room.ceiling}" data-room-warn="${toString room.warn}" data-room-bad="${toString room.bad}" defer></script>
         <script src="${asset "net.js"}" data-api-port="${toString netPort}" defer></script>
         <script src="${asset "eclipse.js"}" data-api-port="${toString eclipsePort}" defer></script>
         <script src="${asset "overview.js"}" data-tree="${asset "ygg-live.js"}" data-stats-port="${toString statsPort}" data-eclipse-port="${toString eclipsePort}" data-net-port="${toString netPort}" data-bridge-port="${toString bridgePort}" defer></script>
@@ -731,7 +830,10 @@
               widgets = [
                 # Was Glance's server-stats (three small bars, refreshed on load).
                 # Now a live stream from asgard-stats — see Modules/Server/stats.nix.
-                (liveCard { id = "ags-host"; title = "Asgard"; acc = "mint"; rune = "ansuz"; badge = "ags-live"; })
+                # haStream: this card draws the ROOM temperature, which comes from Home
+                # Assistant over the ha-bridge stream — and there is no light tile on
+                # this page to open that stream, so it has to ask for it explicitly.
+                (liveCard { id = "ags-host"; title = "Asgard"; acc = "mint"; rune = "ansuz"; badge = "ags-live"; haStream = true; })
                 (liveCard { id = "ags-storage"; title = "Storage"; acc = "teal"; rune = "othala"; })
                 (liveCard { id = "nw"; title = "Network"; acc = "mint"; rune = "raidho"; badge = "nw-live"; })
                 # One group rather than five stacked monitors. "All" is the

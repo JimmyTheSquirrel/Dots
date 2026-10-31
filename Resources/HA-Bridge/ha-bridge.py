@@ -14,6 +14,8 @@ server-side and exposes a handful of verbs:
   GET  /history          the last 24 h of every plug's power draw, as
                          10-minute time-weighted averages (the Power page chart)
   POST /toggle/<entity>  toggle one ALLOWED entity (needs `X-Dash: 1`)
+  POST /light/<entity>   set one COLOURABLE bulb's preset and/or brightness
+                         (likewise), and remember the choice in HA
 
 PUSH, NOT POLL. Every open dashboard used to poll /states every 3s — hidden tabs
 and pages without a single light included — and every one of those polls made
@@ -64,6 +66,27 @@ ALLOWED = frozenset(_CONFIG["allowed"])
 WATCHED = sorted(set(_CONFIG["watched"]) | ALLOWED)
 WATCHED_SET = frozenset(WATCHED)
 ORIGINS = frozenset(_CONFIG.get("origins", []))
+# ── The bedside bulbs ───────────────────────────────────────────────────────
+# POST /light may recolour these and nothing else, to one of PRESETS and nothing
+# else — the same kind of boundary ALLOWED is for power, and for the same reason:
+# anything on the tailnet can reach this port. Each entry names that bulb's two
+# HA helper entities (input_select + input_number), which the bridge writes the
+# choice into so the touch lamp's next power cut cannot lose it. Those two ids
+# are also the ONLY input_select/input_number this process will ever write.
+LIGHTS = {k: v for k, v in (_CONFIG.get("lights") or {}).items()}
+# name -> {"rgbww": [r, g, b, cold_white, warm_white]}. Generated from the one
+# preset table in Modules/Server/_plugs.nix, the same one the swatches are drawn
+# from. One key for every preset because the reflashed firmware gives the bulb a
+# single combined colour mode — see the note on `presets` in that file.
+PRESETS = {k: v for k, v in (_CONFIG.get("presets") or {}).items()}
+# The "mix your own" swatch. CUSTOM_NAME is the input_select option that means
+# "use the sliders"; CUSTOM_CHANNELS are the five input_number entities behind
+# it, in rgbww order (red, green, blue, cold white, warm white). Like the two
+# per-bulb helpers, these are the ONLY input_numbers this process will write —
+# a caller cannot name an entity, it can only supply five numbers.
+CUSTOM_NAME = _CONFIG.get("customName") or "Custom"
+CUSTOM_CHANNELS = list(_CONFIG.get("customChannels") or [])
+
 # The power sensors the Power page charts. Read with HA's history API on
 # demand — never streamed, never polled while nobody is looking.
 HISTORY = list(_CONFIG.get("history", []))
@@ -71,6 +94,7 @@ HISTORY = list(_CONFIG.get("history", []))
 KEEPALIVE_S = 15    # SSE ping — under any proxy idle timeout, and the client's watchdog
 POLL_S = 10         # fallback poll interval while the websocket is down
 TOGGLE_WAIT_S = 2.0 # how long POST /toggle waits for HA to report the new state
+LIGHT_BODY_MAX = 512 # POST /light accepts a tiny JSON object; refuse anything else
 CLIENT_QUEUE = 256  # frames buffered per SSE client before it is cut loose
 RETRY_MS = 2000     # EventSource reconnect delay the browser is told to use
 HIST_HOURS = 24     # /history window
@@ -464,6 +488,246 @@ async def post_toggle(request):
                                 "states": hub.states})
 
 
+
+async def call_service(app, domain, service, data):
+    """Call one HA service and fold whatever it reports changed into the snapshot.
+
+    HA answers a service call with the states that changed while it ran, so a
+    light that was off and is now on — or an input_select that has just taken a
+    new option — is already in the reply. Feeding those straight into the hub
+    means every open dashboard repaints from this one call, without waiting for
+    the websocket to come round, and it still works in the degraded polling mode.
+    """
+    async with app["session"].post(
+            HA + "/api/services/%s/%s" % (domain, service),
+            json=data, headers=app["auth"],
+            timeout=ClientTimeout(total=10)) as r:
+        if r.status >= 400:
+            raise RuntimeError("home assistant answered %d for %s.%s" % (r.status, domain, service))
+        changed = await r.json(content_type=None)
+    hub = app["hub"]
+    for st in changed or []:
+        if isinstance(st, dict):
+            hub.set_state(st.get("entity_id"), st.get("state"))
+
+
+def current_mix(hub):
+    """The five custom channels as they stand, from the live state snapshot.
+
+    Returns None if any of them is missing or not a number — which happens on a
+    fresh install before the input_numbers have ever been written, and means
+    "there is no mix yet" rather than "the mix is black".
+    """
+    out = []
+    for spec in CUSTOM_CHANNELS:
+        raw = hub.states.get(spec["entity"])
+        try:
+            v = int(round(float(raw)))
+        except (TypeError, ValueError):
+            return None
+        out.append(max(0, min(255, v)))
+    return out or None
+
+
+async def apply_mix(app, hub, channels):
+    """Push a mix to every colourable bulb that is ON and already set to Custom.
+
+    That is what makes dragging a slider feel live: tap Custom on the lamp you
+    want, then dial it in and watch it move. A lamp that is off, or showing a
+    different preset, is deliberately left alone — moving a slider must never
+    switch a lamp on by itself.
+    """
+    for entity, conf in LIGHTS.items():
+        if hub.states.get(entity) != "on":
+            continue
+        if hub.states.get(conf["preset"]) != CUSTOM_NAME:
+            continue
+        await call_service(app, "light", "turn_on",
+                           {"entity_id": entity, "rgbww_color": list(channels)})
+
+
+async def post_mix(request):
+    """Store the shared custom colour, and preview it where it is already lit.
+
+    Body: {"channels": [r, g, b, cold, warm]}, each 0-255.
+
+    Separate from POST /light because this verb must NOT turn a lamp on. It
+    writes the five sliders — the mix is shared by both bedside lamps and
+    persists in HA — and only then pushes it to lamps already showing Custom.
+    """
+    app, hub = request.app, request.app["hub"]
+    if request.headers.get("X-Dash") != "1":
+        return reply(request, 403, {"error": "missing X-Dash header"})
+    if not CUSTOM_CHANNELS:
+        return reply(request, 500, {"error": "no custom channels configured"})
+    if (request.content_length or 0) > LIGHT_BODY_MAX:
+        return reply(request, 413, {"error": "body too large"})
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return reply(request, 400, {"error": "expected a JSON object"})
+    if not isinstance(body, dict):
+        return reply(request, 400, {"error": "expected a JSON object"})
+
+    channels = body.get("channels")
+    if not isinstance(channels, list) or len(channels) != len(CUSTOM_CHANNELS):
+        return reply(request, 400,
+                     {"error": "channels must be %d numbers" % len(CUSTOM_CHANNELS)})
+    clean = []
+    for v in channels:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return reply(request, 400, {"error": "channels must be numbers"})
+        v = int(round(v))
+        if not 0 <= v <= 255:
+            return reply(request, 400, {"error": "channels out of range 0-255"})
+        clean.append(v)
+
+    try:
+        for spec, value in zip(CUSTOM_CHANNELS, clean):
+            await call_service(app, "input_number", "set_value",
+                               {"entity_id": spec["entity"], "value": value})
+        await apply_mix(app, hub, clean)
+    except Exception as exc:  # noqa: BLE001
+        return reply(request, 502, {"error": str(exc) or type(exc).__name__})
+
+    return reply(request, 200, {"channels": clean, "states": hub.states})
+
+
+async def post_light(request):
+    """Set one COLOURABLE bulb's colour preset and/or brightness.
+
+    Body: {"preset": "<a PRESETS name>"} and/or {"brightness_pct": 1..100},
+    or {"channels": [r, g, b, cold, warm]} to mix a colour by hand.
+    Any alone is fine; together is one call.
+
+    `channels` is the one place a caller supplies a colour rather than naming
+    one. That is safe for the same reason /toggle is: the ENTITY allowlist is
+    the boundary, and it has already been checked above — these are bedroom
+    lamps, and an odd colour on one is not a privileged action. Every value is
+    still validated, the five are written to the custom sliders, and the
+    bulb's preset is set to CUSTOM_NAME so the restore automation and both
+    dashboards agree about what it is showing.
+
+    Three things happen, and the order matters: the bulb is set, then the two
+    HA helpers are updated to match. The helpers are the bulb's MEMORY — the
+    bedroom lamps are touch lamps, so mains is cut at the base and HA loses the
+    live colour attributes entirely. What is written here is what the restore
+    automation puts back when the lamp is switched on again, and what both
+    dashboards read to light the right swatch.
+
+    turn_on, not a colour-only change: tapping a swatch on a lamp that is off
+    should light it, which is also what makes the swatches work as the only
+    control anyone needs.
+    """
+    entity = request.match_info["entity"]
+    app, hub = request.app, request.app["hub"]
+
+    # Same reasoning as POST /toggle: a custom header forces a CORS preflight,
+    # and only ORIGINS pass it. Checked before the allowlist so an unauthorised
+    # caller learns nothing about which entities exist.
+    if request.headers.get("X-Dash") != "1":
+        return reply(request, 403, {"error": "missing X-Dash header"})
+    conf = LIGHTS.get(entity)
+    if conf is None:
+        return reply(request, 403, {"error": "not colourable", "entity": entity})
+
+    if (request.content_length or 0) > LIGHT_BODY_MAX:
+        return reply(request, 413, {"error": "body too large"})
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — any malformed body is the same answer
+        return reply(request, 400, {"error": "expected a JSON object"})
+    if not isinstance(body, dict):
+        return reply(request, 400, {"error": "expected a JSON object"})
+
+    # Build the service data from the PRESET TABLE, never from the body: the
+    # caller picks a preset by name and the five channel values behind it come
+    # from the config. So no caller can send an arbitrary colour, and a swatch
+    # and the restore automation cannot disagree about what "Amber" means.
+    data = {"entity_id": entity}
+
+    # A hand-mixed colour. Mutually exclusive with `preset`: accepting both
+    # would leave the swatch and the lamp disagreeing about what is lit.
+    channels = body.get("channels")
+    preset = body.get("preset")
+    if channels is not None and preset is not None:
+        return reply(request, 400, {"error": "send either preset or channels, not both"})
+    if channels is not None:
+        if not CUSTOM_CHANNELS:
+            return reply(request, 500, {"error": "no custom channels configured"})
+        if not isinstance(channels, list) or len(channels) != len(CUSTOM_CHANNELS):
+            return reply(request, 400,
+                         {"error": "channels must be %d numbers" % len(CUSTOM_CHANNELS)})
+        clean = []
+        for v in channels:
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                return reply(request, 400, {"error": "channels must be numbers"})
+            v = int(round(v))
+            if not 0 <= v <= 255:
+                return reply(request, 400, {"error": "channels out of range 0-255"})
+            clean.append(v)
+        if not any(clean):
+            # All five at zero is "on but emitting nothing", which reads as a
+            # broken bulb. Turning it off is a different verb.
+            return reply(request, 400, {"error": "at least one channel must be above zero"})
+        channels = clean
+        data["rgbww_color"] = channels
+        preset = CUSTOM_NAME
+
+    if channels is None and preset == CUSTOM_NAME:
+        # The Custom swatch behaves like any other: one tap lights the lamp
+        # with the stored mix. The values come from the live snapshot, so the
+        # swatch and the sliders can never disagree.
+        channels = current_mix(request.app["hub"])
+        if channels is None:
+            return reply(request, 400, {"error": "no custom colour set yet"})
+        data["rgbww_color"] = list(channels)
+    elif channels is None and preset is not None:
+        spec = PRESETS.get(preset) if isinstance(preset, str) else None
+        if not spec:
+            return reply(request, 400, {"error": "unknown preset", "preset": preset})
+        # rgbww_color: all five channels at once, which is the whole point of
+        # the firmware change — amber can sit ON TOP of warm white instead of
+        # replacing it. A preset without it is a config error, not a request
+        # the caller got wrong, so it is a 500 rather than a 400.
+        channels = spec.get("rgbww")
+        if not isinstance(channels, list) or len(channels) != 5:
+            log.error("preset %r has no usable rgbww channels: %r", preset, spec)
+            return reply(request, 500, {"error": "preset misconfigured", "preset": preset})
+        data["rgbww_color"] = list(channels)
+
+    bright = body.get("brightness_pct")
+    if bright is not None:
+        if isinstance(bright, bool) or not isinstance(bright, (int, float)):
+            return reply(request, 400, {"error": "brightness_pct must be a number"})
+        bright = int(round(bright))
+        if not 1 <= bright <= 100:
+            return reply(request, 400, {"error": "brightness_pct out of range 1-100"})
+        data["brightness_pct"] = bright
+
+    if len(data) == 1:
+        return reply(request, 400, {"error": "nothing to set"})
+
+    try:
+        await call_service(app, "light", "turn_on", data)
+        # The sliders first, so that by the time the input_select flips to
+        # Custom the mix behind it is already the one that is lit.
+        if channels is not None:
+            for spec, value in zip(CUSTOM_CHANNELS, channels):
+                await call_service(app, "input_number", "set_value",
+                                   {"entity_id": spec["entity"], "value": value})
+        if preset is not None:
+            await call_service(app, "input_select", "select_option",
+                               {"entity_id": conf["preset"], "option": preset})
+        if bright is not None:
+            await call_service(app, "input_number", "set_value",
+                               {"entity_id": conf["bright"], "value": bright})
+    except Exception as exc:  # noqa: BLE001
+        return reply(request, 502, {"error": str(exc) or type(exc).__name__})
+
+    return reply(request, 200, {"entity": entity, "state": hub.states.get(entity),
+                                "states": hub.states})
+
 # ── lifecycle ────────────────────────────────────────────────────────────────
 
 async def on_startup(app):
@@ -503,6 +767,8 @@ def make_app():
     app.router.add_get("/states", get_states)
     app.router.add_get("/history", get_history)
     app.router.add_post("/toggle/{entity}", post_toggle)
+    app.router.add_post("/light/{entity}", post_light)
+    app.router.add_post("/mix", post_mix)
     app.router.add_route("OPTIONS", "/{tail:.*}", preflight)
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)

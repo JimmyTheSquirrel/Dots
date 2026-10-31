@@ -321,6 +321,168 @@ html[data-ha-link="offline"] .mb-light[data-ha-entity] {
   opacity: 0.72;
 }
 
+
+/* ── The bedside bulbs: tile + colour swatches + brightness ─────────────────
+   The SAME controls as the admin dashboard's Power page (asgard.css's
+   .ag-bulb block), sized for a thumb. One stacked block per bulb; the tile
+   keeps its own on/off behaviour and the controls sit under it as siblings,
+   because a <button> cannot contain another one.
+   Markup: Modules/Server/marsbar.nix → bulbCard. Behaviour: lights.js. */
+.mb-bulb {
+  /* Full width, like the hero: six swatches plus a slider do not fit in a
+     250px grid column, and "Bedroom" reads better as its own band anyway. */
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--mb-line-soft);
+  border-radius: var(--mb-r-tile);
+  background: hsla(calc(var(--mb-h) - 2), 26%, 16%, 0.34);
+}
+
+/* The swatch row. `--sw` is the lamp colour this button stands for, set inline
+   from the preset table — see the warning in marsbar.nix: this is the one
+   place here a literal colour is right, because it shows the LIGHT and not her
+   theme. Everything around it still follows --mb-h. */
+.mb-swatches {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 8px;
+}
+.mb-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  /* A comfortable thumb target — this is the control she actually uses. */
+  min-height: 62px;
+  padding: 10px 2px 8px;
+  border: 1px solid var(--mb-line-soft);
+  border-radius: var(--mb-r-small);
+  background: hsla(calc(var(--mb-h) - 2), 20%, 10%, 0.45);
+  cursor: pointer;
+  font: inherit;
+  color: var(--mb-text-faint);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition:
+    border-color 0.25s var(--mb-ease),
+    background 0.25s var(--mb-ease),
+    color 0.25s var(--mb-ease),
+    transform 0.12s var(--mb-ease);
+}
+.mb-swatch:active { transform: scale(0.96); }
+.mb-swatch-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--sw);
+  /* A dark ring so a pale swatch still reads as a disc, and a glow in its OWN
+     colour rather than hers. */
+  box-shadow: 0 0 0 1px hsla(var(--mb-h), 30%, 4%, 0.55), 0 0 12px -2px var(--sw);
+}
+.mb-swatch-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+@media (hover: hover) {
+  .mb-swatch:hover { border-color: hsla(var(--mb-h), 60%, 72%, 0.40); color: var(--mb-text-dim); }
+}
+.mb-swatch:focus-visible { outline: 2px solid var(--mb-accent); outline-offset: 2px; }
+/* The one in use — painted by lights.js from the bulb's input_select, so it is
+   right whoever set it and from wherever (here, the Power page, the HA app). */
+.mb-swatch.is-active {
+  border-color: hsla(calc(var(--mb-h) + 2), 78%, 72%, 0.85);
+  background: hsla(calc(var(--mb-h) + 4), 50%, 36%, 0.34);
+  color: var(--mb-text);
+}
+.mb-swatch.is-active .mb-swatch-dot {
+  box-shadow: 0 0 0 2px hsla(calc(var(--mb-h) + 2), 85%, 80%, 0.9), 0 0 16px -1px var(--sw);
+}
+
+/* Brightness. A native range, themed: one slider is not worth a custom
+   control, and the native one comes with keyboard and screen-reader support. */
+.mb-bright {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 4px 2px 2px;
+}
+.mb-bright .mb-k {
+  flex: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--mb-text-faint);
+}
+.mb-bright b {
+  flex: none;
+  min-width: 3.4em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--mb-text-dim);
+}
+.mb-bright input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.mb-bright input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, hsla(var(--mb-h), 40%, 60%, 0.22), var(--mb-accent));
+}
+.mb-bright input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, hsla(var(--mb-h), 40%, 60%, 0.22), var(--mb-accent));
+}
+.mb-bright input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
+  border: 1px solid hsla(var(--mb-h), 30%, 4%, 0.5);
+  border-radius: 50%;
+  background: var(--mb-accent);
+  box-shadow: 0 0 12px -2px var(--mb-glow);
+}
+.mb-bright input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border: 1px solid hsla(var(--mb-h), 30%, 4%, 0.5);
+  border-radius: 50%;
+  background: var(--mb-accent);
+  box-shadow: 0 0 12px -2px var(--mb-glow);
+}
+.mb-bright input[type="range"]:focus-visible { outline: 2px solid var(--mb-accent); outline-offset: 2px; }
+
+/* A failed POST — the bridge refused it, or it never arrived. */
+.mb-bulb[data-ha-error], .mb-swatch[data-ha-error] { border-color: var(--mb-bad); }
+
+/* Stream down: these may be showing a stale choice, so drain them like every
+   other live control. */
+html[data-ha-link="reconnecting"] :is(.mb-swatches, .mb-bright),
+html[data-ha-link="offline"] :is(.mb-swatches, .mb-bright) { filter: saturate(0.35); opacity: 0.72; }
+
+/* Narrow phone: six names will not fit side by side — keep the discs, drop
+   the labels (every button still carries its title and aria-label). */
+@media (max-width: 520px) {
+  .mb-swatch-name { display: none; }
+  .mb-swatch { min-height: 54px; padding: 12px 2px; }
+}
+
 /* The hero card (All Lights) reads as the primary control — a warmer, deeper
    shade than the individual lamps plus an accent stripe down its leading edge,
    so "master switch" is obvious without reading a word of it. */
@@ -496,4 +658,37 @@ html.mb-garden:not([data-cats]) .widget > .widget-header::before {
   background: none;
   animation: none;
   filter: none;
+}
+
+/* ── Mix your own ─────────────────────────────────────────────────────────
+   ⚠ Mirrors asgard.css — the Bedroom controls are shared between the two
+   dashboards. Change one and change the other. */
+.mb-swatch-custom .mb-swatch-dot {
+  /* Custom has no one colour, so no literal: a spectrum, not a lie. */
+  background: conic-gradient(from 210deg, #ff5410, #ffbe5c, #fff3e6, #7fd4ff, #ff5410);
+}
+.mb-mix { grid-column: 1 / -1; margin-top: 12px; border: 1px solid var(--mb-line-soft); border-radius: var(--mb-r-small); background: hsla(calc(var(--mb-h) - 2), 20%, 10%, 0.35); }
+.mb-mix-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 11px 14px; cursor: pointer; list-style: none;
+  font-size: 1.05rem; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--mb-text-dim); -webkit-tap-highlight-color: transparent;
+}
+.mb-mix-head::-webkit-details-marker { display: none; }
+.mb-mix-head::before { content: "+"; font-weight: 700; color: var(--mb-accent); }
+.mb-mix[open] .mb-mix-head::before { content: "−"; }
+.mb-mix-hint { font-size: 0.92rem; letter-spacing: 0.03em; text-transform: none; color: var(--mb-text-faint); }
+.mb-mix-rows { padding: 2px 14px 14px; display: grid; gap: 10px; }
+.mb-mix-row { display: grid; grid-template-columns: 96px 1fr 40px; align-items: center; gap: 12px; }
+.mb-mix-row .mb-k { font-size: 1rem; color: var(--mb-text-dim); letter-spacing: 0.05em; }
+.mb-mix-row b { font-variant-numeric: tabular-nums; text-align: right; color: var(--mb-text); }
+.mb-mix-row input[type="range"] { width: 100%; }
+.mb-mix[data-ha-error] { border-color: var(--mb-bad); }
+html[data-ha-link="reconnecting"] .mb-mix-rows,
+html[data-ha-link="offline"] .mb-mix-rows { filter: saturate(0.35); opacity: 0.72; }
+@media (max-width: 520px) {
+  .mb-mix-row { grid-template-columns: 1fr 40px; grid-template-areas: "k k" "s v"; }
+  .mb-mix-row .mb-k { grid-area: k; }
+  .mb-mix-row input[type="range"] { grid-area: s; }
+  .mb-mix-row b { grid-area: v; }
 }

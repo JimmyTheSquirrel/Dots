@@ -40,16 +40,17 @@
         # Bits per second. Raised from the original 12 Mbps on 2026-09-11 when
         # Eclipse (the Pi 5 TV box) became a permanent remote client after
         # moving to a second house — 12 Mbps forced every remux into an HLS
-        # transcode, which turned out not even to be the main problem (see
-        # wan-egress-shaping below), but a stricter cap than Eclipse's typical
-        # ~15-20 Mbps HEVC remuxes need is still real quality loss for what is
-        # now a primary device, not an occasional public share.
+        # transcode, which turned out not even to be the main problem (that was
+        # wan-egress-shaping's burst, a unit since removed), but a stricter cap
+        # than Eclipse's typical ~15-20 Mbps HEVC remuxes need is still real
+        # quality loss for what is now a primary device, not an occasional
+        # public share.
         #
-        # Trade-off, accepted deliberately: 40 Mbps is most of the 30 Mbit WAN
-        # egress cap on its own, so this no longer comfortably fits "two
-        # concurrent remote streams" the way 12 Mbps did. A second simultaneous
-        # remote/CF-tunnel viewer while Eclipse is direct-streaming will
-        # contend for the same shaped pipe. Revisit if that starts happening.
+        # This used to be a tight fit: a local 30 Mbit WAN egress cap meant 40
+        # Mbps was most of the pipe on its own and two concurrent remote streams
+        # contended. That cap was removed on 2026-10-21 — the router's QoS had
+        # been holding the whole house to the previous ISP's 500/50 plan, and
+        # the uplink actually measures ~109 Mbit, so 40 Mbps leaves room now.
         system.remoteClientBitrateLimit = 40000000;
 
         # Intel QuickSync on i5-14400 (UHD 730) — /dev/dri/renderD128

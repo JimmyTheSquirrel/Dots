@@ -61,7 +61,7 @@
     { id: "guests", k: "who", t: "Anyone with the link", s: "family & friends · no app",
       d: "No app, no VPN, no account on the tailnet — just a web address. Only the three services in this row can be reached this way." },
     { id: "cf", k: "door", t: "Cloudflare Tunnel", s: "*.bifrost-vault.com",
-      d: "The only way in from the internet. cloudflared on Asgard dials OUT to Cloudflare, so no port is open on the router. Three names: jellyfin., requests. and photos.bifrost-vault.com. Uploads are capped at 30 Mbit so a remote stream never lags a game at home." },
+      d: "The only way in from the internet. cloudflared on Asgard dials OUT to Cloudflare, so no port is open on the router. Three names: jellyfin., requests. and photos.bifrost-vault.com. Remote streams share the household's ~109 Mbit uplink." },
     { id: "jellyfin", k: "svc", t: "Jellyfin", s: "films · TV · music", p: "8096",
       d: "The media server. Reads the pool and streams to the TV, phones and browsers — transcoding on the Intel GPU (QuickSync) when a device can't play the original." },
     { id: "seerr", k: "svc", t: "Jellyseerr", s: "ask for a film or show", p: "5055",

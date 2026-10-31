@@ -624,3 +624,36 @@ Diagnosed from a live Cult of the Lamb session. Evidence and all the numbers:
 5. Consider whether Wolf should **cap what it accepts** rather than honouring any bitrate a
    client asks for. Nothing on the host side warns that a request is unservable — the only
    symptom is 27,628 FEC warnings buried in the journal.
+
+## Opened 2026-10-31 — Asgard into a cupboard: thermal headroom
+
+A temp/humidity sensor now reports the room Asgard is in
+(`sensor.asgard_temp_humidity_sensor_temperature` / `…_humidity`, ESPHome; ~22.9 °C /
+59 % at install). **Asgard is going into a cupboard**, and the point of the sensor is to
+see how hot that enclosed space gets and cross-reference it with the CPU and drive temps
+— so a thermal problem is visible, and something can be shut down, before hardware
+cooks.
+
+1. ~~**Show it where the other temps are.**~~ ✅ **Done 2026-10-31.** It is the fourth
+   ring in the Asgard page's host card, beside the CPU temperature, with humidity under
+   it (`stats.js`, declared as `room` in `_plugs.nix`). ⚠ The ring's `warn`/`bad` are
+   **30/35 °C and are a guess** — that is what point 3 is for.
+   ⚠ **A `cpu over room` delta row was added and removed the same day at rock's
+   request** — he wants the room temperature on the card, not a derived figure. Don't put
+   it back on the dashboard. The delta is still the right thing to *reason* with when
+   judging the cupboard (a rising delta is a cooling problem; a rising room temp with a
+   flat delta is just the weather) — work it out from the recorder when the time comes.
+2. **Baseline before the move, not after.** Record a few days of room temp and the delta
+   while Asgard is still in the open, or there is nothing to say whether the cupboard
+   made it worse. The sensor is already in HA's recorder, so this costs nothing but
+   waiting.
+3. **Then decide the thresholds.** Any "shut things down when hot" automation needs
+   numbers that came from measurement, not from a guess. Candidates: warn on the dashboard,
+   stop transcoding / downloads, spin down the array, hard power-off at the top end.
+   ⚠ Asgard's own relay (`switch.server_power_switch`) is a mains feed and is deliberately
+   **not** in ha-bridge's allowlist — cutting it is an unclean stop, so an emergency path
+   must be a clean `systemctl poweroff`, never that switch.
+4. **Fans.** The open fan question (`Claude/server-info.md`: the drive-cage fans onto a
+   motherboard SYS_FAN header via a Y-splitter) gets a lot more pointed in a cupboard. Worth closing before the move rather than after.
+5. **A cupboard is a humidity question too**, and the sensor already answers it. Condensation
+   on disks is a worse failure than a warm CPU.

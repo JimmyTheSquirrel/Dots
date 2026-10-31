@@ -198,7 +198,7 @@
         '</div>' +
         '<div class="nw-meta"><span>' +
           (t.ok ? "last run " + D.ago(Date.parse(t.timestamp) / 1000) + " · " + D.esc(t.server) + " · " + t.jitter + " ms jitter" : "never run") +
-          " · upload is shaped to 30 Mb/s</span>" +
+          "</span>" +
           (READONLY ? (st.running ? '<span>running now…</span>' : '') :
           '<button class="ag-pill" id="nw-run" type="button"' + (st.running || st.sent ? " disabled" : "") + '>' +
             (st.running ? "Running…" : st.sent ? "Starting…" : "Run now") + '</button>') + '</div>' +
