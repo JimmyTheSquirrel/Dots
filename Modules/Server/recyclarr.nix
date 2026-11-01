@@ -63,6 +63,24 @@ sonarr:
   sonarr-main:
     base_url: http://localhost:8989
     api_key: $SONARR_KEY
+    # Sonarr's own default for "Rename Episodes" is OFF, and nothing here ever
+    # set it, so every imported file kept whatever its release group called it.
+    # Jellyfin parses filenames ITSELF (it never asks Sonarr), so a folder with
+    # several scene conventions in it gets scattered: Doctor Who's Specials held
+    # five different shapes and Jellyfin filed 12 of 19 wrongly - `S03E00` style
+    # names became "season 3, episode 0", and names with no episode number at
+    # all invented a Season 20. Sonarr's own season-0 mapping was correct the
+    # whole time; it just never wrote it to disk. See Claude/server-info.md.
+    #
+    # Only `episodes.rename` is set. `series` and `season` are deliberately
+    # OMITTED: recyclarr's defaults for those are `jellyfin-tvdb`/`default`,
+    # which would rewrite every series FOLDER to add a tvdbid suffix and move
+    # the whole ~19TB library's directory structure. The episode format itself
+    # is left to Sonarr's configured standardEpisodeFormat, so this flips one
+    # checkbox and changes no format.
+    media_naming:
+      episodes:
+        rename: true
     quality_definition:
       type: series
     quality_profiles:
