@@ -61,6 +61,28 @@ file's own metadata and never consults `.sops.yaml` — which is why this hid fo
 
 Also: never `git diff` a sops file — the output is noise.
 
+## ⚠ Two secrets that are deliberately NOT system secrets — `wifi-ssid` / `wifi-password`
+
+The house Wi-Fi credentials live in `Secrets/secrets.yaml` but are **not** declared in
+`Modules/Core/sops.nix`, so they never appear under `/run/secrets` on any machine. The only
+consumer is `Resources/ESPHome/flash.sh`, which reads them on the *workstation* when
+building bulb firmware:
+
+```bash
+sops -d --extract '["wifi-ssid"]' Secrets/secrets.yaml
+```
+
+They are here because an ESPHome OTA replaces the whole image, so the firmware must carry
+its own Wi-Fi credentials — Athom's stock config carries none, and a bulb that comes back
+without Wi-Fi needs a USB-serial flash to recover.
+
+⚠ **The compiled binary contains the password in clear.** `flash.sh` therefore writes
+`secrets.yaml` and builds inside a `mktemp -d` with mode 700 and deletes it on exit
+(trap), and nothing it produces is ever written into the repo. Don't "tidy" that build
+into the working tree, and don't add these two to `sops.secrets` to make them "consistent"
+— that would put the house Wi-Fi password on every host's filesystem to serve a script
+that runs on one.
+
 ## Path Fix
 
 `defaultSopsFile` is a path **relative to the module file**. The module now lives at

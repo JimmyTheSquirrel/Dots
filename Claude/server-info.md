@@ -293,6 +293,49 @@ stack), 5000 (Kavita), 25600 (Komga) or 2049/111 (NFS) any more.
   Chrome, the LG TV, the Android TV and the phones all can, and Jellyfin tone-maps for those that
   cannot. Fixing one weak client by degrading acquisition for everyone is the wrong layer.
 
+  ⚠️ **This is Radarr only — `sonarr-main` has no equivalent, and TV is still grabbing P5.**
+  The library held 38 P5 items in 2026-09 and **42** by 2026-11-01; the growth is all TV.
+  Mirroring the `-10000` line into the Sonarr block is tracked in `Claude/next-up.md`
+  (2026-11-01 section). Nothing about acquisition helps the files already on disk — the Kodi
+  addon patch is what covers those, and it had been silently clobbered for six weeks.
+
+### Episode renaming — ON since 2026-11-01, and why it matters
+
+Sonarr's `renameEpisodes` default is **OFF**, and nothing in this repo had ever set it, so every
+import kept whatever its release group called it. That is invisible until you remember
+**Jellyfin parses filenames itself and never asks Sonarr**.
+
+Doctor Who's Specials folder held five naming conventions at once. `S00E##` was correct;
+`S##E00` made Jellyfin read "season N, episode 0" and file seven specials into numbered seasons;
+and `S09.Christmas.Special.` carried no episode number at all, so Jellyfin **invented a Season 20**
+and filed *The Husbands of River Song* as **Season 2, episode 64**. Sonarr's season-0 mapping was
+correct the entire time — it simply never wrote it to disk.
+
+Turned on declaratively in `Modules/Server/recyclarr.nix` (commit `7b3afbf`), inside the
+`sonarr-main` block, which is the only route nixflix exposes:
+
+```yaml
+media_naming:
+  episodes:
+    rename: true
+```
+
+⚠️ **Omit `series` and `season` from that block.** Recyclarr defaults them to `jellyfin-tvdb`
+and `default`, which would rewrite every series **folder** to carry a tvdbid suffix and
+restructure the whole ~19 TB library. Only `episodes.rename` is wanted here.
+
+146 files were renamed on the first sync. Kodi re-synced itself with no action needed.
+
+⚠️ **Renaming is not the whole story.** Jellyfin resolves episodes against whichever metadata
+provider is first for the library, and that must be **TheTVDB** to match how Sonarr numbers — it
+was `TheMovieDb > OMDb`, which mislabels any show whose specials the two databases count
+differently. Set in Dashboard → Libraries → Shows → episode metadata downloaders (a
+`POST /Library/VirtualFolders/LibraryOptions` is the API route, but it is a dangerous-call prompt;
+doing it in the UI is easier). Even with it right, Doctor Who's last five specials stay wrong —
+that is a genuine TVDB/skyhook off-by-one plus a series split, written up in
+`Claude/next-up.md`. Metadata only changes on refresh, and a plain `FullRefresh` is not enough:
+`replaceAllMetadata=true` is required or titles stay as raw filenames.
+
 ### Mullvad VPN Namespace (SABnzbd)
 - `netns-vpn.service` — creates `/var/run/netns/vpn`
 - `wg-mullvad.service` — WireGuard interface inside vpn namespace, Mullvad Sydney endpoint (146.70.200.2:51820)
@@ -705,6 +748,7 @@ something at least every 15 s, so 40 s of silence = a half-open link → reconne
 | Cards | Script | Stream | Backend |
 |---|---|---|---|
 | Lights, relay states | `lights.js` | `/events` | ha-bridge :9556 |
+| Bedroom bulbs: swatch + brightness + the five-channel mix | `lights.js` | `/events` | ha-bridge `POST /light` and `POST /mix`; the *chosen* colour is read from `input_select`/`input_number`, never from the light's attributes (a touch lamp is `unavailable` half the time) |
 | Power: watts, V, A, kWh today, cost today, signal, plug online, projections | `asgard.js` | lights.js's `ha:state` events | ha-bridge (watches all of them — `_plugs.nix`) |
 | Power: 24 h chart | `asgard.js` | `GET /history` every 5 min | ha-bridge (2 min cache) |
 | Asgard, Storage, Now Playing, Downloads | `stats.js` | `/stream` | asgard-stats :9552 |
@@ -1131,8 +1175,11 @@ End need a second tap within 3 s. See `Claude/eclipse.md`.
 
 #### Page 4 — Power (was Monitoring)
 
-Full column: **Lights** — two sections, **Groups** (the Living Room Lights master switch, full
-width) and **Lamps** (one warm tile each); moved here from the home page so every switch and
+Full column: **Lights** — three sections, **Groups** (the Living Room Lights master switch, full
+width), **Lamps** (one warm tile each) and **Bedroom** (added 2026-10-31: a tile per bedside
+bulb, nine colour swatches and a brightness slider each, then one shared **Mix your own**
+panel of five 0-255 channel sliders — `Claude/home-assistant.md`); moved here from the home
+page so every switch and
 every watt is in one place · **Power** — total draw, machines vs lights, today's cost so far
 and the yearly rate, a **share bar** (who is drawing it right now, one segment per plug,
 live), legend chips with live watts, and **the last 24 hours as ONE smooth line** — the house's

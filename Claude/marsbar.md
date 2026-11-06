@@ -377,14 +377,19 @@ browser locally). Details in `Claude/home-assistant.md`.
 - A hidden tab parks its stream after 60s and re-syncs on return; a page without a
   light tile never opens one.
 
-## Bedroom bulb colour (added 2026-10-31)
+## Bedroom bulb colour (added 2026-10-31, live 2026-11-01)
 
 Under a **Bedroom** heading in the Lights card: a tile per bedside bulb, a row of
 colour **swatches** (Candle · Ember · Amber · Honey · Gold · Warm · Neutral · Cool ·
-**Custom**) and a **brightness** slider, plus a shared **Mix your own** panel —
-five 0-255 channel sliders behind the Custom swatch. ⚠ The mix panel is shared by
-both lamps and mirrored on the admin dashboard; change one, change the other. She is the one who actually uses these, which is why the colour control exists
-here and not only on the admin Power page.
+**Custom**) and a **brightness** slider, plus a shared **Mix your own** panel — five
+0-255 channel sliders behind the Custom swatch, sitting once at the foot of the section
+and driving **both** lamps. She is the one who actually uses these, which is why the
+colour control exists here and not only on the admin Power page.
+
+⚠ The mix panel is mirrored on the admin dashboard (`.ag-mix` there, `.mb-mix` here);
+change one, change the other. Dragging a slider posts to the bridge's `/mix` and
+**never switches a lamp on** — the flow is: tap *Custom* on a lamp that is already lit,
+then dial it in and watch it move.
 
 ⚠ **The SAME controls as the admin dashboard** (`glance.nix` → `bulbCard` /
 `.ag-bulb` in asgard.css; here `marsbar.nix` → `bulbCard` / `.mb-bulb` in marsbar.css).

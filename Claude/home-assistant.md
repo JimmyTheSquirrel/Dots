@@ -310,8 +310,10 @@ sliders currently say (`bedroom_custom_red/green/blue/cold/warm`, 0–255, decla
   on either lamp applies the current mix.
 - ⚠ **The channel list IS an rgbww tuple** — red, green, blue, **cold**, **warm**.
   Everything zips against it positionally, so listing warm before cold silently swaps
-  those two channels everywhere at once. It was written that way first and the endpoint
-  test caught it.
+  those two channels everywhere at once. It was written that way first, and only an ad hoc
+  endpoint harness caught it. ⚠ **There is no committed test for ha-bridge** — that
+  harness was a scratchpad throwaway, so the comment above `customChannels` is the only
+  thing holding the order. Re-derive a harness before touching the mix path.
 - **`POST /mix`** stores the five and previews on any lamp already showing *Custom*. It
   deliberately **never switches a lamp on** — moving a slider must not light the room.
   So the flow is: tap *Custom* on the lamp you want, then dial it in and watch it move.
@@ -393,21 +395,37 @@ the same class of exception as the device pairings above.
 
 ### `POST /light/<entity>` (ha-bridge)
 
-The colour verb, alongside `/toggle`. Body `{"preset": "<name>"}` and/or
+The colour verb, alongside `/toggle`. Body `{"preset": "<name>"}`, or
+`{"channels": [r, g, b, cold, warm]}` to mix one by hand, and/or
 `{"brightness_pct": 1..100}`; needs `X-Dash: 1` like a toggle. It sets the bulb with
 `light.turn_on` (so a swatch tapped on a dark lamp lights it), then writes the two helper
 entities so the choice survives the next power cut and every open dashboard repaints.
 
+`preset` and `channels` are **mutually exclusive** (sending both is a 400). `channels` is
+the one place a caller supplies a colour rather than naming one: the five values are
+validated as integers 0-255, an all-zero mix is rejected (it is just "off" by another
+route), and the bulb's own preset is then set to *Custom* so the restore automation and
+both dashboards agree about what is lit. `{"preset": "Custom"}` applies the five sliders
+as they currently stand.
+
 ⚠ **The boundary is `lights` in the bridge config** (from `inventory.colourable`), the
-same way `allowed` is the boundary for power. Only those light entities accept a colour,
-only to a name in `PRESETS` — a caller cannot send an arbitrary colour — and the two
-helper ids named there are the **only** `input_select`/`input_number` this process will
-ever write.
+same way `allowed` is the boundary for power — and it is the **only** boundary that
+matters now that `channels` exists. Only those light entities accept a colour at all; a
+preset must name something in `PRESETS`; and the helper ids named in the config are the
+**only** `input_select`/`input_number` this process will ever write. An arbitrary colour
+*can* be sent (that is the point of Custom), so do not re-derive safety from "the caller
+can only pick a preset" — adding an entity to `colourable` is what grants the right to
+drive its dies.
 
 ```bash
 curl -s -XPOST -H 'X-Dash: 1' -H 'Content-Type: application/json' \
   -d '{"preset":"Amber","brightness_pct":70}' \
   http://localhost:9556/light/light.rhys_bedside_table_rgbcw_bulb
+
+# the shared mix: stores the five values, previews on any lamp already on Custom,
+# and deliberately never switches a lamp on
+curl -s -XPOST -H 'X-Dash: 1' -H 'Content-Type: application/json' \
+  -d '{"channels":[255,122,0,0,110]}' http://localhost:9556/mix
 ```
 
 ### Reflashing the bedside bulbs
@@ -497,9 +515,15 @@ curl -s -N http://192.168.0.152/events | grep -m1 RGBCW_Bulb
 
 Admin Glance → **Power** page → Lights widget, under a **Bedroom** heading
 (`glance.nix` → `bulbCard`). MarsBar → the Lights card, same section
-(`marsbar.nix` → `bulbCard`). ⚠ The two are separate markup against the same
+(`marsbar.nix` → `bulbCard`). Each bulb gets a tile, the nine swatches and a brightness
+slider; the **Mix your own** panel (`.ag-mix` / `.mb-mix`) sits once at the foot of the
+section, shared by both bulbs. ⚠ The two dashboards are separate markup against the same
 `data-ha-*` contract in `Resources/Glance/lights.js` — **add a control to one and it must
 go in the other**, like every other shared card.
+
+**Live on Asgard since 2026-11-01** — the colour ladder, the Custom swatch, the mix panel
+and the room ring all went out in one `system-rebuild rock Asgard`; verified in the
+deployed `glance.yml` and `configuration.yaml`, not just in the build.
 
 The bedroom bulbs are **not** members of the Living Room Lights group, and should not
 become members: an "All Lights" tap at 11pm must not come on in the bedroom.
@@ -521,8 +545,8 @@ problem can be caught — or something shut down — before the hardware is cook
 Declared as **`room`** in `Modules/Server/_plugs.nix` (temp, humidity, online, plus the
 ring's `floor`/`ceiling`/`warn`/`bad`), and drawn by `stats.js` as a **fourth ring in the
 Asgard page's host card**, beside the CPU temperature, with **humidity** as a fact row
-underneath. Added 2026-10-31 — before that it was in HA but on no dashboard at all, which
-is simply why it was invisible.
+underneath. Written 2026-10-31, **deployed 2026-11-01** — before that it was in HA but on
+no dashboard at all, which is simply why it was invisible.
 
 Three decisions worth keeping:
 

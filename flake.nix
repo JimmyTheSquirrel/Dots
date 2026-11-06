@@ -56,6 +56,16 @@
     # Overriding it changes the bun version and breaks the fixed-output hash.
     millennium.url = "github:SteamClientHomebrew/Millennium?dir=packages/nix";
 
+    # --- Star Citizen (nix-citizen — the RSI launcher under wine; Sisyphus) ---
+    # Deliberately NO `follows` of any kind, not even nix-gaming. Upstream's
+    # cachix (nix-citizen.cachix.org, trusted in Modules/Gaming/star-citizen.nix)
+    # publishes binaries built against this flake's OWN lock — wine-astral-full
+    # alone is a multi-hour source build, and it IS a cache hit as locked here.
+    # Overriding nixpkgs or nix-gaming changes every derivation hash and turns
+    # each of those hits into a local rebuild. The 2026-03 version of this input
+    # followed a separate nix-gaming; that is why it is spelled out.
+    nix-citizen.url = "github:LovingMelody/nix-citizen";
+
     # --- Secrets Management ---
     sops-nix = {
       url = "github:Mic92/sops-nix";

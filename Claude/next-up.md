@@ -5,8 +5,10 @@ bite on a **fresh install**, plus a few loose ends worth closing.
 
 Ordered roughly by value. Written 2026-09-15, extended 2026-09-27 (items 7–8).
 
-⚠️ **Item 8 is the exception to "nothing here is broken today"** — Sisyphus has real
-fixes live only as hand-edits, waiting on a `nixos-rebuild switch`.
+⚠️ **Two exceptions to "nothing here is broken today":** item 8 — Sisyphus has real fixes
+living only as hand-edits, waiting on a `nixos-rebuild switch` — and the **2026-11-01
+media-stack section** at the bottom, where a film is occupying a TV episode slot and TV is
+still acquiring unplayable Dolby Vision.
 
 ---
 
@@ -634,10 +636,10 @@ see how hot that enclosed space gets and cross-reference it with the CPU and dri
 — so a thermal problem is visible, and something can be shut down, before hardware
 cooks.
 
-1. ~~**Show it where the other temps are.**~~ ✅ **Done 2026-10-31.** It is the fourth
-   ring in the Asgard page's host card, beside the CPU temperature, with humidity under
-   it (`stats.js`, declared as `room` in `_plugs.nix`). ⚠ The ring's `warn`/`bad` are
-   **30/35 °C and are a guess** — that is what point 3 is for.
+1. ~~**Show it where the other temps are.**~~ ✅ **Done 2026-10-31, deployed 2026-11-01.**
+   It is the fourth ring in the Asgard page's host card, beside the CPU temperature, with
+   humidity under it (`stats.js`, declared as `room` in `_plugs.nix`). ⚠ The ring's
+   `warn`/`bad` are **30/35 °C and are a guess** — that is what point 3 is for.
    ⚠ **A `cpu over room` delta row was added and removed the same day at rock's
    request** — he wants the room temperature on the card, not a derived figure. Don't put
    it back on the dashboard. The delta is still the right thing to *reason* with when
@@ -657,3 +659,162 @@ cooks.
    motherboard SYS_FAN header via a Y-splitter) gets a lot more pointed in a cupboard. Worth closing before the move rather than after.
 5. **A cupboard is a humidity question too**, and the sensor already answers it. Condensation
    on disks is a worse failure than a warm CPU.
+
+## Opened 2026-11-01 — Bedside bulbs: the ladder is live, two rungs unjudged
+
+The reflash, the eight-rung colour ladder, the Custom swatch and the five-slider mix
+panel are all deployed (`Claude/home-assistant.md` → *The bedside bulbs*). What is left is
+taste, and it can only be settled on the lamps:
+
+1. **Ember** (`255 104 0 0 155`) is the "super warm" rung — redder than Amber, more lift
+   so it stays bright. It was put on Caitlin's lamp for judgement and has not been
+   confirmed.
+2. **Gold** (`255 152 15 0 175`) is the rung closest to the edge: green **160** is where
+   rock saw "a really light green colour", and Gold sits at 152. If it reads green, pull
+   it back toward 145 — and pull `Warm` (168) with it, since it is further out again and
+   only gets away with it because the white behind it is near full.
+3. ⭐ **Retune the way these were tuned**: change ONE channel, put a different value on
+   each of the two (identical) bulbs, and look at them side by side. Do not recompute the
+   table — three separate derivations gave three wrong answers, because `gamma_correct:
+   2.8` and the green die's luminosity make the problem perceptual, not radiometric.
+4. **Not built, and not to be built unasked:** per-bulb mixes (deliberately one shared
+   mix — two lamps at the same bed want the same colour, and ten sliders is not a control
+   panel), and saving a mix as a named preset (presets are Nix, in `_plugs.nix`, which is
+   where a colour that matters should live).
+
+## Opened 2026-11-01 — Media stack: Dolby Vision, Doctor Who specials, three wrong files
+
+One session, three complaints, mostly closed. Background and the diagnostic order are in
+`memory/eclipse-dolby-vision-p5-green.md`,
+`memory/jellyfin-specials-misfiled-two-causes.md` and
+`memory/sonarr-upgrade-destroyed-correct-file.md`. What follows is only what is still open.
+
+### ⭐ 1. Ted Lasso S02E12 is fixed but **unproven**
+
+The original complaint ("green and pink on the TV") was DV Profile 5 with the addon patch
+clobbered. `patch_dv.py` has been re-run and the `CodecProfile` block is verified in place at
+`playutils.py:510-520`, Kodi restarted. **Nobody has played the file.**
+
+Proof is one play plus Asgard's Jellyfin log showing
+`TranscodeReasons=VideoRangeTypeNotSupported` and `hevc-rangetype=` with **no bare `DOVI`**.
+⚠️ Expect a **multi-minute stall before the first frame** regardless — this title carries
+**42 subtitle tracks**. Don't read that stall as a failure.
+
+### ⭐ 2. The DV patch has no guard, and that is the actual bug
+
+It was clobbered by an addon update on **2026-09-17 15:46** and stayed broken for ~6 weeks
+across **42** P5 files, with no symptom until someone happened to reach one. A hand-applied
+addon patch will be removed again.
+
+`patch_dv.py` is idempotent and is already mirrored at
+**`Resources/Eclipse-Box/patches/patch_dv.py`**. Run it from a oneshot unit on the Pi —
+`Resources/Eclipse-Box/system.d/` is where Eclipse's units are mirrored — ordered after the
+addon directory is writable and before/with `kodi.service`. Also **diff the mirrored copy
+against the one living at `/storage/patch_dv.py`** before trusting it; nothing enforces that
+they match.
+
+### 3. Sonarr has no DV Profile 5 penalty — only Radarr does
+
+`Modules/Server/recyclarr.nix:543` scores `923b6abef9b17f937fab56cfcf89e1f1`
+(*DV (w/o HDR fallback)*) at **-10000**, but only under `Asgard - Movies`. `sonarr-main` has
+no equivalent, so TV keeps acquiring P5 — which is why there are 42 of them. Mirroring the
+line into the Sonarr block closes the acquisition hole; offered and not yet decided.
+⚠️ Remembered `trash_id`s go stale — fetch, don't trust ([[recyclarr-upstream-restructure]]).
+
+### 4. The last 5 Doctor Who specials — a real numbering divergence, pick a route
+
+19 specials, correct order, seasons `0..10`, 14/19 titles right. The remaining five are **not**
+a config fault: TVDB and Sonarr/skyhook are genuinely **off by one** from E157, and the 2023
+trio live under a **separate TVDB series, `Doctor Who (2023)` tvdb 449991**.
+
+Two routes, neither started:
+
+- **(a) Edit + lock** `Name`/`Overview` on the five Jellyfin items by hand. Durable (locked
+  fields survive refreshes), 5 items, no structural change. Doesn't fix the underlying split.
+- **(b) Split the 2023 trio** into a `Doctor Who (2023)` series in Sonarr against tvdb 449991
+  so both halves of the stack agree. Fixes 3 of 5 structurally, leaves the
+  Revolution-of-the-Daleks off-by-one, and moves files.
+
+⛔ **Do not use `POST /Items/RemoteSearch/Apply/{id}`** on an episode. It returns 204, ignores
+the provider id, and **nulls `IndexNumber`** — i.e. unnumbers the episode. Recovery is a
+per-item `Refresh` with `replaceAllMetadata=true`.
+
+⛔ **Specials inside their aired seasons is not achievable** and was asked for explicitly.
+`airsAfterSeason`/`airsBeforeSeason`/`airsBeforeEpisode` are populated on **0 of 19** even with
+TVDB first, *and* the jellyfin-kodi addon contains no code for those fields at all. Don't
+re-attempt it via `DisplaySpecialsWithinSeasons`; there is nothing for it to act on.
+
+### 5. JJK 0 — a feature film occupying a TV episode slot
+
+*Jujutsu Kaisen 0* (2021 film, **104m57s**) is attached to **S1E10 "Idle Transfiguration"**,
+whose neighbours run 24m03s. So `hasFile=true`, Sonarr will never search S1E10, and playing it
+gives the film. Move the film out of the series folder (it is a Radarr item), then
+`EpisodeSearch` the slot. Rock deprioritised it — "outside of all of this".
+
+For the record, JJK has **three complete seasons** (S1 24/24, S2 23/23, S3 12/12) plus an S4
+holding one unaired episode — not "only season 1".
+
+### 6. Sword Art Online S4E2/E3 show as "Ripped by KaiDubs"
+
+Jellyfin read those titles out of the files' **embedded tags**. Sonarr maps both episodes
+correctly, so a single `RenameSeries` on **series 53** writes clean filenames and fixes it.
+Offered, not yet authorised.
+
+### 7. Housekeeping
+
+- **Delete `Doctor.Who.2005-2022.S04E00...mkv.DUPLICATE-of-E17`** (~5.6 GB). It is the
+  mislabelled Part Two, moved aside rather than deleted so the bytes survived the recovery.
+  Safe to remove once item 1's sibling work is trusted.
+- ⚠️ **Sonarr's `recycleBin` is empty**, so every delete through Sonarr is **permanent**.
+  Setting it would make this class of mistake recoverable. Until then, move files aside with a
+  changed extension — Sonarr drops them on rescan.
+- **`/data/media/music` logs as inaccessible or empty on every Jellyfin scan.** A configured
+  library with nothing in it. Either populate it or remove the library so the warning stops
+  being noise ([[eclipse-litebox-not-harmless-noise]] — quantify before dismissing).
+
+### What was closed
+
+✅ `renameEpisodes` on for Sonarr, declaratively (`Modules/Server/recyclarr.nix`, commit
+`7b3afbf`) — 146 files renamed, specials no longer scattered into numbered or phantom seasons.
+✅ TheTVDB first for episode metadata (rock, in the UI) — 15/19 specials now carry a `Tvdb` id,
+0 carry `Tmdb`. ✅ *The End of Time* Part 1 recovered after Sonarr deleted it and imported Part
+Two twice. ✅ Kodi re-synced itself; no action was needed there. ✅ A library-wide sweep of 3551
+episodes found Doctor Who was the **only** misfiled show.
+
+---
+
+## Opened 2026-11-06 — Star Citizen, second attempt
+
+Wired declaratively on **Sisyphus only** (`Modules/Gaming/star-citizen.nix`, input
+`nix-citizen`). Full detail in `Claude/star-citizen.md`. All four hosts evaluate; the
+other three do not even have the `programs.rsi-launcher` option, so the blast radius is
+one machine.
+
+### ⚠️ Do this first, before `system-rebuild`
+
+```bash
+sudo nix build --no-link \
+  --extra-substituters https://nix-citizen.cachix.org \
+  --extra-trusted-public-keys nix-citizen.cachix.org-1:lPMkWc2X8XD4/7YPEEwXKKBg+SVbYTVrAaLA2wQTKCo= \
+  .#nixosConfigurations.rock-Sisyphus.config.system.build.toplevel
+```
+
+The module adds that substituter to `nix.settings`, but nix reads substituters from
+`/etc/nix/nix.conf` — which the rebuild has not written yet. So the rebuild that *adds*
+the cache cannot use it, and `wine-astral-full` would build from source. `trusted-users`
+is `root` alone here, hence sudo. One time only; later rebuilds pick it up from config.
+
+### Open
+
+- **Nothing has been launched.** The closure substitutes and every host evaluates;
+  whether the game actually runs is untested. Needs an RSI account with a game package.
+- **No niri window rules.** The `app-id` wine's Wayland driver gives the launcher and the
+  game is not knowable without running it — read it off `niri msg windows` on first
+  launch, the way every other rule in `Modules/Desktop/niri.nix` was derived. ⚠️ Mind
+  [[niri-rule-reapplies-on-window-recreate]] before adding an `open-on-output`.
+- **Disk.** ~155 GB to install, 363 GB free on 2026-11-06. Enough, but not enough for
+  this *and* another large game. Previous prefix was reclaimed in the October sweep.
+- The uncommitted `flake.lock` bump already in the tree pulls kernel **6.18.60** (running:
+  6.18.55), so the first rebuild also rebuilds the modules closure — including
+  `v4l2loopback`, which this module adds. Unrelated to Star Citizen, but it is why that
+  rebuild is bigger than the Star Citizen diff suggests.

@@ -768,7 +768,7 @@ Music `7e64e319657a9516ec78490da03edccb`.
 may be missed on reconnect; the `dbSyncScreensaver` catch-up covers it lazily. Install from
 Jellyfin Dashboard → Plugins → Catalog.
 
-### Dolby Vision Profile 5 plays GREEN — patched 2026-09-07
+### Dolby Vision Profile 5 plays GREEN — patched 2026-09-07, clobbered 2026-09-17, re-applied 2026-11-01
 
 **Symptom:** the picture is a solid green wash. The same title on a phone looks perfect, which
 makes it read like an Eclipse display/HDMI fault. It is neither — it is the file.
@@ -791,7 +791,8 @@ The discriminator, straight from Jellyfin's `MediaStreams` (the addon dumps the 
 A P5 stream also carries **no** `ColorSpace` / `ColorTransfer` / `ColorPrimaries` fields at all,
 unlike every other file — a quick way to spot one.
 
-As of 2026-09-07 the library held **38** P5 items out of ~3150 (Ted Lasso, all of White Lotus S1,
+As of 2026-09-07 the library held **38** P5 items out of ~3150 — **42** as of 2026-11-01, since
+nothing penalises P5 on the Sonarr side (Ted Lasso, all of White Lotus S1,
 Loki, Rings of Power, Shrinking, Our Flag Means Death, Andor, Fallout, Foundation, plus the films
 *Tomorrowland*, *Finch*, *The Adam Project*).
 
@@ -828,13 +829,27 @@ profile["CodecProfiles"].append(
 ```
 
 Only P5 is affected — HDR10, HDR10+ and DV 8.1 keep direct-playing at full quality, so the
-transcode load is limited to those 38 items.
+transcode load is limited to those items (38 in 2026-09, 42 by 2026-11).
 
 **This is an addon file. A Jellyfin-addon update will clobber it** — same class of hazard as the
 Moonlight `start.sh` hook. Original saved alongside as `playutils.py.orig`; the patch script is
 idempotent (it bails if `VideoRangeType` is already present) and lives at `/storage/patch_dv.py`.
 The anchor string `if self.info["ForceTranscode"]:` appears **twice** in the file — the one inside
 `get_device_profile` is the second; patch by searching forward from `def get_device_profile`.
+
+> ⚠️⚠️ **It was clobbered, and nobody noticed for six weeks.** An addon update on
+> **2026-09-17 15:46** removed this block. The breakage surfaced only on **2026-11-01**, as
+> "Ted Lasso S02E12 is green and pink on the TV" — that episode is the single `.DV.` file in
+> its season, so the fault sat invisible until someone reached it, while **all 42** P5 files
+> were affected the whole time. Re-applied by running `/storage/patch_dv.py`; verified live at
+> `playutils.py:510-520` with a fresh `.orig` written.
+>
+> **The recurrence is the real defect.** A hand-applied addon patch with no guard will be
+> removed again, and the only symptom is a colour fault on whichever file someone happens to
+> play next. `patch_dv.py` is mirrored at `Resources/Eclipse-Box/patches/patch_dv.py` and is
+> idempotent — running it from a oneshot unit is tracked in `Claude/next-up.md`
+> (2026-11-01 section). Diff the mirrored copy against `/storage/patch_dv.py` before trusting
+> it; nothing enforces that they match.
 
 **Verifying it took effect** — play a P5 title and check the transcode URL the addon builds:
 
@@ -863,12 +878,15 @@ Two things that look like failures during the first play of a P5 title and are n
   extracts them serially from the source. *Tomorrowland* has **28** subtitle tracks and took ~3
   minutes on the first play. Jellyfin caches them under
   `/data/.state/services/jellyfin/data/subtitles/`, so subsequent plays start immediately —
-  confirmed by a second play that was up in under 6 s.
+  confirmed by a second play that was up in under 6 s. **Ted Lasso S02E12 carries 42 tracks** —
+  expect several minutes on its first play and do not read that as the patch having failed.
 
 **Also fixed at acquisition (2026-09-08).** Radarr now scores TRaSH's **`DV (w/o HDR fallback)`**
 (`923b6abef9b17f937fab56cfcf89e1f1`) at **-10000** in `Asgard - Movies`, so it can never grab a
-P5 movie again. Details and the verification in `Claude/server-info.md`. This does nothing for the
-38 files already on disk — the addon patch above is what covers those.
+P5 movie again. Details and the verification in `Claude/server-info.md`. ⚠️ **`sonarr-main` has no
+equivalent**, so TV keeps acquiring P5 — that is why the count grew from 38 to 42. Mirroring the
+score into the Sonarr block is tracked in `Claude/next-up.md`. None of this does anything for the
+files already on disk — the addon patch above is what covers those.
 
 > An earlier version of this section said acquisition was "deliberately not fixed" and quoted
 > trash_id `58d6a88f13e2db7f5059c41047876f00`. **Both are wrong** — it is now fixed, and that

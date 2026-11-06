@@ -43,6 +43,8 @@
       # one may run. See Modules/Gaming/wolf.nix.
       self.nixosModules.wolf
       self.nixosModules.rpcs3
+      # Star Citizen — the RSI launcher under wine (Modules/Gaming/star-citizen.nix).
+      self.nixosModules.star-citizen
 
       {
         # NieR: Automata greeter, with FOT-Rodin patched in (Modules/Boot/sddm.nix).
