@@ -195,6 +195,35 @@ async def current_system(target: str | None) -> str:
     return out.strip() if rc == 0 else ""
 
 
+
+
+async def failed_units(target: str | None) -> list[str]:
+    """Units sitting in the failed state: here (None) or at user@host over ssh."""
+    sh = "systemctl --failed --no-legend --plain --no-pager"
+    if target is None:
+        rc, out, _ = await run(sh.split(), timeout=5)
+    else:
+        rc, out, _ = await run(["ssh", *SSH_QUIET, target, sh], timeout=9)
+    if rc != 0:
+        return []
+    return [ln.split()[0] for ln in out.splitlines() if ln.strip() and not ln.startswith(" ")]
+
+
+async def kernel_stale(target: str | None) -> bool:
+    """True when the booted kernel is not the current system's — i.e. needs a reboot.
+
+    This is the usual reason a switch leaves a unit failed: an out-of-tree
+    module (Asgard's it87) is built against the new kernel and cannot be
+    insmod'd into the running one. Nothing is wrong with the configuration and
+    rebuilding again will not help — only a reboot will.
+    """
+    sh = "readlink -f /run/booted-system/kernel /run/current-system/kernel"
+    if target is None:
+        rc, out, _ = await run(["sh", "-c", sh], timeout=3)
+    else:
+        rc, out, _ = await run(["ssh", *SSH_QUIET, target, sh], timeout=9)
+    paths = out.split()
+    return rc == 0 and len(paths) == 2 and paths[0] != paths[1]
 async def passwordless_sudo(target: str) -> bool:
     rc, _, _ = await run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", target, "sudo -n true"], timeout=9)
     return rc == 0
@@ -208,8 +237,13 @@ async def closure_size(path: str) -> int | None:
         return None
 
 
-async def store_free() -> int | None:
-    rc, out, _ = await run(["df", "-B1", "--output=avail", "/nix/store"], timeout=3)
+async def store_free(target: str | None = None) -> int | None:
+    """Free bytes on /nix/store: here (None), or at user@host over ssh."""
+    if target is None:
+        argv, timeout = ["df", "-B1", "--output=avail", "/nix/store"], 3
+    else:
+        argv, timeout = ["ssh", *SSH_QUIET, target, "df -B1 --output=avail /nix/store"], 9
+    rc, out, _ = await run(argv, timeout=timeout)
     try:
         return int(out.split()[-1]) if rc == 0 else None
     except (IndexError, ValueError):

@@ -410,7 +410,7 @@ class HomeScreen(MenuScreen):
         ]
         if app.repo.path:
             age = H.lock_age(app.repo)
-            lines.append(Text.assemble((f"{'inputs':<7}", DIM), ("locked ", DIM), (P.ago(age), FG)) if age else
+            lines.append(Text.assemble((f"{'inputs':<7}", DIM), ("nixpkgs commit ", DIM), (P.ago(age), FG)) if age else
                          Text.assemble((f"{'inputs':<7}", DIM), ("no nixpkgs in flake.lock", DIM)))
         lines.append(Text.assemble((f"{'store':<7}", DIM), PN.store_line(16)))
         lines.append(Text.assemble((f"{'last':<7}", DIM), (f"{last.host} " if last else "", f"bold {FG}"),
@@ -599,6 +599,9 @@ class HostMenu(MenuScreen):
                  preview=lambda: PN.pv_action(app, h, "boot", False), title=f"Boot · {h.name}"),
             Item("build", I["build"], "Build", "build here and diff — nothing deployed", "", BLUE,
                  preview=lambda: PN.pv_action(app, h, "build", False), title=f"Build · {h.name}"),
+            Item("gc", I["gc"], "Garbage collect", "old generations · store · docker, over ssh",
+                 Text("asks first", RED), BLUE,
+                 preview=lambda: PN.pv_gc(app, h), title=f"Garbage collect · {h.name}"),
             Item("ssh", I["ssh"], "SSH", f"open a shell on {h.name}", Text(h.target, DIM), BLUE,
                  preview=lambda: PN.pv_ssh(app, h), title=f"SSH · {h.name}"),
         ]
@@ -607,6 +610,8 @@ class HostMenu(MenuScreen):
     def pick(self, key: str) -> None:
         if key == "ssh":
             self.app.run_outside(["ssh", "-t", self.host.target], f"SSH · {self.host.name}", pause=False)
+        elif key == "gc":
+            self.job(lambda j: J.collect_garbage(j, self.host))
         else:
             self.job(lambda j, k=key: J.rebuild(j, self.host, k))
 
@@ -624,7 +629,7 @@ class UtilsMenu(MenuScreen):
             items.append(Item("reset", I["reset"], "Reset to GitHub", "overwrite ~/Dots with GitHub's main",
                               Text("asks first", RED), RED, preview=lambda: PN.pv_reset(app)))
             items.append(Item("update", I["update"], "Update inputs", "nix flake update + changelog",
-                              Text(f"locked {P.ago(H.lock_age(app.repo))}", DIM), YELLOW,
+                              Text(f"nixpkgs commit {P.ago(H.lock_age(app.repo))}", DIM), YELLOW,
                               preview=lambda: PN.pv_update(app)))
         else:
             items.append(Item("clone", I["clone"], "Get the repo", "clone it to ~/Dots, for sync and update",

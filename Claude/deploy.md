@@ -165,11 +165,79 @@ runtime, and all services stayed up.
 
 ### Remote activation and sudo
 
-`--ask-sudo-password` used to be passed unconditionally for every push. Asgard has
+`--ask-sudo-password` used to be passed unconditionally for every push. Asgard then had
 **passwordless sudo**, so that prompted for a password it did not want, and made any
 non-interactive push impossible — it blocks on a terminal that isn't there. The
 activate step now probes `ssh <target> sudo -n true` first and only asks when the
 target actually requires it.
+
+**Asgard wants a sudo password again (2026-11-12.)** `security.sudo.wheelNeedsPassword
+= false` is gone from `Hosts/Asgard/system.nix`, so every host is now the NixOS default.
+Nothing about deploying changed, because of the probe above: the app says which way it
+went ("Asgard will ask for rock's sudo password") and catches the prompt in a box. The
+password is the sops `user-password-hash` — **the same one as Sisyphus**, not a separate
+server password. Nothing on Asgard shells out to `sudo` non-interactively, so there was
+nothing else to fix; the Glance *Terminal* page (ttyd) logs in as rock and will ask.
+
+### "Activation failed" when the switch actually worked (2026-11-12)
+
+A push to Asgard ended in a red **Activation failed** box carrying
+`error: while running command with remote sudo, did you forget to use
+--ask-sudo-password?`. Nothing had failed. The new system was live, the generation
+had been created, and the only casualty was one unit. **Three separate layers each
+made it look worse than it was:**
+
+1. `switch-to-configuration` exits **4** when the system switched cleanly but some
+   unit failed to *start*. That is not an activation failure — the exit code just
+   doesn't distinguish them.
+2. `nixos-rebuild` passes that straight out, and for a remote host it *also* logs
+   the `--ask-sudo-password?` hint for **any** non-zero remote sudo command. Read
+   `nixos_rebuild/process.py`: it raises that line off `CalledProcessError` without
+   ever checking whether sudo had anything to do with the failure. A unit that
+   wouldn't start therefore reads as a permissions failure on a deploy that never ran.
+3. Our own card then said "built but did not activate cleanly".
+
+**Both halves of `system-rebuild` now ask the machine instead of believing the exit
+code.** On a non-zero switch they read `/run/current-system` on the target; if it is
+the system we just built, it switched, and the card says so — then names the failed
+units and, when `/run/booted-system/kernel` differs from `/run/current-system/kernel`,
+says a reboot is needed and **that rebuilding again will not help**. Only a genuine
+failure still gets the red box. Kept in step in `Resources/Scripts/system-rebuild.sh`
+and `Resources/Rebuild/rebuild/jobs.py` — change both.
+
+The unit in this case was `it87.service` (Asgard's out-of-tree fan driver): the new
+generation carried kernel 6.18.60 while Asgard was still booted on 6.18.55, so the
+module's version magic didn't match. That is the normal state of any out-of-tree
+module between a kernel bump and the next reboot.
+
+### `ssh -n` on anything wrapped in `timeout`
+
+The same session, the classic CLI hung forever at **Changes** with no output. The
+probe was `timeout 8 ssh … readlink -f /run/current-system`. `timeout` puts its child
+in a **new process group** and never makes it the terminal's foreground group, so when
+ssh reached for the tty to forward stdin the kernel stopped it with **SIGTTIN** — and a
+stopped process can't act on the SIGTERM `timeout` sends at the deadline, so timeout
+waited on a child that could never exit and the script waited on timeout. It is racy
+(ssh only reads stdin if the remote command hasn't already closed the connection),
+which is what made it look like an occasional mystery stall rather than a bug.
+
+Every non-interactive ssh in the script now passes **`-n`**. The app was never
+affected — `probe.run()` already gives every subprocess `stdin=DEVNULL` — and the one
+ssh that must keep its stdin is the interactive *SSH* menu row (`ssh -t`).
+
+### Garbage collect on another machine
+
+Remote → *(machine)* → **Garbage collect** runs the same three steps as `nix-gc` on that
+machine and reports what it freed there. It is sent over ssh rather than calling `nix-gc`
+remotely, because `nix-gc` is a deploy-tools command and **Asgard has no deploy-tools**
+(only Sisyphus and Elektra import that module). So the steps live twice — in
+`Resources/Scripts/nix-gc.sh` and as `REMOTE_GC` in `Resources/Rebuild/rebuild/jobs.py`
+— and must be changed together.
+
+Two details that are load-bearing: it is **one** ssh carrying all three steps, because
+sudo caches its timestamp per tty and three separate ssh calls would ask three times;
+and the steps are joined with `;` with each setting `rc` on failure, never `&&`, which
+would stop at the first failure and silently skip the rest.
 
 ## Checking a disk layout before you wipe anything
 
@@ -281,7 +349,7 @@ MACHINES panel: this machine's generation, every other machine's tailnet state
   Rebuild     this machine: Switch · Boot · Build, or build any Other host here
   Remote      every other machine, live status; per machine its generation,
               uptime and its checkout, probed over ssh, then
-                every machine         Switch · Boot · Build · SSH
+                every machine         Switch · Boot · Build · Garbage collect · SSH
   Utilities   Git sync · Reset to GitHub · Update inputs (changelog, then offers a
               rebuild) · Garbage collect · Check hosts (the four-host drvPath eval)
   Apollo      Deploy (host → Dry run / VM test / INSTALL) · SSH · Build ISO · Tailnet key

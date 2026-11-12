@@ -20,7 +20,7 @@ BASICS = [
     ("head", "The home screen"),
     ("item", "beside DOTS", "This machine and you; where the repo is up to — the branch, ✔ clean or ● N changed "
              "(files not committed yet), ↑ commits waiting to be pushed, ↓ waiting to be pulled; how long ago the "
-             "flake inputs were locked; how full the Nix store is; and the last job the app ran."),
+             "nixpkgs commit it is pinned to is; how full the Nix store is; and the last job the app ran."),
     ("item", "the cards", "One per machine. ◆ this machine and its generation. The others: ● online (direct or "
              "relay is how Tailscale reaches it), ○ offline with when it was last seen, ◌ not on the tailnet — and "
              "once the app has asked it over ssh, the generation it runs and how long it's been up. The bottom line "
@@ -78,7 +78,7 @@ REBUILD = [
 
 REMOTE = [
     ("text", "Remote deploys to the other machines over Tailscale. The build happens HERE; the finished system "
-             "is copied across and activated there. A machine with passwordless sudo (Asgard) just goes; one "
+             "is copied across and activated there. A machine with passwordless sudo just goes; one "
              "that wants a password asks for it in a box — the password on THAT machine, not this one's."),
     ("note", "Opening a machine shows it live: online or offline and, asked over ssh, the generation it runs, "
              "how long it's been up, and its own ~/Dots if it has one. If it's offline when you pick a job, the "
@@ -87,6 +87,9 @@ REMOTE = [
     ("item", "Switch", "build here, copy it over, activate now"),
     ("item", "Boot", "the same, but active from its next reboot"),
     ("item", "Build", "build here and diff against what it runs — nothing is deployed"),
+    ("item", "Garbage collect", "the same three steps as nix-gc, run on THAT machine over ssh: delete every old "
+             "generation, collect the store, hard-link duplicates, prune Docker if it has any. It asks "
+             "first, and for its sudo password if it wants one. Nothing on this machine is touched."),
     ("item", "SSH", "open a shell on it (the app steps aside until you log out)"),
 ]
 

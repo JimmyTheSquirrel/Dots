@@ -327,7 +327,17 @@ rebuild() {
   if [[ "$kind" == "local" ]]; then
     current=$(readlink -f /run/current-system 2>/dev/null || true)
   elif [[ "$host" != "-" ]]; then
-    current=$(timeout 8 ssh -o ConnectTimeout=5 -o BatchMode=yes "$ssh_target" readlink -f /run/current-system 2>/dev/null || true)
+    # ⚠ `ssh -n` (stdin from /dev/null) is load-bearing on every ssh wrapped in
+    # `timeout`, and is why this step once hung forever at "Changes". `timeout`
+    # puts its child in a NEW process group and never makes it the terminal's
+    # foreground group, so the moment ssh reaches for the tty to forward stdin
+    # to the far end the kernel stops it with SIGTTIN. A stopped process cannot
+    # act on the SIGTERM `timeout` sends at the deadline, so timeout waits on a
+    # child that can never exit and the script waits on timeout — forever, with
+    # no output. It is racy (ssh only reads stdin if the remote command has not
+    # already closed the connection), which is what made it look like an
+    # occasional mystery stall rather than a bug.
+    current=$(timeout 8 ssh -n -o ConnectTimeout=5 -o BatchMode=yes "$ssh_target" readlink -f /run/current-system 2>/dev/null || true)
   fi
   if [[ -n "$current" && "$current" == "$out" ]]; then
     same=1
@@ -374,7 +384,7 @@ rebuild() {
       # ran the activation as the plain user — "Permission denied" setting
       # /nix/var/nix/profiles/system (2026-10-06, Asgard).
       local -a sudoflag=(--ask-sudo-password)
-      if ssh -o BatchMode=yes -o ConnectTimeout=5 "$ssh_target" 'sudo -n true' >/dev/null 2>&1; then
+      if ssh -n -o BatchMode=yes -o ConnectTimeout=5 "$ssh_target" 'sudo -n true' >/dev/null 2>&1; then
         sudoflag=(--sudo)
         ui_info "$host has passwordless sudo — no password needed"
       else
@@ -383,12 +393,51 @@ rebuild() {
       cmd=(nixos-rebuild "$action" "${pflag[@]}" --no-reexec --store-path "$out" --target-host "$ssh_target" "${sudoflag[@]}")
     fi
     if ! "${cmd[@]}"; then
-      ui_box "$UI_RED" "✘ Activation failed — $system" \
-        "The new system is built (it's in the store) but did not activate cleanly." \
-        "Check the output above. To retry exactly this step:" "" \
-        "${cmd[*]}"
-      [[ -n "$tmp" ]] && rm -rf "$tmp"
-      return 1
+      # ⚠ A non-zero exit here does NOT mean the switch failed.
+      # switch-to-configuration exits 4 when the system switched perfectly well
+      # but some unit failed to START, and nixos-rebuild passes that straight
+      # out. Against a remote host nixos-rebuild also logs "did you forget to
+      # use --ask-sudo-password?" for ANY non-zero remote sudo command — it
+      # prints that hint off the exception without checking whether sudo had
+      # anything to do with the failure — so one unit that would not start
+      # reads as a permissions failure on a deploy that never ran. Both
+      # readings are alarming and both are wrong, so ask the machine what it is
+      # running now instead of believing the exit code. (Same reasoning, same
+      # wording, in the app: Resources/Rebuild/rebuild/jobs.py. Change both.)
+      local now="" units="" bk="" ck=""
+      if [[ "$kind" == "local" ]]; then
+        now=$(readlink -f /run/current-system 2>/dev/null || true)
+        units=$(systemctl --failed --no-legend --plain --no-pager 2>/dev/null | awk '{print $1}' || true)
+        bk=$(readlink -f /run/booted-system/kernel 2>/dev/null || true)
+        ck=$(readlink -f /run/current-system/kernel 2>/dev/null || true)
+      else
+        now=$(timeout 8 ssh -n -o ConnectTimeout=5 -o BatchMode=yes "$ssh_target" readlink -f /run/current-system 2>/dev/null || true)
+        units=$(timeout 8 ssh -n -o ConnectTimeout=5 -o BatchMode=yes "$ssh_target" 'systemctl --failed --no-legend --plain --no-pager' 2>/dev/null | awk '{print $1}' || true)
+        # `|| true`: tr eats the trailing newline, so read hits EOF and returns 1,
+        # which under errexit would abort the whole rebuild at the last step.
+        read -r bk ck < <(timeout 8 ssh -n -o ConnectTimeout=5 -o BatchMode=yes "$ssh_target" 'readlink -f /run/booted-system/kernel /run/current-system/kernel' 2>/dev/null | tr '\n' ' ') || true
+      fi
+      if [[ "$action" != "switch" || -z "$now" || "$now" != "$out" ]]; then
+        ui_box "$UI_RED" "✘ Activation failed — $system" \
+          "The new system is built (it's in the store) but did not activate cleanly." \
+          "Check the output above. To retry exactly this step:" "" \
+          "${cmd[*]}"
+        [[ -n "$tmp" ]] && rm -rf "$tmp"
+        return 1
+      fi
+      if [[ -n "$units" ]]; then
+        ui_warn "$system switched — the new system is live, but these units failed to start:"
+        while IFS= read -r u; do [[ -n "$u" ]] && ui_info "$u"; done <<<"$units"
+      else
+        ui_warn "$system switched — the new system is live, but a step after the switch reported an error"
+      fi
+      if [[ -n "$bk" && -n "$ck" && "$bk" != "$ck" ]]; then
+        ui_info "$system is still running an older kernel than the system it just switched to, so an"
+        ui_info "out-of-tree module can't load — a reboot clears it, and rebuilding again will not"
+        next="reboot to finish — the kernel changed"
+      else
+        next="the system is the new one; see the units above"
+      fi
     fi
     if [[ "$action" == "switch" ]]; then verb="switched"; else verb="ready for next boot"; fi
     if [[ "$action" == "boot" && "$kind" == "local" && ${#pflag[@]} -gt 0 ]]; then
@@ -436,7 +485,7 @@ remote_probe() {
   rcmd="readlink $(profile_link "$H_PROFILE"); cut -d' ' -f1 /proc/uptime;"
   rcmd+=" if [ -d ~/Dots/.git ]; then git -C ~/Dots log -1 --format='%h|%cr'; git -C ~/Dots branch --show-current;"
   rcmd+=" git -C ~/Dots status --porcelain | wc -l; fi"
-  out=$(ui_spin_out "asking $name…" timeout 8 ssh -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=QUIET "$H_USER@$H_SSH" "$rcmd") || true
+  out=$(ui_spin_out "asking $name…" timeout 8 ssh -n -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=QUIET "$H_USER@$H_SSH" "$rcmd") || true
   [[ -n "$out" ]] || { PROBE_NOTES=("$(ui_dim "couldn't ask over ssh — key not authorised, or it's busy")"); return 0; }
   mapfile -t l <<<"$out"
   local gen=${l[0]%-link}; gen=${gen##*-}

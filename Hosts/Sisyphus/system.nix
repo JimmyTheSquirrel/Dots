@@ -43,8 +43,10 @@
       # one may run. See Modules/Gaming/wolf.nix.
       self.nixosModules.wolf
       self.nixosModules.rpcs3
-      # Star Citizen — the RSI launcher under wine (Modules/Gaming/star-citizen.nix).
-      self.nixosModules.star-citizen
+      # Odysseus — the self-hosted AI workspace. Trialled 2026-11-11 and taken
+      # back out; the module stays in the tree (inert while unlisted) so it is
+      # one line to bring back. Modules/Apps/odysseus.nix has the full story.
+      # self.nixosModules.odysseus
 
       {
         # NieR: Automata greeter, with FOT-Rodin patched in (Modules/Boot/sddm.nix).

@@ -783,38 +783,218 @@ episodes found Doctor Who was the **only** misfiled show.
 
 ---
 
-## Opened 2026-11-06 — Star Citizen, second attempt
+## Opened 2026-11-11 — Tailscale kills phone internet on every network handover
 
-Wired declaratively on **Sisyphus only** (`Modules/Gaming/star-citizen.nix`, input
-`nix-citizen`). Full detail in `Claude/star-citizen.md`. All four hosts evaluate; the
-other three do not even have the `programs.rsi-launcher` option, so the blast radius is
-one machine.
+Both phones (Samsung S25, Android) lose all app traffic whenever the network changes —
+**wifi→wifi as well as wifi→4G**. Calls and SMS keep working; toggling Tailscale off/on
+fixes it instantly, every time. She also sees an explicit DNS error. Live since at least
+2026-10-21, and the reason WhatsApp messages and Discord calls get missed.
 
-### ⚠️ Do this first, before `system-rebuild`
+**It is not Tailscale carrying their traffic.** Verified 2026-11-11: no exit node is
+offered or selected anywhere on the tailnet (`ExitNodeOption: true` count = **0**) and
+there are no subnet routes, so Tailscale installs no default route and their internet
+traffic never enters the tunnel. What it *does* take over is **DNS** — Android's
+VpnService hands every lookup to `100.100.100.100`.
+
+**Root cause is upstream and still open.** The Android client does not rebind its
+interface on a network change, so the forwarder keeps relaying to the previous network's
+resolver, which is unreachable from the new one. Every lookup times out; calls and SMS
+need no DNS, which is why they survive. A toggle wakes the app and forces the rebind.
+- [tailscale#19783](https://github.com/tailscale/tailscale/issues/19783) — Android 16 /
+  Samsung One UI, `dns` label. **Still reproduces on client 1.104.1**, so an app update is
+  NOT a fix.
+- [tailscale-android#717](https://github.com/tailscale/tailscale-android/pull/717) fixed
+  one variant in Nov 2025. Also #17747, #10107, #7328, #10362 (wifi→wifi), #19297, #19756.
+
+### ✅ Done — global nameservers pinned
+
+Admin console → DNS → Google + Cloudflare, **Override DNS servers ON**. Verified actually
+pushed to clients rather than merely stored: `tailscale dns status` went from `(no
+resolvers configured)` to 8 entries, lookups 49-58 ms on Sisyphus (incl. whatsapp.com,
+discord.com), Asgard fine, `marsbar` still resolves via MagicDNS. This removes the
+dependency on network-learned resolvers, so a *late* rebind can no longer strand DNS.
+Details and the IPv6 caveat in `Claude/server-info.md` → *Tailnet DNS*.
+
+### ⚠️ Open — the phone-side steps, neither done yet
+
+1. **Battery optimisation → Unrestricted** for Tailscale on both phones (Settings → Apps →
+   Tailscale → Battery). Targets the actual cause — Android freezing the app through the
+   handover — and is the one workaround that outright stopped it for a reporter on #19783.
+   The nameserver change does **not** substitute for it: a frozen forwarder relays nothing.
+2. **Toggle Tailscale off/on once** on each phone, to pull the new DNS map.
+
+### If it recurs
+
+Run the raw-IP test **before** toggling: open `http://1.1.1.1` in a browser.
+- **Loads** → still DNS, so the app is being frozen. Push step 1 harder: force-stop and
+  reopen, or reauthenticate — both reported to work where a plain toggle did not.
+- **Does not load** → routing, or Android's "Block connections without VPN" kill-switch.
+  A different fix entirely.
+
+Last resort is `accept-dns=false` on the phones — the only genuinely app-independent fix,
+since Android then resolves via the real network and never consults Tailscale. ⚠️ **It
+kills her MarsBar dashboard.** Read `Claude/marsbar.md` → *Her phone cannot run
+`--accept-dns=false` either* first, including the **unverified** HTTPS-certificates escape
+hatch and the fact that HTTPS on that node has broken Brave before.
+
+### Noticed while measuring — unrelated, low priority
+
+`marsbar` is reached over **DERP(syd) at 26 ms**, `direct connection not established` —
+from Sisyphus, which shares a LAN with the box marsbar runs on. `asgard` from the same
+machine is **direct in 1 ms**, and the phone on home wifi is direct too. Not an IPv6
+problem (plain IPv4 direct already works between those two); most likely endpoint
+discovery for a second node running `--tun=userspace-networking` with `--port=0`, which
+cannot take 41641. Cosmetic at 26 ms, but it means her dashboard traffic leaves the house
+and comes back even when she is on home wifi.
+
+---
+
+## Trialled and removed 2026-11-11 — Odysseus AI workspace ⛔ dormant
+
+`Modules/Apps/odysseus.nix` puts the self-hosted AI workspace
+(github.com/odysseus-dev/odysseus, AGPL-3.0) on **Sisyphus** as four containers —
+app + ChromaDB + SearXNG + ntfy — with the UI on `127.0.0.1:7011`.
+
+### ⛔ Outcome: ran end to end, then taken back out the same day
+
+Everything worked: ROCm on gfx1200, the GPU fix below, `qwen2.5-coder:14b` at
+**30–38 tok/s** with 13.7 GiB resident in VRAM. It was removed on model
+**quality**, not on plumbing. Asked to review `Hosts/Sisyphus/system.nix`, the
+14B summarised it accurately and then invented four nixpkgs options that do not
+exist (`services.sddm.themes`, `.writingSystem`, `.x11DisplayServer`,
+`.defaultUser` — the real one is `services.displayManager.sddm.theme`, renamed
+in 24.11), proposed a package that isn't one, told us to extract
+`my.sddm.theme` into a "custom module" when `Modules/Boot/sddm.nix:46` already
+declares it, and wrote its example as a bare `{ ... }: { ... }` instead of
+`flake.nixosModules.<name>` — with `architecture.md` in its context.
+
+**The honest read:** fine at *reading* Nix (summaries, "what does this module
+do"), actively costly at *writing* it — fluent, confident, wrong. RAG over the
+repo would fix the conventions half but NOT the invented option names, which
+come from the weights. That is the 14B ceiling, not a prompt problem.
+
+**The module stays in the tree, inert** — no host lists it, so it defines an
+unused attribute and costs nothing to evaluate. Re-enabling is one line in
+`Hosts/Sisyphus/system.nix`. ⚠️ If you come back: `Devstral-Small-2-24B` was the
+untried candidate (better coder, PERFECT fit, but fills VRAM → ~4k context), and
+the workspace mount + retrieval was the untried quality lever.
+
+### Everything below is what it took to get it working — keep it if it returns
+
+### Why Sisyphus, which looks like the wrong host
+
+The app is CPU-only and every other service lives on Asgard, but **Odysseus is not
+a model** — it's an interface that calls one over HTTP. rock chose to install models
+through the app's own **Cookbook** page, which downloads from HuggingFace and
+pip-installs a serve engine *inside the container*, serving on whatever GPU Docker
+shows it. That pins the app to the machine with the card. Asgard's only GPU is the
+i5-14400's UHD 730 iGPU: fine for Jellyfin's QSV, useless for inference.
+
+**Accepted trade:** the workspace is only up while the desktop is.
+
+**The declarative alternative, offered and declined for now:** `services.ollama`
+with `acceleration = "rocm"` on Sisyphus + the app on Asgard, models listed in
+`loadModels` — fully in Nix, workspace up 24/7. It stays available, and adding an
+endpoint does not turn Cookbook off, so it is additive rather than a migration.
+
+### ⚠️ The open question: does ROCm work here at all
+
+The slim image bundles **no ROCm userspace** — Cookbook has to fetch a ROCm build of
+the engine itself, and this card is **gfx1200 (RDNA4)**, which needs ROCm ≥ 6.4.
+Nothing about that is proven yet. Order of checks after the first switch:
 
 ```bash
-sudo nix build --no-link \
-  --extra-substituters https://nix-citizen.cachix.org \
-  --extra-trusted-public-keys nix-citizen.cachix.org-1:lPMkWc2X8XD4/7YPEEwXKKBg+SVbYTVrAaLA2wQTKCo= \
-  .#nixosConfigurations.rock-Sisyphus.config.system.build.toplevel
+# 1. the right card is visible, and only the right card
+docker exec odysseus sh -lc 'ls -l /dev/kfd /dev/dri/renderD*'
+# 2. the first-run admin password, printed once
+journalctl -u docker-odysseus | grep -i password
+# 3. then: Cookbook → Dependencies, install a ROCm llama.cpp, serve a small GGUF
 ```
 
-The module adds that substituter to `nix.settings`, but nix reads substituters from
-`/etc/nix/nix.conf` — which the rebuild has not written yet. So the rebuild that *adds*
-the cache cannot use it, and `wine-astral-full` would build from source. `trusted-users`
-is `root` alone here, hence sudo. One time only; later rebuilds pick it up from config.
+If an engine installs but cannot see the card, **`HSA_OVERRIDE_GFX_VERSION` is the
+first knob** — deliberately not set in the module, because a wrong override is worse
+than none. Start with a GGUF/Q4 model on llama.cpp before trying vLLM, per upstream.
 
-### Open
+### ⭐ Pass ONE render node, never all of `/dev/dri`
 
-- **Nothing has been launched.** The closure substitutes and every host evaluates;
-  whether the game actually runs is untested. Needs an RSI account with a game package.
-- **No niri window rules.** The `app-id` wine's Wayland driver gives the launcher and the
-  game is not knowable without running it — read it off `niri msg windows` on first
-  launch, the way every other rule in `Modules/Desktop/niri.nix` was derived. ⚠️ Mind
-  [[niri-rule-reapplies-on-window-recreate]] before adding an `open-on-output`.
-- **Disk.** ~155 GB to install, 363 GB free on 2026-11-06. Enough, but not enough for
-  this *and* another large game. Previous prefix was reclaimed in the October sweep.
-- The uncommitted `flake.lock` bump already in the tree pulls kernel **6.18.60** (running:
-  6.18.55), so the first rebuild also rebuilds the modules closure — including
-  `v4l2loopback`, which this module adds. Unrelated to Star Citizen, but it is why that
-  rebuild is bigger than the Star Citizen diff suggests.
+`renderD128` is the RX 9060 XT (`1002:7590`); `renderD129` is the Ryzen iGPU
+(`1002:13C0`). Upstream warns Cookbook "sees the iGPU, another card, or CPU instead
+of your intended GPU" when passthrough is loose, so the module passes `/dev/kfd` +
+`renderD128` only. Both are mode 0666, so the `--group-add` for video(26)/render(303)
+is belt-and-braces rather than load-bearing.
+
+### Not declarative, by necessity
+
+Everything Cookbook installs: models in `/var/lib/odysseus/data/huggingface`, engines
+in `data/local`, and the app's own settings/chats/notes in its SQLite DB under
+`data/`. Same category as *Before any fresh wipe* above — a wipe brings the app back
+empty and ready, not populated. Nix owns images, ports, devices and paths only.
+
+### Loose ends
+
+- **Disk.** Sisyphus is at 80% (356 G free) before a single model is downloaded.
+  Weights are tens of GB each; this is the thing most likely to bite.
+- **SearXNG's `secret_key`** is generated once into `/var/lib/odysseus/searxng/secret`
+  because it cannot live in the Nix store. Move it to sops if it ever needs to be
+  reproducible across machines (`Claude/secrets.md`).
+- **The image is digest-pinned** (resolved from `:latest` 2026-11-11) because upstream's
+  own compose warns ":latest and bare :X.Y.Z tags move on every main push" — and this
+  project pushes to main most days. Take upgrades deliberately:
+  `skopeo inspect docker://ghcr.io/odysseus-dev/odysseus:latest | grep Digest`.
+- **No topic doc yet.** If this survives the trial it wants a `Claude/odysseus.md` and a
+  row in CLAUDE.md's table; for now the module header carries the detail.
+- **The Docker socket is deliberately unmounted** — upstream's `host-docker.yml` overlay
+  is only for Cookbook's "manage the local Docker daemon" flow, and on this host that
+  socket is what Wolf drives.
+- **Idle cost measured 2026-11-11**, first boot, nothing connected: **≈2.0 GiB** resident
+  (1.76 GiB of it anonymous, in the one uvicorn process — FastEmbed's MiniLM loads at
+  startup whether the app is used or not) and **0.15% of the 12 threads** across two
+  samples. Left on `autoStart` on that basis: Sisyphus has 48 GiB of unused swap (15.2 GiB
+  zram + 33.5 GiB on NVMe), so idle anonymous pages get evicted under game pressure rather
+  than competing with it. ⚠️ That CPU figure is a **floor** — `ODYSSEUS_INPROCESS_POLLERS=1`
+  is on but has nothing to poll until email/calendar are connected. Re-measure after that.
+
+### ⭐⭐ The engine: "llama.cpp ready" can mean a CPU-only pip wheel
+
+The single most expensive thing to rediscover. Cookbook's serve script runs a bare
+`llama-server`. **The slim image ships no inference engine at all**, so it tries to
+*compile* llama.cpp in-container, fails for want of a toolchain, and silently falls
+back to a pip `llama-cpp-python` wheel — which is **CPU-only**. The UI then shows a
+green *"llama.cpp ready on local server"* banner, the launch command still reads
+`HIP_VISIBLE_DEVICES=0 llama-server …`, and the model loads into **system RAM**.
+
+**Three tells, in order of how fast you can check them:**
+1. `free -h` jumps by the model's size (+8.4 GB) while
+   `/sys/class/drm/card1/device/mem_info_vram_used` stays at the desktop's ~1.5 GiB.
+2. The serve log: `done_getting_tensors: … cannot be used with preferred buffer type
+   CPU_REPACK, using CPU instead`.
+3. ~3 tok/s. "Hello" takes half a minute.
+
+**The fix (in the module):** mount a nixpkgs `llama-cpp` built with `rocmSupport = true`
+at `/usr/local/bin/llama-server` — a path already on the image's PATH, so no PATH
+override that could shadow Cookbook's own pip CLIs in `/app/.local/bin`. ⚠️ The binary
+resolves ~50 libraries by absolute `/nix/store` path, so **`/nix/store:/nix/store:ro`
+must be mounted too** — the bin alone is inert. 0 packages to build, ~2.1 GiB to fetch,
+and `CMAKE_HIP_ARCHITECTURES` already lists **gfx1200** against ROCm 7.2.3. Working
+log line: `ROCm0 : AMD Radeon RX 9060 XT (16304 MiB …)`, then 13.7 GiB of VRAM in use.
+
+### ⚠️ Two more traps that cost an hour each
+
+- **Ollama-engine catalogue rows can never work here.** A row whose ENGINE column says
+  `Ollama` makes Cookbook run `ollama pull` in a tmux session; there is no ollama binary
+  in the container, so it dies instantly and the badge sticks on `downloading` **forever**
+  with zero bytes transferred. Those rows also show `? t/s` and `?` CTX because Cookbook
+  never benchmarked them. ⭐ **Only use `llama.cpp` rows, or Direct Download a GGUF URL.**
+- **Direct Download the FILE, not the repo.** `Qwen/Qwen2.5-Coder-14B-Instruct-GGUF`
+  holds 24 GGUFs (every quant plus fp16) and the request logs `include=None` — a repo-level
+  pull is 100+ GB. Pasting the full file URL makes it log
+  `backend=hf, include=qwen2.5-coder-14b-instruct-q4_k_m.gguf` and fetch just 8.37 GiB.
+
+### Context arithmetic on a 16 GB card — weights and KV cache share it
+
+Measured from Cookbook's own scan: a 15.2–15.9 G model leaves **1–4k context**; ~9 G
+leaves **32k**. For reading this repo's docs, context is worth more than parameters —
+`eclipse.md` alone is ~35k tokens and `CLAUDE.md` + every `Claude/*.md` is ~190k, so
+RAG is the only way to use them whole. ⚠️ llama.cpp's auto-fit defaults to
+`n_parallel = 4` and divides the KV cache four ways — **set slots to 1** for a single
+user and 20224 becomes 32k+.

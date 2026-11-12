@@ -70,6 +70,33 @@ Without it the second daemon fights the host's primary tailscaled over
 `/etc/resolv.conf` and can break DNS for every service on Asgard. `--port=0`
 likewise, so its WireGuard port cannot collide with 41641.
 
+### ⚠ Her phone cannot run `--accept-dns=false` either — for a different reason
+
+Not the trap above (that one is the *marsbar daemon* on Asgard). This one is the
+**phones**. `tailscale serve` routes on the **Host header**, not the address:
+
+```
+curl http://100.103.109.4:1111/                           → 404
+curl -H 'Host: marsbar:1111' http://100.103.109.4:1111/    → 200
+```
+
+`serve status` keys the handler as `marsbar:1111` and `marsbar.<tailnet>.ts.net:1111`
+only — no IP-keyed handler, no wildcard — and `glance-marsbar` binds **127.0.0.1:8890**
+inside a `--tun=userspace-networking` daemon, so nothing can bind that node's tailnet IP.
+Serve is the only ingress, which makes **MagicDNS load-bearing for the dashboard**.
+
+That matters because turning off *Use Tailscale DNS* is the standard fix for an Android
+phone losing DNS across a network handover — the live issue in `Claude/next-up.md` →
+*Opened 2026-11-11*. Applying it to her phone silently kills the dashboard.
+
+The FQDN does not rescue it: `marsbar.<tailnet>.ts.net` was **NXDOMAIN in public DNS**
+when checked against 8.8.8.8 on 2026-11-11 (so were `sisyphus` and `asgard`), i.e. the
+tailnet HTTPS setting is off. Enabling it is *expected* to publish public A records so the
+FQDN resolves without MagicDNS — **unverified**; re-run `host marsbar.<tailnet>.ts.net
+8.8.8.8` after toggling instead of assuming. That is a separate question from the
+Certificate Transparency note in *HTTPS was tried and reverted* below (certs vs A records)
+— and read that section first regardless: HTTPS on this node has broken Brave before.
+
 ### ⚠ Serve mount paths must never collide with a Glance page slug
 
 The Eclipse API was mounted at `/eclipse` while a Glance page also had slug

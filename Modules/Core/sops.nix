@@ -62,7 +62,11 @@ in {
     # `initialPassword = "asgard"` has to go alongside this. hashedPasswordFile
     # would win the precedence anyway; the only thing initialPassword added was
     # a fallback for a first boot without the age key, which Asgard's ssh-key
-    # login and passwordless sudo already cover.
+    # login covers.
+    #
+    # ⚠ Asgard's sudo wants a password since 2026-11-12 (it was passwordless).
+    # That password is THIS secret, the same one as Sisyphus — so on a fresh
+    # Asgard install the age key must be in place before you need sudo there.
     users.users.${activeUser}.hashedPasswordFile = config.sops.secrets.user-password-hash.path;
   };
 

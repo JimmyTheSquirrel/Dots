@@ -132,6 +132,39 @@ stack), 5000 (Kavita), 25600 (Komga) or 2049/111 (NFS) any more.
 
 ---
 
+## Tailnet DNS — global nameservers (set 2026-11-11)
+
+The tailnet pins **global nameservers** (Google Public DNS + Cloudflare Public DNS) with
+**Override DNS servers ON**, in the Tailscale admin console → DNS. Before this the field
+was empty and `tailscale dns status` read `(no resolvers configured, system default will
+be used)`, so `100.100.100.100` forwarded to whatever resolvers the underlying network
+handed out.
+
+Why it changed: both Android phones lost all app traffic on every network handover
+because the client kept forwarding to the previous network's resolver. Full diagnosis and
+the remaining phone-side steps in `Claude/next-up.md` → *Opened 2026-11-11*.
+
+What it means here:
+
+- `/etc/resolv.conf` on Asgard is **unchanged** (`nameserver 100.100.100.100`). Only the
+  **upstream behind that forwarder** moved, from DHCP-learned to the pinned public
+  resolvers. Verified after the change: `github.com` and `api.themoviedb.org` resolve.
+- It is a **console setting, not in this repo.** A fresh install inherits it from the
+  tailnet, but nothing here recreates it if the tailnet is ever rebuilt.
+- The toggle stays **greyed out until at least one global nameserver exists** — add the
+  nameserver first, then enable Override.
+- Confirm it reached the clients rather than merely being stored: `tailscale dns status`
+  should list the resolvers under `Resolvers (in preference order)`. A tailnet can hold
+  the setting without pushing it (tailscale#15459).
+- The pushed list includes **4 IPv6 resolvers**. Harmless as of 2026-11-11: the router's
+  IPv6 is off (no global v6 address and no v6 default route on the LAN), so they are
+  skipped instantly and lookups run 49-58 ms. ⚠️ If router IPv6 is switched back on while
+  the upstream path is still dead, those become black holes and the .NET AAAA hang this
+  LAN has a history of (Jellyfin → TMDb) returns. `networking.enableIPv6 = false` in
+  `Hosts/Asgard/system.nix` keeps Asgard out of it either way.
+
+---
+
 ## Stack Architecture
 
 ### Native NixOS services (via nixflix v1.2.0)

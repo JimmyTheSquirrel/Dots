@@ -144,16 +144,51 @@ async def rebuild(job, system: H.Host, action: str, target: str | None = None) -
             rc = await job.run(sec, cmd, where=system.name)
             job.cancellable = True
             if rc != 0:
-                job.stage("Activate", "failed")
-                job.card(False, f"Activation failed — {system.name}", [
-                    ("", "The new system is built (it's in the store) but did not activate cleanly."),
-                    ("retry", Text(" ".join(cmd), AQUA))])
-                return False
-            job.stage("Activate", "done")
-            verb = "switched" if action == "switch" else "ready for next boot"
-            if action == "boot":
-                nxt = (f"reboot and pick {system.name} under GRUB's System Select" if local and pflag else
-                       "active after the next reboot" if local else f"active after {system.name}'s next reboot")
+                # ⚠ A non-zero exit here does NOT mean the switch failed.
+                # switch-to-configuration exits 4 when the system switched
+                # perfectly well but some unit failed to START, and
+                # nixos-rebuild passes that straight out. Worse, against a
+                # remote host nixos-rebuild also logs "did you forget to use
+                # --ask-sudo-password?" for ANY non-zero remote sudo command:
+                # it raises that hint from CalledProcessError without ever
+                # checking whether sudo was involved in the failure
+                # (nixos_rebuild/process.py), so one unit that would not start
+                # reads as a permissions problem on a deploy that never ran.
+                # Both readings are alarming and both are wrong, so don't
+                # believe the exit code — ask the machine what it runs now.
+                where = None if local else ssh_target
+                now = await P.current_system(where)
+                if action != "switch" or not now or now != built:
+                    job.stage("Activate", "failed")
+                    job.card(False, f"Activation failed — {system.name}", [
+                        ("", "The new system is built (it's in the store) but did not activate cleanly."),
+                        ("retry", Text(" ".join(cmd), AQUA))])
+                    return False
+                # It switched. Say what actually went wrong: the units.
+                units, stale = await P.failed_units(where), await P.kernel_stale(where)
+                job.stage("Activate", "done")
+                await sec.mount(warn(
+                    f"{system.name} switched — the new system is live, but "
+                    f"{'a unit' if len(units) == 1 else f'{len(units)} units'} failed to start"
+                    if units else
+                    f"{system.name} switched — the new system is live, but a step "
+                    "after the switch reported an error"))
+                for u in units[:6]:
+                    await sec.mount(info(f"{u} — failed to start"))
+                if stale:
+                    await sec.mount(info(
+                        f"{system.name} is still running an older kernel than the system it just "
+                        "switched to, so an out-of-tree module can't load — a reboot clears it, "
+                        "and rebuilding again will not"))
+                verb = "switched"
+                nxt = ("reboot to finish — the kernel changed" if stale else
+                       "the system is the new one; see the units above")
+            else:
+                job.stage("Activate", "done")
+                verb = "switched" if action == "switch" else "ready for next boot"
+                if action == "boot":
+                    nxt = (f"reboot and pick {system.name} under GRUB's System Select" if local and pflag else
+                           "active after the next reboot" if local else f"active after {system.name}'s next reboot")
 
         # summary ──────────────────────────────────────────────────────────────
         # The numbers go in tiles across the card; the words under them.
@@ -435,24 +470,68 @@ async def clone_repo(job) -> bool:
     return True
 
 
-async def collect_garbage(job) -> bool:
-    job.begin(["Collect"], YELLOW, "GC", "garbage collect", "old generations · store · docker", platform.node(),
-              kind="gc")
-    pick = await job.choose("Collect garbage now?", [("yes", "Yes — delete every old generation"), ("no", "No")],
-                            detail="You can't roll back past the current generation afterwards.", danger=True)
+# The same three steps as Resources/Scripts/nix-gc.sh, for a machine that is not
+# this one. ⚠ Kept in step with that script BY HAND: nix-gc is a deploy-tools
+# command and a remote host need not have deploy-tools at all (Asgard does not),
+# so the steps are sent over ssh rather than calling nix-gc there. Change both.
+#
+# One ssh, not one per step: sudo caches its timestamp per tty, so a single
+# remote shell asks for the password once instead of three times. The steps are
+# separated by `;` and each only sets rc — an `&&` chain would stop at the first
+# failure and silently skip the rest.
+REMOTE_GC = (
+    "set -u; rc=0; "
+    "echo '-> deleting every old generation, then collecting garbage'; "
+    "sudo nix-collect-garbage -d || rc=1; "
+    "echo; echo '-> optimising the store (hard-linking duplicates)'; "
+    "sudo nix-store --optimise || rc=1; "
+    "found=; for engine in docker podman; do "
+    "command -v $engine >/dev/null 2>&1 || continue; found=1; "
+    "echo; echo \"-> pruning stopped containers, dangling images, unused networks ($engine)\"; "
+    "sudo $engine system prune -f || rc=1; "
+    "done; "
+    "[ -n \"$found\" ] || { echo; echo '-> no container engine here, nothing to prune'; }; "
+    "exit $rc"
+)
+
+
+async def collect_garbage(job, host: H.Host | None = None) -> bool:
+    """Garbage-collect this machine (host=None), or a remote one over ssh."""
+    local = host is None or bool(H.THIS and host.name == H.THIS.name)
+    name = platform.node() if local else host.name
+    target = None if local else host.target
+    job.begin(["Collect"], YELLOW, "GC", "garbage collect", "old generations · store · docker", name,
+              kind="gc", host=name)
+    pick = await job.choose(f"Collect garbage on {name} now?",
+                            [("yes", "Yes — delete every old generation"), ("no", "No")],
+                            detail=f"You can't roll back past {name}'s current generation afterwards.", danger=True)
     if pick != "yes":
         job.card(False, "Nothing done", [])
         return False
-    before = await P.store_free()
+    before = await P.store_free(target)
     job.stage("Collect", "running")
-    sec = await job.section("nix-gc", YELLOW, "")
-    rc = await job.run(sec, ["nix-gc"], where=platform.node())
-    after = await P.store_free()
+    if local:
+        sec = await job.section("nix-gc", YELLOW, "")
+        cmd = ["nix-gc"]
+    else:
+        sec = await job.section(f"nix-gc · {name}", YELLOW, "")
+        quiet = await P.passwordless_sudo(target)
+        await sec.mount(info(f"{name} has passwordless sudo — no password needed" if quiet else
+                             f"{name} will ask for {host.user}'s sudo password — the one on {name}"))
+        # -t gives a real tty on the far side so sudo can prompt and the app can
+        # catch it; no BatchMode, for the same reason.
+        cmd = ["ssh", "-t", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", target, REMOTE_GC]
+    job.cancellable = False                      # never stop a collection halfway
+    rc = await job.run(sec, cmd, where=name)
+    job.cancellable = True
+    after = await P.store_free(target)
     job.stage("Collect", "done" if rc == 0 else "failed")
     if rc != 0:
-        job.card(False, "Garbage collection didn't finish", [("", "The output is above.")])
+        job.card(False, f"Garbage collection didn't finish — {name}", [("", "The output is above.")])
         return False
     freed = max(0, (after or 0) - (before or 0))
-    job.card(True, f"freed {P.human_bytes(freed)}", [],
-             [("freed", P.human_bytes(freed), "old generations + store"), ("free now", P.human_bytes(after or 0), "in /nix/store")])
+    rows: list[tuple[str, Text | str]] = [] if local else [("host", kv(name, target))]
+    job.card(True, f"freed {P.human_bytes(freed)} on {name}", rows,
+             [("freed", P.human_bytes(freed), "old generations + store"),
+              ("free now", P.human_bytes(after or 0), f"in {name}'s /nix/store")])
     return True

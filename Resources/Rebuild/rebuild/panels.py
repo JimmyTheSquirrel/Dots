@@ -317,7 +317,7 @@ def pv_remotes(app) -> Group:
 def pv_utils(app) -> Group:
     rows: list[tuple[str, Text | str]] = [("repo", repo_line(app))]
     if app.repo.path:
-        rows.append(("inputs", Text.assemble("locked ", (P.ago(H.lock_age(app.repo)), FG))))
+        rows.append(("inputs", Text.assemble("nixpkgs commit ", (P.ago(H.lock_age(app.repo)), FG))))
     rows.append(("store", store_line()))
     rows.append(("last gc", run_line(HIST.last("", ("gc",)), "never from here")))
     rows.append(("last update", run_line(HIST.last("", ("update",)), "never from here")))
@@ -465,20 +465,38 @@ def pv_update(app) -> Group:
         age = (now - mod) / 86400 if mod else 0
         t.add_row(Text(name, FG), Text(rev, FAINT),
                   Text(P.ago(mod), RED if age > 60 else YELLOW if age > 21 else DIM))
-    parts.append(Text("oldest first", DIM))
+    parts.append(Text("age of the commit each input is pinned to · oldest first", DIM))
     parts.append(t)
     parts += [Text(""), run_line(HIST.last("", ("update",)), "never updated from here")]
     return Group(*parts)
 
 
-def pv_gc(app) -> Group:
-    prof = H.THIS.profile if H.THIS else "system"
-    n = generations(prof)
-    rows: list[tuple[str, Text | str]] = [("store", store_line()),
-                                         ("generations", Text.assemble(str(n), (" kept — all but the current go", DIM))),
-                                         ("last", run_line(HIST.last("", ("gc",)), "never from here"))]
-    return Group(Text.assemble(("! ", RED), ("you can't roll back past the current generation afterwards", FG)),
-                 Text(""), grid(rows, 11), Text(""), cmd("nix-gc", YELLOW))
+def pv_gc(app, h: H.Host | None = None) -> Group:
+    """Garbage collect: this machine (h=None), or a remote one over ssh."""
+    local = h is None or bool(H.THIS and h.name == H.THIS.name)
+    name = (H.THIS.name if H.THIS else "this machine") if local else h.name
+    accent = YELLOW if local else BLUE
+    rows: list[tuple[str, Text | str]] = []
+    if local:
+        rows.append(("store", store_line()))
+        rows.append(("generations", Text.assemble(str(generations(H.THIS.profile if H.THIS else "system")),
+                                                  (" kept — all but the current go", DIM))))
+    else:
+        rows.append(("host", Text(h.target, FG)))
+        r = app.probes.get(h.name)
+        if r and r.ok:
+            rows.append(("running", Text.assemble(("generation ", DIM), (r.generation, FG))))
+    rows.append(("last", run_line(HIST.last(name, ("gc",)), "never from here")))
+    whose = "the" if local else f"{name}'s"
+    parts: list = [Text.assemble(("! ", RED), (f"you can't roll back past {whose} current generation afterwards", FG)),
+                   Text(""), grid(rows, 11), Text("")]
+    if local:
+        parts.append(cmd("nix-gc", accent))
+    else:
+        parts += [Text(f"the same three steps as nix-gc, sent over ssh — {name} has no deploy-tools of its own", DIM),
+                  Text(""),
+                  cmd(f"ssh {h.target} · nix-collect-garbage -d · nix-store --optimise · docker prune", accent)]
+    return Group(*parts)
 
 
 def pv_check(app) -> Group:

@@ -895,15 +895,17 @@ in {
             match app-id="^steam$"
             opacity 0.85
           }
-          // ---- Streamed games land on HDMI-A-1 (the output Sunshine captures) ----
+          // ---- Games land on DP-2, the ultrawide — NOT the HDMI panel ----
           //
           // The streaming model is: Moonlight opens Sunshine's "Steam Big Picture"
           // app, and games are chosen from inside Big Picture. So the game window
           // is whatever Steam happens to launch — it is NOT a per-game Sunshine
           // entry, and there is no in-game monitor selector to rely on.
           //
-          // Hence a GENERIC rule: any `steam_app_<id>` goes to HDMI-A-1. Previously
-          // this was pinned per game (only `steam_app_1313140`), which meant every
+          // Hence a GENERIC rule: any `steam_app_<id>` was sent to HDMI-A-1.
+          // ⚠️ HISTORY ONLY — it goes to **DP-2** now; see the repoint note below,
+          // and don't read the next few paragraphs as describing current behaviour.
+          // Previously this was pinned per game (only `steam_app_1313140`), which meant every
           // other title opened on the DP-2 ultrawide while Sunshine dutifully
           // streamed the desktop — hit with Stray on 2026-09-27.
           // `open-fullscreen` makes it fill the 1080p output so the capture is
@@ -914,10 +916,32 @@ in {
           //
           // ⚠️ Obsolete if the Wolf trial replaces Sunshine (Modules/Gaming/wolf.nix) —
           // Wolf gives each session its own virtual display, so there is nothing
-          // to pin. Harmless to keep as the Sunshine fallback.
+          // to pin.
+          //
+          // ⚠️ THAT HAS NOW HAPPENED, and this rule was NOT harmless: Wolf is the
+          // live Moonlight host and autostarts (Hosts/Sisyphus/system.nix), while
+          // Sunshine sits at `autoStart = false` since 2026-09-28 — they bind the
+          // same Moonlight ports, so at most one may run. Every session since has
+          // therefore been Wolf, on its own virtual display, with nothing to pin —
+          // and this rule went on dragging every LOCAL game onto the 1080p panel
+          // for no benefit at all. Repointed to DP-2 on 2026-11-07.
+          //
+          // ⚠️ KEEP THE RULE — do not delete it. Two reasons:
+          //   1. `focus-follows-mouse` is on (input.focus-follows-mouse, above), so
+          //      with no rule a game opens on whatever output the POINTER happens to
+          //      be over. Nondeterministic is worse than wrong-but-predictable.
+          //   2. Niri re-applies window rules when a window is RE-CREATED, which
+          //      games do on a swapchain rebuild (PoE2, 2026-10-11: DP-2 went black
+          //      because a recreate re-fired this rule and teleported the game to
+          //      HDMI-A-1). Pointed at DP-2, that same mechanism now HOLDS the game
+          //      on the ultrawide instead of stealing it away.
+          //
+          // To stream with Sunshine again: stop Wolf, flip this and the Cult of the
+          // Lamb rule back to HDMI-A-1, rebuild, and re-login — niri reads only the
+          // baked store config.
           window-rule {
             match app-id="^steam_app_"
-            open-on-output "HDMI-A-1"
+            open-on-output "DP-2"
             open-fullscreen true
           }
           // Cult of the Lamb needs its own rule ON TOP of the generic one above:
@@ -929,7 +953,41 @@ in {
           // Any other game given a gamescope launch option will need the same.
           window-rule {
             match title="^Cult Of The Lamb$"
-            open-on-output "HDMI-A-1"
+            open-on-output "DP-2"
+            open-fullscreen true
+          }
+          // Black Desert Online (appid 582660). ⭐ FIXED 2026-11-11, and the fix
+          // was NOT a compositor problem — the three things that mattered were
+          // all outside Nix:
+          //   1. Proton **10.0** forced in Properties → Compatibility. It had
+          //      been on Experimental, which auto-updates weekly; the game
+          //      worked in September and broke by November with no local change.
+          //      Log header of the working run: `Proton: proton-10.0-4b`.
+          //   2. `windowed = 0` in the prefix's
+          //      `Documents/Black Desert/GameOption.txt` — that is what killed
+          //      the black bars. ⚠️ the file is CRLF, so a plain `^windowed = 1$`
+          //      sed matches nothing while exiting 0.
+          //   3. `steamapps/shadercache/582660` moved aside; it regenerated from
+          //      308M down to 27M.
+          // The symptom was a black screen AFTER picking a server, with the CPU
+          // at ~195% and the GPU at 1-2% — a client-side stall, which is why
+          // every display-side theory was a dead end.
+          //
+          // ⚠️ This rule is a BACKSTOP and is UNVERIFIED — it was written for a
+          // gamescope launch option (`gamescope -W 2560 -H 1080 -f -- %command%`)
+          // that turned out not to be needed, and the working run has no
+          // gamescope in it at all. It is kept because BDO runs on plain
+          // XWayland, where the toplevel carries the exe's WM_CLASS rather than
+          // `steam_app_582660`, so the `^steam_app_` rule above cannot pin it to
+          // DP-2. Harmless alongside the game's own fullscreen.
+          //
+          // ⚠️ PREFIX match on purpose. The live title is
+          // "BLACK DESERT - 534521 (DX11)" and that number is the client build,
+          // which changes with every patch — an exact `$`-anchored match like
+          // Cult of the Lamb's would silently stop matching on patch day.
+          window-rule {
+            match title="^BLACK DESERT"
+            open-on-output "DP-2"
             open-fullscreen true
           }
           window-rule {

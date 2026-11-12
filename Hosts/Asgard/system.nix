@@ -64,13 +64,22 @@
           settings.PasswordAuthentication = false;
         };
 
-        # Passwordless sudo for server management
-        security.sudo.wheelNeedsPassword = false;
-
-        # No initialPassword here any more: rock's password comes from the sops
-        # `user-password-hash` secret (Modules/Core/sops.nix) on every host that
-        # imports sops. /downloads' tmpfiles rules live with the rest of the data
-        # directories in Modules/Server/storage.nix — they were declared twice.
+        # sudo asks for a password here, like every other host (the NixOS
+        # default; `security.sudo.wheelNeedsPassword = false` used to be set
+        # here and was removed 2026-11-12). It is the SAME password as
+        # Sisyphus: there is no initialPassword on this host, rock's hash comes
+        # from the sops `user-password-hash` secret (Modules/Core/sops.nix) on
+        # every host that imports sops.
+        #
+        # Deploys are unaffected. Both halves of system-rebuild ask the target
+        # whether sudo is passwordless (`sudo -n true` over ssh) and pass
+        # `--sudo` or `--ask-sudo-password` to nixos-rebuild accordingly — see
+        # Resources/Scripts/system-rebuild.sh and Resources/Rebuild/rebuild/jobs.py.
+        # The app catches the prompt and shows a box; the password typed there
+        # is the one on THIS machine, Asgard.
+        #
+        # /downloads' tmpfiles rules live with the rest of the data directories
+        # in Modules/Server/storage.nix — they were declared twice.
       })
     ];
   };
