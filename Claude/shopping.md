@@ -155,10 +155,42 @@ person's newer ones.
 - `:9558` is not in `allowedTCPPorts`; only `tailscale0` is trusted. Her phone never needs
   a grant on it — it goes through `marsbar:1111/shop-api`.
 
+## Backups (added 2026-11-24)
+
+The list lives on the NVMe (`/var/lib/private/shopping-list/state.json`), which is exactly
+what a reinstall rewrites. The data drives are never formatted (`Hosts/Asgard/_disko.nix`),
+so copies go to **`/data/.state/backups/shopping-list/`** — real ext4 on the 8TB, beside the
+arr databases. All in `Modules/Server/shopping.nix`:
+
+- **When:** every night at 03:17 (`shopping-list-backup.timer`, `Persistent` — a night
+  missed while Asgard was off runs at the next boot) **and every time the service stops**
+  (`ExecStopPost`): each deploy, and the shutdown before a reinstall.
+- **What's kept:** `latest.json` plus dated `state-<when>.json` copies — only when the
+  list actually changed, so it's the **last 60 distinct versions**, not 60 nights. Root-only
+  (0700 dir, 0600 files). A list that doesn't parse is never backed up over a good one.
+- **Restore by itself:** `ExecStartPre` — no list on the NVMe but a backup on the drive →
+  it's put back before the service starts. That's the fresh-install case, and it needs no
+  hand. The unit is `WantsMountsFor=/data/.state` (soft — the list must still run with the
+  drive missing) so that first start sees the drive.
+- **Restore by hand** (on Asgard): `sudo shopping-list-restore` lists them (with "18 to
+  get, 6 recipes, 14 staples" per copy); `sudo shopping-list-restore latest` or `… <file>`
+  puts one back. It stops the service first, which backs up the list you had — so a restore
+  can be undone with another restore.
+- A restore gives the list a **new `sid`**, so every open dashboard takes it instead of
+  ignoring it as older than what it has (`take()` in shopping.js).
+- ⚠ **nofail drives:** with the 8TB missing, `/data/.state` is an empty folder on the NVMe.
+  Every script checks `mountpoint` first and does nothing (the restore command says why)
+  rather than write a "backup" that would vanish with the NVMe. The catch: a fresh install
+  booted with the 8TB unplugged starts the list fresh (starters), and once that list exists
+  nothing auto-restores — use `shopping-list-restore latest`.
+- The three scripts are `writeShellApplication`s (shellchecked at build). Their paths can be
+  overridden by `SHOP_STATE_DIR` / `SHOP_BACKUP_DIR` / `SHOP_BACKUP_MOUNT` — only so they can
+  be exercised away from Asgard; the units never set them.
+
 ## Traps
 
-- ⚠ **It's user data.** A rebuild never touches the list; **reinstalling Asgard starts it
-  empty** (bar the starters). Nothing backs it up — copy `state.json` off if that matters.
+- ⚠ **It's user data.** A rebuild never touches the list. A reinstall restores it from
+  the backup on the 8TB (above) — if that drive is there.
 - ⚠ **`/shop-api` is a persisted serve mount** (see `Claude/marsbar.md` → serve mounts).
   Renaming it needs an explicit `tailscale serve --http=1111 --set-path=/shop-api off` on
   the marsbar node; deleting the Nix line does not remove it. And it must never collide

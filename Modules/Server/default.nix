@@ -159,6 +159,8 @@
     # sessions (ttyd.nix). Splitting this list across those files would reorder
     # system-path: definitions from several files concatenate in the order the
     # files are merged (reverse-alphabetical here), not the order you read them.
+    # (One exception: shopping.nix adds `shopping-list-restore`, which is built
+    # there from the same paths as the backup it reads.)
     environment.systemPackages = [ pkgs.kitty.terminfo pkgs.mergerfs pkgs.tmux ];
 
     # --- Sops secrets ---

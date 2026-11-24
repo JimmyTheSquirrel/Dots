@@ -481,6 +481,11 @@ and `lockedSettings` in `Modules/Desktop/noctalia.nix` reproduces it.
 Plus the off-repo Asgard state in item 6 above — Tailscale ACL policy, the
 `marsbar` machine's key-expiry setting, and the BIOS fan curves.
 
+✅ **The shopping list doesn't need saving by hand**: it backs itself up to
+`/data/.state/backups/shopping-list/` on every stop (so the shutdown before the wipe takes
+a final copy) and restores itself on the fresh install's first start — as long as the 8TB
+is plugged in for that boot. See `Claude/shopping.md` → Backups.
+
 ⚠️ And **Shelfarr's user account**, which nothing in the repo creates: `books-setup.service`
 writes its `Setting` rows but never a `User`, so a fresh Asgard comes up with Shelfarr at
 `/session/new` and zero accounts, waiting to be registered by hand. The password is a bcrypt
