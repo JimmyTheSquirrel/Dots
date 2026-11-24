@@ -27,8 +27,9 @@ this port.
   POST /items/restore   {items: [...]}   put removed items back (Undo)
   POST /recipes/save    {id?, name, icon?, ingredients: [{name, qty?, cat?}], note?}
   POST /recipes/delete  {id}
-  POST /staples/save    {id?, name, qty?, cat?}   one per name: saving a name
-                        that's already a staple updates that one
+  POST /staples/save    {id?, name, qty?, cat?, icon?}   one per name: saving a
+                        name that's already a staple updates that one (and keeps
+                        its picture unless the save names one)
   POST /staples/delete  {id}
 
 Every POST answers {ok, state} (or {ok: false, error}) and needs `X-Dash: 1`.
@@ -549,8 +550,11 @@ def staple_from(body, sid):
     name = clean(body.get("name"), NAME_LEN)
     if not name:
         return None
+    # icon: a picture someone picked; "" means the dashboard guesses one from
+    # the name (shopping.js → iconFor).
     return {"id": sid or clean_id(body.get("id")) or new_id(), "name": name,
-            "qty": clean(body.get("qty"), QTY_LEN), "cat": clean_cat(body.get("cat"))}
+            "qty": clean(body.get("qty"), QTY_LEN), "cat": clean_cat(body.get("cat")),
+            "icon": clean(body.get("icon"), ICON_LEN)}
 
 
 def op_staple_save(body):
@@ -561,6 +565,10 @@ def op_staple_save(body):
     for i, s in enumerate(_state["staples"]):
         if s["id"] == st["id"] or key(s["name"]) == k:
             st["id"] = s["id"]
+            # A save that doesn't mention the picture (re-adding "24 pack
+            # toilet paper", ★ from a row) keeps the one that was picked.
+            if "icon" not in body:
+                st["icon"] = s.get("icon", "")
             _state["staples"][i] = st
             return {"id": st["id"]}
     if len(_state["staples"]) >= MAX_STAPLES:

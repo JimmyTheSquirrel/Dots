@@ -882,6 +882,20 @@ span.shs-main { cursor: default; }
 .shs-pick .sh-btn.go { flex: 1 1 auto; min-width: 0; max-width: 220px; }
 /* a phone-width card: no indent under the name, so − 24 packs + and Add fit on one line */
 @container sh (max-width: 400px) { .shs-pick { padding-left: 10px; } }
+/* Editing: a staple's picture is a button (dashed ring) that opens a grid of
+   them under the row; "Auto" goes back to the guess from its name. */
+button.shs-i.pickable { padding: 0; cursor: pointer; border: 1px dashed color-mix(in srgb, var(--acc) 60%, transparent);
+  -webkit-tap-highlight-color: transparent; transition: transform 0.08s, border-color 0.2s; }
+button.shs-i.pickable:active { transform: scale(0.9); }
+.shs-row.open button.shs-i.pickable { border-style: solid; border-color: var(--acc); }
+.shs-pick.shs-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; }
+.shs-icons button { height: 40px; padding: 0; font-size: 2rem; line-height: 1; cursor: pointer; background: none;
+  border: 1px solid transparent; border-radius: 10px; -webkit-tap-highlight-color: transparent; transition: background-color 0.15s, transform 0.08s; }
+.shs-icons button:active { transform: scale(0.9); }
+.shs-icons button.on, .shs-icons button:focus-visible { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, transparent); }
+@media (hover: hover) { .shs-icons button:hover { background: color-mix(in srgb, var(--acc) 10%, transparent); } }
+.shs-icons .shs-auto { grid-column: span 2; font: inherit; font-size: 1.2rem; font-weight: 600; letter-spacing: 0.04em; color: var(--acc);
+  border-color: color-mix(in srgb, var(--acc) 40%, transparent); }
 .shs-add { display: flex; gap: 8px; }
 .shs.editing .shs-tools { order: -1; } /* editing: the add box first, where the thumb already is */
 .shs-tools .sh-act { align-items: center; }

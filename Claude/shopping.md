@@ -100,6 +100,15 @@ in the .py — ⚠ their metric tables must agree)
 - **★ Keep as a staple** in a row's ⋯ editor saves that item (name, quantity, aisle) as a
   staple in one tap; it reads **★ A staple** if it already is one, and tapping that takes
   it out.
+- **Pictures** (added 2026-11-24): each staple has its own, not its aisle's. Unpicked, it's
+  **guessed from the name** (`iconFor` in shopping.js — `ICON_PHRASES` first, then the last
+  word that means something, like `categorise()`: bin bags 🗑️, herbs/coriander/basil 🌿,
+  coffee ☕️, cereal 🥣, cordial 🧃, laundry 🧺…; unknown → the aisle's picture). In **Edit
+  staples** the picture is a button (dashed ring) that opens a grid of ~95 (`STAPLE_ICONS`)
+  plus **Auto** (back to the guess). A picked one is stored as the staple's `icon`; the
+  server keeps it when a save doesn't mention one (re-adding `2 tissues` keeps 🧼).
+  ⚠ Symbols from the old BMP block (☕) need U+FE0F after them or they render as small grey
+  text — the tables carry it; add it to any new one.
 - Twelve generic **starter staples** (`starterStaples` in shopping.nix) are written in on a
   fresh install — and, ONCE, onto a list from before staples existed (state.json had no
   `staples` key). After that the key is there, so taking them all out sticks.
@@ -110,7 +119,7 @@ in the .py — ⚠ their metric tables must agree)
 - Tap a recipe → its ingredients, each pre-ticked **unless it's already on the list**
   (marked *on the list*). Untick what's in the cupboard → **Add N to the list**. They land
   in their aisles tagged with the recipe's name, and merge with anything already there.
-- **+ New recipe / Edit**: a name, a picture (emoji), ingredients one a line (same parsing
+- **+ New recipe / Edit**: a name, a picture (one of ~60 meal emoji, `EMOJI`), ingredients one a line (same parsing
   as the add box), an optional note. Delete takes a second tap.
 - A search box appears once there are more than six.
 - Four **starter recipes** (`starterRecipes` in `shopping.nix`) are written in only when

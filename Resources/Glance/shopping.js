@@ -263,7 +263,7 @@
   // ── state: the server's, plus our unconfirmed changes on top ─────────────
   var srv = null, queue = [], busy = false, retryT = null, backoff = 1000, offline = false, queued = false;
   var ui = { edit: null, cook: null, off: {}, rEdit: null, rArm: 0, clearArm: 0, typed: "", find: "", got: true, rOpen: false,
-    step: null, stepT: null, sOpen: false, sEdit: false, sPick: null, sAmt: "" };
+    step: null, stepT: null, sOpen: false, sEdit: false, sPick: null, sAmt: "", sIcon: null };
   try {
     ui.got = localStorage.getItem("sh-got") !== "closed";
     ui.rOpen = localStorage.getItem("sh-recipes") === "open";
@@ -421,7 +421,7 @@
       s.staples = s.staples.filter(function (x) {
         if (x.id === st.id || key(x.name) === k) { keep = x; return false; }
         return true;
-      }).concat([Object.assign({}, st, keep ? { id: keep.id } : {})]);
+      }).concat([Object.assign({}, keep && !("icon" in st) ? { icon: keep.icon || "" } : {}, st, keep ? { id: keep.id } : {})]);
     });
   }
   function deleteStaple(st) {
@@ -446,7 +446,8 @@
     cloud: svg('<path d="M7 18a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.4 1.6A3.8 3.8 0 0 1 17.5 18z"/><path d="M4 4l16 16"/>'),
     search: svg('<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>')
   };
-  var EMOJI = ("🍝 🍛 🍜 🍲 🥘 🍳 🥗 🌮 🌯 🍕 🍔 🥪 🍗 🥩 🐟 🍤 🍣 🥟 🍚 🥞 🧇 🥐 🍰 🍪 🥧 🥣 🍎 🥦 🥕 🌶️ 🧀 🥑 🍄 🥔 🍞 🍽️").split(" ");
+  var EMOJI = ("🍝 🍛 🍜 🍲 🥘 🫕 🍳 🥗 🌮 🌯 🫔 🥙 🧆 🍕 🍔 🌭 🍟 🥪 🍗 🍖 🥩 🥓 🐟 🍤 🦐 🦀 🍣 🍱 🍙 🥟 🍢 🍚 🥞 🧇 " +
+    "🥐 🥯 🍞 🥖 🧀 🥚 🍰 🧁 🍪 🥧 🍩 🍨 🥣 🍎 🍓 🍌 🥦 🥕 🌽 🌶️ 🥑 🍄 🥔 🍠 🎃 🌿 🍽️").split(" ");
 
   // ── drawing: a keyed list, so rows MOVE (and can be animated) ────────────
   // Dash.paint morphs by position, which is right for cards whose shape
@@ -723,6 +724,65 @@
     }).join("");
   }
 
+  // ── a picture for a thing, from its name ─────────────────────────────────
+  // Used by the cupboard staples (each its own picture, not its aisle's); a
+  // picture someone picks is stored on the staple and wins. Same lookup as
+  // categorise(): a phrase first, then the LAST word that means something
+  // ("bin bags" → bin → 🗑️, "chicken stock" → stock → 🥫). Unknown → the aisle's.
+  var ICON_WORDS = {
+    "🍎": "apple", "🍌": "banana", "🍊": "orange mandarin", "🍋": "lemon lime", "🍓": "strawberry berry raspberry",
+    "🫐": "blueberry", "🍇": "grape", "🍉": "watermelon melon rockmelon", "🍍": "pineapple", "🥭": "mango",
+    "🥝": "kiwi kiwifruit", "🍐": "pear", "🍑": "peach nectarine apricot plum", "🍒": "cherry", "🥑": "avocado",
+    "🍅": "tomato", "🥔": "potato", "🧅": "onion shallot leek", "🧄": "garlic", "🥕": "carrot",
+    "🥬": "lettuce cabbage kale spinach choy silverbeet rocket", "🥦": "broccoli broccolini cauliflower",
+    "🥒": "cucumber zucchini", "🍆": "eggplant", "🍄": "mushroom", "🎃": "pumpkin", "🌽": "corn sweetcorn cob",
+    "🌶️": "chilli chili", "🫑": "capsicum", "🌿": "herb coriander cilantro parsley basil mint dill rosemary thyme sage chive oregano lemongrass",
+    "🥗": "salad", "🫘": "bean chickpea lentil",
+    "🍞": "bread loaf sourdough", "🥖": "baguette", "🥐": "croissant", "🥯": "bagel", "🫓": "wrap tortilla pita naan",
+    "🧁": "muffin cupcake", "🍰": "cake", "🍩": "donut doughnut",
+    "🍗": "chicken drumstick wing thigh", "🥩": "beef steak lamb mince veal brisket", "🥓": "bacon ham prosciutto salami",
+    "🍖": "pork rib roast", "🌭": "sausage snag", "🐟": "fish salmon barramundi snapper cod fillet tuna sardine",
+    "🦐": "prawn shrimp",
+    "🥛": "milk cream", "🧀": "cheese feta parmesan mozzarella cheddar haloumi halloumi brie camembert ricotta",
+    "🧈": "butter margarine", "🥚": "egg", "🍦": "icecream gelato", "🥄": "yoghurt yogurt custard",
+    "🍚": "rice", "🍝": "pasta spaghetti penne noodle lasagne fettuccine linguine macaroni", "🥣": "cereal oat muesli granola weetbix",
+    "🥫": "tin can soup stock broth passata gravy", "🫒": "olive oil", "🧂": "salt pepper spice seasoning paprika cumin",
+    "🍯": "honey syrup", "🫙": "jam vegemite nutella mayo mayonnaise mustard sauce paste pickle", "🌾": "flour",
+    "🍬": "sugar lolly lollie", "🍫": "chocolate choc", "🍪": "biscuit cookie cracker", "🥜": "nut peanut almond cashew",
+    "🍿": "popcorn", "🥨": "pretzel", "🍟": "chip crisp",
+    "☕️": "coffee", "🍵": "tea", "🧃": "juice cordial", "🥤": "soda coke cola softdrink lemonade kombucha",
+    "🍺": "beer", "🍷": "wine", "💧": "water",
+    "🗑️": "bin garbage rubbish", "🧽": "sponge dishwashing dishwasher detergent scourer", "🧺": "laundry softener",
+    "🧻": "toilet tissue towel napkin", "🧼": "soap", "🧴": "shampoo conditioner lotion sunscreen moisturiser moisturizer bodywash",
+    "🪥": "toothbrush toothpaste floss", "🧹": "broom", "🪣": "bucket bleach cleaner spray", "🔋": "battery",
+    "💡": "bulb", "🕯️": "candle", "💊": "panadol paracetamol ibuprofen nurofen vitamin", "🩹": "plaster bandaid",
+    "🍼": "nappy formula", "🐱": "cat kitty litter", "🐶": "dog", "🌯": "burrito"
+  };
+  var ICON_PHRASES = [
+    ["toilet paper", "🧻"], ["paper towel", "🧻"], ["bin bag", "🗑️"], ["bin liner", "🗑️"], ["garbage bag", "🗑️"],
+    ["dishwashing", "🧽"], ["laundry", "🧺"], ["washing powder", "🧺"], ["olive oil", "🫒"], ["ice cream", "🍦"],
+    ["peanut butter", "🥜"], ["coconut milk", "🥥"], ["coconut cream", "🥥"], ["tea bag", "🍵"], ["cat food", "🐱"],
+    ["dog food", "🐶"], ["hand wash", "🧼"], ["body wash", "🧴"], ["sweet potato", "🍠"], ["spring onion", "🧅"],
+    ["baked bean", "🥫"], ["chopped tomato", "🥫"], ["tinned tomato", "🥫"], ["diced tomato", "🥫"], ["tomato paste", "🫙"],
+    ["maple syrup", "🍯"], ["soy sauce", "🫙"], ["sour cream", "🥛"], ["cream cheese", "🧀"], ["hot chip", "🍟"],
+    ["fish finger", "🐟"], ["garlic bread", "🥖"]
+  ];
+  var ICON_KW = {};
+  Object.keys(ICON_WORDS).forEach(function (e) { ICON_WORDS[e].split(" ").forEach(function (w) { if (w) ICON_KW[key(w)] = e; }); });
+  function iconFor(x) {
+    if (x.icon) return x.icon;
+    var k = key(x.name), padded = " " + k + " ";
+    for (var i = 0; i < ICON_PHRASES.length; i++) if (padded.indexOf(" " + ICON_PHRASES[i][0]) >= 0) return ICON_PHRASES[i][1];
+    var words = k.split(/[^a-z]+/).filter(Boolean);
+    for (var j = words.length - 1; j >= 0; j--) { var e = ICON_KW[key(words[j])]; if (e) return e; }
+    return AISLE[aisleOf(x.cat || categorise(x.name))].icon;
+  }
+  // What can be picked for a staple: roughly by aisle, so it's quick to scan.
+  var STAPLE_ICONS = ("🍎 🍌 🍊 🍋 🍓 🫐 🍇 🍉 🍍 🥭 🥝 🍐 🍑 🍒 🥑 🍅 🥔 🍠 🧅 🧄 🥕 🥬 🥦 🥒 🍆 🍄 🎃 🌽 🌶️ 🫑 " +
+    "🌿 🌱 🍃 🥗 🍞 🥖 🥐 🥯 🫓 🧁 🍗 🥩 🥓 🍖 🌭 🐟 🦐 🥛 🧀 🧈 🥚 🍦 🥄 " +
+    "🍚 🍝 🥣 🥫 🫘 🫒 🧂 🍯 🫙 🌾 🍬 🍫 🍪 🥜 🍿 🍟 ☕️ 🍵 🧃 🥤 🍺 🍷 💧 " +
+    "🗑️ 🧽 🧺 🧻 🧼 🧴 🪥 🧹 🪣 🔋 💡 🕯️ 💊 🩹 🍼 🐱 🐶 🐾 🎁 🛒").split(" ");
+
   // ── cupboard staples ─────────────────────────────────────────────────────
   // The things you always keep in, saved so they're quick to add when you're
   // running low — a plain list you control, NOT a tracker: nothing here shows
@@ -760,12 +820,22 @@
   // The amount being picked, shown as "1" when there's none (= one).
   function amtLabel(q) { return q || "1"; }
   function stapleRow(x) {
-    var icon = AISLE[aisleOf(x.cat)].icon, t = '<span class="shs-i" aria-hidden="true">' + icon + '</span>' +
-      '<span class="shs-t"><span class="shs-n">' + esc(x.name) + '</span>' +
+    var icon = iconFor(x), name = '<span class="shs-t"><span class="shs-n">' + esc(x.name) + '</span>' +
       (x.qty ? '<small>usually ' + esc(x.qty) + '</small>' : '') + '</span>';
+    var t = '<span class="shs-i" aria-hidden="true">' + icon + '</span>' + name;
     if (ui.sEdit) {
-      return '<div class="shs-row" role="listitem"><span class="shs-main">' + t + '</span>' +
-        '<button type="button" class="shs-btn del" data-shs-del="' + x.id + '" aria-label="' + esc("Take " + x.name + " out of the staples") + '">' + I.x + '</button></div>';
+      // Editing: tap the picture to pick another (or Auto, the guess from its name).
+      var picking = ui.sIcon === x.id;
+      return '<div class="shs-row' + (picking ? " open" : "") + '" role="listitem"><span class="shs-main">' +
+          '<button type="button" class="shs-i pickable" data-shs-icon="' + x.id + '" aria-expanded="' + picking + '" ' +
+            'aria-label="' + esc("Change the picture for " + x.name) + '">' + icon + '</button>' + name + '</span>' +
+        '<button type="button" class="shs-btn del" data-shs-del="' + x.id + '" aria-label="' + esc("Take " + x.name + " out of the staples") + '">' + I.x + '</button>' +
+        (picking ? '<div class="shs-pick shs-icons" role="group" aria-label="' + esc("Pictures for " + x.name) + '">' +
+          '<button type="button" class="shs-auto' + (x.icon ? "" : " on") + '" data-shs-seticon="">Auto</button>' +
+          STAPLE_ICONS.map(function (e) {
+            return '<button type="button" class="' + (x.icon === e ? "on" : "") + '" data-shs-seticon="' + e + '">' + e + '</button>';
+          }).join("") + '</div>' : '') +
+        '</div>';
     }
     var open = ui.sPick === x.id;
     var html = '<div class="shs-row' + (open ? " open" : "") + '" role="listitem">' +
@@ -796,7 +866,7 @@
     C.toggle.setAttribute("aria-expanded", String(ui.sOpen));
     C.inner.inert = !ui.sOpen;
     var faces = [];
-    all.forEach(function (x) { var f = AISLE[aisleOf(x.cat)].icon; if (faces.indexOf(f) < 0) faces.push(f); });
+    all.forEach(function (x) { var f = iconFor(x); if (faces.indexOf(f) < 0) faces.push(f); });
     D.paint(C.toggle,
       '<span class="shr-stack" aria-hidden="true">' + (faces.length ? faces.slice(0, 3) : ["🧺"]).map(function (f) {
         return '<span>' + f + '</span>'; }).join("") + '</span>' +
@@ -818,7 +888,7 @@
             '<input class="sh-in" type="text" maxlength="300" placeholder="Add staples — cordial, 24 pack toilet paper" aria-label="Add a staple" enterkeyhint="done" autocapitalize="sentences">' +
             '<button type="submit" class="sh-plus" aria-label="Save as a staple">' + I.plus + '</button>' +
           '</form>' +
-          '<div class="sh-act"><span class="shs-hint">An amount in front becomes its usual one.</span><button type="button" class="sh-btn go sm" data-shs-done>Done</button></div>'
+          '<div class="sh-act"><span class="shs-hint">Tap a picture to change it. An amount in front becomes its usual one.</span><button type="button" class="sh-btn go sm" data-shs-done>Done</button></div>'
         : '<div class="sh-act"><button type="button" class="sh-btn ghost sm" data-shs-edit>Edit staples</button></div>';
     }
   }
@@ -1191,7 +1261,7 @@
     function staple(id) { return s.staples.filter(function (x) { return x.id === id; })[0]; }
     if (t.closest("[data-shs-toggle]")) {
       ui.sOpen = !ui.sOpen;
-      if (!ui.sOpen) { ui.sEdit = false; ui.sPick = null; }
+      if (!ui.sOpen) { ui.sEdit = false; ui.sPick = null; ui.sIcon = null; }
       try { localStorage.setItem("sh-staples", ui.sOpen ? "open" : "closed"); } catch (_) {}
       refresh();
     } else if ((el = t.closest("[data-shs-quick]"))) {
@@ -1211,6 +1281,16 @@
       if (ad) addStaple(ad, ui.sAmt);
       ui.sPick = null;
       refresh();
+    } else if ((el = t.closest("[data-shs-icon]"))) {
+      var ic = el.getAttribute("data-shs-icon");
+      ui.sIcon = ui.sIcon === ic ? null : ic;
+      refresh();
+    } else if ((el = t.closest("[data-shs-seticon]"))) {
+      var who = staple(ui.sIcon);
+      if (who) saveStaple({ id: who.id, name: who.name, qty: who.qty || "", cat: who.cat, icon: el.getAttribute("data-shs-seticon") });
+      ui.sIcon = null;
+      buzz();
+      refresh();
     } else if ((el = t.closest("[data-shs-del]"))) {
       var gone = staple(el.getAttribute("data-shs-del"));
       if (gone) deleteStaple(gone);
@@ -1219,7 +1299,7 @@
       var inp = S && S.tools.querySelector("input");
       if (inp && matchMedia("(hover: hover)").matches) inp.focus();
     } else if (t.closest("[data-shs-done]")) {
-      ui.sEdit = false; refresh();
+      ui.sEdit = false; ui.sIcon = null; refresh();
     }
   }
   function onSubmit(e) {
