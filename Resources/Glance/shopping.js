@@ -956,7 +956,7 @@
     var s = current(), it = byId(s, id);
     if (!it) return;
     var u = usualOf(s, it.name), cat = aisleOf(it.cat);
-    openSheet({ kind: "item", id: id, cat: cat, icon: AISLE[cat].icon, title: it.name,
+    openSheet({ kind: "item", id: id, cat: cat, icon: iconFor(it), title: it.name,
       sub: it.done ? "In the trolley" : AISLE[cat].label + (it.by && it.by !== WHO ? " · added by " + it.by : ""),
       body:
         field("What", '<input class="sh-in" data-f="name" maxlength="80" enterkeyhint="done" value="' + esc(it.name) + '">') +
