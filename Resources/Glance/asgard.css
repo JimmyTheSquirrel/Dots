@@ -1439,7 +1439,7 @@ html[data-ha-link="offline"] :is(.ag-swatches, .ag-bright) { filter: saturate(0.
    buttons and section heads in Orbitron. Item names stay in the body face —
    they're read in a hurry in a shop. */
 .widget :is(.sh-in, .sh-plus, .sh-btn, .sh-chip, .sh-row, .sh-main, .sh-more, .sh-qty, .sh-by, .sh-ed, .sh-ais, .sh-empty, .shr-tile, .shr-ico,
-  .shr-toggle, .shr-stack span, .sh-stepper, .sh-st, .sh-qrow .sh-st, .shs-chip, .shs-i,
+  .shr-toggle, .shr-stack span, .sh-stepper, .sh-st, .sh-qrow .sh-st, .shs-row, .shs-main, .shs-i, .shs-btn,
   .shr-cook, .shr-ed, .shr-ing, .shr-emoji, .shr-emoji button) { border-radius: 2px; }
 .widget .sh-box { border-radius: 2px; }
 .widget :is(.sh-btn, .sh-sec, .sh-chips-h, .sh-f > span:first-child) { font-family: var(--ag-title); letter-spacing: 0.12em; }

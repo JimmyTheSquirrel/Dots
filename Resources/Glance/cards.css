@@ -849,28 +849,36 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 .shr.open .shr-inner { padding-top: 12px; padding-bottom: 3px; }
 .shr-bar { display: flex; gap: 8px; justify-content: flex-end; }
 
-/* Cupboard staples — the same fold as the recipe book (.shr), with a chip per
-   staple: tap to put it on the list (lit, with a tick), tap again to take it
-   off. In "Edit staples" each chip carries a × and the add box shows. */
-.shs-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-.shs-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; max-width: 100%; padding: 5px 14px 5px 6px;
-  font: inherit; font-size: 1.35rem; color: var(--ag-text); cursor: pointer; text-align: left;
-  background: linear-gradient(170deg, var(--ag-tile-hi), var(--ag-tile-lo)); border: 1px solid var(--ag-line-soft); border-radius: 999px;
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s, transform 0.08s; }
-.shs-chip:active { transform: scale(0.96); }
-@media (hover: hover) { .shs-chip:hover { border-color: color-mix(in srgb, var(--acc) 45%, transparent); } }
-.shs-i { flex: none; display: grid; place-items: center; width: 30px; height: 30px; font-size: 1.6rem; line-height: 1; border-radius: 50%;
-  background: color-mix(in srgb, var(--acc) 12%, var(--ag-surface)); transition: background-color 0.2s; }
-.shs-i svg { width: 16px; height: 16px; fill: none; stroke: var(--ag-on-acc); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-.shs-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shs-chip small { flex: none; font-size: 1.1rem; color: var(--ag-text-faint); }
-.shs-chip.on { color: var(--ag-text); border-color: color-mix(in srgb, var(--acc) 60%, transparent);
-  background: color-mix(in srgb, var(--acc) 16%, transparent); }
-.shs-chip.on .shs-i { background: var(--acc); }
-.shs-chip.on small { color: var(--acc); }
-.shs-chip.edit { padding-right: 10px; border-style: dashed; }
-.shs-chip.edit > svg { flex: none; width: 15px; height: 15px; color: var(--ag-bad); }
+/* Cupboard staples — the same fold as the recipe book (.shr): a plain list to
+   add from, not a tracker. Each row: the staple (tap it to pick an amount) and
+   a round + that adds it at once; an opened row shows − amount + and "Add to
+   list" under the name. In "Edit staples" the + is a ×, and the add box shows. */
+.shs-list { display: flex; flex-direction: column; gap: 6px; }
+.shs-row { display: flex; flex-wrap: wrap; align-items: center; border-radius: 14px; border: 1px solid var(--ag-line-soft);
+  background: linear-gradient(170deg, var(--ag-tile-hi), var(--ag-tile-lo)); transition: border-color 0.2s; }
+.shs-row.open { border-color: color-mix(in srgb, var(--acc) 50%, transparent); }
+.shs-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 8px 6px 10px;
+  font: inherit; color: inherit; text-align: left; background: none; border: none; border-radius: 14px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+span.shs-main { cursor: default; }
+.shs-i { flex: none; display: grid; place-items: center; width: 34px; height: 34px; font-size: 1.8rem; line-height: 1; border-radius: 50%;
+  background: color-mix(in srgb, var(--acc) 12%, var(--ag-surface)); }
+.shs-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.shs-n { font-size: 1.5rem; font-weight: 500; color: var(--ag-text); overflow-wrap: break-word; }
+.shs-t small { font-size: 1.1rem; color: var(--ag-text-faint); }
+/* the round + (and, editing, the ×) */
+.shs-btn { flex: none; display: grid; place-items: center; width: 40px; height: 40px; margin-right: 8px; padding: 0; cursor: pointer;
+  color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, transparent); border: 1px solid color-mix(in srgb, var(--acc) 45%, transparent);
+  border-radius: 50%; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: background-color 0.2s, transform 0.08s; }
+.shs-btn svg { width: 20px; height: 20px; stroke-width: 2.6; }
+.shs-btn:active { transform: scale(0.9); }
+@media (hover: hover) { .shs-btn:hover { background: color-mix(in srgb, var(--acc) 26%, transparent); } }
+.shs-btn.del { color: var(--ag-bad); background: none; border-color: color-mix(in srgb, var(--ag-bad) 40%, transparent); }
+/* an opened row: the amount, then Add — on a line of their own under the name */
+.shs-pick { flex-basis: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 10px 10px 56px;
+  animation: sh-pop 0.18s var(--ag-ease); }
+.shs-pick .sh-stepper { margin-left: 0; }
+.shs-pick .sh-btn.go { flex: 1; max-width: 220px; }
 .shs-add { display: flex; gap: 8px; }
 .shs.editing .shs-tools { order: -1; } /* editing: the add box first, where the thumb already is */
 .shs-tools .sh-act { align-items: center; }
@@ -935,6 +943,7 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
   .sh-st { width: 32px; height: 32px; }
   .sh-more { width: 34px; }
   .sh-ed-row { grid-template-columns: 1fr; }
+  .shs-pick { padding-left: 10px; }
 }
 @media (max-width: 560px) {
   .sh-ed-row { grid-template-columns: 1fr; }
@@ -942,7 +951,7 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 }
 @media (prefers-reduced-motion: reduce) {
   .sh-box svg, .sh-row, .sh-toast, .sh-chev, .shr-body { transition: none !important; }
-  .sh-row.flash, .sh-stepper { animation: none; }
+  .sh-row.flash, .sh-stepper, .shs-pick { animation: none; }
 }
 
 /* ── The colour picker (theme.js) — its base look, both dashboards ─────────────

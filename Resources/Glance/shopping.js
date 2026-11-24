@@ -263,7 +263,7 @@
   // ── state: the server's, plus our unconfirmed changes on top ─────────────
   var srv = null, queue = [], busy = false, retryT = null, backoff = 1000, offline = false, queued = false;
   var ui = { edit: null, cook: null, off: {}, rEdit: null, rArm: 0, clearArm: 0, typed: "", find: "", got: true, rOpen: false,
-    step: null, stepT: null, sOpen: false, sEdit: false };
+    step: null, stepT: null, sOpen: false, sEdit: false, sPick: null, sAmt: "" };
   try {
     ui.got = localStorage.getItem("sh-got") !== "closed";
     ui.rOpen = localStorage.getItem("sh-recipes") === "open";
@@ -724,11 +724,18 @@
   }
 
   // ── cupboard staples ─────────────────────────────────────────────────────
-  // A drawer of the things you always keep in, folded to one bar like the
-  // recipe book (open/shut remembered per browser). A chip per staple, in aisle
-  // order: tap it to put it on the list (it lights up), tap a lit one to take
-  // it back off (with Undo). "Edit staples" turns the chips into ×s and opens
-  // an add box — which, like the list's, takes "cordial, 24 pack toilet paper".
+  // The things you always keep in, saved so they're quick to add when you're
+  // running low — a plain list you control, NOT a tracker: nothing here shows
+  // or changes what's already on the list. Folded to one bar like the recipe
+  // book (open/shut remembered per browser). Each staple is a row:
+  //   +            adds it now, at its usual amount (if it has one)
+  //   tap the name opens − amount + and "Add to list", to pick how much first
+  // Adding something already on the list adds to it (the server sums: 24 pack
+  // + 24 pack = 48 packs). "Edit staples" gives each row a × and an add box
+  // that reads like the list's ("cordial, 24 pack toilet paper").
+  // (Changed 2026-11-24 at rock's request: the first version lit a chip for
+  // anything on the list and took it off again on a second tap — "we want more
+  // control … not something we're tracking".)
   var S = null;
   function stapleShell() {
     var host = D.$("sh-staples");
@@ -738,23 +745,52 @@
       '<div class="shr shs">' +
         '<button type="button" class="shr-toggle" data-shs-toggle aria-expanded="false" aria-controls="shs-body"></button>' +
         '<div class="shr-body" id="shs-body"><div class="shr-inner">' +
-          '<div class="shs-grid" data-shs-grid></div>' +
+          '<div class="shs-list" role="list" data-shs-list></div>' +
           '<div class="shs-tools" data-shs-tools></div>' +
         '</div></div>' +
       '</div>';
     var root = host.firstElementChild;
     S = { root: root, toggle: root.querySelector("[data-shs-toggle]"), inner: root.querySelector(".shr-inner"),
-      grid: root.querySelector("[data-shs-grid]"), tools: root.querySelector("[data-shs-tools]"), mode: null };
+      list: root.querySelector("[data-shs-list]"), tools: root.querySelector("[data-shs-tools]"), mode: null };
     return S;
   }
   function stapleSort(a, b) {
     return (AISLE[aisleOf(a.cat)].i - AISLE[aisleOf(b.cat)].i) || (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1);
   }
+  // The amount being picked, shown as "1" when there's none (= one).
+  function amtLabel(q) { return q || "1"; }
+  function stapleRow(x) {
+    var icon = AISLE[aisleOf(x.cat)].icon, t = '<span class="shs-i" aria-hidden="true">' + icon + '</span>' +
+      '<span class="shs-t"><span class="shs-n">' + esc(x.name) + '</span>' +
+      (x.qty ? '<small>usually ' + esc(x.qty) + '</small>' : '') + '</span>';
+    if (ui.sEdit) {
+      return '<div class="shs-row" role="listitem"><span class="shs-main">' + t + '</span>' +
+        '<button type="button" class="shs-btn del" data-shs-del="' + x.id + '" aria-label="' + esc("Take " + x.name + " out of the staples") + '">' + I.x + '</button></div>';
+    }
+    var open = ui.sPick === x.id;
+    var html = '<div class="shs-row' + (open ? " open" : "") + '" role="listitem">' +
+      '<button type="button" class="shs-main" data-shs-pick="' + x.id + '" aria-expanded="' + open + '" ' +
+        'aria-label="' + esc("Pick how many " + x.name) + '">' + t + '</button>';
+    if (!open) {
+      return html + '<button type="button" class="shs-btn" data-shs-quick="' + x.id + '" ' +
+        'aria-label="' + esc("Add " + (x.qty ? x.qty + " " : "") + x.name + " to the list") + '">' + I.plus + '</button></div>';
+    }
+    var down = stepQty(ui.sAmt, -1), up = stepQty(ui.sAmt, 1);
+    return html + '<div class="shs-pick">' +
+        '<span class="sh-stepper" role="group" aria-label="' + esc("How many " + x.name) + '">' +
+          '<button type="button" class="sh-st" data-shs-step="-1" aria-label="Fewer"' + (down == null ? " disabled" : "") + '>' + I.minus + '</button>' +
+          '<b aria-live="polite">' + esc(amtLabel(ui.sAmt)) + '</b>' +
+          '<button type="button" class="sh-st" data-shs-step="1" aria-label="More"' + (up == null ? " disabled" : "") + '>' + I.plus + '</button>' +
+        '</span>' +
+        '<button type="button" class="sh-btn go" data-shs-add="' + x.id + '">Add to list</button>' +
+      '</div></div>';
+  }
   function drawStaples(s) {
     var C = stapleShell();
     if (!C) return;
-    var all = s.staples.slice().sort(stapleSort), lit = all.filter(function (x) { return onList(s, x.name); }).length;
+    var all = s.staples.slice().sort(stapleSort);
     if (!all.length && ui.sOpen) ui.sEdit = true; // nothing saved yet: straight to adding some
+    if (ui.sPick && !all.some(function (x) { return x.id === ui.sPick; })) ui.sPick = null; // taken out on the other dashboard
     C.root.classList.toggle("open", ui.sOpen);
     C.root.classList.toggle("editing", ui.sEdit);
     C.toggle.setAttribute("aria-expanded", String(ui.sOpen));
@@ -762,26 +798,15 @@
     var faces = [];
     all.forEach(function (x) { var f = AISLE[aisleOf(x.cat)].icon; if (faces.indexOf(f) < 0) faces.push(f); });
     D.paint(C.toggle,
-      '<span class="shr-stack" aria-hidden="true">' + (faces.length ? faces.slice(0, 4) : ["🧺"]).map(function (f) {
+      '<span class="shr-stack" aria-hidden="true">' + (faces.length ? faces.slice(0, 3) : ["🧺"]).map(function (f) {
         return '<span>' + f + '</span>'; }).join("") + '</span>' +
       '<span class="shr-toggle-t"><b>Cupboard staples</b><small>' +
-        (!all.length ? "Save the things you always keep in" : lit ? lit + " on the list" :
-          ui.sOpen ? "Tap what's running low" : plural(all.length, "staple", "staples") + " saved") +
+        (!all.length ? "Save the things you always keep in" :
+          ui.sOpen && !ui.sEdit ? "Tap a name to pick how many" : plural(all.length, "staple", "staples") + " saved") +
       '</small></span>' + I.chev);
 
-    D.paint(C.grid, !all.length ? '<div class="shr-none">No staples yet — add toilet paper, cereal, cordial… below.</div>' :
-      all.map(function (x) {
-        var icon = AISLE[aisleOf(x.cat)].icon;
-        if (ui.sEdit) {
-          return '<button type="button" class="shs-chip edit" data-shs-del="' + x.id + '" aria-label="' + esc("Take " + x.name + " out of the staples") + '">' +
-            '<span class="shs-i" aria-hidden="true">' + icon + '</span><span class="shs-n">' + esc(x.name) + '</span>' + I.x + '</button>';
-        }
-        var on = !!onList(s, x.name);
-        return '<button type="button" class="shs-chip' + (on ? " on" : "") + '" data-shs-id="' + x.id + '" aria-pressed="' + on + '" ' +
-          'aria-label="' + esc((on ? "Take off the list: " : "Put on the list: ") + x.name) + '">' +
-          '<span class="shs-i" aria-hidden="true">' + (on ? I.check : icon) + '</span><span class="shs-n">' + esc(x.name) + '</span>' +
-          (x.qty ? '<small>' + esc(x.qty) + '</small>' : '') + '</button>';
-      }).join(""));
+    D.paint(C.list, !all.length ? '<div class="shr-none">No staples yet — add toilet paper, cereal, cordial… above.</div>' :
+      all.map(stapleRow).join(""));
 
     // The tools are drawn only when the mode changes, so the add box keeps
     // what's being typed while the other dashboard changes things.
@@ -793,9 +818,19 @@
             '<input class="sh-in" type="text" maxlength="300" placeholder="Add staples — cordial, 24 pack toilet paper" aria-label="Add a staple" enterkeyhint="done" autocapitalize="sentences">' +
             '<button type="submit" class="sh-plus" aria-label="Save as a staple">' + I.plus + '</button>' +
           '</form>' +
-          '<div class="sh-act"><span class="shs-hint">Tap a staple to take it out.</span><button type="button" class="sh-btn go sm" data-shs-done>Done</button></div>'
+          '<div class="sh-act"><span class="shs-hint">An amount in front becomes its usual one.</span><button type="button" class="sh-btn go sm" data-shs-done>Done</button></div>'
         : '<div class="sh-act"><button type="button" class="sh-btn ghost sm" data-shs-edit>Edit staples</button></div>';
     }
+  }
+  // Put a staple on the list at the amount given ("" = just the thing).
+  function addStaple(x, qty) {
+    if (/^1$/.test(qty)) qty = ""; // one, unitless, is just the thing
+    var r = addItems([{ name: x.name, qty: qty, cat: x.cat && x.cat !== "other" ? x.cat : undefined }]);
+    var what = (qty ? qty + " " : "") + x.name;
+    if (r.fresh.length) say("Added " + what + " to the list", { undo: function () { remove(r.fresh, "Took " + x.name + " back off"); } });
+    else if (qty) say(x.name + ": added " + qty + " to what's on the list");
+    else say(x.name + " is already on the list");
+    buzz();
   }
 
   // ── the recipe card ──────────────────────────────────────────────────────
@@ -1153,22 +1188,34 @@
   }
   function onStapleClick(t) {
     var el, s = current();
+    function staple(id) { return s.staples.filter(function (x) { return x.id === id; })[0]; }
     if (t.closest("[data-shs-toggle]")) {
       ui.sOpen = !ui.sOpen;
-      if (!ui.sOpen) ui.sEdit = false;
+      if (!ui.sOpen) { ui.sEdit = false; ui.sPick = null; }
       try { localStorage.setItem("sh-staples", ui.sOpen ? "open" : "closed"); } catch (_) {}
       refresh();
-    } else if ((el = t.closest("[data-shs-id]"))) {
-      var st = s.staples.filter(function (x) { return x.id === el.getAttribute("data-shs-id"); })[0];
-      if (!st) return;
-      var on = onList(s, st.name);
-      if (on) remove([on.id], "Took " + on.name + " off the list");
-      else { addItems([{ name: st.name, qty: st.qty, cat: st.cat && st.cat !== "other" ? st.cat : undefined }]); buzz(); }
+    } else if ((el = t.closest("[data-shs-quick]"))) {
+      var q = staple(el.getAttribute("data-shs-quick"));
+      if (q) addStaple(q, q.qty || "");
+    } else if ((el = t.closest("[data-shs-pick]"))) {
+      var pk = staple(el.getAttribute("data-shs-pick"));
+      if (!pk) return;
+      if (ui.sPick === pk.id) ui.sPick = null;
+      else { ui.sPick = pk.id; ui.sAmt = pk.qty || ""; }
+      refresh();
+    } else if ((el = t.closest("[data-shs-step]"))) {
+      var nq = stepQty(ui.sAmt, +el.getAttribute("data-shs-step"));
+      if (nq) { ui.sAmt = nq; buzz(); refresh(); }
+    } else if ((el = t.closest("[data-shs-add]"))) {
+      var ad = staple(el.getAttribute("data-shs-add"));
+      if (ad) addStaple(ad, ui.sAmt);
+      ui.sPick = null;
+      refresh();
     } else if ((el = t.closest("[data-shs-del]"))) {
-      var gone = s.staples.filter(function (x) { return x.id === el.getAttribute("data-shs-del"); })[0];
+      var gone = staple(el.getAttribute("data-shs-del"));
       if (gone) deleteStaple(gone);
     } else if (t.closest("[data-shs-edit]")) {
-      ui.sEdit = true; render();
+      ui.sEdit = true; ui.sPick = null; render();
       var inp = S && S.tools.querySelector("input");
       if (inp && matchMedia("(hover: hover)").matches) inp.focus();
     } else if (t.closest("[data-shs-done]")) {

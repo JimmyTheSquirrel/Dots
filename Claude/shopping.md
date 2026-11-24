@@ -78,20 +78,28 @@ in the .py — ⚠ their metric tables must agree)
   tag, `Kit-Kat` on MarsBar's); the *other* dashboard shows "added by …" on the row.
 
 **Cupboard staples (`#sh-staples`, inside the list card — added 2026-11-24)**
-- The things you always keep in — toilet paper, cereal, cordial — saved so they're one tap
-  onto the list. Different from the **Usuals** row, which is automatic (bought twice or
-  more); staples are the ones you chose. Usuals don't repeat a staple.
-- Open the bar (shut by default, remembered per browser as `sh-staples`) and each staple is
-  a chip, in aisle order. **Tap → onto the list** (the chip lights with a ✓); **tap a lit
-  one → back off** (with Undo). A chip is lit whenever that name is on the list, whoever
-  put it there.
-- **Edit staples** turns the chips into ×s (tap to take one out, with Undo) and puts an add
-  box at the top that reads like the list's (`cordial, 24 pack toilet paper` → two staples,
-  the second with its quantity). Done goes back.
+- The things you always keep in — toilet paper, cereal, cordial — saved so they're quick to
+  add when you're running low. **A plain list you control, NOT a tracker:** nothing in it
+  shows or changes what's already on the list. (The first version lit a chip for anything on
+  the list and took it off on a second tap; rock and Kit-Kat wanted "more control … not
+  something we're tracking", so it was rebuilt the same day. Don't bring the tracking back.)
+- Different from the **Usuals** row, which is automatic (bought twice or more); staples are
+  the ones you chose. Usuals don't repeat a staple.
+- Open the bar (shut by default, remembered per browser as `sh-staples`): a row per staple,
+  in aisle order, showing its usual amount if it has one ("usually 24 packs").
+  - **round +** → onto the list now, at its usual amount.
+  - **tap the name** → the row opens with **− amount +** (the same steps as the list:
+    packs, mL/L, g/kg…; starts at the usual amount, or one) and **Add to list**.
+  - Already on the list? The amount is **added to** it (the server sums: 24 packs + 24 packs
+    = 48 packs; 2L + 2.5L = 4.5L). With no amount on either, it just says it's already there.
+  - A fresh add can be undone from the toast.
+- **Edit staples**: each row gets a × (take it out, with Undo) and an add box at the top that
+  reads like the list's — `cordial, 24 pack toilet paper` → two staples, and **an amount in
+  front becomes its usual one**. Saving a name that's already a staple updates it (one per
+  name, `key()`), which is also how to change a usual amount.
 - **★ Keep as a staple** in a row's ⋯ editor saves that item (name, quantity, aisle) as a
   staple in one tap; it reads **★ A staple** if it already is one, and tapping that takes
   it out.
-- **One per name** (`key()`): saving a name that's already a staple updates that one.
 - Twelve generic **starter staples** (`starterStaples` in shopping.nix) are written in on a
   fresh install — and, ONCE, onto a list from before staples existed (state.json had no
   `staples` key). After that the key is there, so taking them all out sticks.
