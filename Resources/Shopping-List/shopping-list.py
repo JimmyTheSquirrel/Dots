@@ -152,19 +152,59 @@ def _fmt(n):
     return str(int(n)) if n == int(n) else ("%.2f" % n).rstrip("0").rstrip(".")
 
 
+# Metric units, as (base unit, how many of it). Written the Australian-label
+# way and tight: 300mL, 2L, 500g, 1.5kg. shopping.js's METRIC knows the same
+# spellings — keep the two in step.
+METRIC = {"g": ("g", 1), "gm": ("g", 1), "gms": ("g", 1), "gram": ("g", 1), "grams": ("g", 1),
+          "kg": ("g", 1000), "kgs": ("g", 1000), "kilo": ("g", 1000), "kilos": ("g", 1000),
+          "ml": ("mL", 1), "millilitre": ("mL", 1), "millilitres": ("mL", 1),
+          "milliliter": ("mL", 1), "milliliters": ("mL", 1),
+          "l": ("mL", 1000), "lt": ("mL", 1000), "ltr": ("mL", 1000), "litre": ("mL", 1000),
+          "litres": ("mL", 1000), "liter": ("mL", 1000), "liters": ("mL", 1000)}
+
+
+def _metric(base, amount):
+    """An amount in g / mL, written the way a label would: 1000 and up in kg / L."""
+    if amount >= 1000:
+        return _fmt(amount / 1000) + ("kg" if base == "g" else "L")
+    return _fmt(amount) + base
+
+
+def _word(unit):
+    """A unit word folded for comparing: "tins" == "tin", "bunches" == "bunch"."""
+    u = unit.strip().lower()
+    if u.endswith("ches") or u.endswith("shes") or u.endswith("xes"):
+        return u[:-2]
+    return u[:-1] if len(u) > 3 and u.endswith("s") and not u.endswith("ss") else u
+
+
 def merge_qty(a, b):
-    """The quantity after adding b to an item that already says a."""
+    """The quantity after adding b to an item that already says a.
+
+    Metric adds up across sizes (600mL + 1L = 1.6L, 750g + 500g = 1.25kg);
+    the same word unit adds up ("1 tin" + "2 tins" = "3 tins"); anything else
+    is kept side by side ("2 + 1 bunch"), or a is kept if that won't fit."""
     if not a:
         return b
     if not b:
         return a
     ma, mb = QTY_RE.match(a), QTY_RE.match(b)
-    if ma and mb and (ma.group(2) or "").strip().lower() == (mb.group(2) or "").strip().lower():
-        unit = (ma.group(2) or "").strip()
-        total = _fmt(_num(ma.group(1)) + _num(mb.group(1)))
-        # "500g" stays tight, "3 tins" keeps its space — as it was written.
-        sep = " " if re.match(r"^\s*[\d.,]+\s", a) else ""
-        return (total + (sep + unit if unit else ""))[:QTY_LEN]
+    if ma and mb:
+        ua, ub = (ma.group(2) or "").strip(), (mb.group(2) or "").strip()
+        na, nb = _num(ma.group(1)), _num(mb.group(1))
+        pa, pb = METRIC.get(ua.lower()), METRIC.get(ub.lower())
+        if pa and pb and pa[0] == pb[0]:
+            return _metric(pa[0], na * pa[1] + nb * pb[1])[:QTY_LEN]
+        if _word(ua) == _word(ub):
+            total = na + nb
+            if not ua:
+                return _fmt(total)
+            one = _word(ua)
+            many = ua if _word(ua) != ua.lower() else (ub if _word(ub) != ub.lower() else
+                                                       one + ("es" if one.endswith(("ch", "sh", "x", "s")) else "s"))
+            # "500g"-style tight units stay tight, "3 tins" keeps its space.
+            sep = " " if re.match(r"^\s*[\d.,]+\s", a) else ""
+            return (_fmt(total) + sep + (one if total == 1 else many))[:QTY_LEN]
     joined = a + " + " + b
     return joined if len(joined) <= QTY_LEN else a
 

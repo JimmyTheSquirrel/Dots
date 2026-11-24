@@ -48,7 +48,30 @@ rock's browser ──► asgard:9558 (tailnet, CORS) ─────────
   plural (`Onions` = `onion`). Quantities with the same unit add up (`500g` + `500g` =
   `1000g`); different units join (`1 tin + 400g`). Re-adding something already *in the
   trolley* puts it back on the list. The merged row flashes.
-- **⋯ on a row** opens its editor: name, how many, aisle, **Remove**.
+- **Tap a quantity pill** and it opens into **− 2L +** right on the row (added 2026-11-24 at
+  rock's request — "an easier way to increase / decrease"). Each tap saves; a run of quick
+  taps goes to the server as ONE edit (`send()` folds a queued edit for the same item into
+  the next). It folds back after 4 quiet seconds or the first tap anywhere else. A ticked
+  row's pill is just a label. A row with no quantity has no pill — ⋯ sets one.
+- **⋯ on a row** opens its editor: name, **How many** (− amount +), **Unit** chips
+  (each · g · kg · mL · L · pack · tin · bottle · bunch, plus whatever odd unit the item
+  already had, e.g. *cloves*), aisle, **Remove**. Tapping a unit on an item with no amount
+  starts it somewhere sensible (100mL / 100g / 1L / 1kg / 1 pack). A unit typed into the
+  amount box (`300ml`) wins over the chips.
+
+**Quantities and units** (`parseQty` / `fmtQty` / `stepQty` in shopping.js, `merge_qty`
+in the .py — ⚠ their metric tables must agree)
+- Metric is written the Australian-label way and tight: **300mL, 2L, 500g, 1.5kg**.
+  Whatever is typed (`300ml`, `2 litres`, `500 grams`) is tidied to that on the way in;
+  word units get a space and a plural (`3 tins`, `1 pack`); anything without a leading
+  number (`dozen`, `a few`) or with a unit it doesn't know (`2 cloves`) is kept as typed.
+- **Steps:** g / mL go 50 at a time below 500 and 100 from 500, rolling over to kg / L at
+  1000 (900mL + → 1L); kg / L go 0.5 and roll back under 1 (1L − → 500mL); counts and
+  word units go 1. Steps snap to their grid (330mL + → 350mL). − stops at 50 / 1 (the
+  button disables); `2-3` and other non-numbers don't step. Every step sends the
+  ABSOLUTE new quantity, never a delta — that's what keeps it idempotent.
+- **Merging** on the server adds metric across sizes (600mL + 1L = 1.6L, 750g + 500g =
+  1.25kg) and the same word unit across plurals (1 tin + 2 tins = 3 tins).
 - **Undo** (a toast at the bottom) after Remove, Clear, Clear list, deleting a recipe or
   adding a recipe's ingredients.
 - **Who added it.** Each dashboard stamps its adds (`data-who`: `Rock` on the admin script

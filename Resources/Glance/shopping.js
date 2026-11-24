@@ -159,10 +159,91 @@
     else if ((m = TRAIL.exec(line))) { name = m[1]; qty = m[2] || m[3] || m[4] || ""; }
     name = name.replace(/^[\s,;:-]+|[\s,;:-]+$/g, "");
     if (!name) return null;
-    return { name: cap(name).slice(0, 80), qty: qty.slice(0, 24) };
+    return { name: cap(name).slice(0, 80), qty: tidyQty(qty).slice(0, 24) };
   }
   // The add box takes several at once: "milk, eggs, 2 onions".
   function parseMany(text) { return String(text || "").split(/[,;\n]/).map(parse).filter(Boolean); }
+
+  // ── Quantities: a number and a unit, so − and + know how to step them ─────
+  // Metric is written the Australian-label way and tight — 300mL, 2L, 500g,
+  // 1.5kg — and rolls over at 1000 (900mL + 100 = 1L; 1L − 0.5 = 500mL). Word
+  // units take a space and a plural ("2 tins"). Anything else ("2 cloves",
+  // "2-3", "a handful") is kept exactly as written.
+  // ⚠ shopping-list.py's merge_qty knows the same metric units — keep in step.
+  var METRIC = { g: "g", gm: "g", gms: "g", gram: "g", grams: "g", kg: "kg", kgs: "kg", kilo: "kg", kilos: "kg",
+    ml: "mL", millilitre: "mL", millilitres: "mL", milliliter: "mL", milliliters: "mL",
+    l: "L", lt: "L", ltr: "L", litre: "L", litres: "L", liter: "L", liters: "L" };
+  var WORDU = {}, PLURAL = {};
+  [["pack", "packs", "packet", "packets", "pkt", "pkts"], ["tin", "tins"], ["can", "cans"], ["bottle", "bottles"],
+    ["bunch", "bunches"], ["jar", "jars"], ["bag", "bags"], ["punnet", "punnets"], ["carton", "cartons"], ["tub", "tubs"],
+    ["box", "boxes"], ["block", "blocks"], ["loaf", "loaves"], ["dozen", "dozen"]].forEach(function (w) {
+    w.forEach(function (f) { WORDU[f] = w[0]; });
+    PLURAL[w[0]] = w[1];
+  });
+  // The unit chips in a row's editor (a unit already on the item that isn't
+  // here — "cloves" — is shown as an extra chip).
+  var UNITS = [["", "each"], ["g", "g"], ["kg", "kg"], ["mL", "mL"], ["L", "L"],
+    ["pack", "pack"], ["tin", "tin"], ["bottle", "bottle"], ["bunch", "bunch"]];
+  function frac(t) {
+    return t === "½" ? 0.5 : t === "¼" ? 0.25 : t === "¾" ? 0.75 :
+      t.indexOf("/") > 0 ? +t.split("/")[0] / +t.split("/")[1] : parseFloat(t.replace(",", "."));
+  }
+  function num(n) { return String(Math.round(n * 100) / 100); }
+  function parseQty(q) {
+    var s = String(q || "").trim(), m;
+    if (!s) return { n: null, u: "" };
+    m = /^(\d+(?:[.,]\d+)?|\d+\/\d+|[½¼¾])\s*([a-z]+)?\.?$/i.exec(s);
+    if (!m) return { n: null, u: "", raw: s };
+    var n = frac(m[1]), w = (m[2] || "").toLowerCase();
+    if (!w) return { n: n, u: "" };
+    if (METRIC[w]) return { n: n, u: METRIC[w] };
+    if (WORDU[w]) return { n: n, u: WORDU[w] };
+    return { n: n, u: m[2], other: true };
+  }
+  function fmtQty(n, u) {
+    if (!u) return num(n);
+    if (u === "g" || u === "kg" || u === "mL" || u === "L") return num(n) + u;
+    if (PLURAL[u]) return num(n) + " " + (n === 1 ? u : PLURAL[u]);
+    // a unit we don't know: "1 clove" / "2 cloves", by its last letter
+    var one = u.length > 3 && /s$/i.test(u) ? u.slice(0, -1) : u;
+    return num(n) + " " + (n === 1 ? one : /s$/i.test(u) ? u : u + "s");
+  }
+  // "300ml" → "300mL", "2 litres" → "2L", "3 tin" → "3 tins"; anything without
+  // a leading number ("dozen", "a few") is left as it was typed.
+  function tidyQty(q) {
+    var p = parseQty(q);
+    return p.n != null && !p.other ? fmtQty(p.n, p.u) : String(q || "").trim();
+  }
+  // One − or + step, or null when there's nowhere to go (the bottom, or a
+  // quantity like "2-3" that isn't a number). Absolute values, never deltas:
+  // the server's writes must stay idempotent (see its header).
+  // Steps land on the step's own grid, so an odd amount comes back to round
+  // numbers: 330mL + → 350mL, 950g + → 1kg, 1.2L + → 1.5L.
+  function snap(n, step, dir) {
+    var k = n / step, e = 1e-9;
+    return (dir > 0 ? Math.floor(k + e) + 1 : Math.ceil(k - e) - 1) * step;
+  }
+  function stepQty(q, dir) {
+    var p = parseQty(q), n = p.n, u = p.u, next;
+    if (n == null) return p.raw ? null : dir > 0 ? "2" : null; // no quantity = one
+    if (u === "g" || u === "mL") {
+      next = snap(n, dir > 0 ? (n < 500 ? 50 : 100) : (n <= 500 ? 50 : 100), dir);
+      if (next >= 1000) return fmtQty(next / 1000, u === "g" ? "kg" : "L");
+      if (next < 50) return null;
+      return fmtQty(next, u);
+    }
+    if (u === "kg" || u === "L") {
+      next = snap(n, 0.5, dir);
+      if (next < 1) return next <= 0 ? null : fmtQty(next * 1000, u === "kg" ? "g" : "mL");
+      return fmtQty(next, u);
+    }
+    next = snap(n, 1, dir);
+    return next < 1 ? null : fmtQty(next, u);
+  }
+  // Where a unit chip is first tapped on an item with no amount yet.
+  function startQty(u) {
+    return u === "g" || u === "mL" ? fmtQty(100, u) : u ? fmtQty(1, u) : "2";
+  }
 
   // ── ids (the server accepts [a-z0-9]{6,16}; ours are 10) ─────────────────
   function rid() {
@@ -181,7 +262,8 @@
 
   // ── state: the server's, plus our unconfirmed changes on top ─────────────
   var srv = null, queue = [], busy = false, retryT = null, backoff = 1000, offline = false, queued = false;
-  var ui = { edit: null, cook: null, off: {}, rEdit: null, rArm: 0, clearArm: 0, typed: "", find: "", got: true, rOpen: false };
+  var ui = { edit: null, cook: null, off: {}, rEdit: null, rArm: 0, clearArm: 0, typed: "", find: "", got: true, rOpen: false,
+    step: null, stepT: null };
   try {
     ui.got = localStorage.getItem("sh-got") !== "closed";
     ui.rOpen = localStorage.getItem("sh-recipes") === "open";
@@ -204,6 +286,18 @@
   }
 
   function send(path, body, apply, done) {
+    // A run of − / + taps on one item becomes ONE edit, not one each: an edit
+    // still waiting in the queue (not the one already on the wire) for the
+    // same item just takes the newer values.
+    var last = queue[queue.length - 1];
+    if (path === "items/edit" && last && last.path === path && last.body.id === body.id &&
+        !(busy && last === queue[0]) && !last.done && !done) {
+      Object.assign(last.body, body);
+      var before = last.apply;
+      last.apply = function (s) { before(s); apply(s); };
+      refresh();
+      return;
+    }
     queue.push({ path: path, body: body, apply: apply, done: done });
     refresh();
     pump();
@@ -320,6 +414,7 @@
   }
   var I = {
     plus: svg('<path d="M12 5v14M5 12h14"/>'),
+    minus: svg('<path d="M5 12h14"/>'),
     dots: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
     check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     x: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
@@ -432,14 +527,27 @@
     if (it.from) meta += '<span class="sh-from">' + esc((icons[it.from.split(",")[0].trim()] || "🍳") + " " + it.from) + '</span>';
     if (it.by && it.by !== WHO) meta += '<span class="sh-by" title="' + esc("Added by " + it.by) + '">' + esc(it.by) + '</span>';
     var open = ui.edit === it.id;
+    // The quantity is its own control, outside the tick: tap it and it opens
+    // into − 2L + for a few seconds (ui.step). A ticked row's is just a label.
+    var qty = "";
+    if (it.qty && it.done) {
+      qty = '<span class="sh-qty">' + esc(it.qty) + '</span>';
+    } else if (it.qty && ui.step === it.id) {
+      var down = stepQty(it.qty, -1), up = stepQty(it.qty, 1);
+      qty = '<span class="sh-stepper" role="group" aria-label="' + esc("How many " + it.name) + '">' +
+        '<button type="button" class="sh-st" data-sh-step="-1" aria-label="Fewer"' + (down == null ? " disabled" : "") + '>' + I.minus + '</button>' +
+        '<b aria-live="polite">' + esc(it.qty) + '</b>' +
+        '<button type="button" class="sh-st" data-sh-step="1" aria-label="More"' + (up == null ? " disabled" : "") + '>' + I.plus + '</button></span>';
+    } else if (it.qty) {
+      qty = '<button type="button" class="sh-qty" data-sh-step-open aria-label="' + esc(it.qty + " — tap to change how many") + '">' + esc(it.qty) + '</button>';
+    }
     var html =
       '<div class="sh-row' + (it.done ? " done" : "") + (open ? " editing" : "") + '" role="listitem" data-k="i:' + it.id + '" data-id="' + it.id + '">' +
         '<button type="button" class="sh-main" data-sh-tick aria-pressed="' + !!it.done + '" ' +
           'aria-label="' + esc((it.done ? "Put back: " : "Got it: ") + it.name) + '">' +
           '<span class="sh-box" aria-hidden="true">' + I.check + '</span>' +
           '<span class="sh-txt"><span class="sh-name">' + esc(it.name) + '</span>' + (meta ? '<span class="sh-meta">' + meta + '</span>' : '') + '</span>' +
-          (it.qty ? '<span class="sh-qty">' + esc(it.qty) + '</span>' : '') +
-        '</button>' +
+        '</button>' + qty +
         '<button type="button" class="sh-more" data-sh-edit aria-expanded="' + open + '" aria-label="' + esc("Change " + it.name) + '">' + I.dots + '</button>' +
       '</div>';
     return { k: "i:" + it.id, sig: html, html: html };
@@ -451,12 +559,19 @@
       return '<button type="button" class="sh-ais' + (aisleOf(it.cat) === a[0] ? " on" : "") + '" data-sh-cat="' + a[0] + '">' +
         '<span aria-hidden="true">' + a[1] + '</span>' + esc(a[2]) + '</button>';
     }).join("");
+    var p = parseQty(it.qty);
     var html =
       '<div class="sh-ed" data-k="e:' + it.id + '" data-id="' + it.id + '">' +
         '<div class="sh-ed-row">' +
           '<label class="sh-f"><span>Item</span><input class="sh-in" data-f="name" maxlength="80" value="' + esc(it.name) + '"></label>' +
-          '<label class="sh-f sh-f-q"><span>How many</span><input class="sh-in" data-f="qty" maxlength="24" placeholder="2, 500g…" value="' + esc(it.qty || "") + '"></label>' +
+          '<div class="sh-f sh-f-q"><span>How many</span><div class="sh-qrow">' +
+            '<button type="button" class="sh-st" data-sh-ed-step="-1" aria-label="Fewer">' + I.minus + '</button>' +
+            '<input class="sh-in" data-f="amt" inputmode="decimal" maxlength="16" placeholder="1" aria-label="Amount" value="' +
+              esc(p.n == null ? p.raw || "" : num(p.n)) + '">' +
+            '<button type="button" class="sh-st" data-sh-ed-step="1" aria-label="More">' + I.plus + '</button>' +
+          '</div></div>' +
         '</div>' +
+        '<div class="sh-f"><span>Unit</span><div class="sh-aisles" data-sh-units>' + unitChips(p.n == null ? "" : p.u) + '</div></div>' +
         '<div class="sh-f"><span>Aisle</span><div class="sh-aisles">' + chips + '</div></div>' +
         '<div class="sh-act">' +
           '<button type="button" class="sh-btn ghost bad" data-sh-del>Remove</button>' +
@@ -464,6 +579,30 @@
         '</div>' +
       '</div>';
     return { k: "e:" + it.id, sig: "e", html: html };
+  }
+  function unitChips(sel) {
+    var list = UNITS.slice();
+    if (sel && !list.some(function (u) { return u[0] === sel; })) list.push([sel, sel]); // "cloves", "dozen"
+    return list.map(function (u) {
+      return '<button type="button" class="sh-ais sh-unit' + (u[0] === sel ? " on" : "") + '" data-sh-unit="' + esc(u[0]) + '">' + esc(u[1]) + '</button>';
+    }).join("");
+  }
+  // What an open editor's How many + Unit say, as one quantity. A unit typed
+  // into the amount box ("300ml") wins over the chips.
+  function edQty(ed) {
+    var amt = ed.querySelector('[data-f="amt"]').value.replace(/\s+/g, " ").trim();
+    var on = ed.querySelector("[data-sh-unit].on"), u = on ? on.getAttribute("data-sh-unit") : "";
+    if (!amt) return "";
+    var p = parseQty(amt);
+    if (p.n == null) return amt + (u ? " " + u : "");
+    return p.u ? fmtQty(p.n, p.u) : fmtQty(p.n, u);
+  }
+  function edShow(ed, q) {
+    var p = parseQty(q);
+    ed.querySelector('[data-f="amt"]').value = p.n == null ? p.raw || "" : num(p.n);
+    var u = p.n == null ? "" : p.u, box = ed.querySelector("[data-sh-units]");
+    if (!box.querySelector('[data-sh-unit="' + u + '"]')) box.innerHTML = unitChips(u);
+    box.querySelectorAll("[data-sh-unit]").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-sh-unit") === u); });
   }
   function headNode(cat, n) {
     var a = AISLE[cat];
@@ -743,7 +882,7 @@
     var ed = document.querySelector('#sh-list .sh-ed[data-id="' + id + '"]'), it = byId(current(), id);
     if (save && ed && it) {
       var name = ed.querySelector('[data-f="name"]').value.replace(/\s+/g, " ").trim();
-      var qty = ed.querySelector('[data-f="qty"]').value.replace(/\s+/g, " ").trim();
+      var qty = edQty(ed);
       var ch = {};
       if (name && name !== it.name) ch.name = name;
       if (qty !== (it.qty || "")) ch.qty = qty;
@@ -753,12 +892,38 @@
     refresh();
   }
 
+  // An open − / + folds back into its pill after a few quiet seconds, or at
+  // the first tap anywhere else.
+  function stepFor(id) {
+    clearTimeout(ui.stepT);
+    ui.step = id;
+    ui.stepT = id ? setTimeout(function () { ui.step = null; refresh(); }, 4000) : null;
+    refresh();
+  }
+
   function onClick(e) {
     var t = e.target, el;
     if (!t.closest) return;
+    if (ui.step && !t.closest(".sh-stepper")) stepFor(null);
     if (t.closest("#sh-list") && !t.closest("#sh-recipes")) {
       var row = t.closest("[data-id]"), id = row && row.getAttribute("data-id");
-      if ((el = t.closest("[data-sh-tick]")) && id) {
+      if (t.closest("[data-sh-step-open]") && id) {
+        stepFor(id);
+      } else if ((el = t.closest("[data-sh-step]")) && id) {
+        var cur = byId(current(), id), nq = cur && stepQty(cur.qty, +el.getAttribute("data-sh-step"));
+        if (nq) { edit(id, { qty: nq }); buzz(); }
+        stepFor(id);
+      } else if ((el = t.closest("[data-sh-ed-step]")) && id) {
+        var ed = el.closest(".sh-ed"), dir = +el.getAttribute("data-sh-ed-step"), q = edQty(ed);
+        var on = ed.querySelector("[data-sh-unit].on");
+        var nq2 = q ? stepQty(q, dir) : dir > 0 ? startQty(on ? on.getAttribute("data-sh-unit") : "") : null;
+        if (nq2) { edShow(ed, nq2); buzz(); }
+      } else if ((el = t.closest("[data-sh-unit]")) && id) {
+        var ed2 = el.closest(".sh-ed"), u = el.getAttribute("data-sh-unit");
+        el.parentNode.querySelectorAll("[data-sh-unit]").forEach(function (b) { b.classList.toggle("on", b === el); });
+        // A unit on an item with no amount yet starts it somewhere sensible.
+        if (u && !ed2.querySelector('[data-f="amt"]').value.trim()) edShow(ed2, startQty(u));
+      } else if ((el = t.closest("[data-sh-tick]")) && id) {
         var it = byId(current(), id);
         if (it) { toggle(id, !it.done); if (!it.done) buzz(); }
       } else if (t.closest("[data-sh-edit]") && id) {
