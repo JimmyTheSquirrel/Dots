@@ -875,10 +875,13 @@ span.shs-main { cursor: default; }
 @media (hover: hover) { .shs-btn:hover { background: color-mix(in srgb, var(--acc) 26%, transparent); } }
 .shs-btn.del { color: var(--ag-bad); background: none; border-color: color-mix(in srgb, var(--ag-bad) 40%, transparent); }
 /* an opened row: the amount, then Add — on a line of their own under the name */
-.shs-pick { flex-basis: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 10px 10px 56px;
-  animation: sh-pop 0.18s var(--ag-ease); }
+.shs-pick { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 2px 10px 10px 56px; animation: sh-pop 0.18s var(--ag-ease); }
 .shs-pick .sh-stepper { margin-left: 0; }
-.shs-pick .sh-btn.go { flex: 1; max-width: 220px; }
+/* wraps under the amount rather than spill out of the row when both won't fit */
+.shs-pick .sh-btn.go { flex: 1 1 auto; min-width: 0; max-width: 220px; }
+/* a phone-width card: no indent under the name, so − 24 packs + and Add fit on one line */
+@container sh (max-width: 400px) { .shs-pick { padding-left: 10px; } }
 .shs-add { display: flex; gap: 8px; }
 .shs.editing .shs-tools { order: -1; } /* editing: the add box first, where the thumb already is */
 .shs-tools .sh-act { align-items: center; }
