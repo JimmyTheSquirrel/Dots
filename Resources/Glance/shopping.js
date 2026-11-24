@@ -263,10 +263,11 @@
   // ── state: the server's, plus our unconfirmed changes on top ─────────────
   var srv = null, queue = [], busy = false, retryT = null, backoff = 1000, offline = false, queued = false;
   var ui = { edit: null, cook: null, off: {}, rEdit: null, rArm: 0, clearArm: 0, typed: "", find: "", got: true, rOpen: false,
-    step: null, stepT: null };
+    step: null, stepT: null, sOpen: false, sEdit: false };
   try {
     ui.got = localStorage.getItem("sh-got") !== "closed";
     ui.rOpen = localStorage.getItem("sh-recipes") === "open";
+    ui.sOpen = localStorage.getItem("sh-staples") === "open";
   } catch (_) {}
 
   function take(s) {
@@ -279,7 +280,7 @@
   }
   function current() {
     if (!srv) return null;
-    var s = { sid: srv.sid, v: srv.v, recipes: srv.recipes, history: srv.history,
+    var s = { sid: srv.sid, v: srv.v, recipes: srv.recipes, staples: srv.staples || [], history: srv.history,
       items: srv.items.map(function (i) { return Object.assign({}, i); }) };
     queue.forEach(function (o) { if (o.apply) { try { o.apply(s); } catch (_) { /* a stale change: skip it */ } } });
     return s;
@@ -407,6 +408,29 @@
     say("Deleted " + rec.name, { undo: function () { saveRecipe(rec); } });
   }
 
+  // Cupboard staples: one per name — the server folds a save onto an existing
+  // staple of the same name (key()), and so does this.
+  function stapleOf(s, name) {
+    var k = key(name);
+    for (var i = 0; i < s.staples.length; i++) if (key(s.staples[i].name) === k) return s.staples[i];
+    return null;
+  }
+  function saveStaple(st) {
+    send("staples/save", st, function (s) {
+      var k = key(st.name), keep = null;
+      s.staples = s.staples.filter(function (x) {
+        if (x.id === st.id || key(x.name) === k) { keep = x; return false; }
+        return true;
+      }).concat([Object.assign({}, st, keep ? { id: keep.id } : {})]);
+    });
+  }
+  function deleteStaple(st) {
+    send("staples/delete", { id: st.id }, function (s) {
+      s.staples = s.staples.filter(function (x) { return x.id !== st.id; });
+    });
+    say("Took " + st.name + " out of the staples", { undo: function () { saveStaple(st); } });
+  }
+
   // ── icons ────────────────────────────────────────────────────────────────
   function svg(d, cls) {
     return '<svg class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
@@ -499,6 +523,7 @@
         '<div class="sh-chips" data-sh-chips></div>' +
         // The recipe book lives IN this card, folded to one bar: one card to
         // run down in the shop, with everything for adding at its top.
+        '<div class="sh-staples" id="sh-staples"></div>' +
         '<div class="sh-recipes" id="sh-recipes"></div>' +
         '<div class="sh-list" role="list" data-sh-items></div>' +
         '<div class="sh-foot" data-sh-foot></div>' +
@@ -575,10 +600,22 @@
         '<div class="sh-f"><span>Aisle</span><div class="sh-aisles">' + chips + '</div></div>' +
         '<div class="sh-act">' +
           '<button type="button" class="sh-btn ghost bad" data-sh-del>Remove</button>' +
+          starBtn(!!stapleOf(current(), it.name)) +
           '<button type="button" class="sh-btn go" data-sh-save>Done</button>' +
         '</div>' +
       '</div>';
     return { k: "e:" + it.id, sig: "e", html: html };
+  }
+  // "Keep as a staple" in a row's editor. The editor is drawn once, so a tap
+  // repaints just this button (setStar).
+  function starBtn(on) {
+    return '<button type="button" class="sh-btn ghost sh-star' + (on ? " on" : "") + '" data-sh-staple aria-pressed="' + on + '">' +
+      (on ? "★ A staple" : "☆ Keep as a staple") + '</button>';
+  }
+  function setStar(btn, on) {
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-pressed", String(on));
+    btn.textContent = on ? "★ A staple" : "☆ Keep as a staple";
   }
   function unitChips(sel) {
     var list = UNITS.slice();
@@ -675,13 +712,90 @@
         .sort(function (a, b) { return (key(b.name).indexOf(typed) === 0) - (key(a.name).indexOf(typed) === 0) || b.n - a.n; });
     } else {
       label = "Usuals";
-      list = all.filter(function (h) { return h.n >= 2; }).sort(function (a, b) { return b.n - a.n || b.at - a.at; });
+      // (what's already a staple has its own drawer, so it isn't repeated here)
+      list = all.filter(function (h) { return h.n >= 2 && !stapleOf(s, h.name); })
+        .sort(function (a, b) { return b.n - a.n || b.at - a.at; });
     }
     list = list.slice(0, typed ? 6 : 10);
     if (!list.length) return "";
     return '<span class="sh-chips-h">' + label + '</span>' + list.map(function (h) {
       return '<button type="button" class="sh-chip" data-sh-quick="' + esc(h.name) + '">' + I.plus + esc(h.name) + '</button>';
     }).join("");
+  }
+
+  // ── cupboard staples ─────────────────────────────────────────────────────
+  // A drawer of the things you always keep in, folded to one bar like the
+  // recipe book (open/shut remembered per browser). A chip per staple, in aisle
+  // order: tap it to put it on the list (it lights up), tap a lit one to take
+  // it back off (with Undo). "Edit staples" turns the chips into ×s and opens
+  // an add box — which, like the list's, takes "cordial, 24 pack toilet paper".
+  var S = null;
+  function stapleShell() {
+    var host = D.$("sh-staples");
+    if (!host) return null;
+    if (S && host.contains(S.root)) return S;
+    host.innerHTML =
+      '<div class="shr shs">' +
+        '<button type="button" class="shr-toggle" data-shs-toggle aria-expanded="false" aria-controls="shs-body"></button>' +
+        '<div class="shr-body" id="shs-body"><div class="shr-inner">' +
+          '<div class="shs-grid" data-shs-grid></div>' +
+          '<div class="shs-tools" data-shs-tools></div>' +
+        '</div></div>' +
+      '</div>';
+    var root = host.firstElementChild;
+    S = { root: root, toggle: root.querySelector("[data-shs-toggle]"), inner: root.querySelector(".shr-inner"),
+      grid: root.querySelector("[data-shs-grid]"), tools: root.querySelector("[data-shs-tools]"), mode: null };
+    return S;
+  }
+  function stapleSort(a, b) {
+    return (AISLE[aisleOf(a.cat)].i - AISLE[aisleOf(b.cat)].i) || (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1);
+  }
+  function drawStaples(s) {
+    var C = stapleShell();
+    if (!C) return;
+    var all = s.staples.slice().sort(stapleSort), lit = all.filter(function (x) { return onList(s, x.name); }).length;
+    if (!all.length && ui.sOpen) ui.sEdit = true; // nothing saved yet: straight to adding some
+    C.root.classList.toggle("open", ui.sOpen);
+    C.root.classList.toggle("editing", ui.sEdit);
+    C.toggle.setAttribute("aria-expanded", String(ui.sOpen));
+    C.inner.inert = !ui.sOpen;
+    var faces = [];
+    all.forEach(function (x) { var f = AISLE[aisleOf(x.cat)].icon; if (faces.indexOf(f) < 0) faces.push(f); });
+    D.paint(C.toggle,
+      '<span class="shr-stack" aria-hidden="true">' + (faces.length ? faces.slice(0, 4) : ["🧺"]).map(function (f) {
+        return '<span>' + f + '</span>'; }).join("") + '</span>' +
+      '<span class="shr-toggle-t"><b>Cupboard staples</b><small>' +
+        (!all.length ? "Save the things you always keep in" : lit ? lit + " on the list" :
+          ui.sOpen ? "Tap what's running low" : plural(all.length, "staple", "staples") + " saved") +
+      '</small></span>' + I.chev);
+
+    D.paint(C.grid, !all.length ? '<div class="shr-none">No staples yet — add toilet paper, cereal, cordial… below.</div>' :
+      all.map(function (x) {
+        var icon = AISLE[aisleOf(x.cat)].icon;
+        if (ui.sEdit) {
+          return '<button type="button" class="shs-chip edit" data-shs-del="' + x.id + '" aria-label="' + esc("Take " + x.name + " out of the staples") + '">' +
+            '<span class="shs-i" aria-hidden="true">' + icon + '</span><span class="shs-n">' + esc(x.name) + '</span>' + I.x + '</button>';
+        }
+        var on = !!onList(s, x.name);
+        return '<button type="button" class="shs-chip' + (on ? " on" : "") + '" data-shs-id="' + x.id + '" aria-pressed="' + on + '" ' +
+          'aria-label="' + esc((on ? "Take off the list: " : "Put on the list: ") + x.name) + '">' +
+          '<span class="shs-i" aria-hidden="true">' + (on ? I.check : icon) + '</span><span class="shs-n">' + esc(x.name) + '</span>' +
+          (x.qty ? '<small>' + esc(x.qty) + '</small>' : '') + '</button>';
+      }).join(""));
+
+    // The tools are drawn only when the mode changes, so the add box keeps
+    // what's being typed while the other dashboard changes things.
+    var mode = ui.sEdit ? "edit" : "use";
+    if (C.mode !== mode) {
+      C.mode = mode;
+      C.tools.innerHTML = ui.sEdit
+        ? '<form class="shs-add" data-shs-form autocomplete="off">' +
+            '<input class="sh-in" type="text" maxlength="300" placeholder="Add staples — cordial, 24 pack toilet paper" aria-label="Add a staple" enterkeyhint="done" autocapitalize="sentences">' +
+            '<button type="submit" class="sh-plus" aria-label="Save as a staple">' + I.plus + '</button>' +
+          '</form>' +
+          '<div class="sh-act"><span class="shs-hint">Tap a staple to take it out.</span><button type="button" class="sh-btn go sm" data-shs-done>Done</button></div>'
+        : '<div class="sh-act"><button type="button" class="sh-btn ghost sm" data-shs-edit>Edit staples</button></div>';
+    }
   }
 
   // ── the recipe card ──────────────────────────────────────────────────────
@@ -905,9 +1019,21 @@
     var t = e.target, el;
     if (!t.closest) return;
     if (ui.step && !t.closest(".sh-stepper")) stepFor(null);
+    if (t.closest("#sh-staples")) { onStapleClick(t); return; }
     if (t.closest("#sh-list") && !t.closest("#sh-recipes")) {
       var row = t.closest("[data-id]"), id = row && row.getAttribute("data-id");
-      if (t.closest("[data-sh-step-open]") && id) {
+      if ((el = t.closest("[data-sh-staple]")) && id) {
+        var me2 = byId(current(), id), edEl = el.closest(".sh-ed");
+        var nm = (edEl && edEl.querySelector('[data-f="name"]').value.replace(/\s+/g, " ").trim()) || (me2 && me2.name);
+        if (!nm) return;
+        var was = stapleOf(current(), nm);
+        if (was) { deleteStaple(was); setStar(el, false); }
+        else {
+          saveStaple({ id: rid(), name: nm, qty: me2 && me2.qty || "", cat: me2 ? me2.cat : categorise(nm) });
+          setStar(el, true);
+          say(nm + " is a staple now — it's in Cupboard staples");
+        }
+      } else if (t.closest("[data-sh-step-open]") && id) {
         stepFor(id);
       } else if ((el = t.closest("[data-sh-step]")) && id) {
         var cur = byId(current(), id), nq = cur && stepQty(cur.qty, +el.getAttribute("data-sh-step"));
@@ -1025,7 +1151,42 @@
     if (e.key === "Escape" && t.closest("#sh-recipes")) closePanel();
     if (e.key === "Escape" && L && t === L.input) { L.input.value = ""; ui.typed = ""; refresh(); }
   }
+  function onStapleClick(t) {
+    var el, s = current();
+    if (t.closest("[data-shs-toggle]")) {
+      ui.sOpen = !ui.sOpen;
+      if (!ui.sOpen) ui.sEdit = false;
+      try { localStorage.setItem("sh-staples", ui.sOpen ? "open" : "closed"); } catch (_) {}
+      refresh();
+    } else if ((el = t.closest("[data-shs-id]"))) {
+      var st = s.staples.filter(function (x) { return x.id === el.getAttribute("data-shs-id"); })[0];
+      if (!st) return;
+      var on = onList(s, st.name);
+      if (on) remove([on.id], "Took " + on.name + " off the list");
+      else { addItems([{ name: st.name, qty: st.qty, cat: st.cat && st.cat !== "other" ? st.cat : undefined }]); buzz(); }
+    } else if ((el = t.closest("[data-shs-del]"))) {
+      var gone = s.staples.filter(function (x) { return x.id === el.getAttribute("data-shs-del"); })[0];
+      if (gone) deleteStaple(gone);
+    } else if (t.closest("[data-shs-edit]")) {
+      ui.sEdit = true; render();
+      var inp = S && S.tools.querySelector("input");
+      if (inp && matchMedia("(hover: hover)").matches) inp.focus();
+    } else if (t.closest("[data-shs-done]")) {
+      ui.sEdit = false; refresh();
+    }
+  }
   function onSubmit(e) {
+    var sf = e.target.closest && e.target.closest("[data-shs-form]");
+    if (sf) {
+      e.preventDefault();
+      var inp = sf.querySelector("input");
+      parseMany(inp.value).forEach(function (g) {
+        saveStaple({ id: rid(), name: g.name, qty: g.qty, cat: categorise(g.name) });
+      });
+      inp.value = "";
+      inp.focus();
+      return;
+    }
     var f = e.target.closest && e.target.closest("[data-shr-form]");
     if (!f) return;
     e.preventDefault();
@@ -1038,6 +1199,7 @@
     var s = current();
     if (!s) return;
     drawList(s);
+    drawStaples(s);
     drawRecipes(s);
   }
   function refresh() { if (!queued) { queued = true; requestAnimationFrame(render); } }

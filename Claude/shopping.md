@@ -13,9 +13,9 @@ her thumb is off the glass, and the other way round. Plus a recipe book: tap a r
 untick what's already in the cupboard, *Add 7 to the list* — filed by aisle.
 
 **It is ONE card** (`#sh-list`), on purpose — you both just run down it in the shop.
-Top to bottom: the add box, the usuals, the recipe book **folded to one bar** (a little
-stack of the recipes' pictures, "6 recipes", a chevron), then the list by aisle, then In the
-trolley. The recipe book opens in place (an animated fold), is **shut by default**, and
+Top to bottom: the add box, the usuals, **Cupboard staples** and the recipe book — each
+**folded to one bar** (a little stack of pictures, a count, a chevron) — then the list by
+aisle, then In the trolley. The recipe book opens in place (an animated fold), is **shut by default**, and
 remembers open/shut per browser (`localStorage["sh-recipes"]`). It was two cards for a day;
 rock and Kit-Kat both wanted the one — don't split it back out.
 
@@ -76,6 +76,25 @@ in the .py — ⚠ their metric tables must agree)
   adding a recipe's ingredients.
 - **Who added it.** Each dashboard stamps its adds (`data-who`: `Rock` on the admin script
   tag, `Kit-Kat` on MarsBar's); the *other* dashboard shows "added by …" on the row.
+
+**Cupboard staples (`#sh-staples`, inside the list card — added 2026-11-24)**
+- The things you always keep in — toilet paper, cereal, cordial — saved so they're one tap
+  onto the list. Different from the **Usuals** row, which is automatic (bought twice or
+  more); staples are the ones you chose. Usuals don't repeat a staple.
+- Open the bar (shut by default, remembered per browser as `sh-staples`) and each staple is
+  a chip, in aisle order. **Tap → onto the list** (the chip lights with a ✓); **tap a lit
+  one → back off** (with Undo). A chip is lit whenever that name is on the list, whoever
+  put it there.
+- **Edit staples** turns the chips into ×s (tap to take one out, with Undo) and puts an add
+  box at the top that reads like the list's (`cordial, 24 pack toilet paper` → two staples,
+  the second with its quantity). Done goes back.
+- **★ Keep as a staple** in a row's ⋯ editor saves that item (name, quantity, aisle) as a
+  staple in one tap; it reads **★ A staple** if it already is one, and tapping that takes
+  it out.
+- **One per name** (`key()`): saving a name that's already a staple updates that one.
+- Twelve generic **starter staples** (`starterStaples` in shopping.nix) are written in on a
+  fresh install — and, ONCE, onto a list from before staples existed (state.json had no
+  `staples` key). After that the key is there, so taking them all out sticks.
 
 **Recipes (`#sh-recipes`, built by shopping.js inside the list card)**
 - Tap the bar to open the book, tap it again to fold it away. Shutting it closes an open
@@ -151,9 +170,10 @@ person's newer ones.
   The server stores whatever `[a-z]{1,12}` it's given; an id the client doesn't know is
   drawn under Other. `key()` (what counts as "the same item") exists in BOTH files — keep
   them in step or merging and "on the list" disagree.
-- ⚠ `#sh-recipes` is INSIDE `#sh-list`, so `onClick` must route recipe taps before the
-  list's branch (`t.closest("#sh-list") && !t.closest("#sh-recipes")`) — otherwise every
-  recipe button is swallowed by the list handler and does nothing.
+- ⚠ `#sh-recipes` and `#sh-staples` are INSIDE `#sh-list`, so `onClick` must route their
+  taps before the list's branch (`#sh-staples` first; the list branch excludes
+  `#sh-recipes`) — otherwise every drawer button is swallowed by the list handler and does
+  nothing.
 - Rows are a **keyed** list (not `Dash.paint`'s positional morph) so they slide when they
   change aisle or get ticked. An open row editor or recipe editor is drawn once and never
   repainted, so the other person's changes can't wipe what's being typed.

@@ -20,8 +20,9 @@
   # ⚠ The list and the recipes are USER DATA, kept in the unit's
   # StateDirectory (/var/lib/private/shopping-list/state.json under
   # DynamicUser). A rebuild never touches it; reinstalling Asgard starts it
-  # empty. The one declarative piece is `starterRecipes` below, written in
-  # ONLY when there is no state file at all — so deleting a starter sticks.
+  # empty. The declarative pieces are `starterRecipes` and `starterStaples`
+  # below, written in ONLY when there is no state file at all (the staples
+  # also once onto a list from before they existed) — so deleting one sticks.
   # Full write-up: Claude/shopping.md.
   flake.nixosModules.server = { config, pkgs, lib, ... }:
   let
@@ -88,7 +89,28 @@
         note = "";
       }
     ];
-    seed = pkgs.writeText "shopping-starter-recipes.json" (builtins.toJSON starterRecipes);
+    # Cupboard staples: the things you always keep in, one tap onto the list
+    # from the "Cupboard staples" drop-down. Generic on purpose — edit them on
+    # either dashboard. Written in on a fresh install, and once onto a list
+    # from before staples existed; after that they're user data like the rest.
+    starterStaples = [
+      { name = "Toilet paper"; qty = ""; cat = "household"; }
+      { name = "Paper towel"; qty = ""; cat = "household"; }
+      { name = "Tissues"; qty = ""; cat = "household"; }
+      { name = "Dishwashing liquid"; qty = ""; cat = "household"; }
+      { name = "Laundry liquid"; qty = ""; cat = "household"; }
+      { name = "Bin bags"; qty = ""; cat = "household"; }
+      { name = "Cereal"; qty = ""; cat = "pantry"; }
+      { name = "Cordial"; qty = ""; cat = "drinks"; }
+      { name = "Coffee"; qty = ""; cat = "drinks"; }
+      { name = "Tea bags"; qty = ""; cat = "drinks"; }
+      { name = "Rice"; qty = ""; cat = "pantry"; }
+      { name = "Pasta"; qty = ""; cat = "pantry"; }
+    ];
+    seed = pkgs.writeText "shopping-starters.json" (builtins.toJSON {
+      recipes = starterRecipes;
+      staples = starterStaples;
+    });
   in
   {
     systemd.services.shopping-list = {

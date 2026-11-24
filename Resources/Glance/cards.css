@@ -848,6 +848,34 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 .shr-inner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; margin: 0 -3px; padding: 0 3px; }
 .shr.open .shr-inner { padding-top: 12px; padding-bottom: 3px; }
 .shr-bar { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Cupboard staples — the same fold as the recipe book (.shr), with a chip per
+   staple: tap to put it on the list (lit, with a tick), tap again to take it
+   off. In "Edit staples" each chip carries a × and the add box shows. */
+.shs-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.shs-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; max-width: 100%; padding: 5px 14px 5px 6px;
+  font: inherit; font-size: 1.35rem; color: var(--ag-text); cursor: pointer; text-align: left;
+  background: linear-gradient(170deg, var(--ag-tile-hi), var(--ag-tile-lo)); border: 1px solid var(--ag-line-soft); border-radius: 999px;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s, transform 0.08s; }
+.shs-chip:active { transform: scale(0.96); }
+@media (hover: hover) { .shs-chip:hover { border-color: color-mix(in srgb, var(--acc) 45%, transparent); } }
+.shs-i { flex: none; display: grid; place-items: center; width: 30px; height: 30px; font-size: 1.6rem; line-height: 1; border-radius: 50%;
+  background: color-mix(in srgb, var(--acc) 12%, var(--ag-surface)); transition: background-color 0.2s; }
+.shs-i svg { width: 16px; height: 16px; fill: none; stroke: var(--ag-on-acc); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.shs-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shs-chip small { flex: none; font-size: 1.1rem; color: var(--ag-text-faint); }
+.shs-chip.on { color: var(--ag-text); border-color: color-mix(in srgb, var(--acc) 60%, transparent);
+  background: color-mix(in srgb, var(--acc) 16%, transparent); }
+.shs-chip.on .shs-i { background: var(--acc); }
+.shs-chip.on small { color: var(--acc); }
+.shs-chip.edit { padding-right: 10px; border-style: dashed; }
+.shs-chip.edit > svg { flex: none; width: 15px; height: 15px; color: var(--ag-bad); }
+.shs-add { display: flex; gap: 8px; }
+.shs.editing .shs-tools { order: -1; } /* editing: the add box first, where the thumb already is */
+.shs-tools .sh-act { align-items: center; }
+.shs-hint { margin-right: auto; font-size: 1.15rem; color: var(--ag-text-faint); }
+.sh-star.on { color: var(--acc); border-color: color-mix(in srgb, var(--acc) 50%, transparent); }
 .shr-find { display: none; position: relative; flex: 1; min-width: 0; }
 .shr-bar.many .shr-find { display: block; }
 .shr-find svg { position: absolute; left: 12px; top: 50%; width: 17px; height: 17px; margin-top: -8.5px; color: var(--ag-text-faint); pointer-events: none; }

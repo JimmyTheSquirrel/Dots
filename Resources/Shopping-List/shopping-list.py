@@ -27,6 +27,9 @@ this port.
   POST /items/restore   {items: [...]}   put removed items back (Undo)
   POST /recipes/save    {id?, name, icon?, ingredients: [{name, qty?, cat?}], note?}
   POST /recipes/delete  {id}
+  POST /staples/save    {id?, name, qty?, cat?}   one per name: saving a name
+                        that's already a staple updates that one
+  POST /staples/delete  {id}
 
 Every POST answers {ok, state} (or {ok: false, error}) and needs `X-Dash: 1`.
 
@@ -49,6 +52,7 @@ survives reboots and rebuilds), written to a temp file and renamed, so a crash
 mid-write can never leave a half file. It is user data, not configuration: the
 one declarative piece is the starter recipes (SHOP_SEED), used ONLY when there
 is no state file at all — a fresh install — so deleting a starter recipe sticks.
+The starter staples likewise, plus once onto a list that predates staples.
 """
 
 import http.server
@@ -78,6 +82,7 @@ DASH_ORIGINS = frozenset(o.strip() for o in os.environ.get(
 
 MAX_ITEMS = 300
 MAX_RECIPES = 200
+MAX_STAPLES = 150      # the cupboard staples: things you always keep in
 MAX_INGREDIENTS = 60
 MAX_HISTORY = 400      # remembered names, for the "usuals" and suggestions
 SENT_HISTORY = 160     # how many of them each snapshot carries
@@ -220,24 +225,41 @@ def merge_from(a, b):
 def empty():
     # sid: changes only when the file is created afresh, so a client holding a
     # snapshot from before can tell a reset from an old message.
-    return {"sid": new_id(), "v": 0, "items": [], "recipes": [], "history": {}}
+    return {"sid": new_id(), "v": 0, "items": [], "recipes": [], "staples": [], "history": {}}
 
 
-def seed_recipes():
-    """The starter recipes (a JSON list), cleaned like any other save."""
+def _seed():
+    """SHOP_SEED: {"recipes": [...], "staples": [...]} (or, from before staples
+    existed, just the list of recipes)."""
     if not SEED:
-        return []
+        return {}
     try:
         with open(SEED) as fh:
             raw = json.load(fh)
     except (OSError, ValueError):
-        return []
+        return {}
+    return {"recipes": raw} if isinstance(raw, list) else raw if isinstance(raw, dict) else {}
+
+
+def seed_recipes():
+    """The starter recipes, cleaned like any other save."""
     out = []
-    for r in raw if isinstance(raw, list) else []:
-        rec = recipe_from(r, None)
+    for r in _seed().get("recipes") or []:
+        rec = recipe_from(r, None) if isinstance(r, dict) else None
         if rec:
             out.append(rec)
     return out[:MAX_RECIPES]
+
+
+def seed_staples():
+    """The starter staples, cleaned like any other save."""
+    out, seen = [], set()
+    for r in _seed().get("staples") or []:
+        st = staple_from(r if isinstance(r, dict) else {"name": r}, None)
+        if st and key(st["name"]) not in seen:
+            seen.add(key(st["name"]))
+            out.append(st)
+    return out[:MAX_STAPLES]
 
 
 def load():
@@ -252,10 +274,15 @@ def load():
         st.setdefault("recipes", [])
         st.setdefault("history", {})
         _state = st
-        return
+        if "staples" in st:
+            return
+        # A list from before staples existed gets the starters, once: the key
+        # is there from now on, so deleting every staple sticks.
+        st["staples"] = seed_staples()
     except FileNotFoundError:
         _state = empty()
         _state["recipes"] = seed_recipes()
+        _state["staples"] = seed_staples()
     except (OSError, ValueError) as exc:
         # Keep the unreadable file for a human to look at, and start empty
         # rather than refuse to run. No re-seeding: the recipes they had
@@ -288,6 +315,7 @@ def snapshot():
         "v": _state["v"],
         "items": _state["items"],
         "recipes": sorted(_state["recipes"], key=lambda r: r["name"].lower()),
+        "staples": sorted(_state["staples"], key=lambda r: r["name"].lower()),
         "history": [[h["name"], h.get("cat", "other"), h.get("n", 1), h.get("at", 0)] for h in hist[:SENT_HISTORY]],
     }
 
@@ -513,6 +541,41 @@ def op_recipe_delete(body):
     return {"removed": gone}
 
 
+# ── cupboard staples ────────────────────────────────────────────────────────
+# Things you always keep in — toilet paper, cereal, cordial — saved so they're
+# one tap onto the list. One per name (key()): saving a name that's already a
+# staple updates that one, whatever id it came with.
+def staple_from(body, sid):
+    name = clean(body.get("name"), NAME_LEN)
+    if not name:
+        return None
+    return {"id": sid or clean_id(body.get("id")) or new_id(), "name": name,
+            "qty": clean(body.get("qty"), QTY_LEN), "cat": clean_cat(body.get("cat"))}
+
+
+def op_staple_save(body):
+    st = staple_from(body, None)
+    if not st:
+        raise Refused(400, "a staple needs a name")
+    k = key(st["name"])
+    for i, s in enumerate(_state["staples"]):
+        if s["id"] == st["id"] or key(s["name"]) == k:
+            st["id"] = s["id"]
+            _state["staples"][i] = st
+            return {"id": st["id"]}
+    if len(_state["staples"]) >= MAX_STAPLES:
+        raise Refused(409, "that's a lot of staples (%d) — remove one first" % MAX_STAPLES)
+    _state["staples"].append(st)
+    return {"id": st["id"]}
+
+
+def op_staple_delete(body):
+    sid = clean_id(body.get("id"))
+    gone = [s for s in _state["staples"] if s["id"] == sid]
+    _state["staples"] = [s for s in _state["staples"] if s["id"] != sid]
+    return {"removed": gone}
+
+
 OPS = {
     "items/add": op_add,
     "items/toggle": op_toggle,
@@ -522,6 +585,8 @@ OPS = {
     "items/restore": op_restore,
     "recipes/save": op_recipe_save,
     "recipes/delete": op_recipe_delete,
+    "staples/save": op_staple_save,
+    "staples/delete": op_staple_delete,
 }
 
 
