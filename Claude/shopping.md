@@ -12,6 +12,13 @@ One list for the two of you. A tick on her phone in the shop is on rock's screen
 her thumb is off the glass, and the other way round. Plus a recipe book: tap a recipe,
 untick what's already in the cupboard, *Add 7 to the list* — filed by aisle.
 
+**It is ONE card** (`#sh-list`), on purpose — you both just run down it in the shop.
+Top to bottom: the add box, the usuals, the recipe book **folded to one bar** (a little
+stack of the recipes' pictures, "6 recipes", a chevron), then the list by aisle, then In the
+trolley. The recipe book opens in place (an animated fold), is **shut by default**, and
+remembers open/shut per browser (`localStorage["sh-recipes"]`). It was two cards for a day;
+rock and Kit-Kat both wanted the one — don't split it back out.
+
 ```
 her phone ──► marsbar:1111/shop-api/* ──► tailscale serve ──┐
                                                             ├──► 127.0.0.1:9558 shopping-list ──► state.json
@@ -22,7 +29,7 @@ rock's browser ──► asgard:9558 (tailnet, CORS) ─────────
 
 ## What it does
 
-**The list (`#sh-list`)**
+**The list**
 - **Add box.** Type and Enter. A comma adds several — `milk, eggs, 2 onions`.
   Quantities are read off the front or back: `500g beef mince`, `2 cloves garlic`,
   `milk x2`, `eggs (dozen)`, `Milk 2L`. (`7up` stays `7up`: a number glued to a word that
@@ -47,7 +54,9 @@ rock's browser ──► asgard:9558 (tailnet, CORS) ─────────
 - **Who added it.** Each dashboard stamps its adds (`data-who`: `Rock` on the admin script
   tag, `Kit-Kat` on MarsBar's); the *other* dashboard shows "added by …" on the row.
 
-**Recipes (`#sh-recipes`)**
+**Recipes (`#sh-recipes`, built by shopping.js inside the list card)**
+- Tap the bar to open the book, tap it again to fold it away. Shutting it closes an open
+  recipe, but an unsaved recipe *editor* survives for when it's opened again.
 - Tap a recipe → its ingredients, each pre-ticked **unless it's already on the list**
   (marked *on the list*). Untick what's in the cupboard → **Add N to the list**. They land
   in their aisles tagged with the recipe's name, and merge with anything already there.
@@ -119,6 +128,9 @@ person's newer ones.
   The server stores whatever `[a-z]{1,12}` it's given; an id the client doesn't know is
   drawn under Other. `key()` (what counts as "the same item") exists in BOTH files — keep
   them in step or merging and "on the list" disagree.
+- ⚠ `#sh-recipes` is INSIDE `#sh-list`, so `onClick` must route recipe taps before the
+  list's branch (`t.closest("#sh-list") && !t.closest("#sh-recipes")`) — otherwise every
+  recipe button is swallowed by the list handler and does nothing.
 - Rows are a **keyed** list (not `Dash.paint`'s positional morph) so they slide when they
   change aisle or get ticked. An open row editor or recipe editor is drawn once and never
   repainted, so the other person's changes can't wipe what's being typed.

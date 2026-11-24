@@ -19,9 +19,10 @@ confused with Asgard's green tech-HUD Yggdrasil dashboard.
 
 ## The shopping list (added 2026-11-24)
 
-Her **second dot** is now **Shopping**: the list and the recipe book she shares with rock —
-the SAME two cards as his Shopping page (`shopping.js`, through her `/shop-api` serve mount),
-so a tick on either is on the other at once. Full write-up: `Claude/shopping.md`.
+Her **second dot** is now **Shopping**: the list she shares with rock, ONE card with the recipe
+book folded into a bar at its top — the SAME card as his Shopping page (`shopping.js`, through
+her `/shop-api` serve mount), so a tick on either is on the other at once. Full write-up:
+`Claude/shopping.md`.
 
 ⚠ That used up Glance's third column, so the read-only **Network** card moved to the foot of
 her **Eclipse** column. Her dots are now **Home · Shopping · Eclipse**.

@@ -533,7 +533,6 @@ ICONS = {
     "wifi": "<path d='M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0M12 19.5h.01'/>",
     "terminal": "<rect x='3' y='4' width='18' height='16' rx='1'/><path d='M7 9l3 3-3 3M12 15h5'/>",
     "basket": "<path d='M3 10h18l-1.6 9.2a1 1 0 0 1-1 .8H5.6a1 1 0 0 1-1-.8zM7.5 10L11 4M16.5 10L13 4M9 14v3M12 14v3M15 14v3'/>",
-    "recipe": "<path d='M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5zM5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3'/><path d='M10 7v4M12 7v4M14 7v4M10 11h4M12 11v4'/>",
     # the host's facts
     "uptime": "<circle cx='12' cy='13' r='8'/><path d='M12 9v4l3 2M10 2h4M12 2v3'/>",
     "load": "<path d='M3 12h4l3-8 4 16 3-8h4'/>",

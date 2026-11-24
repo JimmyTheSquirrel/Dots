@@ -61,7 +61,7 @@
       "lights.js" = ../../Resources/Glance/lights.js;
       "eclipse.js" = ../../Resources/Glance/eclipse.js;
       "net.js" = ../../Resources/Glance/net.js;
-      # the shopping list + recipes she shares with rock — the SAME cards as
+      # the shopping list + recipes she shares with rock — the SAME card as
       # his Shopping page, one live list between the two dashboards
       "shopping.js" = ../../Resources/Glance/shopping.js;
       # her colour picker (the "marsbar" profile of Asgard's own picker) and the
@@ -368,15 +368,13 @@
                 }
               ];
             }
-            # The shopping list and the recipe book — shopping.js through her
-            # /shop-api mount. The same cards as rock's Shopping page; what
-            # either of you does shows on the other's at once.
+            # The shopping list, its recipe book folded in at the top — ONE
+            # card to run down in the shop. shopping.js through her /shop-api
+            # mount; the same card as rock's Shopping page, and what either of
+            # you does shows on the other's at once.
             {
               size = "small";
-              widgets = [
-                (liveCard { id = "sh-list"; title = "Shopping list"; badge = "sh-live"; })
-                (liveCard { id = "sh-recipes"; title = "Recipes"; })
-              ];
+              widgets = [ (liveCard { id = "sh-list"; title = "Shopping list"; badge = "sh-live"; }) ];
             }
             {
               size = "full";

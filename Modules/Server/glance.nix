@@ -711,7 +711,7 @@
     #   ags-host ags-storage ags-playing ags-dl   stats.js   ← asgard-stats :9552
     #   nw                                        net.js     ← network-panel :9555
     #   ec-main ec-tv ec-wolf ec-ctl ec-net ec-log  eclipse.js ← eclipse-control :9554
-    #   sh-list sh-recipes                        shopping.js ← shopping-list :9558
+    #   sh-list (the list + its recipe book)      shopping.js ← shopping-list :9558
     # net.js, eclipse.js, shopping.js (and cards.css) are SHARED with MarsBar, which
     # draws the same cards through her serve proxy. See _livecard.nix.
     liveCard = import ./_livecard.nix lib;
@@ -874,12 +874,14 @@
         # ══════════════════════════════════════════════════════════════════
         # Shopping — the list you share with Kit-Kat, and the recipe book
         # ══════════════════════════════════════════════════════════════════
-        # The SAME two cards as her MarsBar column (shopping.js, from
-        # shopping-list's /events stream on :9558 — see shopping.nix). What
-        # either of you adds, ticks or clears is on the other's screen at
-        # once; her additions carry her name here, yours carry "Rock" there
-        # (data-who on the script tag above). `slim`, like the other
-        # control pages, so a list doesn't stretch across an ultrawide.
+        # The SAME card as her MarsBar column (shopping.js, from
+        # shopping-list's /events stream on :9558 — see shopping.nix): ONE
+        # card, the recipe book folded into a bar at its top, so either of you
+        # can just run down it. What either of you adds, ticks or clears is on
+        # the other's screen at once; her additions carry her name here, yours
+        # carry "Rock" there (data-who on the script tag above). `slim`, like
+        # the other control pages, so a list doesn't stretch across an
+        # ultrawide.
         {
           name = "Shopping";
           width = "slim";
@@ -887,10 +889,6 @@
             {
               size = "full";
               widgets = [ (liveCard { id = "sh-list"; title = "Shopping list"; acc = "mint"; rune = "wunjo"; badge = "sh-live"; }) ];
-            }
-            {
-              size = "small";
-              widgets = [ (liveCard { id = "sh-recipes"; title = "Recipes"; acc = "teal"; rune = "berkano"; }) ];
             }
           ];
         }

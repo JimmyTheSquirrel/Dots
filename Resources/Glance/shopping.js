@@ -1,16 +1,18 @@
 // shopping.js — the shared shopping list and recipe book, on BOTH dashboards.
 //
-// Two cards, painted from shopping-list's /events stream
-// (Resources/Shopping-List/shopping-list.py, :9558):
+// ONE card (#sh-list — one card to run down in the shop), painted from
+// shopping-list's /events stream (Resources/Shopping-List/shopping-list.py,
+// :9558), top to bottom:
 //
-//   #sh-list     the list: an add box (a comma adds several — "milk, eggs,
-//                2 onions"), the usuals one tap away, everything grouped by
-//                aisle in the order you walk a supermarket, ticked things
-//                sinking into "In the trolley", ⋯ on a row to fix its name,
-//                quantity or aisle, Undo after anything that removes
-//   #sh-recipes  the recipe book: tap a recipe, untick what you've already
-//                got, "Add 7 to the list"; + New recipe / Edit, one
+//   adding       an add box (a comma adds several — "milk, eggs, 2 onions"),
+//                the usuals one tap away, and the recipe book (#sh-recipes,
+//                built inside this card) folded to one bar until tapped open,
+//                remembered per browser: tap a recipe, untick what you've
+//                already got, "Add 7 to the list"; + New recipe / Edit, one
 //                ingredient a line
+//   the list     grouped by aisle in the order you walk a supermarket, ticked
+//                things sinking into "In the trolley", ⋯ on a row to fix its
+//                name, quantity or aisle, Undo after anything that removes
 //
 // Loaded from document.head with
 //   <script src="/assets/shopping.js?v=…" data-api-port="9558" data-who="Rock" defer></script>     (admin)
@@ -179,8 +181,11 @@
 
   // ── state: the server's, plus our unconfirmed changes on top ─────────────
   var srv = null, queue = [], busy = false, retryT = null, backoff = 1000, offline = false, queued = false;
-  var ui = { edit: null, cook: null, off: {}, rEdit: null, rArm: 0, clearArm: 0, typed: "", find: "", got: true };
-  try { ui.got = localStorage.getItem("sh-got") !== "closed"; } catch (_) {}
+  var ui = { edit: null, cook: null, off: {}, rEdit: null, rArm: 0, clearArm: 0, typed: "", find: "", got: true, rOpen: false };
+  try {
+    ui.got = localStorage.getItem("sh-got") !== "closed";
+    ui.rOpen = localStorage.getItem("sh-recipes") === "open";
+  } catch (_) {}
 
   function take(s) {
     if (!s || !s.items) return;
@@ -397,6 +402,9 @@
           '<button class="sh-plus" type="submit" aria-label="Add">' + I.plus + '</button>' +
         '</form>' +
         '<div class="sh-chips" data-sh-chips></div>' +
+        // The recipe book lives IN this card, folded to one bar: one card to
+        // run down in the shop, with everything for adding at its top.
+        '<div class="sh-recipes" id="sh-recipes"></div>' +
         '<div class="sh-list" role="list" data-sh-items></div>' +
         '<div class="sh-foot" data-sh-foot></div>' +
       '</div>';
@@ -543,17 +551,24 @@
     var host = D.$("sh-recipes");
     if (!host) return null;
     if (R && host.contains(R.root)) return R;
+    // Collapsed to one bar unless opened (remembered per browser): on a phone
+    // the list is what you came for, and six recipe tiles under it are a
+    // screen and a half of scrolling.
     host.innerHTML =
       '<div class="shr">' +
-        '<div class="shr-bar">' +
-          '<label class="shr-find">' + I.search + '<input class="sh-in" type="search" placeholder="Find a recipe…" aria-label="Find a recipe"></label>' +
-          '<button type="button" class="sh-btn" data-shr-new>' + I.plus + 'New recipe</button>' +
-        '</div>' +
-        '<div class="shr-panel" data-shr-panel></div>' +
-        '<div class="shr-grid" data-shr-grid></div>' +
+        '<button type="button" class="shr-toggle" data-shr-toggle aria-expanded="false" aria-controls="shr-body"></button>' +
+        '<div class="shr-body" id="shr-body"><div class="shr-inner">' +
+          '<div class="shr-bar">' +
+            '<label class="shr-find">' + I.search + '<input class="sh-in" type="search" placeholder="Find a recipe…" aria-label="Find a recipe"></label>' +
+            '<button type="button" class="sh-btn" data-shr-new>' + I.plus + 'New recipe</button>' +
+          '</div>' +
+          '<div class="shr-panel" data-shr-panel></div>' +
+          '<div class="shr-grid" data-shr-grid></div>' +
+        '</div></div>' +
       '</div>';
     var root = host.firstElementChild;
-    R = { root: root, bar: root.querySelector(".shr-bar"), find: root.querySelector(".shr-find input"),
+    R = { root: root, toggle: root.querySelector("[data-shr-toggle]"), inner: root.querySelector(".shr-inner"),
+      bar: root.querySelector(".shr-bar"), find: root.querySelector(".shr-find input"),
       panel: root.querySelector("[data-shr-panel]"), grid: root.querySelector("[data-shr-grid]"), mode: null };
     R.find.addEventListener("input", function () { ui.find = R.find.value; refresh(); });
     return R;
@@ -565,6 +580,17 @@
     var C = recipeShell();
     if (!C) return;
     var q = key(ui.find), rs = s.recipes;
+    // The bar: a little stack of their pictures, how many, and which way it opens.
+    C.root.classList.toggle("open", ui.rOpen);
+    C.toggle.setAttribute("aria-expanded", String(ui.rOpen));
+    C.inner.inert = !ui.rOpen;
+    D.paint(C.toggle,
+      '<span class="shr-stack" aria-hidden="true">' + (rs.length ? rs.slice(0, 4).map(function (r) {
+        return '<span>' + esc(r.icon || "🍽️") + '</span>';
+      }).join("") : '<span>📖</span>') + '</span>' +
+      '<span class="shr-toggle-t"><b>' + (rs.length ? plural(rs.length, "recipe", "recipes") : "Recipes") + '</b>' +
+        '<small>' + (ui.rOpen ? "Pick what to cook" : rs.length ? "Tap to pick one" : "Tap to add your first") + '</small></span>' +
+      I.chev);
     C.bar.classList.toggle("many", rs.length > 6);
     var shown = q ? rs.filter(function (r) {
       return key(r.name).indexOf(q) >= 0 || r.ingredients.some(function (g) { return key(g.name).indexOf(q) >= 0; });
@@ -730,7 +756,7 @@
   function onClick(e) {
     var t = e.target, el;
     if (!t.closest) return;
-    if (t.closest("#sh-list")) {
+    if (t.closest("#sh-list") && !t.closest("#sh-recipes")) {
       var row = t.closest("[data-id]"), id = row && row.getAttribute("data-id");
       if ((el = t.closest("[data-sh-tick]")) && id) {
         var it = byId(current(), id);
@@ -765,7 +791,12 @@
       return;
     }
     if (t.closest("#sh-recipes")) {
-      if ((el = t.closest("[data-shr-open]"))) {
+      if (t.closest("[data-shr-toggle]")) {
+        ui.rOpen = !ui.rOpen;
+        if (!ui.rOpen) ui.cook = null; // an unsaved recipe editor stays, for when it's opened again
+        try { localStorage.setItem("sh-recipes", ui.rOpen ? "open" : "closed"); } catch (_) {}
+        refresh();
+      } else if ((el = t.closest("[data-shr-open]"))) {
         var rid2 = el.getAttribute("data-shr-open");
         if (ui.cook === rid2) closePanel(); else openCook(rid2);
       } else if (t.closest("[data-shr-new]")) {

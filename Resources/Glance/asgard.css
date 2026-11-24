@@ -204,7 +204,6 @@ body::after {
 .rune-uruz    { --icon: var(--ic-wifi);     --tag: "Wi-Fi"; }
 .rune-isa     { --icon: var(--ic-terminal); --tag: "ttyd"; }
 .rune-wunjo   { --icon: var(--ic-basket);   --tag: "Shared list"; }
-.rune-berkano { --icon: var(--ic-recipe);   --tag: "Cookbook"; }
 
 /* ── Panels ───────────────────────────────────────────────────────────────────
    Every card: dark glass (::before, chamfered by clip-path, faint scanlines,
@@ -1440,11 +1439,12 @@ html[data-ha-link="offline"] :is(.ag-swatches, .ag-bright) { filter: saturate(0.
    buttons and section heads in Orbitron. Item names stay in the body face —
    they're read in a hurry in a shop. */
 .widget :is(.sh-in, .sh-plus, .sh-btn, .sh-chip, .sh-row, .sh-main, .sh-more, .sh-qty, .sh-by, .sh-ed, .sh-ais, .sh-empty, .shr-tile, .shr-ico,
+  .shr-toggle, .shr-stack span,
   .shr-cook, .shr-ed, .shr-ing, .shr-emoji, .shr-emoji button) { border-radius: 2px; }
 .widget .sh-box { border-radius: 2px; }
 .widget :is(.sh-btn, .sh-sec, .sh-chips-h, .sh-f > span:first-child) { font-family: var(--ag-title); letter-spacing: 0.12em; }
 .widget :is(.sh-btn, .sh-sec) { font-weight: 500; }
-.widget :is(.sh-row:not(.done), .shr-tile) { border-color: var(--ag-line); }
+.widget :is(.sh-row:not(.done), .shr-tile, .shr-toggle) { border-color: var(--ag-line); }
 .sh-toast { border-radius: 2px; font-family: inherit; }
 .sh-toast button { border-radius: 2px; font-family: var(--ag-title); letter-spacing: 0.1em; }
 .widget .ag-pill { font-size: 1.05rem; }

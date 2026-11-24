@@ -647,9 +647,8 @@ button.bt-scan:disabled { opacity: 0.5; cursor: default; }
    squares it off) and her purple on MarsBar. Phone-first — every row is a
    44px+ tap target, the inputs are 16px so a phone never zooms into them.
    ════════════════════════════════════════════════════════════════════════════ */
-#sh-list .ags-skel { height: 280px; }
-#sh-recipes .ags-skel { height: 200px; }
-.sh, .shr { display: flex; flex-direction: column; gap: 12px; }
+#sh-list .ags-skel { height: 340px; }
+.sh { display: flex; flex-direction: column; gap: 12px; }
 /* A container, so a row can reflow by the CARD's width, not the window's:
    the same list sits in a full column on one dashboard and in Glance's
    300px small one (less her vine's margin) on the other. */
@@ -800,7 +799,31 @@ textarea.sh-in { min-height: 0; resize: vertical; line-height: 1.45; }
 .sh-toast button { flex: none; min-height: 36px; padding: 4px 16px; font: inherit; font-size: 1.25rem; font-weight: 700; letter-spacing: 0.04em;
   color: var(--ag-on-acc); background: var(--acc); border: none; border-radius: 12px; cursor: pointer; }
 
-/* recipes */
+/* recipes — one bar until opened (shopping.js remembers which, per browser).
+   The body animates its height with the 0fr → 1fr grid-row trick; the inner
+   box is `inert` while shut so nothing hidden takes focus. */
+.shr { display: flex; flex-direction: column; }
+.shr-toggle { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 58px; padding: 8px 14px 8px 12px;
+  font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 14px; border: 1px solid var(--ag-line-soft);
+  background: linear-gradient(170deg, var(--ag-tile-hi), var(--ag-tile-lo)); -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; transition: border-color 0.2s, background 0.2s, transform 0.08s; }
+.shr-toggle:active { transform: scale(0.99); }
+@media (hover: hover) { .shr-toggle:hover { border-color: color-mix(in srgb, var(--acc) 45%, transparent); } }
+.shr.open .shr-toggle { border-color: color-mix(in srgb, var(--acc) 35%, transparent); }
+.shr-stack { flex: none; display: flex; padding-left: 8px; }
+.shr-stack span { display: grid; place-items: center; width: 34px; height: 34px; margin-left: -8px; font-size: 1.8rem; line-height: 1;
+  border-radius: 50%; background: color-mix(in srgb, var(--acc) 16%, var(--ag-surface)); border: 2px solid var(--ag-surface); }
+.shr-toggle-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.shr-toggle-t b { font-size: 1.5rem; font-weight: 600; color: var(--ag-text); }
+.shr-toggle-t small { font-size: 1.15rem; color: var(--ag-text-faint); }
+.shr-toggle .sh-chev { flex: none; width: 20px; height: 20px; color: var(--acc); }
+.shr.open .shr-toggle .sh-chev { transform: rotate(180deg); }
+.shr-body { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.34s var(--ag-ease), opacity 0.22s; }
+.shr.open .shr-body { grid-template-rows: 1fr; opacity: 1; }
+/* min-height 0 lets the row shrink to nothing; the 3px pad and its negative
+   margin keep focus rings from being clipped by the overflow. */
+.shr-inner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; margin: 0 -3px; padding: 0 3px; }
+.shr.open .shr-inner { padding-top: 12px; padding-bottom: 3px; }
 .shr-bar { display: flex; gap: 8px; justify-content: flex-end; }
 .shr-find { display: none; position: relative; flex: 1; min-width: 0; }
 .shr-bar.many .shr-find { display: block; }
@@ -868,7 +891,7 @@ textarea.sh-in { min-height: 0; resize: vertical; line-height: 1.45; }
   .sh-act .sh-btn.go { max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sh-box svg, .sh-row, .sh-toast, .sh-chev { transition: none !important; }
+  .sh-box svg, .sh-row, .sh-toast, .sh-chev, .shr-body { transition: none !important; }
   .sh-row.flash { animation: none; }
 }
 
