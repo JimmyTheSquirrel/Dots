@@ -187,6 +187,20 @@
     sops.secrets."admin-username"           = {};
     sops.secrets."admin-password"           = {};
 
+    # Z-Library account for Shelfarr (books.nix). The EMAIL is a secret too:
+    # this repo is PUBLIC on GitHub, and the address is a real personal Gmail
+    # that is also a Tailscale login, so committing it in plain text would
+    # publish the link between that identity and a shadow-library account.
+    #
+    # ⚠ The PASSWORD is deliberately `admin-password`, reused on rock's
+    # decision 2026-11-14 rather than given its own secret — a second copy of
+    # the same value would just be two things to rotate. ⚠ The risk that comes
+    # with that: this one secret now also guards the Audiobookshelf root
+    # account, so a z-library breach (shadow libraries are breached and seized
+    # more often than most services) hands over a working credential for this
+    # server. If it is ever rotated, rotate it in BOTH places.
+    sops.secrets."zlibrary-email"           = {};
+
     # Kernel UDP buffer tuning for smooth streaming over Tailscale
     boot.kernel.sysctl = {
       "net.core.rmem_max"           = lib.mkDefault 26214400;

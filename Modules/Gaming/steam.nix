@@ -379,6 +379,13 @@ in {
       enable = true;
       gamescopeSession.enable = true;
 
+      # ⚠️ Not the only consumer of this Proton. Modules/Gaming/battlenet.nix
+      # runs Battle.net through umu-run with no Steam client, and
+      # `my.battlenet.protonPackage` defaults to this same `pkgs.proton-ge-bin`
+      # — so today there is ONE GE build in the closure, shared. It does NOT
+      # follow this list: swap Steam to a different Proton and Battle.net keeps
+      # proton-ge-bin, which means a second multi-GB build in the closure until
+      # that option is pointed at the same one. See Claude/battlenet.md.
       extraCompatPackages = with pkgs; [
         proton-ge-bin
       ];

@@ -15,7 +15,7 @@ by area, every file defining that same module and flake-parts merging them. Host
 | `recyclarr.nix` | Recyclarr config + sync, and the Seerr-after-sync ordering |
 | `jellyfin.nix` | Jellyfin + Jellyseerr (nixflix), `seerr-library-setup`, `jellyfin-providers`, QSV graphics |
 | `downloads.nix` | SABnzbd (nixflix) + the Mullvad namespace, Decluttarr |
-| `books.nix` / `manga.nix` / `photos.nix` / `files.nix` | ABS + Shelfarr + `books-setup` / Suwayomi + FlareSolverr / Immich / FileBrowser |
+| `books.nix` / `manga.nix` / `photos.nix` / `files.nix` | ABS + Shelfarr + `books-setup` / Suwayomi + FlareSolverr (native) / Immich / FileBrowser |
 | `network.nix` | Tailscale, status proxy, speed test, network panel, Cloudflare tunnel, WAN shaping |
 | `eclipse.nix` / `glance.nix` / `ttyd.nix` | Eclipse control endpoint / the whole Glance config + unit / web terminal |
 | `_lib.nix` | `waitForHttp` — imported by path (the `_` keeps import-tree off it) |
@@ -41,6 +41,14 @@ driver can ever see or control them; they run 100% forever, and fitting quieter 
 the noise floor of a full-speed fan. The only fix is moving them onto a motherboard SYS_FAN header
 (a Y-splitter works; the header does 24W and two 120mm fans draw ~2–3W). Detection ≠ control —
 making Linux read drive temps does nothing if there is no channel to act on them.
+
+✅ **Solved in hardware 2026-11-23 — this paragraph is now history.** rock fitted **new
+fans and plugged them into a different header**, so the Molex dead-end above no longer
+applies and the Y-splitter job (`Claude/next-up.md` → *Opened 2026-10-31*, point 4) is
+**closed**. The tell is `fan3`: it reads **~1100 RPM where the 2026-09-19 baseline recorded
+0**, i.e. the previously free header is in use, and the new fans have tach wires where the
+old cage fans had none. Keep the paragraph above: it explains why the old fans could never
+be made to work, and the N5 will put any *stock* replacement back on the same Molex dead-end.
 
 ### Getting Linux to see the fans at all
 
@@ -71,6 +79,20 @@ the module.
 **Monitoring only.** BIOS Smart Fan 6 drives the curves (`pwm*_enable=2`). Do **not** also enable
 `fancontrol` — two controllers on the same PWM registers makes fans oscillate. The curves
 themselves are BIOS state this repo cannot reproduce; see `Claude/next-up.md` item 6.
+
+⭐ **Measured 2026-11-23 — the three headers do NOT share a curve.** Across a 12-minute
+all-core soak (package 35 → 73 °C) `fan1` went **1250 → 2743 RPM (+120%)** while `fan2`
+(1076 → 1130) and `fan3` (1108 → 1165) moved **+5%**, with `pwm2`/`pwm3` pinned at **32%**
+throughout. One shared PWM signal would move all three proportionally, so the case fans sit
+on their own **flat** SYS_FAN curves, not the CPU's. ⚠️ **No BIOS curve can ever react to
+drive temperature** — the available sources are CPU and board thermistors, and drive temps
+are not among them. That matters because Asgard's realistic heavy workload is the
+*opposite* of that soak: a SAB download or a library scan hammers the disks and leaves the
+CPU near idle, so the case fans stay at 32% exactly when the drives work hardest. **Not
+currently a problem** — see the cupboard measurements in `Claude/next-up.md` → *Opened
+2026-10-31*, where the drives peaked at **37 / 39 °C** against 70/65 limits with the fans
+flat. The board thermistor (`temp5`) tracked 32 → 46 °C in the same soak, so it is the one
+source that would at least respond to case heat if a curve ever needs pointing somewhere.
 
 `lm_sensors` and `smartmontools` are installed here too — `smartctl` was missing entirely, so drive
 temperatures could not be read at all.
@@ -124,7 +146,7 @@ temperatures could not be read at all.
 | **glance-marsbar** | 8890 | **loopback only** | Partner dashboard. Reachable solely via the `marsbar` tailnet node's serve proxy — see `Claude/marsbar.md` |
 | ha-bridge          | 9556 | Tailscale only | Holds the HA token server-side. `GET /events` (SSE push of every plug relay + its power, V, A, kWh today, signal, online), `GET /states` (snapshot, from memory), `GET /history` (24 h of power per plug, 10-min buckets), `POST /toggle/<entity>` (needs `X-Dash: 1`) against a hard allowlist — see `Claude/home-assistant.md` |
 | **ttyd**           | 7681 | Tailscale only | Web terminal (Glance "Terminal" page). Login prompt (root `login` entrypoint) — log in as `rock`, passwordless sudo for reboot/shutdown |
-| FlareSolverr       | 8191 | Tailscale only | Podman container — Cloudflare challenge solver for Suwayomi + Shelfarr |
+| FlareSolverr       | 8191 | Tailscale only | **Native** (`services.flaresolverr`, 2026-11-24) — Cloudflare challenge solver for Suwayomi + Shelfarr |
 | Home Assistant     | 8123 | Tailscale only | Smart plugs — see `Claude/home-assistant.md` |
 
 Nothing listens on 3001 / 3100 / 9090 / 9100 / 9101 / 9387 / 9708–9711 (the removed metrics
@@ -165,9 +187,70 @@ What it means here:
 
 ---
 
+## Tailnet node name — ⛔ never push `--hostname` at a live node (2026-11-23)
+
+Asgard's MagicDNS name silently became **`asgard-1`** and `asgard` stopped resolving.
+It read as a total Tailscale outage — "I can't reach anything on my phone" — and was
+nothing of the sort: every service answered on `100.126.205.100` and every node was
+online. Only the **name** had moved.
+
+**Cause.** `Modules/Server/network.nix` had been given
+`extraSetFlags = [ "--hostname=${lib.toLower config.networking.hostName}" ]`, a copy of
+a line written for Elektra (see `Claude/elektra.md`). Generation 190 activated at 20:06
+and the journal shows exactly one hostname event in its whole retained history:
+
+```
+Nov 23 20:06:02 Asgard tailscaled[1676]: EditPrefs: MaskedPrefs{Hostname="asgard"}
+```
+
+⭐ **The change was case only** — the node had registered as `Asgard`, `toLower` pushed
+`asgard`. Tailscale still treats that as a rename, re-derives the DNS name, finds
+`asgard` **already held by this node's own entry**, and deduplicates to `asgard-1`.
+`KeyExpiry` proves it was a rename and not a re-registration: unchanged at 2026-12-22
+(≈ its June registration + 180 days). The same mechanism produced `caitlins-s25-1`.
+
+⭐⭐ **The rule: `--hostname` goes in `extraUpFlags`, NEVER `extraSetFlags`.** Straight
+from nixpkgs' `nixos/modules/services/networking/tailscale.nix`:
+
+| option | what it builds | when it fires |
+|--------|----------------|---------------|
+| `extraSetFlags` | `tailscaled-set.service`, `wantedBy = multi-user.target` | **every boot and every activation**, against an already-registered node — so it can rename a live one |
+| `extraUpFlags` | passed to `tailscale up --auth-key` inside `tailscaled-autoconnect` | **only** when `BackendState` is `NeedsLogin`/`NeedsMachineAuth`/`Stopped` — a node that is not registered yet. Needs `authKeyFile`, or the unit is never created |
+
+Asgard *does* set `authKeyFile`, so the flag still names the node on a fresh unattended
+install; it simply can no longer touch the running one. `Modules/Core/tailscale.nix`
+(Sisyphus, Elektra) had the flag **removed outright** — neither host sets `authKeyFile`,
+so `extraUpFlags` there would be a silent no-op, and Tailscale already names a new node
+after its system hostname.
+
+**Why it looked like the whole tailnet.** Everything user-facing addresses this box **by
+name** — `http://asgard:8888/8096/5055/5056` in `Modules/Apps/helium.nix`,
+`Modules/Server/marsbar.nix`, `Resources/Eclipse-Control/eclipse-control.py`,
+`Resources/Network-Panel/network-panel.py`, plus the phones' own bookmarks. One DNS name
+moving killed every one of them in the same second.
+
+⚠️ **And the things that would have caught it all kept working**, which is what hid it:
+
+- `ssh asgard` is pinned to the **IP** in `Modules/Core/base.nix`, so `system-rebuild rock
+  Asgard` never complained.
+- `system-rebuild`'s machine cards stayed green: `probe.py`'s `peer()` matches **both**
+  `HostName` and `DNSName` with `startswith`, so `asgard` still found `asgard-1`.
+- ⚠️ `ssh asgard-1` *does* fail — `Host key verification failed`, since known_hosts holds
+  the IP and not the new name.
+
+**Diagnosis in one line:** `getent hosts asgard`. If it resolves, the tailnet is fine and
+the fault is elsewhere; if it does not, compare `HostName` against `DNSName` in
+`tailscale status --json` — they drift apart, and the DNS name is the one that matters.
+
+**Recovery** is a console rename (Machines → the node → Edit machine name → `asgard`),
+which also **pins** the name against any later client-side hostname push. A rename of a
+live node is a deliberate act and belongs there, not in a rebuild.
+
+---
+
 ## Stack Architecture
 
-### Native NixOS services (via nixflix v1.2.0)
+### Native NixOS services (via nixflix v3.2.0)
 - Sonarr, Radarr, Lidarr, Prowlarr, Jellyfin, Jellyseerr (seerr), SABnzbd
 - Nixflix auto-wires: Prowlarr ↔ arr services, Jellyseerr ↔ Jellyfin/Sonarr/Radarr
 - All API keys pre-seeded from sops — no manual UI wiring needed
@@ -379,11 +462,117 @@ that is a genuine TVDB/skyhook off-by-one plus a series split, written up in
 - VPN IP: 10.66.10.54, private key in sops: `mullvad-wg-private-key`
 
 ### Podman containers
-- Audiobookshelf, Shelfarr, FlareSolverr, File Browser Quantum, Decluttarr
+- Audiobookshelf, Shelfarr, File Browser Quantum, Decluttarr — **four since 2026-11-24**,
+  when FlareSolverr went native (see below)
 - Backend: `virtualisation.oci-containers.backend = "podman"`. No Docker-compat socket — its only
   consumer was cAdvisor, and it is root-equivalent for the `podman` group
 - **Decluttarr:** `decluttarr-config.service` generates `/var/lib/decluttarr/config/config.yaml` from individual arr + sabnzbd sops secrets before the container starts. No separate `decluttarr-env` secret — reuses existing API key secrets directly. `remove_orphans: false` — do NOT enable this, it kills newly queued downloads before SABnzbd picks them up (within 2 minutes).
 - **Glance is NOT a container** — it runs as a native systemd service (`pkgs.glance`). Config built as a Nix attrset and serialised by `pkgs.formats.yaml` into the store. Uses `DynamicUser = true`.
+
+**It is all one control plane.** There is no second system here: no compose file, no `podman run`
+anywhere in the repo, no imperative container state. Every container is declared in the same Nix
+module as its native neighbours, so one language, one `system-rebuild`, one generation to roll
+back, and `systemctl` for everything regardless. What differs per service is only the *delivery*
+mechanism (store path vs OCI image), below the interface you actually touch.
+
+✅ **The last real seam is CLOSED (2026-11-24): there is no `:latest` left in the repo.** All
+four remaining containers are pinned by digest. The paragraph below is kept because it is *why*,
+and because the first instinct on a bump is to reach for the tag again. Container
+images live outside the Nix store, so a generation rollback restores the unit definition but
+**not** the image, and `virtualisation.oci-containers` only pulls when the image is *absent* — so
+each one is frozen at whatever was first pulled, with no version recorded in the config and no way
+back. That is a worse reproducibility story than the native side, not a better one. **Pin by
+digest** to close it; it moves no service.
+
+✅ **Shelfarr was pinned by digest 2026-11-23** — the first one done, and it proves the migration
+is safe: the pull took it from the 2026-06-15 build to `2026.11.16.1`, five months of Rails
+migrations ran against the SQLite DB in the storage volume (`schema_migrations` max
+`20260607120000` → `20261102120000`), and both Shelfarr and Audiobookshelf came back serving 200.
+⚠️ The pinned `Setting` values survived it, including `zlibrary_url` — the October domain
+migration only rewrites the *previous default*, so our explicit list was left alone, exactly as
+intended. Details, the bump command and the two follow-up warnings are in *Books* below.
+✅ **`audiobookshelf`, `filebrowser` and `decluttarr` were pinned 2026-11-24**, each to the digest
+it was **already running**, read off the box with:
+
+```bash
+ssh -t asgard 'sudo podman images --digests | grep -E "audiobookshelf|filebrowser|decluttarr"'
+```
+
+⭐ **Pinning to the running digest is the whole trick.** The tempting move — pin to upstream's
+*current* digest — is not a freeze at all, it is a simultaneous bump of three working, stateful
+services, which is the opposite of what this is for. Pinned to what is already there, the change
+is a **no-op at deploy time** and the staleness becomes explicit instead of accidental. Bumping
+any one of them is then its own decision, with its own backup.
+
+⚠️ **They were 5, 5 and 6 months old when pinned** (ABS, FileBrowser, Decluttarr) — the same age
+Shelfarr was. So this records the staleness, it does not fix it; all three are still owed a bump.
+
+⚠️ **Two digest forms, do not mix them up.** Shelfarr is pinned by the multi-arch **index**
+digest (fetched from the registry); the other three are **amd64 manifest** digests (what
+`podman images` reports locally). Both pin correctly and the manifest form is right for Asgard —
+but a registry `docker-content-digest` and a local `podman images` digest for the same tag are
+*different strings*, so comparing one against the other will look like a mismatch when nothing
+has changed.
+
+⭐ `--pull missing` is why the deploy is quiet: each digest is already in local storage, so podman
+finds it and pulls nothing.
+
+✅ **Proven on the 2026-11-24 deploy.** The only `Trying to pull` in the whole boot is the
+*previous* day's Shelfarr bump at `2026-11-23T20:06`. The three new pins pulled **nothing**, all
+four containers came back `active` with `NRestarts=0`, and no unit failed — so an amd64 manifest
+digest from `podman images` does match the locally stored image and pins it without a re-fetch.
+That was the open question about the pin *form*, and it is now answered.
+
+### ✅ FlareSolverr is native since 2026-11-24 (5 containers → 4) — LIVE
+
+> ✅ **Verified live 2026-11-24.** `flaresolverr.service` is `active`, `NRestarts=0`,
+> `podman-flaresolverr` is gone, and `GET localhost:8191/` returns **200** with
+> `{"msg": "FlareSolverr is ready!", "version": "3.5.2", …}` and a real Chrome 156 user agent —
+> so the headless browser works, not just the HTTP shell. Suwayomi is still `active`.
+
+`services.flaresolverr.enable = true` in `manga.nix`, replacing
+`ghcr.io/flaresolverr/flaresolverr:latest`. ⭐ **It moved no version** — nixpkgs ships **3.5.2,
+exactly what the container was serving** — so this was the free win the table below predicted, and
+it is the only one of the three that was.
+
+What it gained: the binary is a **store path**, so it rolls back with the generation instead of
+being frozen at whatever was first pulled; and systemd wraps it in `DynamicUser`, a seccomp
+filter and a stripped capability set that the container had none of.
+
+⚠️ **The module has no `host` option** — only `enable`, `port` (default **8191**, unchanged) and
+`package`. It sets `PORT` and leaves `HOST` at FlareSolverr's own `0.0.0.0`, which is
+load-bearing: bound to loopback it would still answer Suwayomi on `localhost:8191` while
+**silently breaking Shelfarr**, which reaches it from inside a container via
+`host.containers.internal`. Same shape as the Immich `host = "0.0.0.0"` trap.
+
+⚠️ Three things moved with it, all in the same deploy: `books-setup`'s `after`/`wants` now name
+**`flaresolverr.service`**, not `podman-flaresolverr.service`; and `stats.nix`'s `ASGARD_UNITS`
+map has `flare = [ "flaresolverr" ]`, without which the service's leaf on the Living Yggdrasil
+withers even though it is healthy.
+
+⚠️ `LOG_LEVEL` and `TZ` are gone with the container — the log level was already the default, and
+timestamps follow the host clock, which is the same timezone. The unit accepts no `environment`
+override if either is ever wanted back.
+
+⛔ Do **not** also set `nixflix.flaresolverr.enable`. It exists and wraps the same package with a
+readiness probe, but it is scoped to Prowlarr and would bind 8191 twice — and pointing Prowlarr at
+it as an indexer proxy is a separate decision that has deliberately not been taken.
+
+**How far native consolidation could go** (checked 2026-11-13) — 5 containers → 3:
+
+| Container | Native module | Verdict |
+|---|---|---|
+| FlareSolverr | `services.flaresolverr` ✅ | ✅ **DONE 2026-11-24** — see above |
+| Audiobookshelf | `services.audiobookshelf` ✅ | feasible; nixpkgs 2.36.0 vs upstream 2.37.2, but the container maps `/config`+`/metadata` as volumes while the module uses its own `dataDir`, so it needs a data migration **and** `books-setup.service` re-pointing |
+| FileBrowser | `services.filebrowser` ✅ — **but a different project** | ⚠️ **not a swap.** The container is `ghcr.io/gtsteffaniak/filebrowser`, the *Quantum* fork (v2.0.2). nixpkgs packages the original `filebrowser/filebrowser` (v2.63.23). Unrelated projects, config formats and version lines |
+| Decluttarr | none | container is the only option |
+| Shelfarr | none | container is the only option |
+
+⛔ **Do not go the other way.** Moving native services *into* podman means dropping nixflix — which
+is what declaratively manages the quality profiles, indexers and arr wiring — plus the native
+Jellyfin and Home Assistant modules, in exchange for digest pinning and bind-mount juggling. A
+newer version is not a reason: `package = pkgs-unstable.X;` buys that for one line (see
+*Nixflix Notes → Versions*).
 
 ---
 
@@ -566,7 +755,51 @@ Idempotent, runs every rebuild, converges a fresh install:
 3. Audiobookshelf — mint an API key for Shelfarr
 4. Shelfarr — set the indexer, download client and ABS connection from sops secrets
 
-### ⚠️ Four traps, all of which fail silently
+### ⚠️ `pending` has TWO unrelated causes, and they look identical
+
+> ⚠️ There is also a **third** way a request sits there doing nothing, and it is *not* one of
+> these two: a download that **failed** flags `attention_needed` with `next_retry_at` NULL.
+> On the pre-bump image that was *permanent*; `2026.11.16.1` blocklists the dead release and
+> falls through to the next one on its own. See *A FAILED download used to be a third terminal
+> state* below. ⛔ Do not read the raw `status` integer — the enum **moved** in the bump. Match
+> on `attention_needed` and read `request_events`.
+
+Both of the causes here leave a request at `status = pending` with nothing happening and no error
+anywhere, but they are opposite halves of the pipeline:
+
+| | Setting | What it gates |
+|---|---|---|
+| **Does a search run at all?** | `immediate_search_enabled` | upstream ships **false** |
+| **Which release gets taken, once it has?** | `auto_select_enabled` | upstream ships **false** |
+
+`auto_select_enabled` was fixed 2026-09-17. **`immediate_search_enabled` was found 2026-11-14**
+and is the one that makes a brand-new request *feel* broken. Upstream's
+`RequestCreationService#after_create` is:
+
+```ruby
+SearchJob.perform_later(request.id) if enqueue_search_immediately_for?(request)
+# enqueue_search_immediately_for? =
+#   SettingsService.get(:immediate_search_enabled, default: false) ||
+#   (!user_admin? && SettingsService.auto_approve_requests?)
+```
+
+With `immediate_search_enabled = false`, the **only** other way a search fires on creation is the
+`!user_admin?` branch — and rock's account is `role = 1`, an admin. **So neither branch fired**,
+and every request waited for the 5-minute recurring `RequestQueueJob` sweep instead.
+
+Measured 2026-11-14: three books requested at 10:27–10:28 had **zero `search_results` and zero
+`request_events`** — proof no search had run, as opposed to a search that found nothing — then
+`RequestQueueJob` fired at 10:30:07 and all three went
+`download_queued → dispatch_started → dispatched → completed` in **13 seconds**, with the files
+landing in `/data/media/books/Matt Dinniman/`. Nothing was broken; the pipeline was simply
+batch-driven. `immediate_search_enabled = true` now ships in `books-setup.service`.
+
+⭐ **Diagnostic that separates the two instantly:** count `search_results` for the request.
+**None** = no search ran (this fault). **Some, but request still pending** = search ran and
+nothing cleared the confidence threshold (the `auto_select` family).
+
+### ⚠️ Five traps, all of which fail silently
+
 
 **1. Shelfarr config MUST go through `bin/rails runner`, never `sqlite3`.**
 `AcquisitionProvider` and `DownloadClient` both declare `encrypts :api_key`. A raw SQL
@@ -593,6 +826,365 @@ finds nothing.
 
 **4. Containers cannot reach host services on `localhost`.** Use
 **`http://host.containers.internal:<port>`** — verified working for 9696, 8080 and 13378.
+
+**5. The image is pinned in practice, so upstream's data migrations never arrive.**
+The container is tagged `:latest` but is only re-pulled when something re-pulls it — the
+running one is the **2026-06-15 build**, and its newest applied migration is
+`20260607120000`. That matters because Shelfarr maintains some *defaults* through
+migrations rather than code. `zlibrary_url` is the live example: migration
+`20261012090000_prefer_eapi_zlibrary_domains` retires `z-library.sk/.bz/.rs` in favour of
+six newer domains, and **it has never run here** — found 2026-11-15 with the stored value
+byte-identical to that migration's `PREVIOUS_DEFAULT`. Z-Library was enabled, had
+credentials, passed `zlibrary_configured?`, and would still have resolved nowhere.
+
+Check with:
+
+```bash
+# newest migration the running instance has applied
+… rails runner "puts ActiveRecord::Base.connection.select_value(%q(select max(version) from schema_migrations))"
+```
+
+Anything in upstream `db/migrate/` newer than that number has **not** been applied, so any
+default it revises is still at the old value. `books.nix` now pins `zlibrary_url`
+explicitly for this reason — which also means a future image bump can no longer correct it
+for us.
+
+**Proven 2026-11-15.** The first search after the pin landed logged
+`[ZLibraryClient] Login succeeded via z-lib.gd` — the *first of the added domains*, not one
+of the three it had been holding. Request 10 went from 6 Prowlarr results to 23 and
+completed; the epub landed with an embedded cover.
+
+### Download TYPE outranks score — Z-Library first since 2026-11-23
+
+`preferred_download_types` is ordered by **type**, and in `AutoSelectService` the type order
+**outranks the confidence score outright**: whatever type comes first wins even against a
+much better-scoring result of the other type. On the 2026-11-15 search the Z-Library results
+scored **95** and the Usenet release that got picked scored **83**, purely because `usenet`
+came first.
+
+It is now **`[direct, usenet]`** — Z-Library preferred, Usenet the fallback. Three Mistborn
+books forced the change (2026-11-23): all three were dispatched to SAB and died there, while
+each had an unused Z-Library copy scoring 95.
+
+✅ **Proven end to end 2026-11-23.** After the switch, `books-setup` logged
+`shelfarr: indexer=prowlarr ok=true sab=true`, then `SETTINGS_CHANGED=1` and
+`books-setup: re-queued 3 stuck requests [14, 18, 19]`, and all three books landed —
+`/data/media/books/Brandon Sanderson/` now holds **all seven** (Mistborn, The Well of
+Ascension, The Hero of Ages, The Alloy of Law, Shadows of Self, The Bands of Mourning, The
+Lost Metal). The `ok=true` also confirms the Prowlarr `waitForHttp` fixed the false negative.
+
+| Request | Book | SAB `fail_message` |
+|---|---|---|
+| 14 | The Well of Ascension | `Repair failed, not enough repair blocks (2 short)` |
+| 18 | The Bands of Mourning | `Repair failed, not enough repair blocks (3 short)` |
+| 19 | The Lost Metal | `Aborted, cannot be completed` (twice) |
+
+⭐ **All three reached 100% progress and still failed.** SAB fetched the articles and the
+*par2 repair* came up a few blocks short, so "it downloaded" and "it worked" are different
+questions. Ebook NZBs are a few MB posted years ago and lose articles to retention; a direct
+download is a single file with no articles and no par2, so this class of failure cannot
+happen to it. Z-Library is also far deeper for books than three general-purpose Usenet
+indexers.
+
+⚠️ **The trade-off is real and is now the common case, not the exception: direct downloads
+are fetched by Shelfarr itself over the plain WAN** and do *not* go through the Mullvad
+namespace that SABnzbd sits in (`NetworkNamespacePath`, `downloads.nix`). Book traffic is
+therefore no longer behind the VPN by default.
+
+⚠️ Z-Library enforces a **per-account daily download limit**. When it is hit, results still
+appear and the fetch fails. Usenet is kept second so there is somewhere to fall through to —
+but see the next section: a failed pick does **not** fall through on its own.
+
+### ⚠️ A FAILED download used to be a third terminal state — `2026.11.16.1` recovers from it
+
+Distinct from the two `pending` causes above. **On the pre-bump 2026-06-15 image it was
+permanent**, and that is exactly what the three books above did for six days:
+
+```
+status = failed,  attention_needed = true,  next_retry_at = NULL,  retry_count = 0
+```
+
+⭐ With `next_retry_at` NULL and `retry_count` 0, **`max_retries` (10) and
+`retry_base_delay_hours` (24) never came into play at all.** The request was parked forever,
+indistinguishable from auto-download being broken.
+
+⭐ On that image **Shelfarr never demoted the release that failed.** `search_results.status`
+only ever held `1` (selected) or `2` (everything else) — **no rejected state** — so
+re-dispatching a parked request re-grabbed the identical dead NZB. Request 14 went to SAB
+twice against the *same* `search_result_id` (1695) and failed the same way both times.
+⛔ So on that image "pick the top result again" was never the fix; you had to pick a
+*different* one by hand.
+
+#### ✅ The November image added blocklisting and a real fallback — proven live 2026-11-23
+
+⭐⭐ **This came from upstream, not from us — and it was first written up here as
+`unverified`, which was wrong.** `request_events` on the new image carry two event types the
+old one had no concept of, and they fire **automatically**, with no settings change and no
+manual pick:
+
+| Event | Message |
+|---|---|
+| `release_blocklisted` | Blocklisted release after failed download |
+| `fallback_selected` | Selected the next eligible release after a failed download |
+
+Request 18's whole chain, inside 70 seconds:
+
+```
+22:21:00  failed               DownloadMonitorJob  Download failed in client
+22:21:00  release_blocklisted  request             Blocklisted release after failed download
+22:21:00  fallback_selected    request             Selected the next eligible release…
+22:21:00  dispatch_started → dispatched            Sent usenet download to SABnzbd
+22:22:00  completed            DownloadMonitorJob  Download completed in client
+```
+
+⭐ **A collapsing result count is the visible tell.** The three requests went from
+**79 / 61 / 56** results to **29 / 11 / 6** — a blocklisted release is *removed*, not merely
+flagged. A result count that drops sharply right after a failure is the fallback working, not
+data loss.
+
+⛔⛔ **`status = 3` no longer means `failed`.** After the bump all three requests read
+`status = 3` with `attention_needed = 0`, a `completed` download event, and the file on disk.
+The enum integers **moved**. ⭐ This is the whole reason `books-setup` step 5 selects on
+`attention_needed`: that choice was made *before* the bump was taken, on nothing more than a
+suspicion that a bump could move them, and it is the only reason the code still does the
+right thing. Generalise it — **never match a Shelfarr enum integer across an image bump.**
+
+`books-setup` step 5 now un-parks these: it destroys their stored `search_results` (so the
+next search rebuilds them under the current type order), resets the request to `pending`,
+clears `attention_needed`/`next_retry_at`/`retry_count`, and re-enqueues a `SearchJob`. It
+selects on **`attention_needed`, not on `status`**, so it does not depend on which integer
+the `failed` enum is — that can move under an image bump. Guarded by `SETTINGS_CHANGED`, so
+it fires once after a real change and a no-op rebuild re-searches nothing.
+
+✅ Verified on the 2026-11-23 switch: it enqueued three `SearchJob`s and logged
+`re-queued 3 stuck requests [14, 18, 19]`. It is now **belt-and-braces** rather than the only
+recovery path — upstream's `fallback_selected` handles the general case, and step 5 exists for
+requests parked *before* the bump, which no new event will ever reach.
+
+⚠️ **The diagnostic that separates the three states** — do not guess, and note that the
+result count does *not* distinguish them (all three stuck requests had **56–79** results):
+
+| State | Looks like | Tell |
+|---|---|---|
+| `pending`, 0 results | nothing happening | no search ran — `immediate_search_enabled` |
+| `pending`, N results | nothing happening | nothing cleared `auto_select_confidence_threshold` |
+| `attention_needed = 1` | nothing happening | search ran, release picked, **download died** — read SAB. ⛔ match on this, never on `status` |
+
+### Reading SAB's failure reason without root
+
+sudo on Asgard needs a password and the SAB API key is `root`-only in `/run/secrets`, so
+`podman exec` and a direct SAB API call are both out. **asgard-stats already holds the key**
+(systemd credential) and exposes `fail_message` as `.downloads.history.items[].error` — but
+it only polls SAB **while a client is connected**, and history only every 60 s, so
+`/snapshot` returns `null` for it. Hold the stream open instead:
+
+```bash
+ssh -n asgard 'curl -sN --max-time 70 http://localhost:9552/stream' > stream.txt
+grep '^data: {"ts"' stream.txt | tail -1 | sed 's/^data: //' \
+  | jq -r '.downloads.history.items[] | "\(.status)  \(.name)\n  \(.error)"'
+```
+
+Shelfarr's own DB needs no root either — `/var/lib/shelfarr` is owned by rock — but there is
+**no `sqlite3` on Asgard**, so copy it out. ⚠️ `requests` has no `title` column; join `books`
+on `book_id`. ⚠️ Copy `-wal` too, or the snapshot is incomplete:
+
+```bash
+scp asgard:/var/lib/shelfarr/production.sqlite3 /tmp/
+nix shell nixpkgs#sqlite -c sqlite3 -header -column /tmp/production.sqlite3 \
+  "SELECT r.id, b.title, r.status, r.attention_needed, r.next_retry_at,
+          (SELECT COUNT(*) FROM search_results s WHERE s.request_id=r.id) AS res
+   FROM requests r LEFT JOIN books b ON b.id=r.book_id ORDER BY r.id DESC;"
+```
+
+### ⚠️ The container is pinned BY DIGEST, not `:latest`
+
+A tag is resolved once on the first pull and podman never re-checks it, so Shelfarr ran the
+**2026-06-15 build (`d56a07ea`) until 2026-11-23** while reading as up to date everywhere.
+⭐ That is worse than missing features: Shelfarr keeps some **defaults in data migrations**,
+so a stale image holds *retired values* in `settings` — `zlibrary_url` sat on three dead
+domains for months, enabled and configured and resolving nowhere.
+
+Now pinned to the multi-arch **index** digest of `2026.11.16.1` (`985df977`). ✅ The bump was
+taken 2026-11-23 and the migration is **proven safe**: five months of Rails migrations ran
+against the storage volume (`schema_migrations` max `20260607120000` → `20261102120000`),
+Shelfarr and Audiobookshelf both came back serving 200, and every pinned `Setting` survived —
+including `zlibrary_url`, because the October domain migration only rewrites the *previous
+default* and our explicit list was not it. To bump:
+
+```bash
+TOK=$(curl -s 'https://ghcr.io/token?scope=repository:pedro-revez-silva/shelfarr:pull&service=ghcr.io' | jq -r .token)
+curl -sI -H "Authorization: Bearer $TOK" -H 'Accept: application/vnd.oci.image.index.v1+json' \
+  https://ghcr.io/v2/pedro-revez-silva/shelfarr/manifests/latest | grep -i docker-content-digest
+```
+
+⚠️ After a bump, **re-read the `Setting` keys `books-setup` writes**. A migration that
+renames one turns that write into a no-op against a key the app no longer reads — failing
+silently, like everything else here. The `shelfarr: indexer=… ok=… sab=…` line is the check.
+
+⚠️ A bump runs months of migrations against the SQLite DB in the storage volume. **Back it
+up first** (no root needed; `-wal` is load-bearing):
+`cp /var/lib/shelfarr/production.sqlite3{,-wal,-shm} ~/backup-dir/`
+
+⚠️ `audiobookshelf`, `filebrowser` and `decluttarr` are **still on `:latest`** and have the same
+latent staleness. (FlareSolverr left the list by going native, 2026-11-24.) Pinning them needs
+their *running* digests, which needs root — the command is in *Podman containers* above.
+
+### ✅ FIXED AND LIVE (2026-11-24) — "Unable to connect to metadata service"
+
+Shelfarr's **Search** page errors with *Unable to connect to metadata service. Please try
+again later.* on any query. ⛔ **This is not "no copies found".** Metadata lookup is how a
+book gets *identified*; it runs **before** any indexer is touched, so the error means no
+search ever happened — Prowlarr and Z-Library are not involved and are not at fault.
+
+⭐ **The cause is a new class of bump trap: not a *renamed* key, but a *newly introduced*
+one.** The section above warns to re-check the keys `books-setup` writes. These are keys it
+has **never** written, so the bump installed them at upstream's defaults:
+
+```
+metadata_provider_priority  hardcover,openlibrary,google_books,comic_vine
+hardcover_enabled           true
+hardcover_api_token         (empty)      ← first in the chain, no credentials
+open_library_enabled        true
+```
+
+Egress from Asgard is fine, so it is **not** a network fault:
+
+| Provider | From Asgard | Note |
+|---|---|---|
+| Open Library | **200** | needs no token — the one that works today |
+| Hardcover | 400 on a bare GET | reachable; it is a GraphQL endpoint and needs a token |
+| Google Books | **429** | rate-limited without an API key |
+
+So Hardcover sits **first** with an empty token and Google Books behind it is throttled.
+⚠️ Whether a failing first provider *should* fall through to Open Library is unconfirmed —
+the UI error says the chain fails as a whole.
+
+**The fix taken** — `books-setup` now pins all three keys:
+
+```ruby
+%q(metadata_provider_priority) => %q(openlibrary,google_books,comic_vine),
+%q(open_library_enabled) => %q(true),
+%q(hardcover_enabled) => %q(false)
+```
+
+Open Library leads because it needs no token and answers 200; Google Books stays behind it as a
+second chance; Hardcover is off until a token exists.
+
+✅ **Deployed 2026-11-24 18:12, generation `h81w4rx9…`.** `books-setup` logged
+**`SETTINGS_CHANGED=2`** and `shelfarr: indexer=prowlarr ok=true sab=true`, `NRestarts=0`, then
+restarted Shelfarr to clear its settings cache and exited clean. ⭐ **The `2` is the proof the pin
+landed on the right keys**: of the three written, exactly two differed from what the bump had
+installed (`metadata_provider_priority` and `hardcover_enabled`) while `open_library_enabled` was
+already `true` — so the count matches the prediction exactly rather than approximately.
+
+⏸ **The alternative, if the metadata ever looks thin:** get a Hardcover API token, add it to sops,
+pin `hardcover_api_token`, and flip `hardcover_enabled` back to `true` with `hardcover` first.
+Hardcover is the richer source — it is off for want of a credential, not on merit.
+
+⭐ **The generalised lesson, which is worth more than the fix.** All three keys are pinned even
+though we never chose to change them from a working value. That is the point: an **unpinned** key
+is one a future bump can re-default underneath us, and that is precisely what happened here.
+`books-setup` should pin every setting the pipeline *depends on*, not only the ones it had to
+change. ⚠️ The warning in *The container is pinned BY DIGEST* above — "re-read the `Setting` keys
+`books-setup` writes" — is therefore **not sufficient on its own**: the keys that bite are the ones
+it has never written, and they are invisible in a diff of our own config. After a bump, diff the
+**whole** `settings` table against the pre-bump backup.
+
+### ⛔ No apostrophes in the `rails runner` block — not even inside a comment
+
+The whole Ruby payload is passed as `podman exec shelfarr sh -c '…rails runner "…"'`, so it sits
+inside **shell single quotes**. A single `'` anywhere in it — including in a Nix comment that ends
+up inside the generated script — **closes that string**, and the build fails with a *shell* syntax
+error pointing at the **next Ruby line**, which tells you nothing about the real cause:
+
+```
+books-setup-start: line 161: syntax error near unexpected token `immediate_search_enabled'
+```
+
+Hit on 2026-11-14 by writing "Upstream's" and "rock's" in a comment. This is why every existing
+comment in that block is phrased to avoid apostrophes — that is deliberate, not style. Use "the
+rock account", not "rock's". Same applies to any stray `"` (it would close the Ruby string).
+
+### ⛔⛔ `bash -n` does NOT catch this — a double quote proves it (2026-11-23)
+
+⚠️⚠️ **The `bash -n` check this section used to prescribe is not sufficient, and trusting it
+shipped a broken deploy.** A comment reading `so "it downloaded" and "it worked" are` was added
+to the `vals` hash; evaluation passed, the build passed, `bash -n` passed, and `books-setup` then
+restart-looped six times on the target with:
+
+```
+syntax error, unexpected end-of-input, expecting '}'
+...e *repair* came up short, so it
+```
+
+⭐ **Why `bash -n` can never see it:** the payload sits inside the *outer* script's `'…'`, so the
+outer shell stays balanced whatever goes in it. The breakage is in the **inner** `sh -c` / runner
+parse, which only happens at runtime. ⚠️ A `"` is therefore **exactly as fatal as a `'`** — the
+old wording treated it as an afterthought. ⛔ And a `nix build` passing proves nothing here.
+
+**The check that does work** — the payload is by definition the text between `runner "` and the
+**next** `"`, because the invariant is that it contains no `"` of its own. So a stray quote
+truncates the extraction and Ruby fails to parse it, which *is* the detection:
+
+```bash
+S=$(grep -ohE '/nix/store/[a-z0-9]{32}-unit-script-books-setup-start' \
+  /nix/store/*-nixos-system-Asgard-*/etc/systemd/system/books-setup.service | head -1)/bin/books-setup-start
+bash -n "$S" && echo "shell OK (necessary, NOT sufficient)"
+nix shell nixpkgs#ruby nixpkgs#perl -c bash -c '
+  n=0
+  while IFS= read -r -d "" p; do
+    n=$((n+1)); printf "%s\n" "$p" > "/tmp/payload-$n.rb"
+    ruby -c "/tmp/payload-$n.rb" >/dev/null 2>&1 \
+      && echo "payload $n: Ruby OK" \
+      || { echo "payload $n: BROKEN"; ruby -c "/tmp/payload-$n.rb" 2>&1 | head -4; }
+  done < <(perl -0777 -ne '"'"'print "$1\0" while /\.\/bin\/rails runner "([^"]*)"/g'"'"' "'"$S"'")
+'
+```
+
+Expect **4 payloads, all Ruby OK**. Regression-tested on 2026-11-23 against the script that
+actually broke: it reports `payload 2: BROKEN` and exits non-zero, where `bash -n` says fine.
+
+⚠️ Scope the check to **every** payload the edit touched, not just a block you added — the 2026-11-23
+failure was a comment edited into a *pre-existing* hash while `ruby -c` was run only on the new block.
+
+⭐ This class of bug could be made impossible with a build-time assertion that each payload contains
+no `"`, `'` or backtick (cheap with grep in a `runCommand`, no ruby in the closure — the same spirit
+as `writeShellApplication` shellchecking at build time). **Not implemented; not yet approved.**
+
+### ⚠️ The Shelfarr **login** is not declarative (found 2026-11-14)
+
+`books-setup.service` wires Shelfarr's *integrations* — it writes `Setting` rows only. **It never
+creates a Shelfarr user.** The sops `admin-username` / `admin-password` secrets it reads are for
+**Audiobookshelf's root user** (`POST /init`, step 1), not for Shelfarr.
+
+Shelfarr is a Rails app with its own sign-up at `/session/new`. Exactly **one account** exists
+(`role = 1`, created **2026-06-24 09:51**) — registered by hand during the original June setup,
+months before `books-setup` existed. Its password is a **bcrypt digest, so it is one-way and
+cannot be recovered** from the database, and it is not in sops or anywhere else in this repo.
+
+**This is a fresh-install gap:** on a wipe, Shelfarr comes up with zero users and needs someone
+to register through the web UI. Everything else in the books pipeline reproduces itself.
+
+`/var/lib/shelfarr` is owned by **`rock`**, so the account list needs no root — but there is no
+`sqlite3` on Asgard, so copy the DB to a workstation:
+
+```bash
+scp asgard:/var/lib/shelfarr/production.sqlite3 /tmp/
+nix shell nixpkgs#sqlite -c sqlite3 /tmp/production.sqlite3 \
+  "SELECT id, username, name, role, created_at FROM users;"
+```
+
+To reset the password (needs root, and must go through `rails runner` — see trap 1):
+
+```bash
+sudo podman exec shelfarr sh -c '. /rails/storage/.encryption_keys; \
+  export SECRET_KEY_BASE=$(cat /rails/storage/.secret_key_base); \
+  cd /rails && ./bin/rails runner "u = User.first; u.password = ENV[%q(NEW)]; u.save!; puts u.username"'
+```
+
+If this should ever be declarative, it belongs in `books-setup.service` as a step 5 guarded by
+`User.count.zero?`, fed from a new sops secret — same shape as the Audiobookshelf `POST /init`
+step, which is already conditional on `isInit`.
 
 ### Verifying it
 
@@ -1236,6 +1828,27 @@ picker's), positive `hsl(150, 100%, 65%)`, negative `hsl(355, 100%, 65%)`. `bran
 
 **Icons:** `sh:` (selfh.st, coloured); a CDN URL where selfh.st has none. Avoid `si:` — monochrome.
 
+⚠️⚠️ **`sh:` and `di:` default to `.svg`, and a miss fails SILENTLY — blank card, no error
+anywhere.** If a project only ships a raster icon, **the extension is load-bearing**:
+`icon = "sh:shelfarr.png"`, not `sh:shelfarr`. Glance's documented syntax allows
+`sh:<name>.png` / `.webp` exactly for this.
+
+This is what made **Shelfarr the only card with no image** (fixed 2026-11-14): it was pointed at
+`dashboard-icons/svg/shelfarr.svg`, which is a **404 — that repo has no shelfarr at all**
+(only `audiobookshelf`, `booklore`, `calibre*`). selfh.st does have it, but as `.png`/`.webp`
+only — so a "tidy-up" to a bare `sh:shelfarr` re-breaks it the same silent way. Don't.
+
+**Before adding or changing an icon, curl it.** A 404 looks identical to a working config:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://cdn.jsdelivr.net/gh/selfhst/icons/svg/<name>.svg
+curl -s -o /dev/null -w '%{http_code}\n' https://cdn.jsdelivr.net/gh/selfhst/icons/png/<name>.png
+```
+
+FileBrowser's hard-coded `dashboard-icons/svg/filebrowser.svg` was re-checked 2026-11-14 and is
+still a live 200. It could be written `di:filebrowser` now that Glance has that prefix, but there
+is no reason to touch it.
+
 ### Network panel + speed test (port 9555)
 
 `Resources/Network-Panel/network-panel.py`, run by `systemd.services.network-panel`.
@@ -1378,7 +1991,62 @@ Use `hostConfig.password._secret` only.
 
 ## Nixflix Notes
 
-**Flake input:** `github:kiriwalawren/nixflix/v1.2.0`, follows `nixpkgs-unstable`
+**Flake input:** `github:kiriwalawren/nixflix/v3.2.0`, with `inputs.nixpkgs.follows = "nixpkgs-unstable"`.
+
+⚠️ **That `follows` does NOT put the services on unstable.** It only applies to nixflix’s own
+flake outputs (its packages, devShells, checks). When its `nixosModules` are imported into our
+config they are handed **our** `pkgs` — i.e. stable `nixos-26.05`. This is why Jellyfin runs
+10.11.11 (stable’s version) and not unstable’s 12.4. Reading the `follows` line and concluding
+"nixflix tracks unstable, so our services are current" is the trap; see *Versions* below.
+
+### Versions — nixflix does not force a stale one (audited 2026-11-13)
+
+**The common worry is "the Nix packages are behind the Docker images". Mostly they are not.**
+Measured against each project's own latest GitHub release on 2026-11-13:
+
+| Service | Asgard | stable 26.05 | unstable | upstream latest |
+|---|---|---|---|---|
+| Sonarr | 4.0.20.3014 | same | same | 4.0.20.3014 — **identical** |
+| Radarr | 6.4.4.10685 | same | same | 6.4.4.10685 — **identical** |
+| Prowlarr | 2.6.5.5623 | same | same | 2.7.0.5723 |
+| SABnzbd | 5.1.2 | 5.1.2 | 5.1.3 | 5.1.3 |
+| Glance | 0.8.7 | 0.8.7 | 0.8.7 | 0.8.8 |
+| Immich | 3.3.5 | 2.7.5 | 3.3.5 | 3.4.1 |
+| Suwayomi | 2.3.2243 | 2.1.1867 | 2.1.1867 | 2.4.2366 |
+| **Jellyfin** | **10.11.11** | 10.11.11 | **12.4** | **12.4** |
+| **Home Assistant** | **2026.5.4** | 2026.5.4 | 2026.10.4 | **2026.11.0** |
+
+Sonarr and Radarr are byte-identical to upstream's newest build — a `:latest` container would
+give the same thing. Most of the rest are inside one point release. **The two real gaps are
+Jellyfin (two majors) and Home Assistant (six releases)**, and the cause is not Nix packaging
+but the **stable channel**: a NixOS release freezes major versions for its life. The channel
+itself is fresh (`26.05.20261102`).
+
+**The escape hatch, which nixflix leaves open:** every nixflix service exposes a `package`
+option, so a single line moves one service to unstable without touching anything else —
+
+```
+modules/arr-common/mkArrServiceModule.nix:59   package = mkPackageOption pkgs serviceBase { };
+modules/jellyfin/options.nix:32                default = pkgs.jellyfin;
+modules/seerr/options.nix:15                   package = mkPackageOption pkgs "seerr" { };
+modules/usenetClients/sabnzbd/default.nix:33   package = mkPackageOption pkgs "sabnzbd" { };
+```
+
+Two places in this repo already do exactly that, and are the pattern to copy:
+- `photos.nix` — imports the **unstable module** *and* sets `package = pkgs-unstable.immich`
+  (that is why Immich is 3.3.5 while stable sits at 2.7.5)
+- `manga.nix:80` — `pkgs.suwayomi-server.overrideAttrs` with its own `fetchurl`, pushing it
+  past *both* channels
+
+⚠️ Jellyfin 10.11 → 12.x is **two majors**: DB migration, breaking changes, and nixflix's own
+`lib/jellyfin-plugins.nix` set needs checking against 12.x. Back up
+`/data/.state/services/jellyfin` first. It is also internet-exposed through cloudflared, which
+is why this gap matters more than the others.
+
+**nixflix has no container support at all** — grepping its tree for `oci-containers`/`dockerTools`
+hits only `tests/vm-tests/`, and those are `virtualisation.cores`/`memorySize` VM-test knobs. So it
+does commit you to native systemd units for the arr stack, Jellyfin, Seerr and SABnzbd. It does
+not commit you to a version.
 
 **Option paths differ by service:**
 - Arr services: `nixflix.sonarr.config.apiKey._secret`
@@ -1532,6 +2200,9 @@ user-password-hash                 # bcrypt password hash ($ signs get mangled b
 eclipse-ssh-key                    # Asgard → Eclipse SSH key (eclipse-control), mode 0400
 tailscale-auth-key                 # joins Asgard (authKeyFile) AND the marsbar node — Core/sops.nix
 ha-token                           # Home Assistant ADMIN token, root-only 0400; ha-bridge + glance get credential copies — home-assistant.nix
+zlibrary-email                     # Z-Library account for Shelfarr — books.nix. NO matching
+                                   #   zlibrary-password: it deliberately REUSES admin-password
+                                   #   (rock's call, 2026-11-14). Rotate in BOTH places.
 ```
 
 **Still in `secrets.yaml` but no longer declared** (safe to delete from the file):

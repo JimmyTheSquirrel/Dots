@@ -274,6 +274,18 @@ in {
         # this — the last being exactly what Hosts/Elektra/system.nix needs for
         # installDisk and the NVIDIA `open` setting.
         environment.systemPackages = with pkgs; [
+          # Mod+E. The niri binds are baked into one wrapped package shared with
+          # Sisyphus, so they spawn a bare `file-manager` and each host says what
+          # that is (see Modules/Desktop/niri.nix). Sisyphus points it at Luciole;
+          # the ISO keeps Thunar, which is also what it has always had — Apollo
+          # never imported Modules/Desktop/thunar.nix, and only ever got the
+          # binary because the old keybind referenced its store path directly.
+          # Thunar stays here because Luciole is a from-source C++/Rust build
+          # that would add a long compile and real weight to a rescue image.
+          (pkgs.writeShellScriptBin "file-manager" ''
+            exec ${lib.getExe pkgs.thunar} "$@"
+          '')
+
           (pkgs.writeShellScriptBin "apollo-status" ''
             #!/usr/bin/env bash
             ts=${pkgs.tailscale}/bin/tailscale

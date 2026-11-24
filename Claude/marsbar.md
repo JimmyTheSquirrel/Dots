@@ -8,13 +8,38 @@ dashboard:** `Resources/Glance/{cards.css,dash.js,lights.js,eclipse.js,net.js}`,
 **Built:** 2026-09-19 · live lights + restyle 2026-10-03 · full Eclipse panel + vine 2026-10-04
 
 A second, deliberately small Glance for the user's partner: house lights,
-Jellyfin/Jellyseerr links, and the **full** Eclipse panel — the same one the admin
+Jellyfin/Jellyseerr/Shelfarr links, and the **full** Eclipse panel — the same one the admin
 dashboard has (status, Restart Kodi, Sync library, link test, Jellyfin path, Reboot, ending
 a stuck Wolf stream, what the TV is playing, the shared activity log) plus a read-only
 network card. She is the one in front of the TV when it locks up. Purple, so it is never
 confused with Asgard's green tech-HUD Yggdrasil dashboard.
 
 ---
+
+
+## Shelfarr on her dashboard (added 2026-11-14)
+
+A **Shelfarr** tile (`asgard:5056`) sits beside Jellyfin and Jellyseerr in the Media monitor —
+the Jellyseerr-for-books, so she can request a title and have it land in Audiobookshelf.
+
+⚠️⚠️ **Adding the row is NOT what grants access.** Her reachability is a Tailscale **ACL grant**,
+which does not live in this repo. Jellyfin (`:8096`) and Jellyseerr (`:5055`) are in her grant;
+**`:5056` has to be added in the Tailscale admin console**, and the ACL's `tests` block updated
+to match. Until that happens the tile shows down and the link dead-ends, with nothing anywhere in
+the config to explain why — the config is complete and the gate is elsewhere.
+
+⚠️ **She also needs her own Shelfarr account.** `books-setup.service` writes `Setting` rows only
+and never creates a `User`, so accounts are made by hand at `http://asgard:5056/session/new`.
+See `Claude/server-info.md` → *The Shelfarr login is not declarative*.
+
+⚠️ **`auto_approve_requests` is `false`.** Upstream only auto-searches on creation for
+`immediate_search_enabled || (!user_admin? && auto_approve_requests?)` — so a **non-admin**
+account like hers will have requests **park awaiting approval**. Either give her an admin role,
+or set `auto_approve_requests` to true in `books-setup.service`. Otherwise her requests sit there
+silently and look identical to every other "stuck on pending" fault.
+
+⚠️ The icon is `sh:shelfarr.png`, **with the extension** — selfh.st has no `shelfarr.svg` and
+`sh:` defaults to `.svg`, which 404s to a blank tile. Same trap as the admin dashboard.
 
 ## Why a second tailnet node, not a page or a path on Asgard
 
@@ -24,7 +49,7 @@ confused with Asgard's green tech-HUD Yggdrasil dashboard.
   path. Glance has no logins. So a page or path on `asgard:8888` (`asgard:8888/her`)
   would need her granted `asgard:8888`, and then every admin page — the terminal, the
   power relays' page, all of it — is one URL edit away. A separate node lets her
-  grant be `marsbar:1111` (+ Jellyfin and Jellyseerr): she cannot open a single
+  grant be `marsbar:1111` (+ Jellyfin, Jellyseerr and Shelfarr): she cannot open a single
   other Asgard port, and the ACL's `tests` block asserts that on every policy edit.
 - **The name.** MagicDNS names come from **machines**, not services, so a URL like
   `marsbar:1111` needs a machine called `marsbar`.
@@ -256,6 +281,22 @@ Asgard, so she never needs (or gets) anything on Sisyphus. Not hers: the network
     overwrites Kodi's on every playback. The toggle writes `SubtitleMode` on the
     account Eclipse logs in as — so pressing it from *either* dashboard changes the
     same (her) account.
+  - ⚠️⚠️ **The toggle only reaches the screen because the addon is patched**
+    (`Resources/Eclipse-Box/patches/patch_subs.py`, 2026-11-21). Unpatched, jellyfin-kodi
+    throws away the index the server picked and calls `showSubtitles(False)` ~2 s into
+    every play, so *Subtitles on* looks ignored however it is set. **An addon update
+    clobbers the patch** — if she reports having to pick subtitles by hand again, re-run
+    it before touching anything else. See `Claude/eclipse.md` → *Subtitles never came on
+    by themselves*.
+  - ✅ **She can put the patch back herself.** Under the toggle, *"Subtitles stopped
+    working?"* → **Repair** (`/act/subs-fix`): it pipes the repo's `patch_subs.py` to the
+    Pi and runs it there, restarting Kodi **only if the patch had actually gone**. Armed
+    like *Reboot*, so a mis-tap can't interrupt a film. Idempotent — pressing it when
+    nothing is wrong answers *"the fix is already in place"*. This is the answer to "an
+    addon update clobbers the patch" above: **tell her to press Repair**, don't SSH.
+  - ⛔ **Leave the subtitle language on *No preference*.** Empty is Jellyfin's
+    match-anything wildcard; `eng` is *stricter* and turns subtitles off entirely on any
+    release whose track carries no language tag.
 - ⚠️ When adding a click handler to a new card, widen the `onClick` selector.
   It scopes to specific card ids (`#ec-main [data-act], #ec-ctl [data-act]`, and the
   `#ec-ctl [data-bt-*]` list for the Bluetooth buttons), so a

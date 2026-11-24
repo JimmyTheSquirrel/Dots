@@ -149,7 +149,7 @@
           arrs = [ "sonarr" "radarr" "lidarr" ];
           prowlarr = [ "prowlarr" ];
           shelfarr = [ "podman-shelfarr" ];
-          flare = [ "podman-flaresolverr" ];
+          flare = [ "flaresolverr" ];
           ha = [ "home-assistant" ];
           feeds = [ "asgard-stats" "ha-bridge" "network-panel" "eclipse-control" "tailscale-status-proxy" ];
           glance = [ "glance" "glance-marsbar" ];

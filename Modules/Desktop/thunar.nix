@@ -26,15 +26,21 @@
       ];
     };
 
+    # ⚠️ ELEKTRA ONLY as of 2026-11-20. Sisyphus swapped Thunar for Luciole
+    # (Modules/Desktop/luciole.nix) and dropped this module, so this file now
+    # configures exactly one machine — her Hyprland desktop, where Thunar stays.
+    # The overlay above, programs.xfconf and the inode/directory default below
+    # therefore no longer apply to Sisyphus at all.
+    #
+    # Only Thunar's OWN dependencies are left here. The generic session bits
+    # that used to ride along in this list — xdg-utils, p7zip and the three icon
+    # themes — moved to Modules/Desktop/desktop.nix, which both compositors
+    # import, so that dropping a file manager could not quietly take xdg-open
+    # and GTK's icon fallbacks with it.
     environment.systemPackages = with pkgs; [
-      tumbler
-      ffmpegthumbnailer
-      xarchiver
-      p7zip
-      xdg-utils
-      adwaita-icon-theme
-      hicolor-icon-theme
-      papirus-icon-theme
+      tumbler            # Thunar's thumbnailer service
+      ffmpegthumbnailer  # video thumbnails, via tumbler
+      xarchiver          # the backend thunar-archive-plugin shells out to
     ];
 
     # services.gvfs (trash, network locations, thunar-volman's mounts) is NOT

@@ -63,7 +63,24 @@
         # on the Kodi side is overwritten on every single play. Not a secret —
         # an internal Jellyfin GUID, same class as the library ids already in
         # eclipse-control.py. See Claude/eclipse.md.
+        #
+        # ⚠️ This setting only reaches the screen because of
+        # Resources/Eclipse-Box/patches/patch_subs.py (2026-11-21). Unpatched,
+        # the addon discards the server's DefaultSubtitleStreamIndex before
+        # applying it and turns subtitles OFF on every play, so this toggle
+        # looks ignored. The patch is clobbered by every addon update — both
+        # dashboards can put it back with "Repair subtitles" on the Eclipse card.
+        #
+        # ⛔ Leave SubtitleLanguagePreference on "No preference". An empty list
+        # is Jellyfin's match-anything wildcard; setting "eng" is STRICTER and
+        # hides subtitles on releases whose track has no language tag.
         JELLYFIN_TV_USER = "b725e6a692f44fcd83e104b333f97319";
+        # The patch itself, for the dashboards' "Repair subtitles" button
+        # (act_subs_patch in eclipse-control.py). It is piped to the Pi over ssh
+        # and run there, like ECLIPSE_NET_SCRIPT below, so the copy that runs is
+        # always this repo's and nothing stale is left on the Pi. Being a store
+        # path, a `git add`-ed edit to the patch reaches the Pi on next rebuild.
+        ECLIPSE_SUBS_PATCH = "${../../Resources/Eclipse-Box/patches/patch_subs.py}";
         # The Network card's cable ⇄ Wi-Fi switch: sent to the Pi over ssh and
         # run there, detached, because the link it changes is the one ssh rides.
         # It puts things back by itself if the Pi can't get online. Nothing is

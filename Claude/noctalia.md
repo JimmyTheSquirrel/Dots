@@ -353,6 +353,17 @@ Three traps, all of which fail *silently* because each output file still exists 
 |---|---|
 | `builtin_ids` | **empty on purpose.** 20 available; the kitty / starship / btop ones write a theme file then run an `apply.sh` that appends an include to the app's main config — but `kitty.conf`, `starship.toml` and `btop.conf` are read-only Nix store symlinks here, so the append cannot land. btop is already covered by skwd's own integration, which renders the `Modules/Shell/btop.nix` mapping into the `dots` theme `btop.conf` actually selects. |
 | `community_ids` | **empty too.** The `discord` community template was enabled on 2026-09-15 and pulled the same day: a full opaque redesign layered under Vesktop's transparency quickCss made Discord glitch. Discord gets a colours-only file from skwd instead (`Modules/Apps/discord.nix`). Community templates are fetched from git at runtime into `~/.local/state/noctalia/community-templates` (same trust model as plugin sources; not pinned by the flake). |
+| `user.<name>` | **One live entry: `luciole`** (added 2026-11-20). A user template is `{ input_path, output_path }` and is how an app that ships its OWN noctalia template gets wired — Luciole does, so there is no template of ours to maintain and no reload hook (it watches the rendered file). ⚠️ **It is set in `my.noctalia.lockedSettingsExtra` from `Modules/Desktop/luciole.nix`, NOT in the shared `lockedSettings` here** — `input_path` is a store path, and this module is imported by Elektra and Apollo, so the shared lock would drag a from-source C++ build into her closure and the rescue ISO's. Any future per-host template goes the same way. See `Claude/luciole.md` → Colours. |
+
+Entry keys beyond the two above (all optional): `output_path` also takes an
+**array**, plus `output_path_dynamic`, `input_path_modes` (per dark/light),
+`pre_hook`, `post_hook`, `hook_async`, `post_action`, `requires_path`, `index`,
+`compare_to`/`colors_to_compare`. A leading `$XDG_CONFIG_HOME` /
+`$XDG_DATA_HOME` / `$XDG_STATE_HOME` / `$XDG_CACHE_HOME` **is expanded by
+noctalia** per the basedir spec — prefer those tokens to a hardcoded
+`~/.config`. ⚠️ Template syntax is `<* *>` for blocks and `{{ }}` for
+expressions — **not** matugen's Tera `{% %}`, so a matugen template has to be
+adapted, not copied.
 
 **The `spicetify` and `steam` community templates do not fit this host.** spicetify's targets `Themes/Comfy/` + `Themes/Colorful/` and shells out to `spicetify apply` (which fights spicetify-nix); this host uses the `text` theme. steam's targets the SFP `Material-Theme` skin; this host uses Millennium + Zehn. Both stay on their own skwd integrations — see `Claude/steam.md` and `Claude/spicetify.md`.
 

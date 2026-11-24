@@ -225,6 +225,95 @@ Every non-interactive ssh in the script now passes **`-n`**. The app was never
 affected — `probe.run()` already gives every subprocess `stdin=DEVNULL` — and the one
 ssh that must keep its stdin is the interactive *SSH* menu row (`ssh -t`).
 
+#### …but **never** `-n` when you are feeding the remote shell a script
+
+The mirror-image trap, hit on 2026-11-13 while auditing Asgard. `-n` redirects stdin from
+`/dev/null`, so for
+
+```bash
+ssh -n asgard 'bash -s' < script.sh      # ⛔ runs an EMPTY script, exits 0, prints nothing
+```
+
+the script is thrown away and the command **succeeds silently** — the most expensive possible
+failure, because "no output, rc=0" reads as "nothing to report". Use plain `ssh` there: a heredoc
+or redirected file means stdin is not a tty, so SIGTTIN cannot happen and `-n` buys nothing. The
+rule is about *tty* stdin, not ssh in general.
+
+#### And a remote pager will eat the rest of that script
+
+Same session, a loop over `systemctl cat` printed one record and stopped. `systemctl` pipes through
+a pager, and the pager read **the remainder of the script** off the shared stdin and discarded it,
+so the loop ended after its first iteration — again rc=0. Any remote script that calls a
+pager-using tool (`systemctl`, `journalctl`, `git`, `bootctl`) must disable it:
+
+```bash
+ssh asgard 'bash -s' <<'EOF'
+export SYSTEMD_PAGER=cat PAGER=cat     # or pass --no-pager at every call site
+...
+EOF
+```
+
+### Sync books — the FLAT ebook mirror (added 2026-11-14)
+
+Utilities → **Sync books**, **Sisyphus only**. Keeps `~/Server/Books` as a second copy of Asgard's
+ebook library, so books can be dragged straight onto a Kindle without the server in the way.
+Asgard is the source of truth (Shelfarr and Audiobookshelf write `/data/media/books`), so this
+only ever pulls — nothing done locally can reach Asgard.
+
+⭐ **The copy here is FLAT.** Every book is one file directly in `~/Server/Books`, no author or
+title folders: open it, select all, drag. Asgard keeps its nesting, which Audiobookshelf needs.
+The filenames already read `Author - Title.epub`, so flattening loses nothing. It was built nested
+first, which meant opening two folders per book — exactly the thing it was supposed to avoid.
+
+⭐ **How the flattening works:** `--files-from` normally implies `--relative`, which faithfully
+recreates `Author/Title/book.epub` at the destination. **`--no-relative` turns that off**, so each
+listed file is written under its basename alone. The file list comes from
+`find … -printf '%P\n'` over ssh, filtered to `.epub/.azw3/.mobi/.pdf` — Audiobookshelf may drop
+`cover.jpg` and `metadata.json` beside a book and those are noise on an e-reader.
+
+⚠️ **`--delete` cannot be used in this mode**, because with `--files-from` rsync only knows about
+the files it was told to fetch and cannot see a local book that is no longer in the library. So
+removals are computed explicitly: local basenames minus the expected set, plus everything still
+sitting below the top level (left over from the old nested layout), then empty directories are
+pruned. The plan counts those as *remove*.
+
+⚠️ **Flattening can collide.** Two books at different paths sharing a filename would silently
+become one file, so the job checks for duplicate basenames and names them before doing anything.
+
+**It always shows a plan first.** A `--dry-run --itemize-changes` pass gives add/update (file
+names, capped at 12 each), the computed removals are added, and the question names the counts.
+Anything to be deleted makes the default answer **no**.
+
+⚠️⚠️ **The empty-source guard is the important part.** `/data/media` is a mergerfs mountpoint; if
+it fails to mount, the directory still exists and is simply *empty*, and a mirror would then
+faithfully delete the only other copy of the library. So the job lists the source over ssh first
+and **refuses outright on zero files** — an empty source is always a fault, never an instruction.
+Do not remove that check.
+
+**Flags — `-t --no-relative --chmod=…`, deliberately not `-a`:**
+- `-t` is load-bearing: rsync skips on **mtime + size**, so dropping it re-copies the whole
+  library every run.
+- No `-a` and no `-p`. Asgard's book files are owned by the `media` group and some of those dirs
+  are `0777` (`server-info.md`); preserving owner/group/perms would need root locally and import
+  that looseness, so `--chmod` normalises them instead, and without `-p` permissions are never
+  compared and never show up as a spurious "changed".
+- ⚠️ `--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r` **must be quoted** in a bash array, or shellcheck raises
+  SC2054 ("use spaces, not commas") and `writeShellApplication` fails the build.
+
+**Parsing `--itemize-changes`:** `>f+++++++++` is a new file and `>f` with any non-`+` is an
+update. Directory rows (`cd+++++++++`, `.d..t......`) are dropped.
+
+**Kept in both halves**, like every other menu row: `BOOKS_HOST`/`BOOKS_SRC`/`BOOKS_DST`/
+`BOOKS_RSYNC` + `sync_books()`/`books_plan_list()` in `Resources/Scripts/system-rebuild.sh`, and
+`H.BOOKS_*` + `J.RSYNC_OPTS`/`J.EBOOK_FIND`/`J.sync_books` + `PN.pv_books`/`PN.books_here` in the
+app. The Sisyphus gate is `THIS_HOST == "Sisyphus"` / `H.THIS and H.THIS.name == "Sisyphus"` — it
+would be meaningless on Elektra, and on Asgard source and destination would be the same machine.
+
+⚠️⚠️ **`sec.mount()` takes Textual WIDGETS, never a bare `rich.Text`.** Passing one raises
+`AttributeError: 'Text' object has no attribute 'id'` when Textual iterates the widgets. Wrap
+custom lines in `Line(...)`; `info()`/`warn()`/`ok()`/`bad()` already do. `compileall` at build
+time does not catch it — only running the job does.
+
 ### Garbage collect on another machine
 
 Remote → *(machine)* → **Garbage collect** runs the same three steps as `nix-gc` on that
@@ -238,6 +327,47 @@ Two details that are load-bearing: it is **one** ssh carrying all three steps, b
 sudo caches its timestamp per tty and three separate ssh calls would ask three times;
 and the steps are joined with `;` with each setting `rc` on failure, never `&&`, which
 would stop at the first failure and silently skip the rest.
+
+### A retired **named profile** is invisible to GC — and it owns boot entries
+
+Asgard still carries `/nix/var/nix/profiles/system-profiles/asgard → asgard-21-link`, a **17.8 GiB**
+closure from **2026-07-27**, left over from the retired self-managed mode (`H_MODE=managed`, dropped
+2026-09-12). Found during the 2026-11-13 audit.
+
+⚠️ **`nix-collect-garbage -d` will never remove it.** `-d` deletes *old* generations but keeps the
+**current** generation of **every** profile, and generation 21 is that profile's current one. So the
+closure is pinned forever by a profile nothing writes to any more, and no amount of GC touches it.
+Only deleting the profile links does:
+
+```bash
+sudo rm /nix/var/nix/profiles/system-profiles/asgard \
+        /nix/var/nix/profiles/system-profiles/asgard-21-link
+```
+
+**And it has boot entries, which fixes the order.** systemd-boot's builder discovers named profiles
+on its own — `get_profiles()` iterates `/nix/var/nix/profiles/system-profiles/` and returns every
+name that doesn't end in `-link`, and `generation_dir()` resolves `{profile}-{generation}-link` — so
+it writes `… [asgard] - Configuration 21` entries just like the default profile's. Therefore:
+
+> **delete the profile → rebuild → *then* GC.**
+
+The rebuild's `remove_old_entries()` drops the `[asgard]` entries once `get_profiles()` stops
+returning that name. **GC first and you get a menu entry pointing at a deleted store path** — an
+option that fails to boot.
+
+Read the builder rather than guessing; it is world-readable, and this was got wrong twice before
+checking it:
+
+```bash
+# /boot is 0700, so `bootctl list` just says Permission denied as a normal user —
+# that is NOT evidence that no entry exists.
+sed -n '/def get_profiles/,/^def /p' \
+  "$(grep -ohE '/nix/store/[a-z0-9]{32}-systemd-boot' \
+     /nix/store/*-install-systemd-boot.sh | head -1)/bin/systemd-boot"
+```
+
+Sisyphus is the machine that *uses* named profiles deliberately (`-p sisyphus`, see
+`Claude/architecture.md` → GRUB). Asgard's is purely residue.
 
 ## Checking a disk layout before you wipe anything
 

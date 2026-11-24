@@ -37,7 +37,16 @@
     };
 
     virtualisation.oci-containers.containers.filebrowser = {
-      image = "ghcr.io/gtsteffaniak/filebrowser:latest";
+      # ⭐ Pinned by digest 2026-11-24 — the digest it was already running, so the
+      # pin itself is a no-op. amd64 manifest digest. Why: a `:latest` tag is
+      # resolved once on first pull and never re-checked, so it recorded no
+      # version and could not be rolled back with the generation.
+      #
+      # ⚠️ ~5 months old at pin time. ⛔ Remember this is the **Quantum** fork
+      # (`gtsteffaniak/filebrowser`), a different project from the `filebrowser`
+      # in nixpkgs — so there is no native swap, and release notes must come from
+      # the fork, not upstream filebrowser.
+      image = "ghcr.io/gtsteffaniak/filebrowser@sha256:2cd949cd06c058576773c5b8400c854478a64c4f364b1e2bea275819847f099b";
       ports = [ "8081:8080" ];
       volumes = [
         "/downloads:/downloads"

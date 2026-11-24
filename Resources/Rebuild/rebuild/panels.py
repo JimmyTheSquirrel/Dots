@@ -14,6 +14,7 @@ import math
 import os
 import shutil
 import time
+from pathlib import Path
 
 from rich.console import Group
 from rich.table import Table
@@ -31,7 +32,8 @@ from .ui import (AQUA, BLUE, BG, DIM, FAINT, FG, GREEN, LINE, PURPLE, RED, YELLO
                  spinner)
 
 VERB = {"switch": "switched", "boot": "set for next boot", "build": "built", "update": "inputs updated",
-        "sync": "synced", "gc": "collected garbage", "check": "checked every host", "clone": "cloned"}
+        "sync": "synced", "gc": "collected garbage", "check": "checked every host", "clone": "cloned",
+        "books": "mirrored the books"}
 
 
 # ── bits ──────────────────────────────────────────────────────────────────────
@@ -508,6 +510,54 @@ def pv_check(app) -> Group:
     return Group(Text("Evaluate every host at once — catches a typo or a bad option on a machine you're not "
                       "building. Builds nothing.", FG), Text(""), t, Text(""),
                  run_line(HIST.last("", ("check",)), "never from here"))
+
+
+
+
+def books_here() -> int:
+    """How many files are in the local mirror. Cheap — the library is small."""
+    try:
+        return sum(1 for p in Path(H.BOOKS_DST).rglob("*") if p.is_file())
+    except OSError:
+        return 0
+
+
+def pv_books(app) -> Group:
+    h = H.BY_NAME[H.BOOKS_HOST]
+    n = books_here()
+    rows: list[tuple[str, Text | str]] = [
+        ("from", Text(f"{h.target}:{H.BOOKS_SRC}", FG)),
+        ("to", Text(H.BOOKS_DST, FG)),
+        ("here now", Text.assemble((str(n), FG), (" file(s)", DIM)) if n
+                     else Text("nothing yet — first run copies the library", DIM)),
+    ]
+    r = app.probes.get(h.name)
+    rows.append((h.name, Text("reachable", GREEN) if (r and r.ok) else Text("not checked yet", DIM)))
+    rows.append(("last", run_line(HIST.last("", ("books",)), "never from here")))
+    return Group(
+        Text.assemble(("A second copy of ", FG), (f"{h.name}", FG), ("'s ebook library, so a book can go "
+                      "straight to a Kindle without the server in the way.", FG)),
+        Text(""),
+        Text.assemble(("The copy here is ", FG), ("flat", YELLOW),
+                      (": every book is a single file directly in the folder, no author or "
+                       "title folders to click into — open it, select all, drag to a Kindle. "
+                       "Asgard keeps its nesting; only this copy is flattened.", FG)),
+        Text(""),
+        Text.assemble(("It is a ", FG), ("mirror", YELLOW),
+                      (": new books are added, changed ones replaced, and anything here that is no longer in "
+                       "the library is removed. Nothing is ever duplicated — rsync matches on path.", FG)),
+        Text(""),
+        Text.assemble(("It always shows the plan first", GREEN),
+                      (" — what would be added, updated and removed — and asks before touching anything.", FG)),
+        Text(""),
+        grid(rows, 11),
+        Text(""),
+        Text.assemble(("! ", RED), ("refuses to run if ", FG), (f"{h.name}", FG),
+                      (" reports an empty library: that means /data/media did not mount, and a mirror "
+                       "would delete every book here.", FG)),
+        Text(""),
+        cmd(f"rsync -t --no-relative --files-from=… {h.ssh}:{H.BOOKS_SRC} ~/Server/Books/", YELLOW),
+    )
 
 
 def pv_history(app) -> Group:

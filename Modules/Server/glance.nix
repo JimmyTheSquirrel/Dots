@@ -152,7 +152,11 @@
       { title = "Sonarr";         port = 8989;  icon = "sh:sonarr";         tab = "Arr"; }
       { title = "Radarr";         port = 7878;  icon = "sh:radarr";         tab = "Arr"; }
       { title = "Lidarr";         port = 8686;  icon = "sh:lidarr";         tab = "Arr"; }
-      { title = "Shelfarr";       port = 5056;  icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/shelfarr.svg"; tab = "Arr"; }
+      # dashboard-icons has no shelfarr at all (404), which is why this card was
+      # the only blank one. selfh.st has it — but as .png/.webp only, and `sh:`
+      # defaults to .svg, so the extension is load-bearing: drop it and the icon
+      # silently 404s back to nothing. Don't "tidy" it to sh:shelfarr.
+      { title = "Shelfarr";       port = 5056;  icon = "sh:shelfarr.png";   tab = "Arr"; }
       { title = "Suwayomi";       port = 4567;  icon = "sh:suwayomi";       tab = "Media"; }
       { title = "FileBrowser";    port = 8081;  icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/filebrowser.svg"; tab = "Management"; }
       # Answers 302 on / until HA's onboarding is finished; add

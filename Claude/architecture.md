@@ -12,10 +12,11 @@ Hosts/<Host>/
 Modules/
   Core/              base, locale, audio, polkit, sops, nvidia, tailscale, flake-lib
   Boot/              grub, grub-celeste, plymouth, sddm
-  Desktop/           desktop (shared GUI bits), niri, hyprland, noctalia, skwd, thunar, screenshot
+  Desktop/           desktop (shared GUI bits), niri, hyprland, noctalia, skwd,
+                     luciole (Sisyphus), thunar (Elektra), screenshot
   Shell/             zsh, starship, kitty, fastfetch, btop, git, navi, deploy-tools, sleepy-cat
   Apps/              helium, brave, vscodium, discord, spicetify
-  Gaming/            steam, rpcs3, sunshine, wolf
+  Gaming/            steam, rpcs3, sunshine, wolf, battlenet
   Server/            Asgard: the media stack split by service, home-assistant, marsbar
 Resources/           static files the modules reference (fonts, themes, scripts, images)
 Secrets/             sops-encrypted YAML (rules in the root .sops.yaml)

@@ -62,7 +62,7 @@ from .ui import (AQUA, BG, BLUE, DIM, FAINT, FG, GREEN, LINE, ORANGE, PURPLE, RE
 I = dict(rebuild="", remote="", utils="", apollo="", switch="", boot="",
          build="", other="", ssh="", git="", update="", gc="", check="",
          clone="", reset="", deploy="", iso="", key="", dry="", vm="", warn="",
-         help="", history="", wait="", tip="")
+         help="", history="", wait="", tip="", books="")
 
 Job = Callable[["JobScreen"], Awaitable[bool]]
 WIDE = 110          # columns from which a menu gets its preview panel
@@ -229,6 +229,12 @@ class RebuildApp(App):
                           "Utilities", "gc clean free space"))
         out.append(Action("job:check", I["check"], "Check hosts", "evaluate every host, build nothing", YELLOW,
                           "Utilities", "eval"))
+        # Sisyphus only: this is rock's second copy of the library, for sending
+        # a book to a Kindle. Meaningless on Elektra, and on Asgard the source
+        # and the destination would be the same machine.
+        if H.THIS and H.THIS.name == "Sisyphus":
+            out.append(Action("job:books", I["books"], "Sync books", f"mirror {H.BOOKS_HOST}'s ebooks here",
+                              YELLOW, "Utilities", "ebook kindle library rsync mirror"))
         out.append(Action("go:history", I["history"], "History", "every job the app has run", YELLOW, "Utilities",
                           "log runs"))
         if self.has_apollo:
@@ -252,7 +258,8 @@ class RebuildApp(App):
             else:
                 self.push_screen(JobScreen({"sync": J.sync_repo, "reset": J.reset_repo, "update": J.update_inputs,
                                             "clone": J.clone_repo,
-                                            "gc": J.collect_garbage, "check": J.check_hosts}[what]))
+                                            "gc": J.collect_garbage, "check": J.check_hosts,
+                                            "books": J.sync_books}[what]))
         elif kind == "ssh":
             h = H.BY_NAME[rest]
             self.run_outside(["ssh", "-t", h.target], f"SSH · {h.name}", pause=False)
@@ -639,6 +646,10 @@ class UtilsMenu(MenuScreen):
                           preview=lambda: PN.pv_gc(app)))
         items.append(Item("check", I["check"], "Check hosts", "evaluate every host, build nothing",
                           Text(f"{len(H.HOSTS)} hosts", DIM), YELLOW, preview=lambda: PN.pv_check(app)))
+        if H.THIS and H.THIS.name == "Sisyphus":
+            items.append(Item("books", I["books"], "Sync books", f"mirror {H.BOOKS_HOST}'s ebooks here",
+                              Text(f"{PN.books_here()} here", DIM), YELLOW,
+                              preview=lambda: PN.pv_books(app)))
         n = len(HIST.load())
         items.append(Item("history", I["history"], "History", "every job the app has run",
                           Text(f"{n} run{'s' if n != 1 else ''}" if n else "", DIM), YELLOW,
@@ -650,7 +661,7 @@ class UtilsMenu(MenuScreen):
             self.app.push_screen(HistoryScreen())
             return
         self.job({"sync": J.sync_repo, "reset": J.reset_repo, "update": J.update_inputs, "clone": J.clone_repo,
-                  "gc": J.collect_garbage, "check": J.check_hosts}[key])
+                  "gc": J.collect_garbage, "check": J.check_hosts, "books": J.sync_books}[key])
 
 
 class ApolloMenu(MenuScreen):

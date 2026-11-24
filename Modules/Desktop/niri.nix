@@ -56,7 +56,19 @@
       key = "Mod+E";
       title = "Files";
       category = "Applications";
-      action.spawn-sh = lib.getExe pkgs.thunar;
+      # A bare command, NOT `lib.getExe pkgs.<something>`, and that matters.
+      #
+      # These binds are baked into the wrapped niri package at `perSystem` (see
+      # the header of this file), and that single package is shared by Sisyphus
+      # and Apollo. A store path here lands in BOTH closures, so pointing this
+      # at Luciole directly would make `apollo-iso` compile a C++ file manager
+      # plus its Rust librsvg rebuild into a rescue ISO that has no use for one.
+      #
+      # So each host that imports this module says what `file-manager` is:
+      #   Sisyphus -> Luciole      (Modules/Desktop/luciole.nix)
+      #   Apollo   -> Thunar       (Hosts/Apollo/system.nix)
+      # Elektra does not import niri; her Mod+E is hyprland's $fileManager.
+      action.spawn-sh = "file-manager";
     }
     {
       key = "Mod+F";
@@ -824,11 +836,25 @@ in {
             geometry-corner-radius 12
             draw-border-with-background false
           }
+          // ── Thunar: APOLLO ONLY as of 2026-11-20 ──────────────────────────
+          // Sisyphus runs Luciole now (Modules/Desktop/luciole.nix) and no
+          // longer imports Modules/Desktop/thunar.nix at all, so on this
+          // machine the rule below is dead config. It stays because the rescue
+          // ISO still resolves `file-manager` to Thunar — and because the two
+          // ⚠️s under it are the kind of thing that costs an afternoon twice.
+          //
+          // There is deliberately NO rule for ^dev\.noctalia\.luciole$.
+          // Luciole has a real client-side `background_opacity`, set to 0.9 in
+          // its own config, which fades the background ALONE and leaves the
+          // text crisp — strictly better than what this rule can do, and the
+          // reason the gtk.css route for Thunar was built and rejected. Adding
+          // a niri opacity rule on top would multiply the two.
+          //
           // ⚠️ Both spellings, and that is not paranoia. GTK takes the app-id
           // from prgname, so it depends on which binary started the process:
           // windows served by the autostarted `Thunar --daemon` come up as
-          // "Thunar", while one launched straight off `.../bin/thunar` (Mod+E
-          // above) comes up as "thunar". niri matches app-id case-sensitively,
+          // "Thunar", while one launched straight off `.../bin/thunar` comes up
+          // as "thunar". niri matches app-id case-sensitively,
           // so the plain `^thunar$` this rule used to carry never matched a
           // daemon-served window at all. Confirmed 2026-09-25 against
           // `niri msg windows`.

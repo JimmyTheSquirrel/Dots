@@ -48,6 +48,23 @@
       mpv
       imv
       libreoffice-fresh
+
+      # ── Moved out of Modules/Desktop/thunar.nix, 2026-11-20 ────────────────
+      # Sisyphus swapped Thunar for Luciole (Modules/Desktop/luciole.nix) and
+      # so stopped importing that module. None of these are Thunar's — they are
+      # what any GUI session here needs — so they live in the module both
+      # compositors import instead of riding along with a file manager.
+      #
+      # xdg-open is load-bearing (every "open this link/file" path goes through
+      # it) and the icon themes are what GTK apps fall back through: without
+      # hicolor + adwaita, apps with no themed icon of their own draw blanks.
+      # Luciole carries its own adwaita + shared-mime-info in its wrapper, so
+      # this is for everything ELSE in the session, not for it.
+      xdg-utils
+      p7zip
+      adwaita-icon-theme
+      hicolor-icon-theme
+      papirus-icon-theme
     ];
 
     home-manager.users.${activeUser} = {

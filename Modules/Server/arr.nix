@@ -361,6 +361,78 @@
           fi
         fi
 
+        # --- Sonarr: keep Thousand-Year Blood War out of classic Bleach ------
+        # Bleach (tvdb 74796) is an ANIME series, so Sonarr resolves releases
+        # by ABSOLUTE episode number. "Thousand-Year Blood War" is season 17
+        # on TVDB but every scene release numbers it as its own season 1:
+        #   BLEACH.Thousand-Year.Blood.War.S01E02...  -> absolute 2  -> S01E02
+        #   BLEACH.Thousand-Year.Blood.War.S01E41...  -> absolute 41 -> S02E21
+        # so TYBW episodes land on classic episodes that already have files,
+        # and because those slots are only cutoff-unmet (not missing) Sonarr
+        # treats each one as an UPGRADE and grabs it again on the next RSS
+        # pass. Found 2026-11-12: 30 grabs, 16 failures, ZERO successful
+        # imports, re-downloading S01E02 + S01E03 every single day since
+        # Nov 3 — about 2 GB/day of bandwidth and 14 GB sat in
+        # /downloads/usenet/complete doing nothing.
+        #
+        # Blocking is the correct fix here, not a scene mapping: seasons 3-17
+        # of Bleach are UNMONITORED, so TYBW is not wanted. It also closes a
+        # real corruption risk — nothing has imported yet, but an absolute
+        # numbered TYBW file dropping into a classic slot is exactly the
+        # "wrong file in a right-looking slot" failure that hit Avatar.
+        #
+        # ⚠ To actually WANT TYBW later: delete this profile (or untag the
+        # series) and add it as its own entry, because monitoring Bleach
+        # season 17 alone will not renumber S01Exx releases onto it.
+        #
+        # Two plain substrings, not one regex: release-profile terms are
+        # substring matches (see the sh4down note above) and both separators
+        # occur in the wild —
+        #   BLEACH.Thousand-Year.Blood.War.S01E28.KILL.THE.KING...
+        #   [ToonsHub] BLEACH Thousand-Year Blood War S01E31 1080p HULU...
+        # TAGGED, so it can only ever affect Bleach.
+        BLEACH_ID=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/series \
+                    | jq -r '.[]|select(.tvdbId==74796)|.id')
+        if [ -n "$BLEACH_ID" ] && [ "$BLEACH_ID" != "null" ]; then
+          BTAG=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/tag \
+                 | jq -r '.[]|select(.label=="bleach-classic")|.id')
+          if [ -z "$BTAG" ] || [ "$BTAG" = "null" ]; then
+            BTAG=$(curl -sf -m 15 -X POST -H "X-Api-Key: $SK" \
+                     -H 'Content-Type: application/json' \
+                     -d '{"label":"bleach-classic"}' $SONARR/api/v3/tag | jq -r .id)
+          fi
+          if [ -n "$BTAG" ] && [ "$BTAG" != "null" ]; then
+            BSER=$(curl -sf -m 15 -H "X-Api-Key: $SK" "$SONARR/api/v3/series/$BLEACH_ID")
+            if [ "$(echo "$BSER" | jq --argjson t "$BTAG" '.tags|index($t)')" = "null" ]; then
+              echo "$BSER" | jq --argjson t "$BTAG" '.tags += [$t]' \
+                | curl -sf -m 30 -X PUT -H "X-Api-Key: $SK" \
+                       -H 'Content-Type: application/json' --data-binary @- \
+                       "$SONARR/api/v3/series/$BLEACH_ID" >/dev/null \
+                && echo "arr-policy: tagged Bleach with bleach-classic"
+            fi
+            BLEACH_IGN='["Thousand-Year.Blood.War","Thousand-Year Blood War"]'
+            BRP=$(curl -sf -m 15 -H "X-Api-Key: $SK" $SONARR/api/v3/releaseprofile) || BRP="[]"
+            BEX=$(echo "$BRP" | jq -c '.[]|select(.name=="Asgard - Bleach TYBW block")')
+            if [ -z "$BEX" ]; then
+              curl -sf -m 15 -X POST -H "X-Api-Key: $SK" -H 'Content-Type: application/json' \
+                -d "{\"name\":\"Asgard - Bleach TYBW block\",\"enabled\":true,\"required\":[],\"ignored\":$BLEACH_IGN,\"indexerId\":0,\"tags\":[$BTAG]}" \
+                $SONARR/api/v3/releaseprofile >/dev/null \
+                && echo "arr-policy: created Bleach TYBW release profile" \
+                || echo "arr-policy: FAILED to create Bleach TYBW release profile"
+            elif [ "$(echo "$BEX" | jq -c '.ignored|sort')" != "$(echo "$BLEACH_IGN" | jq -c 'sort')" ] \
+              || [ "$(echo "$BEX" | jq -c '.tags')" != "[$BTAG]" ]; then
+              BRPID=$(echo "$BEX" | jq -r .id)
+              echo "$BEX" | jq --argjson ig "$BLEACH_IGN" --argjson t "$BTAG" \
+                    '.ignored=$ig | .tags=[$t]' \
+                | curl -sf -m 15 -X PUT -H "X-Api-Key: $SK" \
+                       -H 'Content-Type: application/json' --data-binary @- \
+                       "$SONARR/api/v3/releaseprofile/$BRPID" >/dev/null \
+                && echo "arr-policy: updated Bleach TYBW release profile" \
+                || echo "arr-policy: FAILED to update Bleach TYBW release profile"
+            fi
+          fi
+        fi
+
         # --- Delete the profiles Jellyseerr should not offer -----------------
         # Deliberately an explicit NAME list, not "everything unused": a
         # profile created later on purpose must not be silently destroyed.

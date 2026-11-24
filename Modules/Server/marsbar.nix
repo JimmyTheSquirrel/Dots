@@ -331,6 +331,28 @@
                   sites = [
                     { title = "Jellyfin"; url = "http://asgard:8096"; icon = "sh:jellyfin"; }
                     { title = "Jellyseerr"; url = "http://asgard:5055"; icon = "sh:jellyseerr"; }
+                    # Books, added 2026-11-14. Shelfarr is the Jellyseerr-for-books:
+                    # she searches a title, requests it, Prowlarr finds it, SABnzbd
+                    # fetches it and Audiobookshelf serves it.
+                    #
+                    # ⚠⚠ THE DASHBOARD ROW IS NOT THE GATE. Her reachability is a
+                    # Tailscale ACL grant, which does NOT live in this repo — see the
+                    # note above about asgard:8096 being in her grant because it is the
+                    # Jellyfin she watches. Port 5056 has to be added to that grant in
+                    # the Tailscale admin console or this tile simply shows down and the
+                    # link dead-ends, with nothing in the config to explain why.
+                    #
+                    # ⚠ Shelfarr also needs HER OWN account: `books-setup.service`
+                    # writes Setting rows only and never creates a User, so accounts are
+                    # made by hand at http://asgard:5056/session/new. See
+                    # Claude/server-info.md → "The Shelfarr login is not declarative".
+                    # ⚠ `auto_approve_requests` is still false, so a NON-admin request
+                    # parks awaiting approval — give her an admin role, or flip that
+                    # setting in books-setup, or her requests will sit there silently.
+                    #
+                    # selfh.st has no shelfarr.svg, only .png — the extension is
+                    # load-bearing (see server-info.md → Icons).
+                    { title = "Shelfarr"; url = "http://asgard:5056"; icon = "sh:shelfarr.png"; }
                   ];
                 }
               ];

@@ -43,7 +43,6 @@
       self.nixosModules.starship
       self.nixosModules.kitty
       self.nixosModules.brave
-      self.nixosModules.sleepy-cat
       self.nixosModules.helium
       self.nixosModules.git
       self.nixosModules.fastfetch
@@ -51,10 +50,25 @@
       self.nixosModules.vscodium
       self.nixosModules.screenshot
       self.nixosModules.navi
-      self.nixosModules.deploy-tools   # system-rebuild etc.; admin = false below
+      self.nixosModules.deploy-tools   # admin = false in elektra-apps.nix
       self.nixosModules.spicetify
       self.nixosModules.discord
       self.nixosModules.tailscale
+
+      # ── Hers ──────────────────────────────────────────────────────────────
+      #
+      # Everything specific to THIS machine lives in Hosts/Elektra/elektra-*.nix,
+      # one file per topic, so it is obvious at a glance what is hers and what is
+      # shared. The `elektra-` prefix is on the filenames deliberately: an editor
+      # tab reading "fastfetch.nix" tells you nothing about whose it is.
+      self.nixosModules.elektra-account
+      self.nixosModules.elektra-apps
+      self.nixosModules.elektra-boot
+      self.nixosModules.elektra-fastfetch
+      self.nixosModules.elektra-gaming
+      self.nixosModules.elektra-hyprland
+      self.nixosModules.elektra-noctalia
+      self.nixosModules.elektra-peripherals
 
       # Deliberately NOT imported, and why:
       #   grub      — Sisyphus's multi-profile loader; she uses grub-celeste
@@ -62,264 +76,6 @@
       #   wolf      — Docker + a render node hardcoded to Sisyphus's RX 9060 XT
       #   sunshine  — pins output_name=HDMI-A-1 and grabs the desktop cursor
       #   rpcs3     — large, needs firmware she may never want
-
-      ({ config, lib, activeUser, ... }: {
-        # Plymouth's initrd GPU module. Wired here rather than in Modules/Core/nvidia.nix
-        # because the option is declared by Modules/Boot/plymouth.nix, and nvidia.nix
-        # must stay importable on a host that has no plymouth.
-        my.plymouth.initrdGpuModules = [ "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm" ];
-
-        # "Women · Umbrella" (Totoro) greeter — Modules/Boot/sddm.nix. rock's
-        # Sisyphus runs nier-automata from the same module.
-        my.sddm.theme = "women-umbrella";
-
-        # system-rebuild, git-sync and nix-gc, so a rebuild can be run sitting at
-        # her machine (system-rebuild sees it is ON Elektra and rebuilds in place,
-        # from ~/Dots or, without one, github:JimmyTheSquirrel/Dots). Not the
-        # Apollo commands or rock's cheats: Modules/Shell/deploy-tools.nix.
-        my.deploy-tools.admin = false;
-
-        # Her Home Manager config. Everything for her user MUST live in this ONE
-        # block: two separate `home-manager.users.${activeUser}.x = …` statements
-        # are duplicate *dynamic* attribute keys, which Nix refuses to merge the
-        # way it merges static ones ("dynamic attribute 'kitkat' already defined").
-        # Same trap as users.users.${activeUser} further down.
-        home-manager.users.${activeUser} = {
-          # The cat greets her on every new interactive shell. `--once` rather than
-          # the looping mode so opening a terminal never blocks, and guarded on an
-          # interactive TTY so it cannot corrupt scp/rsync or a non-interactive ssh
-          # command, which is exactly how a cute greeting breaks file transfers.
-          programs.zsh.initContent =
-            lib.mkAfter ''
-              if [[ -o interactive ]] && [[ -t 1 ]]; then
-                sleepy-cat --once
-              fi
-            '';
-
-          # ── Frame cap for Vulkan games ────────────────────────────────────
-          #
-          # ⭐ VERIFIED 2026-10-04. Before: 232-260W of a 270W cap, 79-81C, fans
-          # 89-100%, util 60-100%, sw_power_cap Active. After: 56-67W, 45-48C,
-          # fan 57%, util 18-41%, power cap NotActive. ~75% less power, 34C
-          # cooler, confirmed audibly quiet.
-          #
-          # The 18-41% utilisation is the point: PEAK really is trivial for a
-          # 3070. It only looked demanding because nothing capped it, so it
-          # rendered ~500fps into two 60Hz panels and burned ~183 extra watts on
-          # frames nobody could see.
-          #
-          # The cause is the GAME, not her hardware or this config. PEAK has no
-          # working frame limiter — its own vsync/FPS-cap options are documented
-          # by its community as having no effect (hence zero vsync keys in its
-          # Proton prefix: they never get written), its default max framerate is
-          # reported ~500, and Windows users report the same fans. The devs
-          # acknowledged it. Official advice is to cap FPS externally.
-          #
-          # ⚠️ Why no driver setting can do this. Steam launches it
-          # `PEAK.exe -force-vulkan`, so it is a NATIVE Vulkan client, and in
-          # Vulkan the application owns the present mode — ask for
-          # MAILBOX/IMMEDIATE and nothing outside the process enforces vblank.
-          # __GL_SYNC_TO_VBLANK and vblank_mode are OpenGL-only.
-          # `allow_tearing = false` in hyprland.nix does not help either: the
-          # compositor shows 60 while the GPU still renders hundreds. And unlike
-          # Mesa, which honours MESA_VK_WSI_PRESENT_MODE=fifo to override an
-          # app's present mode, the NVIDIA proprietary driver has NO equivalent.
-          # That asymmetry — plus rock's 182W AMD ceiling vs her 270W — is why
-          # the same game behaves on his machine and screams on hers.
-          #
-          # So the Vulkan layer is the only place left, which is what MangoHud
-          # is: fps_limit works for native Vulkan, DXVK and vkd3d alike. It
-          # reaches the game because mangohud is in programs.steam.extraPackages
-          # (Modules/Gaming/steam.nix), putting the layer INSIDE Steam's
-          # pressure-vessel container — which is also why mangohud is not on her
-          # PATH. enableSessionWide sets MANGOHUD=1 so the implicit layer loads.
-          #
-          # no_display keeps the overlay off — this caps frames, it is not a HUD.
-          # Shift_R+F12 toggles it if she ever wants the numbers.
-          #
-          # ⚠️ Needs a RE-LOGIN (session vars are set at login) and a game
-          # relaunch. A plain switch cannot change a running session's env.
-          # ⚠️ Revisit if she ever gets a higher-refresh monitor — this would then
-          # cap her below what the panel can show.
-          programs.mangohud = {
-            enable = true;
-            enableSessionWide = true;
-            settings = {
-              fps_limit = 60;
-              no_display = true;
-            };
-          };
-        };
-
-        # For genuine D3D->Vulkan (DXVK) titles, which is most of the rest of
-        # Proton. ⚠️ It is a NO-OP for PEAK (native Vulkan, see above) — it was
-        # tried first and changed nothing. Do not read it as the PEAK fix.
-        environment.sessionVariables.DXVK_FRAME_RATE = "60";
-
-        # Square corners everywhere she can see them: Hyprland windows, the
-        # noctalia bar, and the lockscreen widgets each have their own radius.
-        my.hyprland.rounding = 0;
-
-        # Blur and shadows off — the cheapest per-frame GPU saving on a 60 Hz
-        # NVIDIA setup with a rotated output, and she wanted the plainer look.
-        my.hyprland.effects = false;
-
-        # Dark browser chrome AND dark pages, not just the frame.
-        my.brave.forceDarkMode = true;
-
-        # Her Brave profile was made while this machine was called Kit-Kat, and
-        # its folder is named after the host (Brave-Browser-<name>). Keeping the
-        # old name means the rename to Elektra leaves her bookmarks, logins and
-        # extensions exactly where Brave looks for them — nothing moves.
-        my.brave.profileName = "Kit-Kat";
-
-        # Google, not Brave Search. This is an enterprise policy, which means the
-        # Settings dropdown locks and shows the "managed" badge — change it here,
-        # not in the browser. Verify with brave://policy.
-        my.brave.defaultSearchEngine = "google";
-
-        # Sleek + Coral, instead of rock's local Text theme and its matugen
-        # wallpaper pipeline. Setting `theme` also strips the two spicetify skwd
-        # integrations, the matugen-colors.js extension and spotify-apply-colors
-        # — see the option description in Modules/Apps/spicetify.nix.
-        my.spicetify = {
-          theme = "sleek";
-          colorScheme = "Coral";
-        };
-
-        # No Millennium — that is rock's Steam ricing. She gets plain upstream
-        # Steam: no CSS/JS injector, no extra openssl ABIs, no libXtst relink on
-        # every launch (which is what stopped Steam starting at all here).
-        my.steam.millennium = false;
-
-        # ── Her noctalia desktop ──────────────────────────────────────────────
-        #
-        # Captured from what she actually dialled in through the GUI. It has to be
-        # here: Modules/Desktop/noctalia.nix force-writes settings.toml on every rebuild,
-        # so anything not recorded in Nix is silently reverted at the next switch.
-        # Read back off her machine, not invented.
-        my.noctalia.lockedSettingsExtra = {
-          # The global corner-roundness scale (Appearance -> Interface in the GUI),
-          # range 0.0-2.0. Setting it to 0 squares EVERYTHING noctalia draws in one
-          # place — bar, panels, popups, lockscreen — rather than hunting down each
-          # widget's own radius/capsule_radius.
-          shell.corner_radius_scale = 0.0;
-
-          # The rounded overlay noctalia paints over the four SCREEN corners
-          # (Desktop -> Screen corners in the GUI). Separate from
-          # corner_radius_scale above, which only scales the radii of noctalia's
-          # own surfaces — this one masks the physical display edges, so it is
-          # what makes "the corners of the screen look round".
-          #
-          # `enabled = false` rather than `size = 0`: turning it off in the GUI
-          # leaves enabled = true and only drops the size, which still composites
-          # a (tiny) mask every frame. rock keeps his at size 35.
-          shell.screen_corners.enabled = false;
-
-          bar.main = {
-            # Bar radius explicitly 0 as well — corner_radius_scale above scales
-            # radii, and 0 x anything is 0, but being explicit costs nothing.
-            radius = 0;
-            position = "bottom";
-            background_opacity = 0.88;
-            scale = 1.05;
-            thickness = 32;
-            margin_ends = 0;
-            start = [ "workspaces" "spacer_2" "taskbar" ];
-            end = [ "volume" "keybinds" "network" "bluetooth" "notifications" "tray" "clock" ];
-
-            # The media/visualizer capsule carries its own radius, and it is a LIST
-            # so recursiveUpdate replaces it wholesale rather than merging — the
-            # whole entry has to be restated, not just the radius.
-            capsule_group = [{
-              id = "g1";
-              enabled = true;
-              members = [ "media" "audio_visualizer" ];
-              fill = "surface_variant";
-              opacity = 0.45;
-              padding = 9.0;
-              radius = 0;
-            }];
-          };
-
-          # Only what differs from the shared lock in Modules/Desktop/noctalia.nix.
-          # Her audio_visualizer, network, taskbar (including show_all_outputs,
-          # the "show it on every monitor's bar" toggle she found herself in the
-          # GUI) and tray.drawer settings are identical to it, so they are
-          # inherited rather than restated.
-          widget = {
-            clock = { capsule = false; capsule_opacity = 0.34; };
-            keybinds.type = "kenn/keybind-cheatsheet:keybinds";
-            spacer_2 = { capsule = false; length = 104; scale = 0.4; type = "spacer"; };
-
-            # show_labels = false hides the workspace NUMBERS, leaving just the
-            # pills. (Noctalia 5.2 split the old `display = "none" | "id" |
-            # "name"` into show_labels + label_source; `noctalia config
-            # validate` flags the old key.)
-            workspaces = { show_labels = false; };
-          };
-        };
-
-        my.hyprland = {
-          # Real connector names, read from `hyprctl monitors` on the machine itself.
-          # NOTE these differ from what nouveau reported on the installer ISO (DP-3 /
-          # DP-4) — the proprietary nvidia driver enumerates them differently. Always
-          # take these from the installed system, not from the live ISO.
-          #   DP-3 = Dell U2421HE   (left)
-          #   DP-2 = Philips 272V8  (right)
-          monitors = [
-            # transform,3 = 270 deg. The Dell is physically pivoted anticlockwise
-            # (its top edge points left), so the output is counter-rotated to match.
-            # Hyprland cannot detect a physical pivot — it always has to be told.
-            "DP-3,1920x1080@60,0x0,1,transform,3"
-            # Rotated, DP-3 occupies 1080 wide x 1920 tall — so the Philips starts at
-            # x=1080, not 1920, or the mouse crosses an 840px dead gap. y=420 centres
-            # the 1080-tall landscape panel against the 1920-tall portrait one.
-            "DP-2,1920x1080@60,1080x420,1"
-          ];
-
-          # Transparency dialled right back at her request — the shared default
-          # (0.60 / 0.75) was far too see-through for her.
-          opacityLight = "0.97";
-          opacityStrong = "0.95";
-        };
-
-        # Her account. Both keys must live in ONE block: two separate
-        # `users.users.${activeUser}.x = …` statements are duplicate *dynamic*
-        # attribute keys, which Nix refuses to merge the way it merges static ones.
-        users.users.${activeUser} = {
-          # base.nix sets description = activeUser, i.e. "kitkat". This is the name
-          # the SDDM greeter shows her, so give it the real spelling.
-          description = "Kit Kat";
-
-          # Her login password, from Secrets/kit-kat.yaml (NOT Secrets/secrets.yaml —
-          # see Modules/Core/sops.nix). This is what gives her a working password on the
-          # very first boot; without it a fresh install has none at all.
-          #
-          # With users.mutableUsers at its default (true) the hash is applied only
-          # when the account is CREATED: after the first install `passwd` works and
-          # survives rebuilds, and editing the secret no longer changes anything.
-          # See the comment on hashedPasswordFile in Modules/Core/sops.nix.
-          hashedPasswordFile = config.sops.secrets.user-password-hash.path;
-        };
-
-        # Remote deploys push store paths over SSH, and the receiving nix daemon
-        # refuses paths from a user that is not trusted:
-        #   error: cannot add path ... because it lacks a signature by a trusted key
-        # Asgard already carries the same line for the same reason. Easy to miss
-        # because the failure only appears on the FIRST push, after the install has
-        # already succeeded — and at that point fixing it needs a rebuild, which is
-        # the very thing that is broken. Bootstrap out by rebuilding once ON her
-        # machine from a copy of this repo.
-        nix.settings.trusted-users = [ activeUser ];
-
-        # Needed for `system-rebuild kitkat Elektra --target` to reach her. Your
-        # pubkey arrives via Modules/Core/base.nix.
-        services.openssh = {
-          enable = true;
-          settings.PasswordAuthentication = false;
-        };
-      })
     ];
   };
 }

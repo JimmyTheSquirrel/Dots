@@ -481,6 +481,12 @@ and `lockedSettings` in `Modules/Desktop/noctalia.nix` reproduces it.
 Plus the off-repo Asgard state in item 6 above — Tailscale ACL policy, the
 `marsbar` machine's key-expiry setting, and the BIOS fan curves.
 
+⚠️ And **Shelfarr's user account**, which nothing in the repo creates: `books-setup.service`
+writes its `Setting` rows but never a `User`, so a fresh Asgard comes up with Shelfarr at
+`/session/new` and zero accounts, waiting to be registered by hand. The password is a bcrypt
+digest and is not recoverable from the old box — decide the new one before the wipe. See
+`Claude/server-info.md` → *The Shelfarr login is not declarative*.
+
 The *functional* config is genuinely declarative. It is specifically the
 desktop's **appearance**, and anything living in a vendor console, that is not.
 
@@ -631,10 +637,50 @@ Diagnosed from a live Cult of the Lamb session. Evidence and all the numbers:
 
 A temp/humidity sensor now reports the room Asgard is in
 (`sensor.asgard_temp_humidity_sensor_temperature` / `…_humidity`, ESPHome; ~22.9 °C /
-59 % at install). **Asgard is going into a cupboard**, and the point of the sensor is to
+59 % at install). **Asgard is now IN the cupboard — moved 2026-11-23** (measurements below), and the point of the sensor is to
 see how hot that enclosed space gets and cross-reference it with the CPU and drive temps
 — so a thermal problem is visible, and something can be shut down, before hardware
 cooks.
+
+### Measured 2026-11-23 — the move happened, and the cupboard passes
+
+Asgard went into the cupboard **2026-11-23** (clean `systemd-poweroff` 18:44 → up 19:07;
+no power pull, so nothing on `/data/.state` was at risk). Verified after the move: both
+HDDs **CRC / reallocated / pending / uncorrectable all 0** and SMART healthy, both links
+renegotiated **6.0 Gb/s**, NIC **0 errors / 0 dropped / 0 carrier**, ext4 mounted with no
+journal recovery, `it87` survived its **first true cold boot** since the `hwmon_vid` fix.
+
+Then a **12-minute synthetic soak** — 16 × `sha256sum /dev/zero` plus sequential reads off
+both HDDs, i.e. far harsher than anything the box really does:
+
+| | idle | peak soak | limit |
+|---|---|---|---|
+| cupboard air | 27.4 °C | **28.8–29.2 °C** | — |
+| humidity | 52 % | 45 % | — |
+| CPU package | 35 °C | **73 °C** | 100 °C crit |
+| Disk 1 / Disk 2 | 34 / 35 °C | **37 / 39 °C** | 70 / 65 °C |
+| NVMe | 37 °C | **42 °C** | 79.8 °C crit |
+
+`core_throttle_count` and `package_throttle_count` stayed at **0** and the CPU held full
+all-core boost (3950 MHz avg, 4100 peak), so 73 °C was never near a limit. The kernel log
+for the whole soak: *no entries* at warning or above. CPU fell to 48 °C within ~30 s of the
+load stopping.
+
+⛔⛔ **THE WEATHER TRAP — do not repeat this mistake.** The first reading of these numbers
+was "the cupboard costs +4.5 °C" (27.4 vs the 22.9 °C install baseline). **Wrong.** rock:
+*"it is a 28 degree day today"* — the cupboard air is **at or below the outdoor
+temperature**, so essentially all of that rise is **weather**, and the Oct 31 baseline was
+simply a cooler day. ⭐ The cupboard's own penalty is small (~0 to a couple of °C) and
+**cannot be pinned down more precisely, because the only sensor is inside the cupboard** —
+there is no house-interior reference to subtract. A second sensor outside it is the only
+way to ever measure the enclosure itself. This is exactly the delta reasoning point 1
+describes, and it is why a bare room temperature can mislead.
+
+⭐ **Consequence: the risk is the weather, not the workload.** A transcode on a mild day is
+a non-event — proven with a load that will never occur naturally. But if air ≈ ambient,
+a **40 °C summer day** puts the cupboard near 40 °C and the drives near **46–50 °C**, which
+*is* the longevity zone. That single scenario is the only thing on these numbers worth an
+automation, and it is what point 3 should be built around.
 
 1. ~~**Show it where the other temps are.**~~ ✅ **Done 2026-10-31, deployed 2026-11-01.**
    It is the fourth ring in the Asgard page's host card, beside the CPU temperature, with
@@ -645,20 +691,43 @@ cooks.
    it back on the dashboard. The delta is still the right thing to *reason* with when
    judging the cupboard (a rising delta is a cooling problem; a rising room temp with a
    flat delta is just the weather) — work it out from the recorder when the time comes.
-2. **Baseline before the move, not after.** Record a few days of room temp and the delta
-   while Asgard is still in the open, or there is nothing to say whether the cupboard
-   made it worse. The sensor is already in HA's recorder, so this costs nothing but
-   waiting.
+2. ⛔ **Baseline before the move — NO LONGER POSSIBLE.** The move happened 2026-11-23
+   before any pre-move baseline was recorded, so the clean in-the-open comparison is gone
+   for good. ⚠ **Do not substitute the 2026-10-31 install reading (22.9 °C) for it** — see
+   the weather trap in the measurements above. HA's recorder still holds whatever it
+   captured in the open during Nov; that is the only surviving source if this is ever
+   worth reconstructing.
 3. **Then decide the thresholds.** Any "shut things down when hot" automation needs
    numbers that came from measurement, not from a guess. Candidates: warn on the dashboard,
    stop transcoding / downloads, spin down the array, hard power-off at the top end.
    ⚠ Asgard's own relay (`switch.server_power_switch`) is a mains feed and is deliberately
    **not** in ha-bridge's allowlist — cutting it is an unclean stop, so an emergency path
    must be a clean `systemctl poweroff`, never that switch.
-4. **Fans.** The open fan question (`Claude/server-info.md`: the drive-cage fans onto a
-   motherboard SYS_FAN header via a Y-splitter) gets a lot more pointed in a cupboard. Worth closing before the move rather than after.
-5. **A cupboard is a humidity question too**, and the sensor already answers it. Condensation
-   on disks is a worse failure than a warm CPU.
+   ⭐ **Now partly measurable — 2026-11-23 gives the shape, not the final numbers.**
+   The ring's live **30/35 °C** are demonstrably too tight: the cupboard **idles at
+   27.4 °C**, so 30 is ~2 °C above resting and will sit amber on any warm evening until
+   rock learns to ignore it — the one failure mode that leaves him blind. On the measured
+   relationship (air ≈ outdoor; drives run **8–10 °C over air** under load; drive
+   longevity line ~45 °C) **warn 34 / bad 39** tracks reality: it stays quiet year-round
+   and fires in a genuine heatwave. ⚠ **Still unvalidated at the top end** — nothing has
+   been measured above 29 °C of air, so 39 is an extrapolation, not an observation. Wants
+   one hot-day datapoint before any *automation* hangs off it; the dashboard colours are
+   safe to change now. ⚠ Changing them is a `_plugs.nix` edit **plus a deploy rock must
+   run himself** (Asgard's sudo needs a password).
+4. ~~**Fans.**~~ ✅ **Closed in hardware 2026-11-23.** rock fitted **new fans in a
+   different header**, so the Molex dead-end is gone and `fan3` now reads ~1100 RPM where
+   the 2026-09-19 baseline recorded 0. ⚠ **They are not slaved to the CPU's PWM**, despite
+   the wiring sounding like it: in the soak below `fan1` rose **+120%** while `fan2`/`fan3`
+   moved **+5%** at a pinned **32%** duty. ⛔ **No BIOS curve can react to drive
+   temperature** — it is not an available source — and Asgard's heavy workload (SAB, a
+   library scan) loads the disks while leaving the CPU idle, so the case fans sit at 32%
+   exactly when the drives work hardest. **Left alone deliberately**: the drives peaked at
+   37/39 °C with the fans flat. `Claude/server-info.md` → *Fans and sensors*.
+5. ~~**A cupboard is a humidity question too.**~~ ✅ **Answered 2026-11-23 — retire it.**
+   27.4 °C at 52 % RH is a dewpoint of **~16.7 °C**, and every surface in there is ≥27 °C.
+   Condensation needs a surface *below* dewpoint, so it cannot form on a running machine in
+   that cupboard. RH also *falls* as the box heats the air (52 → 45 % during the soak), so
+   load makes this safer, not riskier. Only a long cold shutdown could invert it.
 
 ## Opened 2026-11-01 — Bedside bulbs: the ladder is live, two rungs unjudged
 
@@ -998,3 +1067,510 @@ leaves **32k**. For reading this repo's docs, context is worth more than paramet
 RAG is the only way to use them whole. ⚠️ llama.cpp's auto-fit defaults to
 `n_parallel = 4` and divides the KV cache four ways — **set slots to 1** for a single
 user and 20224 becomes 32k+.
+
+---
+
+## Opened 2026-11-14 — Asgard audit: version lag, image pinning, one non-declarative login
+
+Full sweep on 2026-11-13/14. **The box is healthy** — no crash loops (`NRestarts` 0 everywhere),
+no zombie or D-state processes, zero OOM kills ever, PSI ≈ 0, SMART clean on all three disks
+(0 reallocated / 0 pending / 0 uncorrectable / 0 CRC). The NVMe's 191 unsafe shutdowns all cluster
+on **2026-08-10**, the RAM-failure period — not ongoing. What follows is what is actually open.
+
+### ⭐ Jellyfin is two majors behind, and it is the one that matters
+
+> ⏸ **Re-verified 2026-11-24: unchanged.** `/System/Info/Public` still reports **10.11.11**, and
+> no `package` override exists in `Modules/Server/`. Still the highest-value open item.
+
+`10.11.11` running; upstream is **12.4**, and **unstable already has exactly 12.4**. One line
+through nixflix's `package` option moves it. It is the highest-value item because Jellyfin is
+**internet-exposed through cloudflared**, so the gap is a security one, not just a feature one.
+
+⚠️ Not a drop-in: two majors means DB migration and breaking changes, and nixflix's own
+`lib/jellyfin-plugins.nix` set has to be checked against 12.x first. Back up
+`/data/.state/services/jellyfin`. Full table and the escape-hatch pattern:
+`Claude/server-info.md` → *Nixflix Notes → Versions*.
+
+### Home Assistant is six releases behind
+
+> ⏸ **Re-verified 2026-11-24: unchanged** — `homeassistant/const.py` on the live box reads
+> `MAJOR 2026 / MINOR 5 / PATCH "4"`.
+
+`2026.5.4` running (stable's pin); upstream is **2026.11.0**, unstable has **2026.10.4**.
+⚠️ 2026.11 folds HACS into a built-in Marketplace and the standalone HACS installer stops there,
+so that transition is coming either way. Run `check_config` first — see
+[[ha-config-validate-check-config]] for why it aborts on a pinned `colorlog`.
+
+Everything else (Sonarr, Radarr, Prowlarr, SABnzbd, Glance, Immich, Suwayomi) is **identical to
+or within one point release of** upstream. Sonarr and Radarr are byte-identical.
+
+### ~~All five~~ **Four of five** container images are `:latest` — pin them by digest
+
+> ✅ **Shelfarr is done (2026-11-23)** — pinned by multi-arch index digest to `2026.11.16.1`, and
+> the bump itself is proven safe (five months of migrations ran clean). ✅ **FlareSolverr left the
+> list entirely (2026-11-24)** by going native, so this is now **three** unpinned images:
+> `audiobookshelf`, `filebrowser`, `decluttarr`.
+>
+> ✅ **And the last three went in on 2026-11-24** — `audiobookshelf`, `filebrowser`, `decluttarr`,
+> each pinned to the digest it was **already running** (read with
+> `ssh -t asgard 'sudo podman images --digests | …'`, which needs root). ⭐ Pinning to the
+> *running* digest rather than upstream's current one is what makes it a no-op instead of a
+> three-way bump of stateful services. **There is now no `:latest` anywhere in the repo.**
+> ⚠️ They were 5 / 5 / 6 months old at pin time, so the staleness is recorded, not fixed — each
+> is still owed its own bump, with its own backup. Decluttarr is the easy one: stateless.
+>
+> ⚠️ And the Shelfarr bump surfaced a cost the text below does not anticipate: it installed
+> **new** settings keys at upstream defaults and broke Shelfarr's search. See the 2026-11-23
+> Books section.
+
+The only genuine reproducibility hole in the setup. Images live outside the Nix store, so a
+generation rollback restores the unit but not the image, and `oci-containers` only pulls when the
+image is *absent* — each is frozen at whatever was first pulled, with no version in the config and
+no way back. Pinning moves no service and costs nothing.
+
+**⭐ Upgraded from "reproducibility hole" to a fault that has actually bitten (2026-11-15).**
+A frozen image does not merely lack features — it misses upstream **data migrations**, so the
+database keeps values upstream has since retired. Shelfarr's image is the **2026-06-15** build
+(newest applied migration `20260607120000`). Migration `20261012090000` replaces the Z-Library
+mirror list; it has never run here, so `zlibrary_url` still held three dead domains while
+`zlibrary_configured?` returned true. Enabled, credentialled, and resolving nowhere — and Shelfarr
+runs no health check on Z-Library, so nothing would ever have reported it.
+
+Fixed by pinning `zlibrary_url` in `books.nix`. **But that is a patch on one setting, not on the
+cause** — any other migration-borne default is still stale and undetected.
+
+Two things follow, and they pull in opposite directions:
+- Pinning by digest makes the staleness *visible and deliberate* rather than accidental.
+- Pinning alone does **not** fix it. Something still has to pull a newer image and let the
+  migrations run. A digest pin that is never bumped is the current situation with a version number
+  attached.
+
+Worth deciding together with how often these get refreshed at all. Check any instance with
+`select max(version) from schema_migrations` against upstream `db/migrate/`.
+
+### ✅ DONE 2026-11-24 — FlareSolverr went native (5 containers → 4)
+
+> ✅ `services.flaresolverr.enable = true` in `manga.nix`, replacing the container. It moved **no
+> version** (nixpkgs 3.5.2 = exactly what the container served), so this really was the free win.
+> Three things moved with it in the same deploy: `books-setup`'s `after`/`wants` now name
+> `flaresolverr.service`, and `stats.nix`'s `ASGARD_UNITS` has `flare = [ "flaresolverr" ]`.
+> ✅ Live since 2026-11-24 — 200 from localhost:8191, NRestarts=0. Full note, including why the module having no `host`
+> option is load-bearing: `Claude/server-info.md` → *FlareSolverr is native*.
+
+`services.flaresolverr` exists, nixflix even wraps it as `nixflix.flaresolverr.enable` with a
+readiness probe the container lacks, and **nixpkgs 3.5.2 = upstream 3.5.2**. All three consumers
+reach it on host `:8191`. Audiobookshelf could follow (4 → 3) but needs a data migration and
+`books-setup` re-pointing. ⚠️ **FileBrowser cannot** — the container is the *Quantum* fork, a
+different project from the `filebrowser` in nixpkgs. Detail in
+`Claude/server-info.md` → *Podman containers*.
+
+⛔ The reverse — everything into podman — was considered and rejected: it means dropping nixflix,
+which is what declaratively manages the quality profiles, indexers and arr wiring.
+
+### Shelfarr's login is the one piece of non-declarative auth
+
+`books-setup.service` writes its `Setting` rows but never creates a `User`. One account exists,
+registered by hand 2026-06-24. Added to *Before any fresh wipe* above;
+mechanism and reset command in `Claude/server-info.md`.
+
+### Pending, needs root on Asgard (sudo now wants a password)
+
+In this order — **the order is load-bearing**, see `Claude/deploy.md` → *A retired named profile is
+invisible to GC*:
+
+1. `sudo rm -rf /var/lib/qBittorrent` — 8.1 MB, owner is a bare uid **70 with no user behind it**,
+   last written 2026-06-27, app long removed
+2. `sudo rm -rf /var/lib/arr-policy-backup-20260823-184908` — 2.3 MB; **optional**, it is the only
+   snapshot of the pre-arr-policy config (`server.nix.before`, `sonarr-series.json`)
+3. `sudo rm -rf /tmp/sonarr_backup` — ⚠️ **re-verified 2026-11-24: it is no longer empty** (3
+   entries, last written 2026-11-22), so the `rmdir` this line used to say would just fail
+4. `sudo rm /nix/var/nix/profiles/system-profiles/asgard{,-21-link}` — unpins **17.8 GiB**
+5. `system-rebuild rock Asgard` — purges the stale `[asgard]` boot entry. ⚠️ This step is **only**
+   about the boot entry now: the Shelfarr icon fix and the Bleach TYBW profile it used to also
+   carry were deployed 2026-11-14/15. It still has to run *after* step 4, not before.
+6. ~~**Reboot**~~ — ✅ **DONE: the box rebooted 2026-11-23 ~19:08.** `it87` is loaded and
+   healthy — `hwmon5 = it8689` with **three fan inputs reading real RPM** (1283 / 1108 / 1144
+   on 2026-11-24), so fan monitoring and the dashboard fan card are alive again.
+7. Remote → Asgard → **Garbage collect**
+
+⚠️ **The reboot happened out of order, which changes what is left.** It was step 6; it ran
+before steps 4–5. That costs nothing — it unpinned the old `booted-system` closure as intended
+— but the **named profile is still pinning its 17.8 GiB**, so a GC run *now* would recover only
+part of the ~29 GiB. The remaining sequence is therefore **4 → 5 → 7**, and the ordering between
+those three is still load-bearing.
+
+✅ **Re-verified on the live box 2026-11-24** (what is genuinely still there):
+`/nix/var/nix/profiles/system-profiles/asgard → asgard-21-link →
+nixos-system-Asgard-26.05.20260727.2f5a153`, `/var/lib/qBittorrent` (uid **70**, 2026-06-27),
+`/var/lib/arr-policy-backup-20260823-184908`, `/tmp/sonarr_backup`.
+
+### Books — two one-click jobs in the UI, neither will happen on its own
+
+Both need a human in a web UI; nothing retries either automatically.
+
+- **Re-request *The Dungeon Anarchist's Cookbook*** (Shelfarr request 7). It is marked
+  **completed** holding the single azw3 that started the epub-only policy, and a completed request
+  is never re-searched. Z-Library went live 2026-11-15 and should now have an epub — this is the
+  book that motivated adding it, and it is still the one book that has not benefited.
+  ⏸ Re-verified 2026-11-24: `/data/media/books/Matt Dinniman/The Dungeon Anarchist's Cookbook/`
+  still holds **only the `.azw3`**. ⚠️ And it cannot be actioned right now anyway — Shelfarr's
+  search is down on the metadata-provider fault (2026-11-23 Books section).
+- **Match All in Audiobookshelf** — two covers still missing (*The Hunger Games*, and the
+  Cookbook, whose azw3 has no extractable cover by design). Library → ⋯ → Match All.
+
+### Two decisions waiting on rock
+
+- **Immich runs completely empty** — 4 services, ~730 MB RAM, admin seeded, exposed via Cloudflare
+  tunnel, and `/data/photos` is **4 KB**. Use it or turn it off.
+  ⏸ Re-verified 2026-11-24: still exactly **4.0 K**. Nothing has been put in it.
+- **Anchorman 2** — 5 GB in `/downloads`, genuinely not in the library. Keep or delete.
+  ⏸ Re-verified 2026-11-24: still there —
+  `/downloads/usenet/complete/radarr/Anchorman.2.…DUAL-100REAL/…mkv`. It and one Silo S01E04
+  torrent file are the only two things over 1 GB in `/downloads` (5.3 G total).
+
+### Noted, not worth acting on
+
+- Jellyfin trickplay is **9.6 GB** of its 13 GB state — a legitimate feature, just the biggest
+  single consumer. Subtitles are another 2.2 GB.
+- `/var/lib/jellyfin/metadata` (4.5 GB) sits on the **NVMe** while the rest of Jellyfin's state is
+  on disk1. Both work.
+- Decluttarr's ~83 "errors" a week are **podman mapping its INFO output to `err` priority** — pure
+  false positives, but they poison `journalctl -p err` for real triage.
+- NVMe sensor 3 runs **72 °C**, the hottest thing in the box; everything else is 27–38 °C. 7% life
+  used, 77.65 TB written.
+- Pool at **86%** (2.6 TB free): disk1 82%, disk2 88% — 2026-11-24, up from 84% / 80% / 87% on
+  2026-11-14. ⚠️ `/data` itself is not a mount; the pool is `mediapool` on **`/data/media`**, so
+  `df /data` reports the root filesystem and looks reassuringly empty.
+- SABnzbd never prunes `nzb-backup` — roughly 1.9 GB per 5 months, regrows forever.
+
+---
+
+## Opened 2026-11-20 — Luciole replaced Thunar on Sisyphus
+
+Done and building: `Modules/Desktop/luciole.nix`, flake input `luciole`, Mod+E via the
+`file-manager` shim. Full picture in `Claude/luciole.md`. Sisyphus **no longer imports
+`Modules/Desktop/thunar.nix`**; Elektra kept Thunar, Apollo keeps it for the ISO's Mod+E.
+
+**Not yet exercised on real hardware.** The build is proven (Sisyphus toplevel exit 0,
+`luciole-0.1.0` compiled, `luciole config validate` passed over the generated
+`config.toml`), but nothing below has been *looked at* on a live session yet:
+
+- **Does it come up at all** — it is 0.1.0 and draws straight onto Wayland/GLES. Mod+E,
+  then an actual browse: thumbnails, the side preview, drag-and-drop out to other apps.
+- **`org.freedesktop.FileManager1`** — the module claims the name through
+  `~/.local/share/dbus-1/services/`. Unverified end to end: test with VSCodium's *Reveal
+  in File Explorer* or a browser download's *Show in folder*. Nothing else on Sisyphus
+  provides the name any more, Thunar having gone.
+- **Archive extraction.** Thunar had `thunar-archive-plugin` + xarchiver wired up with an
+  overlay (the nixpkgs `.tap` bug). Luciole bundles `7zz` on its own PATH, but whether
+  right-click extract exists and works is unchecked. If it does not, that overlay
+  workaround is *not* the thing to resurrect — look at Luciole's scripts directory
+  (`~/.local/share/luciole/scripts/`) instead.
+
+### Open, deliberately not done
+
+- **The FileChooser portal is NOT wired.** Luciole ships a backend that would become the
+  Open/Save dialog for every app; left alone at 0.1.0. One `portals.conf` stanza away —
+  `Claude/luciole.md` → *Not done*.
+- **Fonts fall back to Fontconfig `sans-serif` 14px**, not the shell's 42dot Sans, because
+  this repo sets neither GNOME's `font-name` nor a `gtk-font-name`. A one-liner in
+  `Modules/Desktop/desktop.nix` beside the existing `color-scheme` key would fix it, but
+  that key is read by **every** GTK app, so it changes more than Luciole.
+- **Thumbnails on `/data`.** `thumbnail_policy = "local"` skips network shares, and Asgard's
+  pool is a network share from here. `"all"` turns them on if that is wanted.
+
+### Fresh-wipe gap (feeds `fresh-wipe-reproducibility-gaps`)
+
+Luciole deliberately splits config: Nix owns `config.toml`, **the GUI owns
+`settings.toml` and wins over Nix**. That is the opposite of noctalia, and it is the
+*designed* seam, so GUI tweaks survive rebuilds — but it also means **a wipe loses every
+GUI tweak**, plus:
+
+- `~/.config/gtk-3.0/bookmarks` — sidebar bookmarks (shared with Nautilus/Nemo)
+- `~/.local/state/luciole/state.toml` — Places layout, custom bookmark icons, last tabs
+
+Same class of gap as noctalia's layout and the wallpapers: if a tweak is worth keeping,
+promote it into the module's `settings` block rather than leaving it in `settings.toml`.
+
+### After a `nix flake update`
+
+A rebuild failure naming `luciole-config.toml` means a **setting's type or accepted values
+changed upstream** — revisit the `settings` block, nothing is broken. Unknown keys only
+warn at runtime, but `checkConfig` runs the strict `luciole config validate`, which is
+exactly why it is left on: a schema change fails the build instead of silently
+half-applying. Don't "fix" it by turning `checkConfig` off.
+
+### Colours (added same day)
+
+Wired: `my.noctalia.lockedSettingsExtra.theme.templates.user.luciole` in
+`Modules/Desktop/luciole.nix`. Luciole ships its own noctalia template, so there is
+nothing of ours to maintain. Proven by rendering it against the live
+`~/.config/noctalia/palettes/skwd-wall.json` — all 30 tokens resolved.
+
+- ⚠️ **After the switch, run `noctalia-apply-palette` once** (or change the wallpaper).
+  `templates-apply` alone can report ok and write nothing.
+- ⛔ **Icon recolouring was deliberately NOT wired.** It needs a
+  `FollowsColorScheme=true` theme (Breeze/Tela/Colloid) selected through GNOME's
+  `icon-theme` dconf key, which every GTK app reads — and a desktop-wide
+  adw-gtk3-dark + Papirus pass was rejected on taste on 2026-09-25. **Ask before
+  building it.**
+- ⚠️ **Found in passing, not fixed:** noctalia 5.5.0 warns on every start that our
+  `settings.toml` uses the **renamed** palette role `surface_variant` (now
+  `surface_container`) in three places — `bar.main.capsule_group[0].fill` and both
+  `lockscreen-login-box` `background_color`s. It comes from our own `lockedSettings`
+  in `Modules/Desktop/noctalia.nix`, so it is a one-line-each rename there. Harmless
+  today (noctalia falls back), but it is real config drift against upstream.
+
+### Folder icon shape (added same day)
+
+rock didn't like Adwaita's soft folder corners. Added `my.luciole.iconTheme`, an enum
+of six themes ranked by **measured** folder corner radius (see `Claude/luciole.md` →
+Folder shape). Default `papirus` (4.4%, vs Adwaita's 7.8%, already installed, follows
+the palette).
+
+- ⏸ **He chose to judge it on the monitor before going sharper.** If Papirus still reads
+  soft, `zafiro` is the square one (1.6%) — but it keeps its own hue instead of tracking
+  the wallpaper. `flat-remix` (2.8%) is the sharp option that *does* follow the palette.
+  Comparison page with the real icons at size:
+  https://claude.ai/artifact/N9HP9SBUxSi7K1aV19CZZx
+- ⚠️ `icon-theme` is read by **every GTK app**, so this is a desktop-wide change that
+  happens to live in a Sisyphus-only module. If the look is wrong it is one word, **not**
+  a reason to revisit the adw-gtk3-dark pass rejected on 2026-09-25.
+- ⛔ `numix-icon-theme-square` is excluded on purpose: "square **apps** icons", inherits
+  Numix folders at 10.2% — softer than Adwaita.
+
+### Chrome went olive — fixed with our own template (2026-11-21)
+
+Upstream's `colors.toml` template takes **every** token from the palette, surfaces
+included, so the toolbar, search field and file area all took the wallpaper's tint
+(`surface #131408`, olive). rock: colour belongs in the sidebar, not the top bar or the
+background. Fixed by shipping `Resources/Luciole/colors.toml`, which runs the surface
+family through noctalia's `grayscale` filter (lightness kept, hue removed) and leaves
+the accent families alone. `Claude/luciole.md` → Colours.
+
+- ⚠️ **Token parity with upstream is not enforced.** A token added upstream is missing
+  from ours and Luciole falls back to its built-in value **without erroring** — it fails
+  quietly. The `diff` one-liner is in the template's own header; run it after a bump.
+
+### ⏸ Fresh-wipe gap, now concrete
+
+rock has tuned Luciole through the GUI and `settings.toml` **wins over Nix** — that is
+the designed seam, not drift, so don't "fix" it by editing the module. But it means
+**a wipe loses the look**. As of 2026-11-21 his GUI holds values the Nix baseline does
+not: `background_opacity = 0.54` (baseline 0.9), `corner_radius_scale = 0.1`,
+`grid_icon_size = 80`, `always_show_tab_bar = false`, `hidden_last = true`,
+`show_preview = false`, `sidebar_width = 176`, `miller_column_width = 212`.
+
+**Offered, not done** — promoting these into `programs.luciole.settings` is the only
+way a fresh install comes up looking like this. Ask before doing it: he may still be
+tuning, and once promoted a GUI *Reset* returns to these rather than to stock.
+
+---
+
+## Opened 2026-11-22 — Battle.net under Proton: live, with one parked decision
+
+`Modules/Gaming/battlenet.nix` + `Resources/Scripts/battlenet.sh`, Sisyphus only.
+Built, switched, installed and logged in the same day. Full story in
+`Claude/battlenet.md`; only the loose ends are here.
+
+### ⏸ 1. niri's `^steam_app_` rule now catches a launcher — decide it
+
+Battle.net's window is `steam_app_battlenet` (umu sets `SteamAppId` from `GAMEID`),
+so the generic games rule in `Modules/Desktop/niri.nix` opens it **fullscreen on
+DP-2**. Nothing visibly misbehaves, and that rule must **not** simply be deleted
+(`niri-rule-reapplies-on-window-recreate`), so an exclusion was **proposed and not
+applied** — it wasn't proven harmful and rock hadn't asked. ⚠️ Every future
+umu-launched app inherits the same collision, so this wants settling before the
+second one, not after.
+
+### ⏸ 2. The icon + `StartupWMClass` fix is BUILT, not switched
+
+The 2026-11-22 icon work (build-time extraction from the pinned installer; the
+corrected `StartupWMClass = "steam_app_battlenet"`, which had been a wrong guess of
+`battle.net.exe`) evaluates on all four hosts and the derivations build, but needs
+`system-rebuild rock Sisyphus` to reach the system. Until then the launcher still
+shows the generic cog. ⚠️ Same class of thing as item 8 — a real fix living only in
+the tree.
+
+### 3. The honest fresh-install gap
+
+Nix owns the launcher, Proton, the installer's first byte, the icon and the desktop
+entry. It does **not** own, and cannot:
+
+- the Wine prefix `~/Games/Battle.net` — imperative by construction, like `compatdata`;
+- the Steam Linux Runtime container umu downloads into `~/.local/share/umu` (a few
+  hundred MB; nixpkgs has no steamrt4/sniper to substitute).
+
+So a wipe comes back with a working `battlenet` command and **re-downloads the client
+and every game** (WoW alone is ~52.6 GB). That is the limit, not a bug — but don't
+plan a wipe assuming the Blizzard games come back for free. ⛔ And never sweep that
+prefix to reclaim disk: it *is* the games (`sisyphus-disk-reclaim-sweep`).
+
+## Opened 2026-11-23 — Elektra: reconnected, her fixes landed, three things left
+
+Her machine was never actually off the tailnet — it had registered as node `kit-kat`
+and the 2026-10-09 rename was never deployed, so the host tables asked for `elektra`,
+which did not exist, and every push failed for six weeks. Broken with one
+`system-rebuild kitkat Elektra --target kit-kat`; the node renamed itself on reboot
+and plain pushes work now. Detail in `Claude/elektra.md` and
+`Claude/elektra-handover.md`.
+
+Landed and verified the same day: her USB/BT power pinning (`btusb.enable_autosuspend=0`
++ three udev rules), her Wi-Fi-scanning fix (`wifi-radio-off-at-boot`), `sleepy-cat`
+removed from her shell, and every window opaque except the terminal.
+
+**Still open:**
+
+1. **Her play/pause media keys do nothing in Spotify.** Ruled out: binds live in
+   Hyprland, `playerctl` resolves and targets spotify, only `spotify` on the MPRIS bus
+   (the `skwd-music` trap does not apply — and our own `niri.nix:20` comment already
+   suspected skwd v2 dropped that inert player; her box confirms it), and her 2.4G
+   receiver's Consumer Control interface advertises `KEY_PLAYPAUSE`. **Untested:**
+   whether the press reaches the compositor; suspect an Fn-lock on the F-row.
+   ⚠️ Capture evdev **to a file** — `timeout 15 od …` buffers and silently loses short
+   output, which cost one false "nothing happens" result:
+   `timeout 15 cat /dev/input/event3 > /tmp/ev.bin` then `od -An -tx1 -w24 /tmp/ev.bin`
+   (`0xa4` = `KEY_PLAYPAUSE`).
+
+2. **Her headset powers off entirely** — distinct from the Wi-Fi stutters, which are
+   fixed. Headset-initiated (`lost RFCOMM connection`, `Connection reset by peer`
+   18 ms later), audio healthy until that instant, not on a timer (14 min – 1 h 39).
+   Next step: catch one inside a `btmon` trace and read the HCI disconnect reason.
+
+3. **Lockscreen login boxes are still `background_opacity = 0.88`** — the last
+   transparent surface besides her terminal. Deliberately not changed: the value is
+   hardcoded in the `loginBox` helper in `Modules/Desktop/noctalia.nix`, which
+   **Sisyphus imports too**, so editing it there would also make rock's lockscreen
+   solid. The fix belongs in her `my.noctalia.lockedSettingsExtra` — see the
+   shared-module trap. Awaiting a decision.
+
+4. **Her clone at `/home/kitkat/Dots` is still a diverged fork** and her own Claude
+   session still works in it. Now that pushes work it is redundant, and Asgard's
+   second checkout was deleted for exactly this reason. The handover protocol
+   (`Claude/elektra-handover.md`) contains the risk meanwhile. Deleting it is rock's
+   call.
+
+---
+
+## Opened 2026-11-23 — Books: fixed and live, three things left open
+
+Full detail in `Claude/server-info.md` → *Books*. Three Mistborn books were parked on dead
+Usenet releases; `preferred_download_types` is now `[direct, usenet]`, the Shelfarr image is
+pinned by digest at `2026.11.16.1`, `books-setup` un-parks failed requests and waits for
+Prowlarr, and ✅ **all seven books are on disk** (verified as real `.epub` *files*, not just
+folder names).
+
+⭐ The bump also delivered more than was credited at the time: `2026.11.16.1` **blocklists a
+failed release and auto-selects the next one** (`release_blocklisted` / `fallback_selected` in
+`request_events`), so the structural no-fallback bug is fixed upstream. It was written up here
+as unverified; it is now proven live. ⛔ It also **moved the request status enum** — `status = 3`
+no longer means `failed`.
+
+### ✅ 1. Container images — ALL pinned by digest 2026-11-24, nothing left on `:latest`
+
+`audiobookshelf`, `filebrowser`, `flaresolverr` and `decluttarr`. Same latent staleness that
+had Shelfarr frozen on a five-month-old build while reading as current: images live outside
+the Nix store, `oci-containers` only pulls when one is *absent*, and a generation rollback
+restores the unit but **not** the image — so each is pinned to whatever was first pulled,
+with no version in the config and no way back.
+
+Shelfarr proved the bump path is safe (five months of migrations ran clean, both services
+came back 200, every pinned `Setting` survived). **Deliberately not done in the same pass:**
+bumping four *working* services at once is a separate and riskier change, and each wants its
+own backup-and-verify. One at a time, with the DB/state backed up first where it has any.
+
+### ⏸ 2. A build-time guard for the `rails runner` payloads
+
+⛔ **`bash -n` cannot catch a stray `"` or `'` inside a `rails runner` payload, and neither
+can `nix build`.** The payload sits inside the outer script's `'…'`, so the outer shell stays
+balanced whatever goes in it — the breakage is in the **inner** `sh -c` parse, at runtime.
+This shipped a broken deploy on 2026-11-23 (a comment reading `so "it downloaded" and "it
+worked" are`); `books-setup` restart-looped 6× and the switch reported `status 4`, which took
+a second rebuild to clear.
+
+The working check — extract each payload and `ruby -c` it — is documented in
+`Claude/server-info.md`, but it is a thing you have to *remember to run*. It could be made
+impossible to get wrong with an assertion in the derivation that each payload contains no
+`"`, `'` or backtick: cheap with `grep` in a `runCommand`, **no ruby in the closure**, and the
+same spirit as `writeShellApplication` shellchecking `Resources/Scripts/*.sh` at build time.
+
+Not implemented — it adds a step to Asgard's build graph, so it is rock's call.
+
+### ✅ 3. Shelfarr search — FIXED AND DEPLOYED 2026-11-24
+
+**Was a live fault blocking every search.** The Search page returned *Unable to connect to metadata
+service* on any query. ⛔ Not an indexer problem — metadata lookup runs *before* any indexer, so
+no search was happening at all.
+
+The bump introduced metadata-provider settings that `books-setup` has **never** written, so they
+landed on upstream's defaults: `metadata_provider_priority = hardcover,openlibrary,google_books,
+comic_vine` with `hardcover_enabled = true` and an **empty** `hardcover_api_token`. Egress from
+Asgard is healthy — Open Library **200** (needs no token), Hardcover 400 on a bare GET
+(reachable, needs a token), Google Books **429** (rate-limited without a key). So the first
+provider in the chain has no credentials and the second is throttled.
+
+✅ **Fixed by pinning all three keys in `books-setup`** — `metadata_provider_priority =
+openlibrary,google_books,comic_vine`, `open_library_enabled = true`, `hardcover_enabled = false`.
+✅ **Deployed 18:12 on 2026-11-24**, generation `h81w4rx9…`: `SETTINGS_CHANGED=2`,
+`ok=true sab=true`, `NRestarts=0`, no failed units. ⭐ The count of **2** is the tell that it hit
+the right keys — only two of the three differed from the bump's defaults.
+
+⏸ Still available if the metadata ever looks thin: a Hardcover API token in sops, then flip
+`hardcover_enabled` back on with `hardcover` first. It is off for want of a credential, not on
+merit.
+
+⭐ **The generalised lesson, worth more than the fix:** the digest-pin note already said to
+re-check the keys `books-setup` writes after a bump. That is not enough — a bump can introduce
+*new* keys that change behaviour, and `books-setup` only pins what it once had to change. It
+should pin every setting the pipeline **depends on**.
+
+---
+
+## Opened 2026-11-23 — Asgard renamed itself to `asgard-1`: fixed, one rebuild pending
+
+Reported as "my entire Tailscale connection is down, I can't access Asgard's services on
+my phone". It was not: every service answered on `100.126.205.100` and every node was
+online. `asgard` had simply stopped resolving — the node's MagicDNS name was now
+**`asgard-1`**, so every by-name URL died at once.
+
+Self-inflicted, the same day. The `extraSetFlags = [ "--hostname=…" ]` line added to
+`Modules/Server/network.nix` (a copy of one written for Elektra) fired on generation
+190's activation at 20:06 and pushed `asgard` at a node registered as `Asgard` — a
+case-only change that Tailscale treats as a rename, which collided with the node's own
+name and took the `-1` suffix. Full post-mortem, the evidence and the
+`extraSetFlags` vs `extraUpFlags` rule: `Claude/server-info.md` → *Tailnet node name*.
+
+Done:
+
+- Recovered by renaming the machine back to `asgard` in the Tailscale admin console,
+  which also pins the name against later client-side pushes. `asgard` resolves again.
+- `Modules/Server/network.nix` — `extraSetFlags` → **`extraUpFlags`**, which only fires
+  on a node that is not registered yet, so it still names a freshly installed Asgard but
+  can never rename the live one.
+- `Modules/Core/tailscale.nix` — the flag **removed**, replaced by a ⛔ comment. Sisyphus
+  and Elektra set no `authKeyFile`, so the safe form would be a silent no-op there.
+- Verified: all four hosts evaluate, `tailscaled-set` is no longer defined for Asgard,
+  `extraUpFlags = ["--hostname=asgard"]` and `extraSetFlags = []`.
+
+**Still open:**
+
+### ✅ 1. Asgard switched — this is CLOSED (2026-11-24)
+
+The fix needed `system-rebuild rock Asgard`, which needs rock's password (sudo there is no
+longer passwordless). ✅ **That rebuild happened 2026-11-24 18:12** (generation `h81w4rx9…`) and
+`tailscaled-set.service` **no longer exists on the system** — the unit that ran
+`tailscale set '--hostname=asgard'` on every activation is gone, so the mechanism that caused
+the rename cannot fire again.
+
+Both halves are now fixed: the node has resolved as **`asgard`** on `100.126.205.100` since the
+console rename, and the client-side push that renamed it is gone from the config.
+
+⚠️ Item 2 below is still open — nothing in the repo recreates the node *names*.
+
+### ⏸ 2. Nothing in the repo recreates the node names
+
+The recovery was a console edit, like the tailnet's ACL and its DNS settings. A rebuilt
+tailnet would hand Asgard whatever name it derives, and if a stale entry holds `asgard`
+it would land on `asgard-1` again with no warning. A fresh-install reproducibility gap of
+the same family as the ACL one in the 2026-10-02 section above — worth listing there if
+that gap is ever closed properly.

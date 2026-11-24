@@ -1,5 +1,11 @@
 # Dolphin — trialled and REJECTED
 
+> ⚠️ **Superseded in part, 2026-11-20.** Sisyphus's file manager is now
+> **Luciole** (`Claude/luciole.md`), so the "Thunar is the file manager" line
+> below is only true of Elektra and the Apollo ISO. The verdict on *Dolphin* is
+> unchanged and still stands — **do not re-propose it**. Luciole was not chosen
+> over Dolphin on any of the grounds measured here; rock asked for it by name.
+
 **Status: REJECTED 2026-09-26, same day it was adopted.** `Modules/dolphin.nix`
 is deleted, the Sisyphus import is gone, `Mod+E` is back to Thunar, and the
 `~/.config/Kvantum` + `kdeglobals`/`dolphinrc` changes were reverted. **Thunar is

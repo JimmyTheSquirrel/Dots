@@ -898,6 +898,123 @@ files already on disk — the addon patch above is what covers those.
 sets `ForceTranscode`, which empties `DirectPlayProfiles` entirely. Useful for any other
 direct-play-related fault on the remote.
 
+## Subtitles never came on by themselves — patched 2026-11-21
+
+**The complaint:** "Kodi still won't play English subtitles — we always have to select them by
+hand." The dashboards' *Subtitles on* toggle looked ignored, and it had been set correctly for
+weeks.
+
+**It was never a settings problem.** The server side was right all along. Jellyfin 10.11.11 had
+`SubtitleMode = "Always"` on the TV user (Caitlin, `b725e6a6…`) and was returning a track in
+PlaybackInfo — visible in `kodi.log`:
+
+```
+'DefaultSubtitleStreamIndex': 2          ← the server picked one
+'SubsMapping': {}, 'SubtitleStreamIndex': 2   ← and it reached the addon intact
+Setting audio: 1 subs: None              ← …and the addon threw it away
+```
+
+`set_audio_subs()` calls `showSubtitles(False)` when it is handed `None`, so subtitles were being
+**explicitly turned off about 2 s into every play**. 42 plays in one log, all `subs: None`.
+
+**Two separate things in `player.py` (jellyfin-kodi 2.2.0+py3) destroyed the index:**
+
+1. `detect_audio_subs()`, called from `onPlayBackStarted()`, overwrites it with whatever Kodi
+   currently reports:
+   ```python
+   if not subs_enabled or not len(self.getAvailableSubtitleStreams()):
+       item["SubtitleStreamIndex"] = None
+       return
+   ```
+   **Both halves fire at playback start.** Kodi starts a plain *embedded* subtitle track hidden,
+   so `subs_enabled` is False; and this runs ~0.2 s *before* Kodi's own `Opening stream: 2`, so
+   `getAvailableSubtitleStreams()` is often still empty. The order of those two varies run to run,
+   which is why it looked intermittent.
+2. Even with that fixed, `item` **is the same dict `report_playback()` works on**
+   (`self.played[file]`), and `report_playback() → detect_audio_subs()` fires on the server's
+   `Player.OnAVChange` *during the 2 s wait*, wiping the index back to `None` before
+   `set_audio_subs()` ever reads it. Fixing only (1) changes nothing — the log still says
+   `subs: None`.
+
+⚠️ **It only ever worked on files the addon delivered EXTERNAL subtitles for** (`SubsMapping`
+populated — the transcode path, i.e. the DV P5 titles), because Kodi enables those itself, so
+`detect_audio_subs()` read a real index back. That is the whole pattern behind "sometimes it
+works": embedded subs → never, external subs → always.
+
+**The fix — `Resources/Eclipse-Box/patches/patch_subs.py`.** Three edits, idempotent, backs up to
+`player.py.subs-orig`:
+
+- `detect_audio_subs(self, item, keep_default=False)` — when set, leave the server's index alone
+  instead of wiping it.
+- `onPlayBackStarted()` passes `keep_default=True` and **snapshots** `start_audio` / `start_subs`
+  into locals before the 2 s wait, so a progress report cannot take them away.
+- `set_audio_subs(start_audio, start_subs)` uses the snapshot.
+
+`report_playback()` keeps the old wiping behaviour **on purpose**: it has to stay honest about what
+is on screen, or hiding subs mid-film is never reported and Jellyfin's `RememberSubtitleSelections`
+hands them straight back next play.
+
+Nothing has to force visibility — Kodi's `Player.setSubtitleStream()` calls `SetSubtitleVisible(true)`
+itself (`xbmc/interfaces/legacy/Player.cpp`).
+
+```sh
+scp Resources/Eclipse-Box/patches/patch_subs.py root@100.80.62.3:/storage/patch_subs.py
+ssh root@100.80.62.3 'python3 /storage/patch_subs.py && systemctl restart kodi'
+```
+
+Verified 2026-11-21 by playing *Lucky* S01E06 (one embedded, non-forced, **language-undefined** ASS
+track — previously a guaranteed `subs: None`): the log now reads `Setting audio: 1 subs: 2` and a
+Kodi screenshot shows English subtitles on screen with nothing selected by hand.
+
+⚠️⚠️ **Clobbered by every addon update, exactly like the DV patch.** The tell is
+`Setting audio: <n> subs: None` in `kodi.log` on a file whose PlaybackInfo above it shows a
+`DefaultSubtitleStreamIndex`. Re-run the patch before investigating anything else.
+
+### Re-applying it: the *Repair subtitles* button
+
+Because the clobber is silent and it is never rock who notices first, **both dashboards can put the
+patch back without a terminal.** The Eclipse card's *Subtitles* section has a second row —
+*"Subtitles stopped working?"* — with a **Repair** button, armed like *Reboot* (one extra tap),
+wired to `POST /act/subs-fix` → `act_subs_patch()` in `eclipse-control.py`.
+
+It **pipes this repo's `patch_subs.py` to the Pi over stdin** and runs it as `python3 -`, the same
+trick `eclipse-net.sh` uses (`ECLIPSE_SUBS_PATCH`, a store path, in `Modules/Server/eclipse.nix`).
+So the copy that runs is always the one in git and **nothing is left on the Pi to go stale** — the
+`/storage/patch_subs.py` from the first fix is not what the button runs.
+
+- Safe to press at any time: the patch is idempotent, and **Kodi is only restarted when something
+  actually changed**, so a press during a film does nothing to the film.
+- It reports which happened: *"the fix is already in place — nothing needed doing"* vs
+  *"subtitles fixed — Kodi restarted"*, in the card's result line and in the activity log on both
+  dashboards.
+- ⚠️ `patch_subs.py` prints **`RESULT=patched` / `RESULT=already`** as its last line and
+  `act_subs_patch()` reads it. **Keep those two strings in step** if you touch either file. When
+  the script instead aborts because `player.py` no longer matches its anchors, the button says
+  *"the add-on has changed — the fix no longer fits it"* rather than claiming success: that is the
+  one outcome that needs a person with the file.
+- The button only touches the add-on patch. Whether subtitles are *wanted* is still the
+  server-side *Subtitles on* toggle in the row above it.
+
+### ⛔ Do NOT set the subtitle language to English
+
+The dashboards offer `POST /ctl/sublang/<iso639-2>`. **Leave it on *No preference*.** In Jellyfin
+10.11's `MediaStreamSelector.GetDefaultSubtitleStreamIndex`, `Always` mode is
+
+```csharp
+stream = sortedStreams.FirstOrDefault(x => !x.IsForced && MatchesPreferredLanguage(x.Language, preferredLanguages))
+      ?? BehaviorOnlyForced(sortedStreams, preferredLanguages).FirstOrDefault();
+```
+
+and `MatchesPreferredLanguage` returns **true for everything when the preference list is empty**
+(`preferredLanguages.Count == 0` is an explicit wildcard). So *No preference* means "the first
+non-forced track", which is what we want here.
+
+Setting it to `eng` would make it **stricter, and would turn subtitles OFF** on any release whose
+subtitle track carries no language tag — like the *Lucky* episode above, whose only track is
+`'LocalizedUndefined': 'Undefined'` with no `Language` key at all. It would fall through to
+`BehaviorOnlyForced`, the track is not forced, and nothing is selected. Our releases tag
+inconsistently, so the wildcard is the safer setting.
+
 ## Video decode: this box has NO H.264 hardware decoder
 
 **The Pi 5 has exactly one video decode block, and it is HEVC-only.** The Pi 4's H.264 decoder is

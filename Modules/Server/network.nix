@@ -43,6 +43,28 @@
       enable = true;
       openFirewall = true;
       authKeyFile = config.sops.secrets.tailscale-auth-key.path;
+
+      # Name the node after this host when it FIRST registers.
+      #
+      # ⚠⚠ This must be extraUpFlags, NEVER extraSetFlags. extraSetFlags builds
+      # a `tailscaled-set` unit that is wantedBy multi-user.target, so it runs
+      # `tailscale set --hostname=...` on every boot and every activation,
+      # against a node that is already registered. extraUpFlags is only passed
+      # to `tailscale up --auth-key`, which the autoconnect unit runs only when
+      # BackendState is NeedsLogin/NeedsMachineAuth/Stopped — so it cannot
+      # rename a live node. (Tailscale already defaults a new node's name to
+      # the system hostname; this only makes that explicit.)
+      #
+      # ⛔ 2026-11-23: as extraSetFlags this renamed Asgard mid-flight. The node
+      # had registered as "Asgard"; toLower pushed "asgard", tailscale treated
+      # the case change as a rename, found "asgard" already held by this node's
+      # own entry, and deduplicated it to **asgard-1**. MagicDNS "asgard" then
+      # stopped resolving, so every by-name URL (helium.nix, marsbar.nix,
+      # eclipse-control.py, network-panel.py, and the phones' bookmarks) died in
+      # the same second and read as the whole tailnet being down. Deploys kept
+      # working, which hid it, because `ssh asgard` is pinned to the IP in
+      # base.nix. Recovered by renaming the machine in the Tailscale console.
+      extraUpFlags = [ "--hostname=${lib.toLower config.networking.hostName}" ];
     };
 
     # Tailscale status for the Glance "Yggdrasil Network" widget: reads

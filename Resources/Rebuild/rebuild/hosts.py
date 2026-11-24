@@ -47,6 +47,22 @@ THIS: Host | None = next((h for h in HOSTS if h.name.lower() == _me.lower()), No
 DOTS_FLAKE = "github:JimmyTheSquirrel/Dots"
 DOTS_URL = "https://github.com/JimmyTheSquirrel/Dots"
 
+# ── The books mirror ──────────────────────────────────────────────────────────
+# A second copy of Asgard's ebook library on Sisyphus, so a book can go to a
+# Kindle without the server being involved. Asgard is the source of truth
+# (Shelfarr and Audiobookshelf write there), so this only ever pulls, and it is
+# a true mirror: adds, replaces, and removes anything no longer in the library.
+# Nothing is ever duplicated — rsync matches on path, not on content.
+#
+# ⚠ Because it deletes, it always shows a dry-run plan and asks first, and it
+# refuses when the source reports zero files (that means /data/media did not
+# mount, not that the library is empty).
+#
+# ⚠ Also kept in Resources/Scripts/system-rebuild.sh (BOOKS_*) for the CLI half.
+BOOKS_HOST = "Asgard"
+BOOKS_SRC = "/data/media/books/"
+BOOKS_DST = str(Path.home() / "Server" / "Books") + "/"
+
 
 @dataclass
 class Repo:

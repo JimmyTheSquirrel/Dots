@@ -16,11 +16,24 @@
 **Window rules** (in `extraConfig` as raw KDL — `match app-id` syntax can't be expressed in Nix):
 - Global: `corner-radius 12`, `clip-to-geometry true`, `geometry-corner-radius`
 - Opacity: spotify 0.75, steam 0.85, vesktop 0.85, helium 0.85, discord 0.80, codium 0.80, thunar 0.90
+- ⚠️ **The thunar rule is dead config on Sisyphus as of 2026-11-20** — the file
+  manager here is **Luciole** (`Claude/luciole.md`), which has a real
+  *client-side* `background_opacity` (0.9) and so gets **no niri rule at all**.
+  The rule stays for the Apollo ISO, which still resolves `file-manager` to
+  Thunar. Don't add `^dev\.noctalia\.luciole$` — niri's opacity is uniform and
+  would fade the text on top of a client alpha that already does it properly.
 - ⚠️ The thunar rule matches **`^[Tt]hunar$`**, both spellings — GTK takes the
   app-id from prgname (`Thunar --daemon` → `Thunar`, `bin/thunar` → `thunar`)
   and niri matches case-sensitively, so the old `^thunar$` left daemon-served
   windows opaque. Verifying it needs a **bright** wallpaper behind: at 0.90 over
   a dark one the composite is indistinguishable from opaque. See `Claude/misc.md`.
+- ⚠️ **Mod+E spawns a bare `file-manager`, not a store path.** The binds are
+  baked into one wrapped niri package at `perSystem`, shared by Sisyphus and
+  Apollo, so a `lib.getExe` there lands in the **rescue ISO's** closure too —
+  which would make `apollo-iso` compile Luciole's C++ and a librsvg rebuild for
+  nothing. Each niri host defines `file-manager`: Sisyphus → Luciole
+  (`Modules/Desktop/luciole.nix`), Apollo → Thunar (its own host file). **A new
+  niri host without one has a dead Mod+E.**
 - Floating: pavucontrol, Picture-in-Picture
 - Spotify opens on HDMI-A-1 (secondary monitor)
 
@@ -32,6 +45,18 @@ was designed around. See `Claude/steam.md` and `Claude/spicetify.md`.
 
 `^steam$` deliberately matches the Steam *client* only — in-game windows get
 `app-id "steam_app_<id>"`, so games are never faded.
+
+⚠️ **`steam_app_` is no longer only Steam's.** The generic games rule —
+`match app-id="^steam_app_"` → `open-on-output "DP-2"` + `open-fullscreen true` — now
+also catches **Battle.net**, which runs under `umu-run` with no Steam client at all:
+umu sets `SteamAppId=battlenet`, so Proton stamps the window `steam_app_battlenet`
+(verified 2026-11-22 with `niri msg windows`). A rule written for games is opening a
+**launcher** fullscreen on DP-2. Nothing visibly breaks, and the rule itself must not
+be deleted — its own comment in `Modules/Desktop/niri.nix` explains why: niri re-fires
+window rules when a window is **re-created**, which games do on a swapchain rebuild,
+and the DP-2 pin is what then *holds* them on the ultrawide. So an exclusion was
+proposed and deliberately not applied. ⚠️ Every future umu-launched app inherits the
+same collision, so decide it before adding one. `Claude/battlenet.md`.
 
 **The hiPrio `steam` wrapper must track `config.programs.steam.package`.** The
 `writeShellScriptBin "steam"` in `environment.systemPackages` (adds
@@ -282,14 +307,22 @@ mid-click. It recurs.
 ⚠️ **Not** the documented Slipstream fault: that one is `1-5` on the *chipset* controller
 `0000:0f:00.0` with `error -110` enumeration failures. This device enumerated cleanly.
 
-Permanent option, if that combo is plugged in but unused — make libinput never show it to
-the compositor, so a latched button cannot reach niri again:
+**Permanently killed 2026-11-14** — after the second failure, and because the dongle could
+not be found to unplug (see below). Two rules in `Hosts/Sisyphus/system.nix`:
 
 ```
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="03f0", ATTR{idProduct}=="6341", ATTR{authorized}="0"
 ENV{ID_VENDOR_ID}=="03f0", ENV{ID_MODEL_ID}=="6341", ENV{LIBINPUT_IGNORE_DEVICE}="1"
 ```
 
-Costs the combo as an input device entirely, so only do it if the keyboard half is unused.
+The **first is the actual kill**: deauthorizing makes the kernel refuse to configure the
+device, so no interfaces are claimed, `usbhid` never binds, and **no input nodes exist at
+all** — nothing downstream can see it, including anything reading evdev directly rather than
+going through libinput. The second is deliberate belt-and-braces: if the device is ever
+manually re-authorized to test something, libinput still refuses to surface it to niri. It
+also covers the brief window where the device may enumerate before rule 1 fires.
+
+Costs the combo entirely, which is the point. To undo, remove the block and rebuild.
 
 ### Red herrings ruled out (don't re-investigate)
 
@@ -299,6 +332,114 @@ Costs the combo as an input device entirely, so only do it if the keyboard half 
 - **The Corsair M65** was flawless throughout: 11551 motion + 255 button events in 120 s.
 - **Wolf's `seat9` isolation** had not captured the real mouse — no `ID_SEAT` on any pointer.
 - **Millennium wedging** — `cef_log.txt` was only 47 KB, not the spam signature.
+
+
+## 🔑 The immediate kill switch: deauthorize the whole USB device
+
+When a peripheral misbehaves and you cannot find it physically, you do not need to. One line
+drops it at the kernel level, and it takes **every** input node the device owns, not just the
+one misbehaving:
+
+```bash
+echo 0 | sudo tee /sys/bus/usb/devices/<port>/authorized      # e.g. 5-1
+echo 1 | sudo tee /sys/bus/usb/devices/<port>/authorized      # undo
+```
+
+Used 2026-11-14 on the HP 330 after it survived the entire rear panel being unplugged.
+Verified by three independent signals, which is worth copying because "it stopped" is easy to
+imagine: `authorized` read back `0`, `/dev/input/event3` vanished, and **`urbnum` froze**
+(62717 -> 62717 over three seconds, having climbed ~11/s before). `urbnum` counts real USB
+transfers, so a frozen counter proves the device is no longer talking at all.
+
+⚠️ A manual `authorized=0` does **not** survive a reboot or a replug. The durable
+half is the pair of udev rules in `Hosts/Sisyphus/system.nix`, which deauthorize
+`03f0:6341` on every add — see *a LATCHED mouse button* above.
+
+**Root-free stopgap** if sudo is not to hand: hold an exclusive `EVIOCGRAB` on the single node
+(`fcntl.ioctl(fd, (1<<30)|(4<<16)|(0x45<<8)|0x90, 1)`, keep the process alive). libinput then
+never sees that device. It covers only that one node and dies with the process, so it buys
+time rather than fixing anything.
+⚠️ Clean it up with `kill <pid>`, never `pkill -f grab_...` — the pattern matches the very
+command line running it, so pkill kills its own shell mid-script. Cost one aborted edit here.
+
+### ⚠️ Three dead ends, so nobody repeats them
+
+- **ACPI `physical_location` is boilerplate on this board.** Every port claims
+  `back / lower / left`, including the one the keyboard was actually in — a *front* port.
+  Calibrate it against a port you can identify before believing any of it.
+- **"Is it the Wi-Fi thing?"** No. The B650 AORUS ELITE AX has **onboard PCIe** Wi-Fi
+  (`wlp8s0`, `iwlwifi`, `0000:08:00.0`). The part on top of the case with two screw-on
+  circular connectors is the **RP-SMA antenna** — RF only, no data bus, cannot enumerate as
+  USB. There is no USB Wi-Fi adapter on this machine.
+- **It is not a phantom enumeration.** `urbnum` climbing (34 per 3 s) plus `bMaxPower 100mA`
+  and `runtime_status active` proved real hardware was powered and transmitting; no
+  `vhci_hcd` and no usbip modules ruled out network-attached USB.
+
+⚠️ **The dongle was never found.** It survived unplugging the whole rear panel, sits on the
+CPU controller (`0000:12:00.4`, port 1 of 2, nothing else on either CPU controller), and had
+been connected continuously since the 2026-11-11 boot. So it is in a top-panel, front, or
+internal header socket. If it ever turns up, record where.
+
+## ⚠️ The probe says clear but it is STILL happening — tally the event stream
+
+**`EVIOCGKEY` reports keys and buttons ONLY.** A wheel is a *relative axis*, and a joystick
+stick an *absolute* one, so **a stuck scroll or a drifting stick is completely invisible to
+the probe above.** A clean result does not exonerate a device.
+
+Hit 2026-11-14: `BTN_LEFT` was latched on the HP 330 (`event3`), the probe found it, the
+injection cleared it — and the symptom carried on, because the *same* device was also
+emitting `REL_HWHEEL +1` / `REL_HWHEEL_HI_RES +120` about eleven times a second, untouched.
+In niri that scrolls the view sideways forever and fights `Mod`+scroll, which reads exactly
+like a jammed arrow key and sends you to the wrong peripheral entirely.
+
+When the probe is clean and something still feels held, ask what is actually being *emitted*
+— no root needed, `rock` is in `input`:
+
+```bash
+python3 - <<'EOF'
+import os, select, struct, time, collections
+FMT="llHHi"; SZ=struct.calcsize(FMT)
+TYPES={1:"KEY",2:"REL",3:"ABS",4:"MSC"}
+REL={0:"REL_X",1:"REL_Y",6:"REL_HWHEEL",8:"REL_WHEEL",11:"WHEEL_HI_RES",12:"HWHEEL_HI_RES"}
+ABS={0:"ABS_X",1:"ABS_Y",3:"ABS_RX",4:"ABS_RY",16:"ABS_HAT0X",17:"ABS_HAT0Y"}
+names={}; cur=None
+for line in open("/proc/bus/input/devices"):
+    if line.startswith("N: Name="): cur=line.strip()[9:-1]
+    if line.startswith("H: Handlers=") and cur:
+        for h in line.split("=")[1].split():
+            if h.startswith("event"): names[h]=cur
+fds={}
+for ev in sorted((x for x in os.listdir("/dev/input") if x.startswith("event")), key=lambda s:int(s[5:])):
+    try: fds[os.open("/dev/input/"+ev, os.O_RDONLY|os.O_NONBLOCK)]=ev
+    except Exception: pass
+tally=collections.Counter(); vals=collections.defaultdict(list); end=time.time()+6
+print("capturing 6s - do not touch anything...")
+while time.time()<end:
+    r,_,_=select.select(list(fds),[],[],0.3)
+    for fd in r:
+        try: data=os.read(fd,SZ*64)
+        except Exception: continue
+        for i in range(0,len(data)-SZ+1,SZ):
+            _,_,t,c,v=struct.unpack(FMT,data[i:i+SZ])
+            if t==0: continue
+            nm=REL.get(c,c) if t==2 else ABS.get(c,c) if t==3 else c
+            k=(fds[fd],TYPES.get(t,t),nm); tally[k]+=1
+            if len(vals[k])<4: vals[k].append(v)
+for (ev,t,c),n in tally.most_common(14):
+    print("  %-9s %-42s %s/%s x%d %s" % (ev, names.get(ev,"?")[:40], t, c, n, vals[(ev,t,c)]))
+if not tally: print("  nothing emitted by any device")
+EOF
+```
+
+A device nobody is touching that still tops the table is the fault. The tell here was 69
+identical `+1` HWHEEL events in six seconds, all one direction.
+
+**Permanent fix for a peripheral that keeps doing this:** deauthorize it from udev
+(`ATTR{authorized}="0"`), which stops the kernel configuring it at all, plus
+`LIBINPUT_IGNORE_DEVICE` as a second layer. Applied for the HP 330 in
+`Hosts/Sisyphus/system.nix` after its second failure — full rules above.
+⚠️ udev rules apply on device **re-add**, so the first boot after the rebuild is
+what makes it stick.
 
 ## Niri reads ONE config — the baked one
 

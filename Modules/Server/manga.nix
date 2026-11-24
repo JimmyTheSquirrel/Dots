@@ -34,8 +34,8 @@
     # share of usable manga sources — MangaFire and MangaDex were carrying
     # everything on their own.
     #
-    # Shared by three consumers — it sits here beside its first one, but it is
-    # a container of its own rather than part of any of them:
+    # Shared by three consumers — it sits here beside its first one, but it
+    # belongs to none of them:
     #   Suwayomi  — native service on the host  -> http://localhost:8191
     #   Shelfarr  — container                   -> http://host.containers.internal:8191
     #   Prowlarr  — could use it as an indexer proxy (NOT configured; see below)
@@ -43,15 +43,33 @@
     # It runs a real browser, so it is the heaviest thing in the stack per
     # request (~500 MB resident under load). Asgard has ~22 GB free, so this is
     # noted rather than a concern.
-    virtualisation.oci-containers.containers.flaresolverr = {
-      image = "ghcr.io/flaresolverr/flaresolverr:latest";
-      ports = [ "8191:8191" ];
-      environment = {
-        LOG_LEVEL = "info";
-        TZ = "Australia/Sydney";
-      };
-      autoStart = true;
-    };
+    #
+    # ⭐ NATIVE since 2026-11-24 — it used to be `oci-containers.flaresolverr`
+    # on `ghcr.io/flaresolverr/flaresolverr:latest`. nixpkgs ships **3.5.2,
+    # byte-for-byte the upstream version the container was serving**, so this
+    # moved no version and gained real things: the image is in the Nix store, so
+    # it rolls back with the generation instead of being frozen at whatever was
+    # first pulled (see `Claude/next-up.md` → image pinning), and systemd gets a
+    # proper unit with `DynamicUser`, a seccomp filter and a dropped capability
+    # set that the container had none of.
+    #
+    # ⚠️ The module has NO `host` option — only `enable`, `port` and `package`.
+    # It passes `PORT` and leaves `HOST` at FlareSolverr's own default of
+    # `0.0.0.0`, which is load-bearing here: bound to loopback it would still
+    # answer Suwayomi while silently breaking Shelfarr, which reaches it from
+    # inside a container via `host.containers.internal`. Same shape as the
+    # Immich `host = "0.0.0.0"` trap in `Claude/server-info.md`.
+    #
+    # ⚠️ `LOG_LEVEL` and `TZ` are gone with the container. The log level was
+    # already the default (`info`), and timestamps now follow the host clock,
+    # which is this timezone anyway — so nothing is lost, but the unit takes no
+    # `environment` overrides if either is ever wanted back.
+    #
+    # ⛔ Do NOT also set `nixflix.flaresolverr.enable`. That exists and wraps the
+    # same package with a readiness probe, but it is scoped to Prowlarr and would
+    # bind the same port twice — and wiring Prowlarr to use it as an indexer
+    # proxy is a separate decision that has deliberately not been taken.
+    services.flaresolverr.enable = true;
 
     services.suwayomi-server = {
       enable = true;

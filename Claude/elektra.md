@@ -34,6 +34,16 @@ notes elsewhere that say "Elektra" and KDE mean that first one.
   name was ever edited by hand in the admin console, in which case set it back to
   auto-generate there (Machines → kit-kat → Edit machine name). Her MarsBar grants are
   by *user*, not machine name, so they don't change.
+  - ⛔ **Do not try to force this from Nix with `extraSetFlags = [ "--hostname=…" ]`.**
+    It was added for exactly this on 2026-11-23 and promptly renamed **Asgard** to
+    `asgard-1`: `extraSetFlags` builds a `tailscaled-set` unit that runs on every boot
+    and every activation against an already-registered node, and a hostname that differs
+    from the registered one **even only in case** is a rename, which collides with the
+    node's own name and gets a `-1` suffix. Full post-mortem in `Claude/server-info.md`
+    → *Tailnet node name*. The safe form is `extraUpFlags`, which only fires on a node
+    that is not registered yet — and that needs `authKeyFile`, which her host does not
+    set — the same gap that leaves her hand-authenticated. So for Elektra the node name
+    stays what Tailscale derives at registration, corrected in the console if it drifts.
 - **Sisyphus's ssh** will ask once to trust `elektra` (same host key, new name).
 - **Reinstalls**: `apollo-deploy kitkat-Elektra` plants her pre-generated ssh host key
   (so her password secret decrypts on first boot) from `~/.local/share/apollo/<Host>`.
@@ -228,6 +238,50 @@ matching Sisyphus. Confirmed still correct across a second switch.
   rebuild.
 - Expect a switch from a stale clone to also snap her noctalia bar back to
   `my.noctalia.lockedSettingsExtra`. That is the force-write working, not new breakage.
+
+## Bluetooth audio "cutting in and out" — Wi-Fi scanning, ✅ fixed 2026-11-23
+
+A *different* fault from the one above, with a different mechanism, found by the Claude
+session on her own machine and ported here from
+`Handover/2026-11-23-wifi-scan-bt-dropouts.md`.
+
+**Symptom:** short dropouts, a fraction of a second, in bursts, on the Razer Barracuda X.
+Her words: "my music cutting in and out".
+
+**Cause: the onboard Realtek combo shares ONE ANTENNA between Wi-Fi and Bluetooth**
+(`rtw89_8852be` / `wlp4s0` and BT `13d3:3570`). She is on ethernet, so the Wi-Fi sat
+**enabled but disconnected** — and a disconnected adapter scans *far more* than a
+connected one, at times every 3–5 s. Each scan sweeps 2.4 GHz first, and while it does
+the BT side cannot transmit: A2DP stalls for 60–280 ms.
+
+⛔ **"The Wi-Fi is unused, so coexistence isn't a factor" is wrong** — unused ≠ off. That
+exact sentence was in her clone's copy of this doc and sent the first look the wrong way.
+
+**Measured, not guessed** (`btmon` alongside `iw event -T`; a stall = >60 ms between A2DP
+ACL TX packets, normally one every ~14.5 ms):
+
+| | duration | stalls > 60 ms |
+|---|---|---|
+| Wi-Fi on (scanning) | 17.4 min | **48** |
+| Wi-Fi off | 12.6 min | **0** (52,177 packets) |
+
+**The fix** is `systemd.services.wifi-radio-off-at-boot` in `Hosts/Elektra/system.nix` —
+one `nmcli radio wifi off` at boot. She turns Wi-Fi back on from the **network icon in her
+noctalia bar** (it flips NM's `WirelessEnabled`), which is what she asked for: a button,
+not a config edit. ⛔ Not `networking.networkmanager.unmanaged` and not blacklisting
+`rtw89_8852be` — both also stop the scans but hide the card from NM, so her bar's switch
+would do nothing.
+
+**Ruled out along the way, all measured:** PipeWire xruns (zero), USB/BT autosuspend
+(already `N` / `on` from the fix above), headset battery, software volume. **The TH99
+keyboard on BT is not the cause** — 27 of 37 stalls had zero keyboard packets in the
+preceding second. She wants the keyboard left on BT.
+
+⚠️ **Still open — a separate fault:** the headset sometimes powers off *entirely*
+(18:22, 18:37 on 2026-11-23, also Nov 22 and Oct 25). The headset initiates it
+(`lost RFCOMM connection`, then `Connection reset by peer` 18 ms later) with audio
+perfectly healthy until that instant, and it is not on a fixed timer (14 min – 1 h 39).
+Next step: catch one inside a `btmon` trace and read the HCI disconnect reason.
 
 ## "Her graphics card is taking off" — ✅ fixed 2026-10-04
 

@@ -17,12 +17,43 @@ Custom Gruvbox Rainbow theme:
 
 ## Fastfetch
 
-**Module:** `Modules/Shell/fastfetch.nix`
+**Module:** `Modules/Shell/fastfetch.nix` (universal) ·
+**Per-host:** `Hosts/<Host>/<host>-fastfetch.nix`
 
-Custom system info display:
-- Uses kitty image protocol for logo display (`assets/terminal-logo-small.png`)
-- Grouped sections: Hardware, Graphics, Software, Session
-- Gruvbox color scheme with box-drawing borders
+The system-info panel printed on **every new interactive kitty shell and again
+on every `clear`** (`Modules/Shell/zsh.nix`) — so anything it does costs time
+per terminal, not once.
+
+`Modules/Shell/fastfetch.nix` holds the universal panel: Hardware / Graphics /
+Software / Session in red / yellow / green / cyan, with the stock logo. It also
+exports the pieces as **`self.lib.fastfetch`** (`flake.lib`, same mechanism as
+`mkHost`):
+
+- `ffSection.<name> c b` — one section's rows, as a function of its two colours
+- `defaultColors`, `defaultOrder`
+- `mkConfig { logo, logoHeight ? 14, logoWidth ? null, order, colors }`
+
+A host that wants a different panel **writes its own file and calls `mkConfig`**
+rather than adding knobs to the shared module. The shared module assigns its
+text with `lib.mkDefault`, so a host module just assigns and wins — no
+`mkForce`. Elektra's is `Hosts/Elektra/elektra-fastfetch.nix`: Hardware and
+Graphics only, Hardware in cyan, Graphics in ANSI 256 lavender, and her cat.
+
+⚠️ **Three traps, all of which have bitten:**
+
+- **The image must be git-tracked.** A flake's source is only what git knows
+  about, so an untracked PNG in `Resources/` does not exist as far as the build
+  is concerned — it fails to resolve rather than falling back.
+- **No spaces in the filename** — a Nix path literal cannot contain one.
+- **`kitty-direct` never decodes the image**, so fastfetch cannot infer its
+  aspect ratio. With only a height set, a source shaped differently from the
+  stock portrait logo renders at roughly its **native pixel size** — a
+  1536x1024 photo came out nearly full-screen. **Set both for a photo.** A cell
+  is ~2x taller than wide, so the undistorted width is `2 * (w/h) * height`:
+  the 415x623 stock logo at height 14 takes ~19 columns, a 3:2 photo at the
+  same height needs ~42. Scale width and height together or the image stretches.
+
+Grouped sections with box-drawing borders; `display.color` is cyan.
 
 ## btop
 
@@ -320,13 +351,23 @@ applied", not like a broken client.
 
 ## Thunar
 
-**Thunar is the file manager.** Dolphin was trialled on 2026-09-26 and rejected
-the same day — see `Claude/dolphin.md`. Don't re-propose it.
+⚠️ **ELEKTRA ONLY as of 2026-11-20.** Sisyphus swapped Thunar for **Luciole**
+(`Claude/luciole.md`) and no longer imports `Modules/Desktop/thunar.nix` at
+all, so everything in this section — the overlay, `programs.xfconf`, the
+`inode/directory` default, the niri opacity rule below — now describes *her*
+machine, plus the Thunar the Apollo rescue ISO still resolves `file-manager`
+to. Dolphin was trialled on 2026-09-26 and rejected the same day; see
+`Claude/dolphin.md`. Don't re-propose it.
 
 Stock GTK look, on purpose — no theme swap, no icon pack, no wallpaper colours.
 A full adw-gtk3-dark + Papirus + matugen setup was built on 2026-09-25 and
 **rejected on taste**; it was reverted the same day, `Modules/gtk.nix` deleted,
 and the skwd gtk3/gtk4 integrations removed. Don't rebuild it.
+
+⚠️ `xdg-utils`, `p7zip` and the three icon themes **left this module** on
+2026-11-20 for `Modules/Desktop/desktop.nix`, which both compositors import.
+They were never Thunar's, and dropping a file manager should not quietly take
+`xdg-open` and GTK's icon fallbacks with it.
 
 ### Transparency comes from the niri rule — and the app-id has two spellings
 

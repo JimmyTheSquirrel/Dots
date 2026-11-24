@@ -26,7 +26,26 @@
 
     # Audiobookshelf — ebook + audiobook server
     virtualisation.oci-containers.containers.audiobookshelf = {
-      image = "ghcr.io/advplyr/audiobookshelf:latest";
+      # ⭐ Pinned by digest 2026-11-24 (was `:latest`). This is the digest it was
+      # ALREADY running — captured from `podman images --digests` on the box — so
+      # the pin changed nothing at the time it was made. That is the whole point:
+      # a tag is resolved once on first pull and podman never re-checks it, so
+      # `:latest` here meant "whatever was pulled months ago" with no version in
+      # the config and no way back. See `Claude/next-up.md` → image pinning.
+      #
+      # ⚠️ This image was already ~5 months old when pinned, so the staleness is
+      # now explicit rather than fixed. Shelfarr proved what that costs: a frozen
+      # image misses upstream DATA migrations, so the app keeps values upstream
+      # has retired. ABS has far less settings-in-migrations surface, but a bump
+      # is still owed.
+      #
+      # ⚠️ This is the amd64 MANIFEST digest, not the multi-arch INDEX digest
+      # used for Shelfarr above. Both pin fine; this one is arch-specific, which
+      # is correct for Asgard. Do not mistake one form for the other when bumping.
+      #
+      # To bump: pull the new digest, then back up `/var/lib/audiobookshelf`
+      # first — the library DB lives there and ABS runs its own migrations.
+      image = "ghcr.io/advplyr/audiobookshelf@sha256:1eef6716183c52abafe5405e7d6be8390248ecd59c7488c44af871757ac8fc4d";
       ports = [ "13378:80" ];
       volumes = [
         "/var/lib/audiobookshelf/config:/config"
@@ -44,7 +63,39 @@
     # RAILS_MASTER_KEY is auto-generated on first run and stored in /var/lib/shelfarr.
     # As long as the volume persists, the key is preserved across rebuilds.
     virtualisation.oci-containers.containers.shelfarr = {
-      image = "ghcr.io/pedro-revez-silva/shelfarr:latest";
+      # ⚠️ PINNED BY DIGEST, deliberately not `:latest`. A tag is resolved once on
+      # the first pull and podman never re-checks it, so this container ran the
+      # 2026-06-15 build (revision d56a07ea) until 2026-11-23 while reading as
+      # up to date in every way anyone looks.
+      #
+      # ⭐ That is worse than merely missing features here: Shelfarr keeps some
+      # DEFAULTS in **data migrations**, so a stale image holds *retired values*
+      # in `settings`. `zlibrary_url` sat on three dead domains for months
+      # because migration 20261012090000 had never run — enabled, configured,
+      # and resolving nowhere. See the zlibrary_url note below, which is pinned
+      # here for exactly that reason.
+      #
+      # Bumped 2026-11-23: 2026-06-15 (d56a07ea) → 2026.11.16.1 (985df977).
+      # This is the multi-arch *index* digest, so it stays correct per-platform.
+      # To bump, resolve the new index digest and paste it here:
+      #   TOK=$(curl -s 'https://ghcr.io/token?scope=repository:pedro-revez-silva/shelfarr:pull&service=ghcr.io' | jq -r .token)
+      #   curl -sI -H "Authorization: Bearer $TOK" \
+      #     -H 'Accept: application/vnd.oci.image.index.v1+json' \
+      #     https://ghcr.io/v2/pedro-revez-silva/shelfarr/manifests/latest \
+      #     | grep -i docker-content-digest
+      #
+      # ⚠️ After a bump, re-read the `Setting` keys written by books-setup below.
+      # A migration that renames one turns that write into a no-op against a key
+      # the app no longer reads — which fails silently, the same way everything
+      # else in this pipeline fails. The `shelfarr: indexer=… ok=… sab=…` line at
+      # the end of books-setup is the check.
+      #
+      # ⚠️ A bump runs five months of migrations against the SQLite DB in the
+      # storage volume. Back it up first — the DB is owned by rock, so this
+      # needs no root, and `-wal` is load-bearing (the main file alone is an
+      # incomplete snapshot):
+      #   cp /var/lib/shelfarr/production.sqlite3{,-wal,-shm} ~/some-backup-dir/
+      image = "ghcr.io/pedro-revez-silva/shelfarr@sha256:97270513a75354d1b8cf2fa68f22cd31f021d03c3695186437e448f2a9255d9e";
       ports = [ "5056:4000" ];
       volumes = [
         "/var/lib/shelfarr:/rails/storage"
@@ -113,8 +164,15 @@
     # needs punctuation out here, at Nix level, where it never reaches a shell.
     systemd.services.books-setup = {
       description = "Configure Audiobookshelf + Shelfarr (idempotent)";
-      after = [ "podman-shelfarr.service" "podman-audiobookshelf.service" "podman-flaresolverr.service" ];
-      wants = [ "podman-shelfarr.service" "podman-audiobookshelf.service" "podman-flaresolverr.service" ];
+      # `prowlarr.service` is here because step 4 ends by calling
+      # `IndexerClient.test_connection` against it. Without the ordering it was
+      # a coin toss: on the 2026-11-23 boot books-setup probed Prowlarr three
+      # seconds before Prowlarr listened and logged `indexer=prowlarr ok=false`
+      # on a perfectly healthy Prowlarr — a false negative in the one line that
+      # exists to prove the pipeline works. Ordering alone is not enough either;
+      # see the waitForHttp in step 4.
+      after = [ "podman-shelfarr.service" "podman-audiobookshelf.service" "flaresolverr.service" "prowlarr.service" ];
+      wants = [ "podman-shelfarr.service" "podman-audiobookshelf.service" "flaresolverr.service" "prowlarr.service" ];
       wantedBy = [ "multi-user.target" ];
       # Retry a failed run, but give up after 5 tries instead of looping forever.
       # These are UNIT settings: under [Service] StartLimitBurst has no interval
@@ -205,9 +263,18 @@
         fi
 
         # ── 4. Shelfarr ──
+        # Wait for Prowlarr to ANSWER, not merely to have been started. A systemd
+        # unit counts as started well before this ASP.NET app is listening, so
+        # `after = prowlarr.service` on its own still loses the race. /ping is a
+        # plain 200 and needs no API key — `/` is a 302 and `/api/v1/health` is a
+        # 401, so neither is a clean readiness probe.
+        ${waitForHttp { name = "Prowlarr"; url = "http://localhost:9696/ping"; tries = 30; interval = 2; }}
+
         podman exec \
           -e PROWLARR_KEY="$(cat ${config.sops.secrets."prowlarr-api-key".path})" \
           -e SAB_KEY="$(cat ${config.sops.secrets."sabnzbd-api-key".path})" \
+          -e ZLIB_EMAIL="$(cat ${config.sops.secrets."zlibrary-email".path})" \
+          -e ZLIB_PASS="$(cat ${config.sops.secrets."admin-password".path})" \
           -e ABS_KEY="$ABS_KEY" \
           -e ABS_URL="http://host.containers.internal:13378" \
           -e ABS_EBOOK_LIB="$EBOOK_LIB" \
@@ -245,22 +312,183 @@
               # release in the UI — it looks like the download silently failed.
               %q(auto_select_enabled) => %q(true),
 
-              # Upstream puts torrent FIRST (see the Nix note above). SABnzbd is
-              # the only download client here, so that order makes Shelfarr
-              # prefer releases it physically cannot fetch. Built via to_json so
-              # no literal double quotes appear in this block.
-              %q(preferred_download_types) => [%q(usenet), %q(direct)].to_json,
+              # Upstream puts torrent FIRST. SABnzbd is the only download client
+              # here, so that order makes Shelfarr prefer releases it physically
+              # cannot fetch. Built via to_json so no literal double quotes
+              # appear in this block.
+              #
+              # ⭐⭐ DIRECT (Z-Library) BEFORE USENET from 2026-11-23. This list is
+              # ordered by TYPE and type beats score outright, so whatever is
+              # first here wins even against a better-scoring result of the other
+              # type. Three Mistborn books proved why usenet-first is wrong for
+              # ebooks:
+              #
+              #   The Well of Ascension  Repair failed, not enough repair blocks (2 short)
+              #   The Bands of Mourning  Repair failed, not enough repair blocks (3 short)
+              #   The Lost Metal         Aborted, cannot be completed
+              #
+              # Ebook NZBs are a few MB posted years ago; they lose articles to
+              # retention and par2 cannot rebuild them. ⚠️ Each of those reached
+              # **100% progress** and still failed — SAB fetched the articles and
+              # the *repair* came up short, so it-downloaded and it-worked are
+              # different questions. Meanwhile every one of the three had a
+              # Z-Library copy scoring 95 that was never tried, because usenet
+              # outranked it on type.
+              #
+              # Z-Library is a direct HTTP fetch of a single file: no articles, no
+              # par2, nothing to be short of. It is also far deeper for books than
+              # three general-purpose Usenet indexers.
+              #
+              # ⚠️ PRIVACY: this moves the DEFAULT path for book downloads off the
+              # VPN. A direct download is fetched by Shelfarr itself over the
+              # normal WAN — it does NOT go through the Mullvad namespace that
+              # SABnzbd sits in (NetworkNamespacePath, downloads.nix). That was
+              # already true of Z-Library as a fallback; it is now the common case.
+              #
+              # ⚠️ Z-Library enforces a per-account DAILY DOWNLOAD LIMIT. When it
+              # is reached, results still appear and the fetch fails. Usenet stays
+              # second rather than being removed precisely so there is somewhere to
+              # fall through to — but note that a failed pick does NOT currently
+              # fall through on its own; see step 5.
+              %q(preferred_download_types) => [%q(direct), %q(usenet)].to_json,
 
               # Upstream threshold is 90 and nothing reached it: the best real
               # match for a book scored 88, so every request stalled awaiting
-              # manual selection. 85 clears it while still refusing junk.
-              %q(auto_select_confidence_threshold) => %q(85),
+              # manual selection. Lowered again 85 -> 80 on 2026-11-14 after
+              # This Inevitable Ruin (request 10) parked with the message
+              # Search results found but none matched auto-select criteria,
+              # while holding SIX copies of the right book, including a RETAIL
+              # EPUB. Its scores were 83, 83, 64, 63, 63, 63 -- the correct
+              # release topped out at 83 against a gate of 85.
+              #
+              # 80 is chosen for the GAP, not for the miss: there is nothing
+              # between 83 and 64 in that result set, so the band is wide and
+              # empty and 80 does not sit near any junk. min_match_confidence
+              # stays at 50, so weak matches are still refused outright.
+              #
+              # NOTE a dotted scene filename (Author.Title.2026.RETAIL.EPUB.
+              # eBook-CTO) scores far WORSE on title matching than a plain
+              # Author - [Series 07] - Title, even though it is the better
+              # file and names its format. So the top-scoring release is often
+              # not the format-explicit one, and raising ebook_preferred_formats
+              # cannot rescue a title-match penalty. If auto-select ever starts
+              # taking junk, tighten this back before touching the formats.
+              %q(auto_select_confidence_threshold) => %q(80),
 
               # Ships empty, which leaves format unscored. Naming the formats
               # lifted the winning result from 88 to 100, and is what makes the
-              # threshold comfortable rather than marginal. epub first so the
-              # Audiobookshelf reader and Moon+ both get their best case.
-              %q(ebook_preferred_formats) => [%q(epub), %q(mobi), %q(azw3)].to_json
+              # threshold comfortable rather than marginal.
+              #
+              # EPUB ONLY from 2026-11-14. Three settings, three strengths, per
+              # upstream FormatPreferenceService:
+              #   rejected  -35 AND auto_select_allowed = false
+              #   approved  an ALLOWLIST: anything not listed takes -20 and is
+              #             likewise barred from auto-select (empty = no effect)
+              #   preferred scoring only: +12 for the first entry, then +8/+4/+2,
+              #             and -6 for a format that is not preferred at all
+              #
+              # approved is used rather than rejected because it is the positive
+              # statement (epub, full stop) and it still LISTS a non-epub result
+              # for manual selection instead of burying it -- which matters,
+              # because some books exist in no other format.
+              #
+              # ⚠ The cost is real: The Dungeon Anarchist-s Cookbook returned
+              # exactly ONE result and it was azw3. Under this policy a book
+              # like that will never auto-download; it waits for an epub to
+              # appear, or for someone to pick the azw3 by hand.
+              #
+              # Why epub at all: Audiobookshelf extracts embedded covers from
+              # epub but NOT from Mobipocket/KF8 (azw3), so an azw3 lands with
+              # no cover art and reads worse on the reader.
+              %q(ebook_preferred_formats) => [%q(epub)].to_json,
+              # Z-Library, enabled 2026-11-14. A second acquisition source
+              # because the three Prowlarr indexers are general-purpose Usenet
+              # and their ebook coverage is shallow: The Dungeon Anarchist-s
+              # Cookbook returned exactly ONE result and it was azw3, which the
+              # epub-only policy above now refuses to auto-select.
+              #
+              # ⚠ This is a DIRECT download, so Shelfarr fetches it itself over
+              # the normal WAN. It does NOT go through the Mullvad namespace
+              # that SABnzbd sits in (NetworkNamespacePath in downloads.nix).
+              #
+              # ⚠ The mirror list rots: z-library moves domains often, which is
+              # why the setting holds several, and why it is pinned HERE rather
+              # than left to the image. Upstream ships a default list and then
+              # revises it by MIGRATION: 20261012090000 replaced the three
+              # z-library.sk/.bz/.rs domains with six newer ones in front.
+              #
+              # Our container is the 2026-06-15 build - its newest applied
+              # migration is 20260607120000 - so that October migration has
+              # NEVER RUN here. Verified 2026-11-15: the stored value was
+              # byte-identical to that migration-s PREVIOUS_DEFAULT, i.e. the
+              # three retired domains and nothing else. Z-Library would have
+              # been enabled and configured and still resolved nowhere.
+              #
+              # Pinning it also means a newer image cannot quietly fix this for
+              # us, so if Z-Library stops returning results, re-copy this list
+              # from upstream db/migrate instead of assuming the image did it.
+              #
+              # PROVEN 2026-11-15: first search after this landed logged
+              # ZLibraryClient Login succeeded via z-lib.gd - the FIRST of the
+              # added domains, none of the three it previously held. Request 10
+              # went from 6 results to 23 and completed.
+              %q(zlibrary_url) => [
+                %q(https://z-lib.gd), %q(https://z-lib.gl),
+                %q(https://z-library.ec), %q(https://zlib.bz),
+                %q(https://article.sk), %q(https://articles.sk),
+                %q(https://z-library.sk), %q(https://z-library.bz),
+                %q(https://z-library.rs)
+              ].join(10.chr),
+              %q(zlibrary_enabled) => %q(true),
+              %q(zlibrary_email) => ENV.fetch(%q(ZLIB_EMAIL)),
+              %q(zlibrary_password) => ENV.fetch(%q(ZLIB_PASS)),
+              %q(ebook_approved_formats) => [%q(epub)].to_json,
+
+              # Search the moment a request is made, instead of up to 5 minutes
+              # later. Upstream RequestCreationService#after_create enqueues the
+              # SearchJob only when
+              #   immediate_search_enabled || (!user_admin? && auto_approve_requests?)
+              # and it ships the first as false. The rock account is role=1
+              # (admin), so NEITHER branch fired and every request sat at
+              # status=pending until the 5-minute RequestQueueJob sweep swept it
+              # up. Measured 2026-11-14: three books requested at 10:27-10:28 had
+              # zero search_results and zero request_events until 10:30:07, then
+              # all three completed in 13 seconds.
+              #
+              # This is indistinguishable from the auto_select_enabled fault
+              # above - same pending status, same nothing-is-happening - but it
+              # is the opposite half of the pipeline: auto_select picks a release
+              # ONCE a search has run, this decides whether a search runs at all.
+              #
+              # NOTE no apostrophes anywhere in this block. The whole rails
+              # runner payload is inside sh -c SINGLE quotes, so one apostrophe
+              # closes the shell string and the build dies with a shell syntax
+              # error on the following Ruby line.
+              %q(immediate_search_enabled) => %q(true),
+
+              # ===== Metadata providers - pinned 2026-11-24 =====
+              #
+              # The 2026.11.16.1 bump INTRODUCED these keys, so they arrived on
+              # upstream defaults: hardcover first in the priority list, with
+              # hardcover_enabled true and an EMPTY hardcover_api_token. That
+              # broke Search outright - Unable to connect to metadata service -
+              # and NOT in the way it reads: metadata lookup identifies the book
+              # and runs BEFORE any indexer is touched, so no search ran at all
+              # and neither Prowlarr nor Z-Library was ever involved.
+              #
+              # Measured from Asgard 2026-11-24: openlibrary 200 and needs no
+              # token, api.hardcover.app reachable but wants one, googleapis 429
+              # without an API key. So Open Library leads, Google Books stays as
+              # a second chance, and Hardcover is off until a token exists.
+              #
+              # These three are pinned even though we never chose to change them
+              # from a working value. That is the point: an UNPINNED key is one a
+              # future bump can re-default underneath us, which is exactly what
+              # happened here. books-setup should pin every setting the pipeline
+              # depends on, not only the ones it had to change.
+              %q(metadata_provider_priority) => %q(openlibrary,google_books,comic_vine),
+              %q(open_library_enabled) => %q(true),
+              %q(hardcover_enabled) => %q(false)
             }
             k = ENV[%q(ABS_KEY)].to_s
             vals[%q(audiobookshelf_api_key)] = k unless k.empty?
@@ -307,6 +535,47 @@
               # silent failure. Re-enqueue the search for each one.
               Request.where(id: reqs, status: %q(pending)).each { |q| SearchJob.perform_later(q.id) }
               puts %(books-setup: purged #{stale.size} stale-host search results, re-queued #{reqs.size} requests)
+            end
+          "' || true
+
+          # Un-park requests whose download FAILED, so a settings change actually
+          # reaches them. A failed grab is a THIRD terminal state, distinct from
+          # the two pending ones documented above, and the only one nothing ever
+          # recovers from by itself:
+          #
+          #   status = failed, attention_needed = true,
+          #   next_retry_at = NULL, retry_count = 0
+          #
+          # ⭐ With next_retry_at NULL and retry_count 0, max_retries (10) and
+          # retry_base_delay_hours (24) never come into play at all — the request
+          # is parked permanently, which is indistinguishable from auto-download
+          # being broken. That is what three Mistborn books did for six days.
+          #
+          # ⭐ Shelfarr also never DEMOTES the release that failed:
+          # search_results.status only ever holds 1 (selected) or 2 (everything
+          # else), with no rejected state, so re-dispatching a parked request
+          # re-grabs the identical dead NZB. Request 14 was sent to SAB twice
+          # against the same search_result_id and failed the same way both times.
+          # Hence destroying the stored results rather than just resetting the
+          # request: the next search rebuilds them and re-picks under the current
+          # preferred_download_types order.
+          #
+          # Selected on attention_needed rather than on status, so it does not
+          # depend on which integer the `failed` enum happens to be — that can
+          # move under an image bump.
+          #
+          # Guarded by SETTINGS_CHANGED, so this fires once after a real change
+          # and a no-op rebuild never re-searches anything. A book that genuinely
+          # cannot be found is therefore retried once per settings change, not in
+          # a loop.
+          podman exec shelfarr sh -c '. /rails/storage/.encryption_keys; export SECRET_KEY_BASE=$(cat /rails/storage/.secret_key_base); cd /rails && ./bin/rails runner "
+            stuck = Request.where(attention_needed: true).where.not(status: %q(completed))
+            if stuck.any?
+              ids = stuck.pluck(:id)
+              SearchResult.where(request_id: ids).each(&:destroy)
+              Request.where(id: ids).update_all(status: %q(pending), attention_needed: false, next_retry_at: nil, retry_count: 0)
+              ids.each { |i| SearchJob.perform_later(i) }
+              puts %(books-setup: re-queued #{ids.size} stuck requests #{ids.inspect})
             end
           "' || true
         fi

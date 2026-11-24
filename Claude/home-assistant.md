@@ -590,6 +590,21 @@ Three decisions worth keeping:
 Its own axis is 10-40 °C rather than the CPU ring's 25-100 °C — on the CPU's scale a room
 sits motionless at the bottom. `warn`/`bad` are **30/35 °C and are a first guess**, to be
 replaced by measurement once Asgard is actually in the cupboard; see `Claude/next-up.md`.
+
+⭐ **Measured in the cupboard 2026-11-23** (Asgard moved that day): the air **idles at
+27.4 °C** and reached only **29.2 °C** at the peak of a 12-minute all-core soak, with the
+drives at **37/39 °C** against 70/65 limits. So the live **30/35 °C are too tight** — 30 is
+barely 2 °C above resting and will sit amber on any warm evening, which trains rock to
+ignore the one indicator meant to warn him. **warn 34 / bad 39** fits the measured
+relationship (drives run 8–10 °C over air; their longevity line is ~45 °C). ⚠ 39 is an
+**extrapolation** — nothing above 29 °C of air has been observed — so it is safe for
+dashboard colours but wants a hot-day datapoint before any automation hangs off it.
+⛔⛔ **Do not compute the cupboard's cost from the 22.9 °C install figure.** 2026-11-23 was
+a **28 °C day**, so the cupboard air was at or below outdoor temperature and nearly all of
+that gap is weather. There is **no house-interior reference** — the only sensor is inside
+the cupboard — so the enclosure's own penalty cannot be isolated without a second sensor.
+Full working: `Claude/next-up.md` → *Opened 2026-10-31*.
+
 A reading that is not a number nulls the ring rather than drawing 0 — a 0 °C cupboard
 would be a lie — and a sensor reporting offline is drawn with the word *stale* under it,
 never as a cold room.

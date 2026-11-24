@@ -22,6 +22,19 @@
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
 
+    # --- Luciole (native Wayland file manager — Sisyphus) ---
+    # noctalia-dev's file manager: C++23 straight onto Wayland + GLES, no Qt and
+    # no GTK. Not in nixpkgs, so this is a from-source build. Consumed by
+    # Modules/Desktop/luciole.nix.
+    #
+    # Deliberately no `inputs.nixpkgs.follows`: nix/package.nix overrides
+    # gdk-pixbuf down to 2.44.6 with the comment "2.44.8 requires Glycin 2.2;
+    # the pinned collection provides its 2.1 API", and then rebuilds librsvg on
+    # top of that pixbuf. That override is only correct against the glycin in
+    # the nixpkgs upstream pins — point it at ours and the image loaders become
+    # a coin toss. Same reasoning as skwd-wall-v2 below and millennium further down.
+    luciole.url = "github:noctalia-dev/luciole";
+
     # --- SKWD Wallpaper Selector (v2 — Rust; Sisyphus, Elektra) ---
     # Upstream's official NixOS support. Ships prebuilt release binaries plus
     # nixosModules.default; consumed by Modules/Desktop/skwd.nix.

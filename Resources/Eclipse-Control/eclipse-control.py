@@ -263,12 +263,32 @@ JOINABLE = ("psk", "sae", "wep", "none")
 # when no track index resolves, so anything set Kodi-side is overwritten on
 # every single play. The only durable lever is the server-side preference of
 # the user Eclipse logs in as. See Claude/eclipse.md.
+#
+# ⚠️ And that lever only reaches the screen on a PATCHED addon
+# (Resources/Eclipse-Box/patches/patch_subs.py, 2026-11-21). Unpatched,
+# jellyfin-kodi throws the server's DefaultSubtitleStreamIndex away in
+# detect_audio_subs() before applying it, so "Subtitles on" below writes the
+# right thing and nothing happens on the TV. An addon update clobbers the
+# patch: the tell is "Setting audio: <n> subs: None" in the Pi's kodi.log.
 JELLYFIN_TV_USER = os.environ.get("JELLYFIN_TV_USER", "")
 # Jellyfin's SubtitlePlaybackMode enum. "Always" = subtitles on by default;
 # "Default" = only what the media itself flags as default/forced.
 SUBS_ON, SUBS_OFF = "Always", "Default"
+# ⛔ Keep this on "" (No preference). In Jellyfin 10.11's
+# MediaStreamSelector, MatchesPreferredLanguage() treats an EMPTY preference
+# list as match-anything, so "" means "the first non-forced track" -- what we
+# want. Naming a language is STRICTER: a release whose subtitle track has no
+# Language at all (plenty of ours) then matches nothing, falls through to the
+# forced-only behaviour, and comes up with no subtitles at all.
 SUB_LANGS = {"eng": "English", "jpn": "Japanese", "fre": "French",
              "spa": "Spanish", "ger": "German", "": "No preference"}
+# The addon patch behind the "Repair subtitles" button, so either dashboard can
+# put the fix back without an SSH session. Piped to the Pi over stdin and run
+# there as `python3 -`, exactly like NET_SCRIPT above: what runs is always this
+# repo's copy, and no script is left on the Pi to drift out of date.
+SUBS_PATCH = os.environ.get("ECLIPSE_SUBS_PATCH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), os.pardir,
+    "Eclipse-Box", "patches", "patch_subs.py")
 
 # What the TV is playing, from Jellyfin's own session list (its API key comes in
 # as a systemd credential). Asking Kodi itself would need its JSON-RPC, which is
@@ -1595,6 +1615,47 @@ def act_subs_off():
     return _set_subs(mode=SUBS_OFF)
 
 
+def act_subs_patch():
+    """Put the jellyfin-kodi subtitle patch back, and restart Kodi if it had
+    gone. The dashboards' "Repair subtitles".
+
+    This is the button for "subtitles have stopped coming on by themselves
+    again". Every addon update overwrites player.py and takes the patch with
+    it, and nothing announces that — patch_dv.py was silently gone for six
+    weeks that way (Claude/eclipse.md). Unpatched, the addon throws away the
+    subtitle index the server picked and calls showSubtitles(False) ~2s into
+    every play, so "Subtitles on" above writes exactly the right thing and the
+    TV ignores it. No server-side or Kodi-side setting can fix that, which is
+    why this needs a button of its own rather than a line in the docs.
+
+    Safe to press at any time: the patch is idempotent and reports which it did
+    on its last line (RESULT=patched / RESULT=already — the contract lives in
+    patch_subs.py, keep the two in step). Kodi is only restarted when something
+    actually changed, so pressing it during a film does nothing to the film.
+    """
+    try:
+        with open(SUBS_PATCH) as f:
+            script = f.read()
+    except OSError as exc:
+        return False, "patch_subs.py missing on Asgard: " + str(exc)[:80]
+    # The script arrives on stdin, never as a command line: it is 7KB of Python
+    # with quotes and newlines all through it.
+    ok, out = ssh("python3 -", stdin=script, timeout=40)
+    if not ok:
+        return False, "couldn't reach the add-on: " + (out or "no answer")[:160]
+    if "RESULT=already" in out:
+        return True, "the fix is already in place — nothing needed doing"
+    if "RESULT=patched" not in out:
+        # patch_subs.py aborts on purpose when player.py stops matching what it
+        # expects. That is the one outcome a person has to look at, so say so
+        # instead of claiming success.
+        return False, "the add-on has changed — the fix no longer fits it: " + out[-140:]
+    ok, out = ssh("systemctl restart kodi && echo restarted", timeout=30)
+    if not ok:
+        return False, "fix applied, but Kodi wouldn't restart: " + (out or "no answer")[:120]
+    return True, "subtitles fixed — Kodi restarted, they come on by themselves again"
+
+
 def act_speedtest():
     """Measure real download throughput from Eclipse's own vantage point.
 
@@ -1893,6 +1954,10 @@ ACTIONS = {
     "bt-on": ("Turn Bluetooth on", lambda: ssh("bluetoothctl power on 2>&1 | tail -1", timeout=12)),
     "subs-on": ("Subtitles on", act_subs_on),
     "subs-off": ("Subtitles off", act_subs_off),
+    # The one action that changes the Pi's filesystem rather than a setting:
+    # it re-applies Resources/Eclipse-Box/patches/patch_subs.py, which every
+    # add-on update wipes. See act_subs_patch().
+    "subs-fix": ("Repair subtitles", act_subs_patch),
 }
 
 

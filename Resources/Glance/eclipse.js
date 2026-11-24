@@ -190,7 +190,8 @@
   // ── activity ──────────────────────────────────────────────────────────────
   var LABEL = { "restart-kodi": "Restart Kodi", "sync-library": "Sync library", "sync-movies": "Sync movies",
                 "sync-shows": "Sync TV shows", "speedtest": "Link test", "reboot": "Reboot Pi", "jellyfin-toggle": "Switch Jellyfin path",
-                "bt-on": "Turn Bluetooth on", "subs-on": "Subtitles on", "subs-off": "Subtitles off" };
+                "bt-on": "Turn Bluetooth on", "subs-on": "Subtitles on", "subs-off": "Subtitles off",
+                "subs-fix": "Repair subtitles" };
   // Folds away (remembered in this browser, folded to start with): folded, its
   // header is the latest entry — or what is running now — so a glance still
   // says what last happened.
@@ -412,12 +413,24 @@
 
     // Subtitles — a Jellyfin user setting, not a Kodi one (see eclipse.nix).
     var sb = c.subs;
+    h += '<div class="ag-sec">Subtitles</div>';
     if (sb) {
-      h += '<div class="ag-sec">Subtitles</div><div class="bt-line solo"><span><b>On by default</b><small>' +
+      h += '<div class="bt-line solo"><span><b>On by default</b><small>' +
         (sb.on ? "Subtitles show on everything" : "Only when the film itself asks for them") + (sb.lang_name ? " · " + esc(sb.lang_name) : "") + '</small></span>' +
         '<button type="button" role="switch" aria-checked="' + !!sb.on + '" class="bt-switch' + (sb.on ? " on" : "") + '" data-act="' + (sb.on ? "subs-off" : "subs-on") + '"' +
         (S.busy["subs-on"] || S.busy["subs-off"] || S.local["subs-on"] || S.local["subs-off"] ? " disabled" : "") + ' aria-label="Subtitles on by default"><i></i></button></div>';
     }
+    // "Repair subtitles" — re-applies the add-on patch without which none of
+    // the above reaches the screen, and which every add-on update wipes
+    // (act_subs_patch in eclipse-control.py). Outside the `if (sb)`: when the
+    // Jellyfin side can't be read at all, this is still exactly the button
+    // someone wants. Armed, because a missing patch means it restarts Kodi.
+    var fixBusy = S.busy["subs-fix"] || S.local["subs-fix"], fixArmed = S.armed === "subs-fix";
+    h += '<div class="bt-line solo"><span><b>Subtitles stopped working?</b><small>' +
+      'Puts back the fix the box loses when its Jellyfin app updates. Only restarts Kodi if it had actually gone.' +
+      '</small></span><button type="button" class="bt-btn' + (fixArmed ? " armed" : "") + '" data-act="subs-fix"' +
+      (fixBusy ? " disabled" : "") + '>' + (fixBusy ? '<i class="bt-spin"></i>' : "") +
+      (fixArmed ? "Tap to confirm" : "Repair") + '</button></div>';
 
     h += '</div>';
     D.paint(el, h);
@@ -742,7 +755,9 @@
     if (b && b.closest("summary")) e.preventDefault();
     if (b && !b.disabled) {
       var name = b.getAttribute("data-act");
-      if (name === "reboot" && S.armed !== name) { arm(name); return; }
+      // reboot takes the TV off; subs-fix restarts Kodi when the patch has
+      // gone, which stops whatever is playing. Both get a second tap.
+      if ((name === "reboot" || name === "subs-fix") && S.armed !== name) { arm(name); return; }
       S.armed = null;
       act(name);
       return;

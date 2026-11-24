@@ -82,6 +82,41 @@ for _h in "${HOSTS[@]}"; do
 done
 unset _h _me
 
+# ── The books mirror ──────────────────────────────────────────────────────────
+# A second copy of Asgard's ebook library on Sisyphus, so books can be dragged
+# onto a Kindle without the server being involved. Asgard is always the source
+# of truth — Shelfarr and Audiobookshelf write there — so this only ever pulls.
+#
+# ⭐ The copy here is FLAT: every book lands directly in ~/Server/Books as a
+# single file, no author/title folders. Audiobookshelf needs that nesting;
+# dragging a series onto an e-reader does not, and opening two folders per book
+# was the whole complaint. The filenames already read "Author - Title.epub", so
+# flattening loses nothing.
+#
+# It is a true mirror: new books are added, changed ones replaced, and anything
+# here that is no longer in the library is removed. Nothing is duplicated.
+#
+# ⚠ Because it deletes, it ALWAYS shows a dry-run plan and asks first — and it
+# refuses outright if the source reports zero files, which means /data/media
+# failed to mount rather than that the library is empty.
+#
+# ⚠ Also kept in Resources/Rebuild/rebuild/hosts.py (BOOKS_*) for the app half.
+BOOKS_HOST="Asgard"
+BOOKS_SRC="/data/media/books/"
+BOOKS_DST="$HOME/Server/Books/"
+
+# ⭐ --no-relative is what FLATTENS. --files-from normally implies --relative,
+# which would faithfully recreate "Author/Title/book.epub" at the destination;
+# --no-relative writes each file under its basename alone.
+# -t is load-bearing: rsync skips on mtime+size, so without it every book
+# re-copies on every run. No -a and no -p — Asgard's book files are owned by
+# the `media` group and some of those dirs are 0777 (see server-info.md), so
+# --chmod normalises them for a home directory instead, and leaving out -p
+# means permissions are never compared and never show up as a false "changed".
+# No --delete either: with --files-from rsync only knows about the files it was
+# told to fetch, so removals are worked out explicitly in sync_books().
+BOOKS_RSYNC=(-t --no-relative "--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r")
+
 # ── Where the flake is ────────────────────────────────────────────────────────
 DOTS_FLAKE="github:JimmyTheSquirrel/Dots"
 DOTS_URL="https://github.com/JimmyTheSquirrel/Dots"
@@ -666,6 +701,168 @@ check_hosts() {
   ui_box "$UI_GREEN" "✔ all ${#HOSTS[@]} hosts evaluate" "$(kvline flake "$FLAKE_LABEL")"
 }
 
+# Pull Asgard's ebook library to this machine. See "The books mirror" at the top
+# for why there is no --delete.
+sync_books() {
+  host_info "$BOOKS_HOST"
+  local target="$H_USER@$H_SSH" list want have dels_f plan rc=0 src_n
+  ui_banner "$UI_YELLOW" BOOKS "mirror the ebook library" "$BOOKS_HOST → here" "$(uname -n)"
+  echo
+
+  # Fail early and clearly: rsync's own "connection unexpectedly closed" says
+  # far less than naming the unreachable host. -n because this is wrapped in a
+  # spinner and must not touch stdin (see Claude/deploy.md on ssh -n).
+  if ! ui_spin "reaching $BOOKS_HOST…" ssh -n -o BatchMode=yes -o ConnectTimeout=5 "$target" true; then
+    ui_box "$UI_RED" "✘ can't reach $BOOKS_HOST" "Tried $target. Nothing was copied."
+    return 1
+  fi
+
+  # ── 1. what ebooks exist over there ─────────────────────────────────────────
+  # %P prints the path relative to the library root, which is exactly what
+  # --files-from wants. Only ebook formats: Audiobookshelf may drop cover.jpg
+  # and metadata.json beside a book, and those are noise on a Kindle.
+  list=$(mktemp); want=$(mktemp); have=$(mktemp); dels_f=$(mktemp); plan=$(mktemp)
+  ssh -n -o BatchMode=yes -o ConnectTimeout=5 "$target" \
+    "find '${BOOKS_SRC%/}' -type f \( -iname '*.epub' -o -iname '*.azw3' -o -iname '*.mobi' -o -iname '*.pdf' \) -printf '%P\n'" \
+    > "$list" 2>/dev/null || true
+  src_n=$(wc -l < "$list")
+
+  # ⚠ THE GUARD. /data/media is a mergerfs mountpoint; if it is not mounted the
+  # directory still exists and is simply empty, and mirroring "nothing" would
+  # delete every book here. An empty source is a fault, never an instruction.
+  if (( src_n == 0 )); then
+    rm -f "$list" "$want" "$have" "$dels_f" "$plan"
+    ui_box "$UI_RED" "✘ $BOOKS_HOST reports an empty library — refusing to sync" \
+      "$(kvline source "$target:$BOOKS_SRC")" \
+      "A mirror would delete every book here. Check that /data/media is mounted on $BOOKS_HOST." \
+      "$(kvline check "ssh $H_SSH findmnt /data/media")"
+    return 1
+  fi
+
+  mkdir -p "$BOOKS_DST"
+  # The flat name each book will land under. Sorted + unique so `comm` works.
+  sed 's|.*/||' "$list" | LC_ALL=C sort > "$want"
+
+  # ⚠ Flattening can collide: two books at different paths with the SAME file
+  # name would silently become one file. Worth naming rather than discovering
+  # a missing book later.
+  local dupes
+  dupes=$(LC_ALL=C uniq -d "$want" || true)
+  if [[ -n "$dupes" ]]; then
+    ui_warn "two or more books share a file name — only one copy of each will survive:"
+    while IFS= read -r d; do [[ -n "$d" ]] && ui_note_line "$d"; done <<<"$dupes"
+  fi
+
+  # ── 2. the plan ─────────────────────────────────────────────────────────────
+  # --files-from + --no-relative is what flattens: each listed path is fetched
+  # but written under its basename alone. -n changes nothing.
+  ui_spin "working out what would change…" \
+    rsync "${BOOKS_RSYNC[@]}" -n --itemize-changes --files-from="$list" \
+      "$target:$BOOKS_SRC" "$BOOKS_DST" >"$plan" 2>&1 || rc=$?
+  if (( rc != 0 )); then
+    ui_err "rsync could not read the library (exit $rc)"
+    tail -8 "$plan" | sed 's/^/      /' >&2 || true
+    rm -f "$list" "$want" "$have" "$dels_f" "$plan"
+    return 1
+  fi
+
+  local -a adds=() ups=()
+  local line code path
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    code=${line%% *}; path=${line#* }
+    [[ "$code" == ?f* ]] || continue
+    if [[ "$code" == *++++++++* ]]; then adds+=("$path"); else ups+=("$path"); fi
+  done <"$plan"
+
+  # Removals are computed here, not by --delete: rsync only knows about the
+  # files it was told to transfer, so it cannot see a local book that is no
+  # longer in the library. Anything below the top level is stale too — it is
+  # left over from the old one-folder-per-book layout.
+  find "$BOOKS_DST" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | LC_ALL=C sort > "$have"
+  LC_ALL=C comm -13 "$want" "$have" > "$dels_f"
+  local -a dels=()
+  while IFS= read -r line; do [[ -n "$line" ]] && dels+=("$line"); done <"$dels_f"
+  local nested
+  nested=$(find "$BOOKS_DST" -mindepth 2 -type f 2>/dev/null | wc -l)
+
+  # ── 3. show it ──────────────────────────────────────────────────────────────
+  local n_add=${#adds[@]} n_up=${#ups[@]} n_del=${#dels[@]}
+  if (( n_add + n_up + n_del + nested == 0 )); then
+    rm -f "$list" "$want" "$have" "$dels_f" "$plan"
+    ui_box "$UI_GREEN" "✔ already in sync — nothing to do" \
+      "$(kvline library "$src_n book(s) on $BOOKS_HOST")" \
+      "$(kvline here "$BOOKS_DST")"
+    return 0
+  fi
+  ui_step "What would change"
+  books_plan_list "add"    "$UI_GREEN"  "+" "${adds[@]}"
+  books_plan_list "update" "$UI_YELLOW" "~" "${ups[@]}"
+  books_plan_list "remove" "$UI_RED"    "−" "${dels[@]}"
+  (( nested )) && ui_info "$(ui_c "$UI_RED" "− flatten")  $(ui_bold "$nested") file(s) in old per-book folders, which will be removed"
+  echo
+  ui_kv library "$src_n book(s) on $BOOKS_HOST"
+  ui_kv here "$BOOKS_DST"
+  ui_kv layout "flat — one file per book, no folders"
+  echo
+
+  # ── 4. ask — default no whenever anything would be deleted ──────────────────
+  local prompt="Add $n_add, update $n_up, remove $(( n_del + nested )) — go ahead?"
+  if (( n_del + nested )); then
+    ui_warn "$(( n_del + nested )) file(s) here will be DELETED"
+    ui_confirm "$prompt" default-no || { rm -f "$list" "$want" "$have" "$dels_f" "$plan"; ui_info "nothing done"; return 1; }
+  else
+    ui_confirm "$prompt" || { rm -f "$list" "$want" "$have" "$dels_f" "$plan"; ui_info "nothing done"; return 1; }
+  fi
+
+  # ── 5. do it ────────────────────────────────────────────────────────────────
+  rc=0
+  rsync "${BOOKS_RSYNC[@]}" --human-readable --stats --files-from="$list" \
+    "$target:$BOOKS_SRC" "$BOOKS_DST" >"$plan" 2>&1 || rc=$?
+  if (( rc != 0 )); then
+    ui_err "rsync exited $rc"
+    tail -8 "$plan" | sed 's/^/      /' >&2 || true
+    rm -f "$list" "$want" "$have" "$dels_f" "$plan"
+    ui_box "$UI_RED" "✘ books not fully mirrored" "$(kvline to "$BOOKS_DST")"
+    return 1
+  fi
+  # Stale top-level books, then the whole old nested layout, then empty dirs.
+  local f
+  while IFS= read -r f; do [[ -n "$f" ]] && rm -f -- "$BOOKS_DST$f"; done <"$dels_f"
+  find "$BOOKS_DST" -mindepth 2 -type f -delete 2>/dev/null || true
+  find "$BOOKS_DST" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+  rm -f "$list" "$want" "$have" "$dels_f" "$plan"
+
+  local here_n
+  here_n=$(find "$BOOKS_DST" -maxdepth 1 -type f 2>/dev/null | wc -l)
+  ui_ok "mirrored — added $n_add, updated $n_up, removed $(( n_del + nested ))"
+  ui_box "$UI_GREEN" "✔ books mirrored — $here_n here, flat" \
+    "$(kvline from "$target:$BOOKS_SRC")" \
+    "$(kvline to "$BOOKS_DST")"
+}
+
+# One indented plain line inside a plan list.
+ui_note_line() { printf '      %s\n' "$1"; }
+
+# One category of the plan: a count line, then the paths, capped so that a first
+# sync of a big library cannot scroll the question off the screen.
+#
+# ⚠ Prints with ui_info/printf, NEVER ui_note. ui_note and ui_gap are MENU
+# BUILDERS — they append to ui.sh's _UM_* arrays for ui_menu to draw later — so
+# using them here printed nothing at all and quietly pushed junk rows into the
+# next menu's buffer.
+books_plan_list() {
+  local what="$1" colour="$2" mark="$3"; shift 3
+  (( $# )) || return 0
+  local shown=12 i=0 p
+  ui_info "$(ui_c "$colour" "$mark $(printf '%-7s' "$what")") $(ui_bold "$#") file(s)"
+  for p in "$@"; do
+    (( i < shown )) || { printf '      %s\n' "$(ui_dim "… and $(( $# - shown )) more")"; break; }
+    printf '      %s %s\n' "$(ui_c "$colour" "$mark")" "$p"
+    i=$(( i + 1 ))
+  done
+}
+
 # ── Apollo ────────────────────────────────────────────────────────────────────
 has_apollo() { command -v apollo-deploy >/dev/null 2>&1; }
 apollo_mount() { findmnt -rn -o TARGET -S LABEL=Apollo 2>/dev/null || true; }
@@ -1124,6 +1321,13 @@ menu_utilities() {
     ui_item gc "$I_GC" "Garbage collect" "old generations · store · docker" \
       "$(df -h --output=avail /nix/store 2>/dev/null | tail -1 | tr -d ' ') free"
     ui_item check "$I_CHECK" "Check hosts" "evaluate every host, build nothing" "${#HOSTS[@]} hosts"
+    # Sisyphus only: this is rock's second copy of the library, for sending a
+    # book to a Kindle. It would be meaningless on Elektra, and on Asgard the
+    # source and the destination would be the same machine.
+    if [[ "$THIS_HOST" == "Sisyphus" ]]; then
+      ui_item books "$I_BOOK" "Sync books" "copy $BOOKS_HOST's ebooks here" \
+        "$(find "$BOOKS_DST" -type f 2>/dev/null | wc -l) here"
+    fi
     help_and_back
     UI_MENU_SEL=$last UI_MENU_HELP=1
     ui_menu "$UI_YELLOW" DOTS Utilities
@@ -1136,6 +1340,7 @@ menu_utilities() {
       clone)  job clone_repo ;;
       gc)     job collect_garbage ;;
       check)  job check_hosts ;;
+      books)  job sync_books ;;
       quit)   bye ;;
       *)      return 0 ;;
     esac

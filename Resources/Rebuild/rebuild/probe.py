@@ -94,12 +94,21 @@ class Tailnet:
     ok: bool = False
 
     def peer(self, name: str) -> Peer:
-        """The best match for a HostName starting with NAME (online ones win,
-        so "apollo" finds whichever stick is booted)."""
+        """The best match for a HostName *or* MagicDNS name starting with NAME
+        (online ones win, so "apollo" finds whichever stick is booted).
+
+        ⚠ Match both, because they are different fields that drift apart.
+        HostName is what the machine called itself when it registered and it
+        does NOT follow networking.hostName; DNSName follows the machine name
+        in the admin console. Renaming a node in the console moves only
+        DNSName, so a HostName-only match calls a live machine "not on the
+        tailnet" — six weeks of that for Elektra (kit-kat → elektra)."""
         if not self.ok:
             return Peer()
         n = name.lower()
-        hits = [p for p in self.peers if (p.get("HostName") or "").lower().startswith(n)]
+        hits = [p for p in self.peers
+                if (p.get("HostName") or "").lower().startswith(n)
+                or (p.get("DNSName") or "").split(".")[0].lower().startswith(n)]
         if not hits:
             return Peer("missing")
         hits.sort(key=lambda p: not p.get("Online"))

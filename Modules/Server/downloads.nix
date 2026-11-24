@@ -325,7 +325,15 @@ EOF
     };
 
     virtualisation.oci-containers.containers.decluttarr = {
-      image = "ghcr.io/manimatter/decluttarr:latest";
+      # ⭐ Pinned by digest 2026-11-24 — the digest it was already running, so the
+      # pin itself is a no-op. amd64 manifest digest. Closes the last `:latest`
+      # in the repo; see `Claude/next-up.md` → image pinning for why a resolved
+      # tag is worse than a digest for rollback.
+      #
+      # ⚠️ ~6 months old at pin time — the oldest of the three, and the easiest to
+      # bump: decluttarr is stateless (it reads `config.yaml`, generated above, and
+      # acts on the arrs), so there is no database to back up first.
+      image = "ghcr.io/manimatter/decluttarr@sha256:c06d48426b612b845f2406c2d045f266468a6390faf87aea796d497a2935ec95";
       volumes = [ "/var/lib/decluttarr/config:/app/config" ];
       autoStart = true;
     };

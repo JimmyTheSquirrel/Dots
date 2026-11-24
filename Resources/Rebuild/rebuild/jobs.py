@@ -25,14 +25,14 @@ import platform
 import shutil
 import tempfile
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from rich.text import Text
 
 from . import hosts as H
 from . import probe as P
 from .runner import plain
-from .ui import AQUA, BLUE, DIM, FG, GREEN, PURPLE, RED, YELLOW, bad, info, ok, warn
+from .ui import AQUA, BLUE, DIM, FG, GREEN, PURPLE, RED, YELLOW, Line, bad, info, ok, warn
 
 try:
     from .nixmon import BuildMonitor, NixLog, nix_build
@@ -269,6 +269,179 @@ async def check_hosts(job) -> bool:
                  [("", "The errors are above; nothing was built or changed.")], tiles)
         return False
     job.card(True, f"all {len(H.HOSTS)} hosts evaluate", [("flake", repo.label)], tiles)
+    return True
+
+
+
+
+RSYNC_OPTS = ["-t", "--no-relative", "--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r"]
+# ⭐ --no-relative is what FLATTENS. --files-from normally implies --relative,
+# which would faithfully recreate "Author/Title/book.epub" at the destination;
+# --no-relative writes each file under its basename alone, so ~/Server/Books
+# ends up one file per book with nothing to click into.
+# -t is load-bearing (rsync skips on mtime+size, so without it everything
+# re-copies each run). No -a/-p: Asgard's book files are media-group owned and
+# some of those dirs are 0777, so --chmod normalises them instead and leaving
+# out -p means permissions never show up as a false "changed". No --delete
+# either — with --files-from rsync only knows the files it was told to fetch,
+# so removals are worked out explicitly below.
+EBOOK_FIND = (r"find '{root}' -type f \( -iname '*.epub' -o -iname '*.azw3' "
+              r"-o -iname '*.mobi' -o -iname '*.pdf' \) -printf '%P\n'")
+
+
+def _parse_itemized(text: str) -> tuple[list[str], list[str]]:
+    """rsync --itemize-changes → (added, updated). Deletions are computed
+    separately: with --files-from rsync cannot see a local book that is no
+    longer in the library."""
+    adds: list[str] = []
+    ups: list[str] = []
+    for line in text.splitlines():
+        line = line.rstrip()
+        if not line:
+            continue
+        code, _, path = line.partition(" ")
+        if len(code) < 2 or code[1] != "f":
+            continue
+        (adds if "+++++++++" in code else ups).append(path.strip())
+    return adds, ups
+
+
+async def sync_books(job) -> bool:
+    """Mirror Asgard's ebook library FLAT into ~/Server/Books, after showing the plan."""
+    host = H.BY_NAME[H.BOOKS_HOST]
+    src, dst = f"{host.target}:{H.BOOKS_SRC}", H.BOOKS_DST
+    job.begin(["Plan", "Mirror"], YELLOW, "BOOKS", "mirror the ebook library",
+              f"{host.name} → here", platform.node(), kind="books", host=host.name)
+
+    job.stage("Plan", "running")
+    sec = await job.section(f"{host.name} → {dst}", YELLOW, "")
+    rc, _, _ = await P.run(["ssh", *P.SSH_QUIET, host.target, "true"], timeout=9)
+    if rc != 0:
+        job.stage("Plan", "failed")
+        job.card(False, f"can't reach {host.name}",
+                 [("tried", kv(host.target)), ("", "Nothing was copied.")])
+        return False
+
+    # ── what ebooks exist over there ──────────────────────────────────────────
+    # %P is the path relative to the library root, which is what --files-from
+    # wants. Ebook formats only: Audiobookshelf may drop cover.jpg and
+    # metadata.json beside a book and those are noise on a Kindle.
+    rc, out, _ = await P.run(["ssh", *P.SSH_QUIET, host.target,
+                              EBOOK_FIND.format(root=H.BOOKS_SRC.rstrip("/"))], timeout=60)
+    rel = [l for l in out.splitlines() if l.strip()] if rc == 0 else []
+
+    # ⚠ THE GUARD. /data/media is a mergerfs mountpoint; unmounted it is simply
+    # empty, and mirroring "nothing" would delete every book here.
+    if not rel:
+        job.stage("Plan", "failed")
+        await sec.mount(bad(f"{host.name} reports an empty library — refusing to mirror"))
+        await sec.mount(info("a mirror would delete every book here; check that /data/media "
+                             f"is mounted on {host.name} (ssh {host.ssh} findmnt /data/media)"))
+        job.card(False, f"{host.name}'s library looks empty — nothing done",
+                 [("source", kv(src)), ("here", kv(dst))])
+        return False
+
+    dstp = Path(dst)
+    dstp.mkdir(parents=True, exist_ok=True)
+    want = {PurePosixPath(p).name for p in rel}
+
+    # ⚠ Flattening can collide: two books at different paths sharing a file
+    # name would silently become one file.
+    seen: set[str] = set()
+    dupes = sorted({n for n in (PurePosixPath(p).name for p in rel)
+                    if n in seen or seen.add(n)})
+    for d in dupes:
+        await sec.mount(warn(f"two books share the name {d} — only one copy will survive"))
+
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+        fh.write("\n".join(rel) + "\n")
+        listfile = fh.name
+    try:
+        rc, out, err = await P.run(["rsync", *RSYNC_OPTS, "-n", "--itemize-changes",
+                                    f"--files-from={listfile}", src, dst], timeout=300)
+        if rc != 0:
+            job.stage("Plan", "failed")
+            for l in [x for x in plain(err or out).splitlines() if x.strip()][-6:]:
+                await sec.mount(bad(l))
+            job.card(False, f"could not read {host.name}'s library",
+                     [("", "The output is above.")])
+            return False
+        adds, ups = _parse_itemized(out)
+
+        # Removals: stale top-level books, plus everything still sitting in the
+        # old one-folder-per-book layout.
+        here = {p.name for p in dstp.iterdir() if p.is_file()}
+        dels = sorted(here - want)
+        nested = [p for p in dstp.rglob("*") if p.is_file() and p.parent != dstp]
+        job.stage("Plan", "done")
+
+        if not (adds or ups or dels or nested):
+            job.card(True, "already in sync — nothing to do",
+                     [("library", kv(f"{len(rel)} book(s) on {host.name}")), ("here", kv(dst))])
+            return True
+
+        for label, mark, colour, items in (("add", "+", GREEN, adds),
+                                           ("update", "~", YELLOW, ups),
+                                           ("remove", "−", RED, dels)):
+            if not items:
+                continue
+            await sec.mount(Line(Text.assemble((f"{mark} {label:<7}", colour),
+                                               (f"{len(items)} file(s)", FG))))
+            for p in items[:12]:
+                await sec.mount(Line(Text.assemble(("      ", DIM), (f"{mark} ", colour), (p, FG))))
+            if len(items) > 12:
+                await sec.mount(Line(Text(f"      … and {len(items) - 12} more", DIM)))
+        if nested:
+            await sec.mount(Line(Text.assemble(("− flatten  ", RED),
+                                               (f"{len(nested)} file(s) in old per-book folders, "
+                                                "which will be removed", FG))))
+        await sec.mount(info(f"{len(rel)} book(s) in {host.name}'s library · flat layout, "
+                             "one file per book"))
+
+        gone = len(dels) + len(nested)
+        if gone:
+            await sec.mount(warn(f"{gone} file(s) here will be DELETED"))
+        pick = await job.choose(f"Add {len(adds)}, update {len(ups)}, remove {gone} — go ahead?",
+                                [("yes", "Yes — mirror it now"), ("no", "No")],
+                                detail=(f"{gone} file(s) will be deleted from {dst}" if gone
+                                        else "Nothing here will be deleted."),
+                                danger=bool(gone))
+        if pick != "yes":
+            job.card(False, "Nothing done", [("", "The plan above was not applied.")])
+            return False
+
+        job.stage("Mirror", "running")
+        sec2 = await job.section("rsync", YELLOW, "")
+        rc = await job.run(sec2, ["rsync", *RSYNC_OPTS, "--human-readable", "--stats",
+                                  f"--files-from={listfile}", src, dst], where=host.name)
+    finally:
+        try:
+            os.unlink(listfile)
+        except OSError:
+            pass
+
+    job.stage("Mirror", "done" if rc == 0 else "failed")
+    if rc != 0:
+        job.card(False, "books not fully mirrored",
+                 [("to", kv(dst)), ("", "The output is above.")])
+        return False
+
+    for name in dels:
+        (dstp / name).unlink(missing_ok=True)
+    for p in nested:
+        p.unlink(missing_ok=True)
+    for d in sorted((p for p in dstp.rglob("*") if p.is_dir()), reverse=True):
+        try:
+            d.rmdir()
+        except OSError:
+            pass
+
+    here_n = sum(1 for p in dstp.iterdir() if p.is_file())
+    job.card(True, f"books mirrored — {here_n} here, flat",
+             [("from", kv(src)), ("to", kv(dst))],
+             [("added", str(len(adds)), "new books"),
+              ("updated", str(len(ups)), "replaced"),
+              ("removed", str(len(dels) + len(nested)), "gone or un-nested")])
     return True
 
 

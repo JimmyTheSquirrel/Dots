@@ -112,6 +112,16 @@ UTILS = [
              "edit break something\" check; a failure shows its error."),
     ("item", "Get the repo", "Only on a machine without ~/Dots (Elektra, usually): clone it, so Git sync and "
              "Update inputs work there. Until then, rebuilds use GitHub's main."),
+    ("item", "Sync books", "Sisyphus only. Keeps ~/Server/Books as a second copy of Asgard's ebook "
+             "library, so books can be dragged straight onto a Kindle. The copy here is FLAT — every "
+             "book is one file directly in that folder, no author or title folders to click into, so "
+             "you can select all and drag. Asgard keeps its nesting, which Audiobookshelf needs. It "
+             "is a mirror, not a pile: new books are added, changed ones replaced, and anything there "
+             "that is no longer in the library is removed — nothing is ever duplicated. It always "
+             "shows the plan first, with the file names, and asks before touching anything; if "
+             "something would be deleted the default answer is no. It refuses outright when Asgard "
+             "reports an empty library, because that means /data/media did not mount and a mirror "
+             "would delete every book you have."),
     ("item", "History", "Every job this app has run, by day: what, which machine, how it went, how long it "
              "took — and each machine's rebuild times as a sparkline. Kept in "
              "~/.local/state/system-rebuild/history.jsonl; delete it and the app just forgets. Rebuilds run from "

@@ -1,0 +1,115 @@
+# Luciole colours — Noctalia template, OURS not upstream's.
+#
+# Rendered by noctalia into ~/.config/luciole/colors.toml on every palette
+# change; Luciole watches that file and reloads it live. Wired from
+# Modules/Desktop/luciole.nix via my.noctalia.lockedSettingsExtra.
+#
+# ── Why we don't use the one Luciole ships ────────────────────────────────────
+# share/luciole/templates/colors.toml takes EVERY token straight from the
+# palette, surfaces included. The skwd palettes are strongly tinted — on
+# 2026-11-21 the live one was primary #c2d000 with surface #131408, an olive
+# dark — so the whole window went olive: toolbar, search field and the file
+# area behind the icons. rock's call, looking at it on the monitor: the colour
+# belongs in the SIDEBAR, not washed over the top bar and the background.
+#
+# So the surface family runs through noctalia's `grayscale` filter, which
+# converts to grey by luminance weighting. That keeps each step's LIGHTNESS, so
+# the surface → container → container_high ramp still reads as depth, and only
+# removes the hue. The accent families (primary / secondary / tertiary / error
+# / hover) are untouched, so the sidebar's selected row, the focus underline
+# and anything else drawn in the accent still track the wallpaper.
+#
+# ⚠️ Keep this in step with upstream's template after a Luciole bump — a token
+# ADDED upstream will simply be missing here, and Luciole falls back to its
+# built-in value for it rather than erroring. Diff the two:
+#   L=$(nix eval --raw \
+#     .#nixosConfigurations.rock-Sisyphus.config.home-manager.users.rock.programs.luciole.package)
+#   diff <(sed -e 's/ | grayscale//' -e 's/@chromeAlpha@//' Resources/Luciole/colors.toml \
+#           | grep '^[a-z]' | sort) \
+#        <(grep '^[a-z]' "$L/share/luciole/templates/colors.toml" | sort)
+#
+# (NOT `nix eval .#inputs.luciole…` — a flake exposes no `inputs` output, so
+# that form fails; go through a host that actually uses the package.)
+#
+# ⚠️ Syntax is noctalia's, NOT matugen's: `{{ }}` expressions, `<* *>` blocks.
+# Filters chain with `|`. See Claude/noctalia.md → Templates.
+#
+# To go back to a fully tinted window: drop every ` | grayscale` below.
+# To tint less aggressively instead of fully neutral: swap `grayscale` for
+# `desaturate 70` (percentage points off HSL saturation).
+#
+# ── @chromeAlpha@: the search field and the breadcrumb pill ───────────────────
+# Substituted by Modules/Desktop/luciole.nix from `my.luciole.chromeOpacity`
+# (a float 0–1) into two hex digits, giving #RRGGBBAA — which Luciole's parser
+# accepts (lib/render/core/color.h `hex()` takes 4, 5, 7 or 9 characters) and
+# multiplies into every fill drawn in that role.
+#
+# ⚠️ It must be appended as literal text like this. Noctalia HAS a `set_alpha`
+# filter, but `.hex` formats through Color.to_hex(), which is `#{r}{g}{b}` and
+# drops it on the floor; only the `rgba`/`hsla` formats carry alpha, and
+# Luciole's colors.toml parser takes hex strings only. So the two are mutually
+# exclusive and this is the only route.
+#
+# WHY only this one token: on 2026-11-21 the toolbar was already translucent —
+# the window background is surface_container_low at `background_opacity`, so
+# the wallpaper came through it — but the breadcrumb pill and the search field
+# are filled surface_container_high at full alpha, and sat there as two flat
+# #2b2b2b slabs in an otherwise glassy window. Sampled off the screenshot: bar
+# #0f1518, pills #2b2b2b. Giving the role an alpha is what lets them settle
+# into the bar instead of floating on it.
+#
+# ⚠️ This role is NOT only those two. Also drawn with it: the status-bar pill
+# ("49 items · 582.8 GiB free"), CONTEXT MENUS and submenus, the row-hover
+# highlight, and the view-mode segmented control. Menus have no opaque plate
+# under them, so a low value here makes the file grid show through an open
+# menu. That is the thing to look at before going below ~0.6, and the reason
+# the surrounding surface_container* steps are left fully opaque.
+
+[colors]
+
+# ── Accents: left alone, these are what still follow the wallpaper ────────────
+primary = "{{ colors.primary.default.hex }}"
+on_primary = "{{ colors.on_primary.default.hex }}"
+primary_container = "{{ colors.primary_container.default.hex }}"
+on_primary_container = "{{ colors.on_primary_container.default.hex }}"
+secondary = "{{ colors.secondary.default.hex }}"
+on_secondary = "{{ colors.on_secondary.default.hex }}"
+secondary_container = "{{ colors.secondary_container.default.hex }}"
+on_secondary_container = "{{ colors.on_secondary_container.default.hex }}"
+tertiary = "{{ colors.tertiary.default.hex }}"
+on_tertiary = "{{ colors.on_tertiary.default.hex }}"
+tertiary_container = "{{ colors.tertiary_container.default.hex }}"
+on_tertiary_container = "{{ colors.on_tertiary_container.default.hex }}"
+
+# Error stays red on purpose — it is a signal, not decoration.
+error = "{{ colors.error.default.hex }}"
+on_error = "{{ colors.on_error.default.hex }}"
+error_container = "{{ colors.error_container.default.hex }}"
+on_error_container = "{{ colors.on_error_container.default.hex }}"
+
+# Hover feedback reads as part of the accent, so it keeps its hue too.
+hover = "{{ colors.hover.default.hex }}"
+on_hover = "{{ colors.on_hover.default.hex }}"
+
+# ── Chrome: neutralised ───────────────────────────────────────────────────────
+# Read off the Luciole source (v0.1.0) rather than guessed, so a bump is worth
+# re-checking:
+#   surface                   the file area behind the icons (browser_page.cpp
+#                             m_body) — drawn at `background_opacity`
+#   surface_container_low     the WINDOW background behind everything, also at
+#                             `background_opacity` (workspace_application.cpp)
+#   surface_container_high    the breadcrumb pill, the search field, the
+#                             status-bar pill, context menus, row hover
+#   outline_variant           the pane dividers and the status pill's border
+# The toolbar row ITSELF has no fill at all — it is the window background
+# showing through, which is why it was never the problem.
+surface = "{{ colors.surface.default.hex | grayscale }}"
+on_surface = "{{ colors.on_surface.default.hex | grayscale }}"
+on_surface_variant = "{{ colors.on_surface_variant.default.hex | grayscale }}"
+surface_container_low = "{{ colors.surface_container_low.default.hex | grayscale }}"
+surface_container = "{{ colors.surface_container.default.hex | grayscale }}"
+surface_container_high = "{{ colors.surface_container_high.default.hex | grayscale }}@chromeAlpha@"
+surface_container_highest = "{{ colors.surface_container_highest.default.hex | grayscale }}"
+outline_variant = "{{ colors.outline_variant.default.hex | grayscale }}"
+shadow = "{{ colors.shadow.default.hex | grayscale }}"
+scrim = "{{ colors.scrim.default.hex | grayscale }}"
