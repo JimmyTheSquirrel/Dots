@@ -2,7 +2,7 @@
 
 **Module:** `Modules/Server/marsbar.nix` · imported by `Hosts/Asgard/system.nix`
 **Styling:** `Resources/MarsBar/marsbar.css` (+ `vine.svg`, `bloom.svg`) · **shared with the admin
-dashboard:** `Resources/Glance/{cards.css,dash.js,lights.js,eclipse.js,net.js}`, `Modules/Server/_livecard.nix`
+dashboard:** `Resources/Glance/{cards.css,dash.js,lights.js,eclipse.js,net.js,shopping.js}`, `Modules/Server/_livecard.nix`
 **Plugs:** `Modules/Server/_plugs.nix` (the one inventory — see Safety)
 **URL:** `http://marsbar:1111/` (tailnet only)
 **Built:** 2026-09-19 · live lights + restyle 2026-10-03 · full Eclipse panel + vine 2026-10-04
@@ -16,6 +16,15 @@ confused with Asgard's green tech-HUD Yggdrasil dashboard.
 
 ---
 
+
+## The shopping list (added 2026-11-24)
+
+Her **second dot** is now **Shopping**: the list and the recipe book she shares with rock —
+the SAME two cards as his Shopping page (`shopping.js`, through her `/shop-api` serve mount),
+so a tick on either is on the other at once. Full write-up: `Claude/shopping.md`.
+
+⚠ That used up Glance's third column, so the read-only **Network** card moved to the foot of
+her **Eclipse** column. Her dots are now **Home · Shopping · Eclipse**.
 
 ## Shelfarr on her dashboard (added 2026-11-14)
 
@@ -54,9 +63,9 @@ silently and look identical to every other "stuck on pending" fault.
 - **The name.** MagicDNS names come from **machines**, not services, so a URL like
   `marsbar:1111` needs a machine called `marsbar`.
 - **Everything she uses is proxied onto her origin** by that node's `tailscale serve`
-  (`/ha`, `/eclipse-api`, `/net-api` below), so her browser never talks to an Asgard
-  port at all — the Eclipse and network cards work for her without any grant on
-  :9554 / :9555.
+  (`/ha`, `/eclipse-api`, `/net-api`, `/shop-api` below), so her browser never talks to
+  an Asgard port at all — the Eclipse, network and shopping cards work for her without
+  any grant on :9554 / :9555 / :9558.
 
 (A port-only grant like `asgard:1111` would also isolate her, but needs the same
 per-API grants or proxying, shows her Asgard in her device list, and loses the name.)
@@ -66,10 +75,11 @@ her browser ──► marsbar:1111 ──► tailscaled (userspace netstack, own
                                    ├── /             → 127.0.0.1:8890  glance-marsbar
                                    ├── /ha/*         → 127.0.0.1:9556  ha-bridge
                                    ├── /eclipse-api/* → 127.0.0.1:9554  eclipse-control
-                                   └── /net-api/*    → 127.0.0.1:9555  network-panel
+                                   ├── /net-api/*    → 127.0.0.1:9555  network-panel
+                                   └── /shop-api/*   → 127.0.0.1:9558  shopping-list
 ```
 
-Only `glance-marsbar` binds **loopback only**. The three APIs are shared with the
+Only `glance-marsbar` binds **loopback only**. The four APIs are shared with the
 admin dashboard, which calls them directly over Asgard's tailnet address, so they
 listen on `0.0.0.0` and are kept off the LAN by the firewall (none is in
 `allowedTCPPorts`; only `tailscale0` is trusted). Nothing here opens a port — the
@@ -239,7 +249,8 @@ Asgard, so she never needs (or gets) anything on Sisyphus. Not hers: the network
 
 ## Layout notes
 
-- **One page, three columns: Home · Eclipse · Network.** On a phone Glance shows
+- **One page, three columns: Home · Shopping · Eclipse** (Network sits at the foot of
+  Eclipse since 2026-11-24 — Shopping needed the column). On a phone Glance shows
   ONE column at a time with a **dot per column** in the bottom bar — tap a dot,
   you are there. Separate *pages* (how it used to be) live behind the ☰ menu
   instead, which is three taps to switch. (This doc once said the opposite; the

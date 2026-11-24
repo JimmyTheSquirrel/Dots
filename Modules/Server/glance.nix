@@ -28,6 +28,7 @@
     sabPort = 8080;    # SABnzbd, via the socat proxy into the Mullvad namespace
     eclipsePort = 9554; # eclipse-control (eclipse.nix) — the Eclipse page
     jellyfinPort = 8096; # also where Now Playing's posters load from
+    shopPort = 9558;   # shopping-list (shopping.nix) — the Shopping page
 
     # ── Assets (served at /assets/) ─────────────────────────────────────────
     # The CSS and JS live in real files, not in Nix strings inside the YAML.
@@ -48,6 +49,8 @@
       "stats.js" = ../../Resources/Glance/stats.js;
       "net.js" = ../../Resources/Glance/net.js;
       "eclipse.js" = ../../Resources/Glance/eclipse.js;
+      # the shared shopping list + recipes (SHARED with MarsBar)
+      "shopping.js" = ../../Resources/Glance/shopping.js;
       # the Overview page's map of the whole system (Asgard only)
       "overview.js" = ../../Resources/Glance/overview.js;
       "overview.css" = ../../Resources/Glance/overview.css;
@@ -708,7 +711,8 @@
     #   ags-host ags-storage ags-playing ags-dl   stats.js   ← asgard-stats :9552
     #   nw                                        net.js     ← network-panel :9555
     #   ec-main ec-tv ec-wolf ec-ctl ec-net ec-log  eclipse.js ← eclipse-control :9554
-    # net.js and eclipse.js (and cards.css) are SHARED with MarsBar, which
+    #   sh-list sh-recipes                        shopping.js ← shopping-list :9558
+    # net.js, eclipse.js, shopping.js (and cards.css) are SHARED with MarsBar, which
     # draws the same cards through her serve proxy. See _livecard.nix.
     liveCard = import ./_livecard.nix lib;
 
@@ -803,6 +807,7 @@
         <script src="${asset "stats.js"}" data-api-port="${toString statsPort}" data-jellyfin-port="${toString jellyfinPort}" data-room-temp="${room.temp}" data-room-humidity="${room.humidity}" data-room-online="${room.online}" data-room-floor="${toString room.floor}" data-room-ceiling="${toString room.ceiling}" data-room-warn="${toString room.warn}" data-room-bad="${toString room.bad}" defer></script>
         <script src="${asset "net.js"}" data-api-port="${toString netPort}" defer></script>
         <script src="${asset "eclipse.js"}" data-api-port="${toString eclipsePort}" defer></script>
+        <script src="${asset "shopping.js"}" data-api-port="${toString shopPort}" data-who="Rock" defer></script>
         <script src="${asset "overview.js"}" data-tree="${asset "ygg-live.js"}" data-stats-port="${toString statsPort}" data-eclipse-port="${toString eclipsePort}" data-net-port="${toString netPort}" data-bridge-port="${toString bridgePort}" defer></script>
       '';
 
@@ -862,6 +867,30 @@
                 })
                 (tailnet // { css-class = "ygg-widget acc-mint rune-eihwaz"; })
               ];
+            }
+          ];
+        }
+
+        # ══════════════════════════════════════════════════════════════════
+        # Shopping — the list you share with Kit-Kat, and the recipe book
+        # ══════════════════════════════════════════════════════════════════
+        # The SAME two cards as her MarsBar column (shopping.js, from
+        # shopping-list's /events stream on :9558 — see shopping.nix). What
+        # either of you adds, ticks or clears is on the other's screen at
+        # once; her additions carry her name here, yours carry "Rock" there
+        # (data-who on the script tag above). `slim`, like the other
+        # control pages, so a list doesn't stretch across an ultrawide.
+        {
+          name = "Shopping";
+          width = "slim";
+          columns = [
+            {
+              size = "full";
+              widgets = [ (liveCard { id = "sh-list"; title = "Shopping list"; acc = "mint"; rune = "wunjo"; badge = "sh-live"; }) ];
+            }
+            {
+              size = "small";
+              widgets = [ (liveCard { id = "sh-recipes"; title = "Recipes"; acc = "teal"; rune = "berkano"; }) ];
             }
           ];
         }

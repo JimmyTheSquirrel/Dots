@@ -151,7 +151,7 @@
           shelfarr = [ "podman-shelfarr" ];
           flare = [ "flaresolverr" ];
           ha = [ "home-assistant" ];
-          feeds = [ "asgard-stats" "ha-bridge" "network-panel" "eclipse-control" "tailscale-status-proxy" ];
+          feeds = [ "asgard-stats" "ha-bridge" "network-panel" "eclipse-control" "shopping-list" "tailscale-status-proxy" ];
           glance = [ "glance" "glance-marsbar" ];
           tools = [ "ttyd" "podman-filebrowser" ];
           sab = [ "sabnzbd" "sabnzbd-proxy" ];

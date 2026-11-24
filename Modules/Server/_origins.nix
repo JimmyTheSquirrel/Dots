@@ -5,6 +5,7 @@
 #   ha-bridge        :9556  (Modules/Server/home-assistant.nix)  — light toggles
 #   eclipse-control  :9554  (Modules/Server/eclipse.nix)         — TV-box actions
 #   network-panel    :9555  (Modules/Server/network.nix)         — speed-test trigger
+#   shopping-list    :9558  (Modules/Server/shopping.nix)        — the shared list
 #
 # Plain data, imported by path (the "/_" keeps import-tree off it). A function
 # of Asgard's tailnet facts so the IP and MagicDNS name are read from the one
@@ -27,8 +28,8 @@
 # is opened by needs an entry. The MarsBar ones only matter if a MarsBar page is
 # ever made to call a backend directly instead of through its /…-api mounts.
 #
-# ha-bridge reads this from its JSON config; eclipse-control.py and
-# network-panel.py get it as DASH_ORIGINS (comma-separated) from their units.
+# ha-bridge reads this from its JSON config; eclipse-control.py,
+# network-panel.py and shopping-list.py get it as DASH_ORIGINS (comma-separated) from their units.
 # Their built-in default is a copy of this list for running them by hand —
 # the units always pass the real one in.
 { tailnetIp, tailnetFqdn, ... }:

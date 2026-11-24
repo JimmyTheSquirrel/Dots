@@ -1,0 +1,857 @@
+// shopping.js — the shared shopping list and recipe book, on BOTH dashboards.
+//
+// Two cards, painted from shopping-list's /events stream
+// (Resources/Shopping-List/shopping-list.py, :9558):
+//
+//   #sh-list     the list: an add box (a comma adds several — "milk, eggs,
+//                2 onions"), the usuals one tap away, everything grouped by
+//                aisle in the order you walk a supermarket, ticked things
+//                sinking into "In the trolley", ⋯ on a row to fix its name,
+//                quantity or aisle, Undo after anything that removes
+//   #sh-recipes  the recipe book: tap a recipe, untick what you've already
+//                got, "Add 7 to the list"; + New recipe / Edit, one
+//                ingredient a line
+//
+// Loaded from document.head with
+//   <script src="/assets/shopping.js?v=…" data-api-port="9558" data-who="Rock" defer></script>     (admin)
+//   <script src="/assets/shopping.js?v=…" data-api="/shop-api" data-who="Kit-Kat" defer></script>  (MarsBar)
+// data-who is the name stamped on what this dashboard adds; the OTHER
+// dashboard shows it on the row, so each of you can see what the other put on.
+//
+// ── Instant ─────────────────────────────────────────────────────────────────
+// Every tap changes the screen first and asks the server second. The server's
+// state (`srv`) is never edited; what is drawn is srv with the queue of not-
+// yet-confirmed changes replayed on top (`current()`). A snapshot from the
+// stream that predates a change therefore can't undo it on screen, and a
+// change the server refused simply drops out of the queue and the row goes
+// back. Changes are sent one at a time, in order (an add, then ticking that
+// same item, must arrive in that order). If the network is gone — a phone in
+// a supermarket — they wait and are retried with backoff, and the footer says
+// so; the server's writes are idempotent (see its header) so a retry that
+// had in fact arrived does nothing twice.
+//
+// ⚠ Glance replaces HTMLElement.prototype.animate (Claude/marsbar.md →
+// The garden); the row animations call Element.prototype.animate.
+(function () {
+  "use strict";
+  var D = window.Dash;
+  if (!D) return;
+  var esc = D.esc;
+  var me = document.currentScript, cfg = (me && me.dataset) || {};
+  var API = cfg.api || D.api(cfg.apiPort || "9558");
+  var WHO = (cfg.who || "").slice(0, 20);
+  var CALM = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  // ── Aisles, in the order a shop is walked ─────────────────────────────────
+  // The ids are what the server stores (it accepts any [a-z]{1,12}; an id this
+  // file doesn't know is drawn under Other).
+  var AISLES = [
+    ["produce", "🥬", "Fruit & veg"],
+    ["bakery", "🍞", "Bakery"],
+    ["meat", "🥩", "Meat & fish"],
+    ["dairy", "🧀", "Dairy & chilled"],
+    ["pantry", "🥫", "Pantry"],
+    ["frozen", "🧊", "Frozen"],
+    ["snacks", "🍫", "Snacks & treats"],
+    ["drinks", "🥤", "Drinks"],
+    ["household", "🧻", "Household"],
+    ["personal", "🧴", "Health & beauty"],
+    ["pets", "🐾", "Pets"],
+    ["other", "🛒", "Other"]
+  ];
+  var AISLE = {};
+  AISLES.forEach(function (a, i) { AISLE[a[0]] = { i: i, icon: a[1], label: a[2] }; });
+  function aisleOf(cat) { return AISLE[cat] ? cat : "other"; }
+
+  // Which aisle a name belongs in: the aisle it was last filed under (someone
+  // may have moved it — that's remembered on the server), then a phrase, then
+  // the LAST word that means something ("chicken stock" is stock, "frozen
+  // peas" is frozen). Singular forms; plurals are folded before looking up.
+  var WORDS = {
+    produce: "apple banana orange mandarin lemon lime avocado tomato potato onion shallot garlic ginger carrot celery " +
+      "capsicum pepper broccoli broccolini cauliflower cabbage lettuce spinach kale rocket cucumber zucchini eggplant " +
+      "mushroom pumpkin corn bean pea chilli chili coriander cilantro parsley basil mint dill rosemary thyme sage chive " +
+      "leek beetroot radish asparagus berry strawberry blueberry raspberry grape melon watermelon rockmelon pineapple " +
+      "mango kiwi kiwifruit pear peach plum nectarine cherry apricot fig salad fruit veg vegetable veggie sprout choy " +
+      "lemongrass fennel herb snowpea sweetcorn turnip parsnip silverbeet cob",
+    bakery: "bread loaf roll bun wrap tortilla pita naan bagel croissant muffin crumpet baguette sourdough brioche cake " +
+      "scroll donut doughnut focaccia ciabatta",
+    meat: "chicken beef mince pork lamb steak sausage snag bacon ham salami prosciutto turkey fish salmon prawn shrimp " +
+      "barramundi snapper cod fillet thigh breast drumstick wing chorizo meatball schnitzel rib roast duck veal brisket " +
+      "patty kangaroo mussel calamari squid rissole",
+    dairy: "milk cheese butter yoghurt yogurt cream egg feta parmesan parmigiano mozzarella cheddar ricotta haloumi " +
+      "halloumi brie camembert custard margarine tofu hummus dip tzatziki gnocchi",
+    pantry: "rice pasta spaghetti penne fettuccine linguine lasagne macaroni risoni noodle flour sugar oil salt spice cumin " +
+      "paprika turmeric cinnamon oregano nutmeg stock broth sauce passata paste lentil chickpea cereal oat muesli granola " +
+      "honey jam vegemite nutella mayo mayonnaise mustard vinegar ketchup curry cornflour powder yeast vanilla cocoa " +
+      "breadcrumb panko couscous quinoa tuna sardine soup gravy seed sesame tahini salsa seasoning syrup sriracha pickle " +
+      "olive caper peppercorn bicarb",
+    frozen: "icecream gelato pizza dumpling nugget",
+    snacks: "chip crisp chocolate choc lolly lollie biscuit cookie popcorn nut almond cashew peanut cracker bar pretzel " +
+      "licorice tim",
+    drinks: "water juice soda coke cola lemonade beer wine cider coffee tea kombucha cordial softdrink milo",
+    household: "toilet tissue towel detergent dishwashing laundry foil sponge bleach spray cleaner battery bulb candle " +
+      "napkin softener glad",
+    personal: "shampoo conditioner soap toothpaste toothbrush deodorant razor tampon sunscreen moisturiser moisturizer " +
+      "panadol paracetamol ibuprofen nurofen floss vitamin plaster bandaid lotion balm",
+    pets: "cat dog kitty litter pet"
+  };
+  var PHRASES = [
+    ["peanut butter", "pantry"], ["coconut milk", "pantry"], ["coconut cream", "pantry"], ["sour cream", "dairy"],
+    ["cream cheese", "dairy"], ["ice cream", "frozen"], ["baked bean", "pantry"], ["kidney bean", "pantry"],
+    ["black bean", "pantry"], ["butter bean", "pantry"], ["cannellini", "pantry"], ["chopped tomato", "pantry"],
+    ["diced tomato", "pantry"], ["crushed tomato", "pantry"], ["tinned tomato", "pantry"], ["canned tomato", "pantry"],
+    ["tomato paste", "pantry"], ["tomato puree", "pantry"], ["sun dried", "pantry"], ["black pepper", "pantry"],
+    ["white pepper", "pantry"], ["chilli flake", "pantry"], ["chili flake", "pantry"], ["lemon juice", "pantry"],
+    ["lime juice", "pantry"], ["rice paper", "pantry"], ["taco shell", "pantry"], ["stock cube", "pantry"],
+    ["maple syrup", "pantry"], ["puff pastry", "frozen"], ["shortcrust", "frozen"], ["fish finger", "frozen"],
+    ["hash brown", "frozen"], ["hot chip", "frozen"], ["garlic bread", "frozen"], ["frozen", "frozen"],
+    ["toilet paper", "household"], ["paper towel", "household"], ["baking paper", "household"],
+    ["cling wrap", "household"], ["glad wrap", "household"], ["bin bag", "household"], ["bin liner", "household"],
+    ["tin foil", "household"], ["dishwasher", "household"], ["washing up", "household"],
+    ["washing powder", "household"], ["hand wash", "personal"], ["body wash", "personal"], ["face wash", "personal"],
+    ["cotton bud", "personal"], ["energy drink", "drinks"], ["soft drink", "drinks"], ["sparkling water", "drinks"],
+    ["spring onion", "produce"], ["cat food", "pets"], ["dog food", "pets"]
+  ];
+  // The same as the server's key(): case, spacing and a plural ending don't
+  // make a different thing. ⚠ Keep in step with shopping-list.py.
+  function key(name) {
+    var k = String(name || "").toLowerCase().replace(/\s+/g, " ").replace(/^[ .,;:!-]+|[ .,;:!-]+$/g, "");
+    if (k.length > 4 && /ies$/.test(k)) return k.slice(0, -3) + "y";
+    if (k.length > 4 && /oes$/.test(k)) return k.slice(0, -2);
+    if (k.length > 3 && /s$/.test(k) && !/(ss|us|is)$/.test(k)) return k.slice(0, -1);
+    return k;
+  }
+  var KW = {};
+  Object.keys(WORDS).forEach(function (cat) { WORDS[cat].split(" ").forEach(function (w) { if (w) KW[key(w)] = cat; }); });
+
+  var hist = {}; // key → { name, cat, n, at }, from the latest snapshot
+  function categorise(name) {
+    var k = key(name), h = hist[k];
+    if (h && h.cat && h.cat !== "other") return h.cat;
+    var padded = " " + k + " ";
+    for (var i = 0; i < PHRASES.length; i++) if (padded.indexOf(" " + PHRASES[i][0]) >= 0) return PHRASES[i][1];
+    var words = k.split(/[^a-z]+/).filter(Boolean);
+    for (var j = words.length - 1; j >= 0; j--) { var c = KW[key(words[j])]; if (c) return c; }
+    return "other";
+  }
+
+  // ── "500g beef mince", "2 onions", "milk x2", "eggs (dozen)", "Milk 2L" ───
+  var UNIT = "kg|g|gm|grams?|mg|l|ml|litres?|liters?|lbs?|oz|tins?|cans?|cups?|tbsp|tsp|tablespoons?|teaspoons?|packs?|" +
+    "packets?|pkts?|bunch(?:es)?|cloves?|heads?|bags?|bottles?|jars?|loaf|loaves|slices?|dozen|doz|pieces?|pcs|rolls?|" +
+    "sticks?|sprigs?|handfuls?|pinch(?:es)?|punnets?|fillets?|cartons?|box(?:es)?|blocks?|sachets?|stalks?|tubs?|cobs?|" +
+    "rashers?|sheets?";
+  // A fraction first: tried after a plain number, "1/2" would stop at the "1".
+  var NUM = "(?:\\d+\\/\\d+|\\d+(?:[.,]\\d+)?|[½¼¾⅓⅔])(?:\\s*(?:-|–|to)\\s*\\d+(?:[.,]\\d+)?)?";
+  // The (?![a-z]) belongs to the unit: "4 grapes" is not 4 g of rapes. Outside
+  // the group it would also veto "2 bananas" (no unit) and send it to the name.
+  var LEAD = new RegExp("^(" + NUM + ")(\\s*)(?:(" + UNIT + ")(?![a-z]))?\\.?\\s*(?:x\\s+)?(?:of\\s+)?(.+)$", "i");
+  var TRAIL = new RegExp("^(.+?)\\s*(?:[x×]\\s*(\\d+)|\\(([^()]{1,20})\\)|\\s(\\d+(?:[.,]\\d+)?\\s*(?:" + UNIT + ")))$", "i");
+  function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function parse(line) {
+    line = String(line || "").replace(/^[\s•*·–-]+/, "").replace(/\s+/g, " ").trim();
+    if (!line) return null;
+    var qty = "", name = line, m = LEAD.exec(line);
+    // "7up": a number glued to a word that isn't a unit is part of the name.
+    if (m && (m[2] || m[3])) { qty = m[1] + (m[3] ? m[2].replace(/\s+/g, " ") + m[3] : ""); name = m[4]; }
+    else if ((m = TRAIL.exec(line))) { name = m[1]; qty = m[2] || m[3] || m[4] || ""; }
+    name = name.replace(/^[\s,;:-]+|[\s,;:-]+$/g, "");
+    if (!name) return null;
+    return { name: cap(name).slice(0, 80), qty: qty.slice(0, 24) };
+  }
+  // The add box takes several at once: "milk, eggs, 2 onions".
+  function parseMany(text) { return String(text || "").split(/[,;\n]/).map(parse).filter(Boolean); }
+
+  // ── ids (the server accepts [a-z0-9]{6,16}; ours are 10) ─────────────────
+  function rid() {
+    var a = new Uint8Array(8), s = "";
+    (window.crypto || window.msCrypto).getRandomValues(a);
+    for (var i = 0; i < 8; i++) s += (a[i] % 36).toString(36);
+    return s + ("0" + (Date.now() % 1296).toString(36)).slice(-2);
+  }
+  function now() { return Math.floor(Date.now() / 1000); }
+  function byId(s, id) { for (var i = 0; i < s.items.length; i++) if (s.items[i].id === id) return s.items[i]; return null; }
+  function onList(s, name) {
+    var k = key(name);
+    for (var i = 0; i < s.items.length; i++) if (!s.items[i].done && key(s.items[i].name) === k) return s.items[i];
+    return null;
+  }
+
+  // ── state: the server's, plus our unconfirmed changes on top ─────────────
+  var srv = null, queue = [], busy = false, retryT = null, backoff = 1000, offline = false, queued = false;
+  var ui = { edit: null, cook: null, off: {}, rEdit: null, rArm: 0, clearArm: 0, typed: "", find: "", got: true };
+  try { ui.got = localStorage.getItem("sh-got") !== "closed"; } catch (_) {}
+
+  function take(s) {
+    if (!s || !s.items) return;
+    if (srv && s.sid === srv.sid && s.v < srv.v) return; // older than what we have
+    srv = s;
+    hist = {};
+    (s.history || []).forEach(function (h) { hist[key(h[0])] = { name: h[0], cat: h[1], n: h[2], at: h[3] }; });
+    refresh();
+  }
+  function current() {
+    if (!srv) return null;
+    var s = { sid: srv.sid, v: srv.v, recipes: srv.recipes, history: srv.history,
+      items: srv.items.map(function (i) { return Object.assign({}, i); }) };
+    queue.forEach(function (o) { if (o.apply) { try { o.apply(s); } catch (_) { /* a stale change: skip it */ } } });
+    return s;
+  }
+
+  function send(path, body, apply, done) {
+    queue.push({ path: path, body: body, apply: apply, done: done });
+    refresh();
+    pump();
+  }
+  function pump() {
+    if (busy || retryT || !queue.length) return;
+    busy = true;
+    var o = queue[0];
+    fetch(API + "/" + o.path, {
+      method: "POST",
+      headers: { "X-Dash": "1", "Content-Type": "application/json" },
+      body: JSON.stringify(o.body)
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { j._status = r.status; return j; });
+    }).then(function (j) {
+      busy = false;
+      // 5xx: the server (or the serve proxy in front of it) is down or
+      // restarting — the change is still wanted, so it waits.
+      if (j._status >= 500) { later(); return; }
+      queue.shift();
+      offline = false; backoff = 1000;
+      if (j.state) take(j.state);
+      if (!j.ok) say(j.error || "That didn't work", { bad: true });
+      if (o.done) o.done(j);
+      refresh();
+      pump();
+    }, function () { busy = false; later(); });
+  }
+  function later() {
+    offline = true;
+    refresh();
+    retryT = setTimeout(function () { retryT = null; pump(); }, backoff);
+    backoff = Math.min(backoff * 2, 15000);
+  }
+  function kick() { if (retryT) { clearTimeout(retryT); retryT = null; } pump(); }
+  window.addEventListener("online", kick);
+
+  // ── the changes ──────────────────────────────────────────────────────────
+  function addItems(entries, extra) {
+    extra = extra || {};
+    var t = now();
+    entries = entries.map(function (e) {
+      return { id: rid(), name: e.name, qty: e.qty || "", cat: e.cat || categorise(e.name), from: extra.from || "" };
+    });
+    var s = current(), fresh = [], dup = [];
+    entries.forEach(function (e) { var on = onList(s, e.name); if (on) dup.push(on.id); else fresh.push(e.id); });
+    var body = { items: entries, by: WHO };
+    if (extra.recipe) body.recipe = extra.recipe;
+    send("items/add", body, function (st) {
+      entries.forEach(function (e) {
+        if (byId(st, e.id) || onList(st, e.name)) return; // there already: the server merges the quantity
+        var k = key(e.name);
+        for (var i = 0; i < st.items.length; i++) {
+          var it = st.items[i];
+          if (it.done && key(it.name) === k) { it.done = false; it.qty = e.qty; delete it.doneAt; return; }
+        }
+        st.items.push({ id: e.id, name: e.name, qty: e.qty, cat: e.cat, done: false, at: t, from: e.from, by: WHO });
+      });
+    }, function (j) { flash(j.merged); });
+    flash(dup);
+    return { fresh: fresh, dup: dup };
+  }
+  function toggle(id, done) {
+    send("items/toggle", { id: id, done: done }, function (st) {
+      var it = byId(st, id);
+      if (it) { it.done = done; if (done) it.doneAt = now(); else delete it.doneAt; }
+    });
+  }
+  function edit(id, changes) {
+    var body = Object.assign({ id: id }, changes);
+    send("items/edit", body, function (st) { var it = byId(st, id); if (it) Object.assign(it, changes); });
+  }
+  function restore(items) {
+    send("items/restore", { items: items }, function (st) {
+      items.forEach(function (it) { if (!byId(st, it.id)) st.items.push(Object.assign({}, it)); });
+    });
+  }
+  function remove(ids, label) {
+    var s = current(), gone = s.items.filter(function (it) { return ids.indexOf(it.id) >= 0; });
+    if (!gone.length) return;
+    send("items/remove", { ids: ids }, function (st) {
+      st.items = st.items.filter(function (it) { return ids.indexOf(it.id) < 0; });
+    });
+    say(label || (gone.length === 1 ? "Removed " + gone[0].name : "Removed " + gone.length + " items"),
+      { undo: function () { restore(gone); } });
+  }
+  function clear(which) {
+    var s = current(), gone = s.items.filter(function (it) { return which === "all" || it.done; });
+    if (!gone.length) return;
+    send("items/clear", { which: which }, function (st) {
+      st.items = st.items.filter(function (it) { return !(which === "all" || it.done); });
+    });
+    say(which === "all" ? "Cleared the list" : "Cleared " + gone.length + " from the trolley",
+      { undo: function () { restore(gone); } });
+  }
+  function saveRecipe(rec, done) {
+    send("recipes/save", rec, function (st) {
+      st.recipes = st.recipes.filter(function (r) { return r.id !== rec.id; })
+        .concat([Object.assign({ used: 0 }, rec)])
+        .sort(function (a, b) { return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1; });
+    }, done);
+  }
+  function deleteRecipe(rec) {
+    send("recipes/delete", { id: rec.id }, function (st) {
+      st.recipes = st.recipes.filter(function (r) { return r.id !== rec.id; });
+    });
+    say("Deleted " + rec.name, { undo: function () { saveRecipe(rec); } });
+  }
+
+  // ── icons ────────────────────────────────────────────────────────────────
+  function svg(d, cls) {
+    return '<svg class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+  }
+  var I = {
+    plus: svg('<path d="M12 5v14M5 12h14"/>'),
+    dots: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    x: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+    chev: svg('<path d="M6 9l6 6 6-6"/>', "sh-chev"),
+    cloud: svg('<path d="M7 18a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.4 1.6A3.8 3.8 0 0 1 17.5 18z"/><path d="M4 4l16 16"/>'),
+    search: svg('<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>')
+  };
+  var EMOJI = ("🍝 🍛 🍜 🍲 🥘 🍳 🥗 🌮 🌯 🍕 🍔 🥪 🍗 🥩 🐟 🍤 🍣 🥟 🍚 🥞 🧇 🥐 🍰 🍪 🥧 🥣 🍎 🥦 🥕 🌶️ 🧀 🥑 🍄 🥔 🍞 🍽️").split(" ");
+
+  // ── drawing: a keyed list, so rows MOVE (and can be animated) ────────────
+  // Dash.paint morphs by position, which is right for cards whose shape
+  // doesn't change; a list whose rows jump sections needs to know which row
+  // is which. Each node is { k, sig, html }: an unchanged sig isn't touched
+  // (so an open editor's inputs keep their text and focus), a changed one is
+  // morphed in place (so the tick's transition runs), and survivors slide to
+  // their new places (FLIP).
+  function build(html) { var t = document.createElement("template"); t.innerHTML = html; return t.content.firstElementChild; }
+  function update(el, html) {
+    var n = build(html), i, a;
+    for (i = 0; i < n.attributes.length; i++) { a = n.attributes[i]; if (el.getAttribute(a.name) !== a.value) el.setAttribute(a.name, a.value); }
+    for (i = el.attributes.length - 1; i >= 0; i--) { a = el.attributes[i].name; if (!n.hasAttribute(a)) el.removeAttribute(a); }
+    D.paint(el, n.innerHTML);
+  }
+  function anim(el, frames, ms) {
+    if (CALM) return;
+    try { Element.prototype.animate.call(el, frames, { duration: ms, easing: "cubic-bezier(.2,.7,.2,1)" }); } catch (_) {}
+  }
+  function keyed(box, nodes, animate) {
+    var have = {}, top = {}, k, el, i;
+    animate = animate && !CALM && box.offsetParent !== null;
+    for (i = 0; i < box.children.length; i++) {
+      el = box.children[i]; k = el.getAttribute("data-k");
+      if (k) { have[k] = el; if (animate) top[k] = el.getBoundingClientRect().top; }
+    }
+    var want = {};
+    nodes.forEach(function (n) { want[n.k] = 1; });
+    // Out first, so nothing that stays has to be moved past them (moving a
+    // node blurs whatever input inside it has focus).
+    Object.keys(have).forEach(function (k2) { if (!want[k2]) { have[k2].remove(); delete have[k2]; } });
+    var prev = null, made = [];
+    nodes.forEach(function (n) {
+      var e = have[n.k];
+      if (!e) { e = build(n.html); made.push(e); } else if (e._sig !== n.sig) update(e, n.html);
+      e._sig = n.sig;
+      var at = prev ? prev.nextSibling : box.firstChild;
+      if (at !== e) box.insertBefore(e, at);
+      prev = e;
+    });
+    if (!animate) return;
+    nodes.forEach(function (n) {
+      var e = have[n.k];
+      if (!e || top[n.k] == null) return;
+      var dy = top[n.k] - e.getBoundingClientRect().top;
+      if (Math.abs(dy) > 1) anim(e, [{ transform: "translateY(" + dy + "px)" }, { transform: "none" }], 320);
+    });
+    made.forEach(function (e) { anim(e, [{ opacity: 0, transform: "translateY(-6px) scale(.98)" }, { opacity: 1, transform: "none" }], 260); });
+  }
+  function flash(ids) {
+    (ids || []).forEach(function (id) {
+      var row = document.querySelector('#sh-list .sh-row[data-id="' + id + '"]');
+      if (!row) return;
+      row.classList.remove("flash");
+      void row.offsetWidth;
+      row.classList.add("flash");
+      setTimeout(function () { row.classList.remove("flash"); }, 1200);
+    });
+  }
+
+  // ── the list card ────────────────────────────────────────────────────────
+  var L = null;
+  function listShell() {
+    var host = D.$("sh-list");
+    if (!host) return null;
+    if (L && host.contains(L.root)) return L;
+    host.innerHTML =
+      '<div class="sh">' +
+        '<form class="sh-add" autocomplete="off" data-sh-add>' +
+          '<input class="sh-in" type="text" maxlength="300" placeholder="Add to the list… (milk, eggs, 2 onions)" ' +
+            'aria-label="Add to the shopping list" enterkeyhint="done" autocapitalize="sentences">' +
+          '<button class="sh-plus" type="submit" aria-label="Add">' + I.plus + '</button>' +
+        '</form>' +
+        '<div class="sh-chips" data-sh-chips></div>' +
+        '<div class="sh-list" role="list" data-sh-items></div>' +
+        '<div class="sh-foot" data-sh-foot></div>' +
+      '</div>';
+    var root = host.firstElementChild;
+    L = { root: root, form: root.querySelector("[data-sh-add]"), input: root.querySelector(".sh-add .sh-in"),
+      chips: root.querySelector("[data-sh-chips]"), list: root.querySelector("[data-sh-items]"),
+      foot: root.querySelector("[data-sh-foot]"), first: true };
+    L.input.addEventListener("input", function () { ui.typed = L.input.value; refresh(); });
+    L.form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var got = parseMany(L.input.value);
+      if (!got.length) return;
+      var r = addItems(got);
+      if (r.dup.length && !r.fresh.length && got.length === 1 && !got[0].qty) say(got[0].name + " is already on the list");
+      L.input.value = ""; ui.typed = "";
+      refresh();
+      L.input.focus();
+    });
+    return L;
+  }
+
+  var icons = {}; // recipe name → its picture, for the "from" tag on a row
+  function rowNode(it) {
+    var meta = "";
+    if (it.from) meta += '<span class="sh-from">' + esc((icons[it.from.split(",")[0].trim()] || "🍳") + " " + it.from) + '</span>';
+    if (it.by && it.by !== WHO) meta += '<span class="sh-by" title="' + esc("Added by " + it.by) + '">' + esc(it.by) + '</span>';
+    var open = ui.edit === it.id;
+    var html =
+      '<div class="sh-row' + (it.done ? " done" : "") + (open ? " editing" : "") + '" role="listitem" data-k="i:' + it.id + '" data-id="' + it.id + '">' +
+        '<button type="button" class="sh-main" data-sh-tick aria-pressed="' + !!it.done + '" ' +
+          'aria-label="' + esc((it.done ? "Put back: " : "Got it: ") + it.name) + '">' +
+          '<span class="sh-box" aria-hidden="true">' + I.check + '</span>' +
+          '<span class="sh-txt"><span class="sh-name">' + esc(it.name) + '</span>' + (meta ? '<span class="sh-meta">' + meta + '</span>' : '') + '</span>' +
+          (it.qty ? '<span class="sh-qty">' + esc(it.qty) + '</span>' : '') +
+        '</button>' +
+        '<button type="button" class="sh-more" data-sh-edit aria-expanded="' + open + '" aria-label="' + esc("Change " + it.name) + '">' + I.dots + '</button>' +
+      '</div>';
+    return { k: "i:" + it.id, sig: html, html: html };
+  }
+  // The editor is drawn ONCE when opened (its sig never changes), so a change
+  // arriving from the other dashboard can't wipe what is being typed.
+  function editorNode(it) {
+    var chips = AISLES.map(function (a) {
+      return '<button type="button" class="sh-ais' + (aisleOf(it.cat) === a[0] ? " on" : "") + '" data-sh-cat="' + a[0] + '">' +
+        '<span aria-hidden="true">' + a[1] + '</span>' + esc(a[2]) + '</button>';
+    }).join("");
+    var html =
+      '<div class="sh-ed" data-k="e:' + it.id + '" data-id="' + it.id + '">' +
+        '<div class="sh-ed-row">' +
+          '<label class="sh-f"><span>Item</span><input class="sh-in" data-f="name" maxlength="80" value="' + esc(it.name) + '"></label>' +
+          '<label class="sh-f sh-f-q"><span>How many</span><input class="sh-in" data-f="qty" maxlength="24" placeholder="2, 500g…" value="' + esc(it.qty || "") + '"></label>' +
+        '</div>' +
+        '<div class="sh-f"><span>Aisle</span><div class="sh-aisles">' + chips + '</div></div>' +
+        '<div class="sh-act">' +
+          '<button type="button" class="sh-btn ghost bad" data-sh-del>Remove</button>' +
+          '<button type="button" class="sh-btn go" data-sh-save>Done</button>' +
+        '</div>' +
+      '</div>';
+    return { k: "e:" + it.id, sig: "e", html: html };
+  }
+  function headNode(cat, n) {
+    var a = AISLE[cat];
+    var html = '<div class="sh-sec" data-k="h:' + cat + '"><span class="sh-sec-i" aria-hidden="true">' + a.icon + '</span>' +
+      esc(a.label) + '<b>' + n + '</b></div>';
+    return { k: "h:" + cat, sig: html, html: html };
+  }
+
+  function drawList(s) {
+    var C = listShell();
+    if (!C) return;
+    icons = {};
+    s.recipes.forEach(function (r) { icons[r.name] = r.icon || "🍽️"; });
+    var todo = s.items.filter(function (i) { return !i.done; });
+    var got = s.items.filter(function (i) { return i.done; });
+    var nodes = [], groups = {};
+    if (!s.items.length) {
+      nodes.push({ k: "empty", sig: "1", html: '<div class="sh-empty" data-k="empty"><span aria-hidden="true">🧺</span>' +
+        '<b>Nothing on the list</b>Add something above, or pick a recipe and add everything it needs.</div>' });
+    } else if (!todo.length) {
+      nodes.push({ k: "alldone", sig: "1", html: '<div class="sh-empty done" data-k="alldone"><span aria-hidden="true">🎉</span>' +
+        '<b>Got everything</b>Clear the trolley when you\'re home.</div>' });
+    }
+    todo.forEach(function (it) { (groups[aisleOf(it.cat)] = groups[aisleOf(it.cat)] || []).push(it); });
+    AISLES.forEach(function (a) {
+      var g = groups[a[0]];
+      if (!g) return;
+      g.sort(function (x, y) { return (x.at - y.at) || (x.id < y.id ? -1 : 1); });
+      nodes.push(headNode(a[0], g.length));
+      g.forEach(function (it) { nodes.push(rowNode(it)); if (ui.edit === it.id) nodes.push(editorNode(it)); });
+    });
+    if (got.length) {
+      var gh = '<div class="sh-sec sh-got' + (ui.got ? " open" : "") + '" data-k="h:got">' +
+        '<button type="button" class="sh-got-t" data-sh-got aria-expanded="' + ui.got + '">' +
+          '<span class="sh-sec-i" aria-hidden="true">✓</span>In the trolley<b>' + got.length + '</b>' + I.chev + '</button>' +
+        '<button type="button" class="sh-btn ghost sm" data-sh-clear>Clear</button></div>';
+      nodes.push({ k: "h:got", sig: gh, html: gh });
+      if (ui.got) {
+        got.sort(function (x, y) { return (y.doneAt || 0) - (x.doneAt || 0) || (x.id < y.id ? -1 : 1); });
+        got.forEach(function (it) { nodes.push(rowNode(it)); if (ui.edit === it.id) nodes.push(editorNode(it)); });
+      }
+    }
+    if (ui.edit && !byId(s, ui.edit)) ui.edit = null; // removed from the other dashboard
+    keyed(C.list, nodes, !C.first);
+    C.first = false;
+
+    D.paint(C.chips, chipsHtml(s));
+
+    var waiting = queue.length;
+    var armed = Date.now() - ui.clearArm < 3000;
+    D.paint(C.foot,
+      (offline && waiting
+        ? '<span class="sh-sync">' + I.cloud + 'Offline — ' + waiting + ' change' + (waiting === 1 ? "" : "s") + ' waiting, sent when you\'re back</span>'
+        : '<span class="sh-count">' + (todo.length ? '<b>' + todo.length + '</b> to get' : 'Nothing to get') +
+            (got.length ? ' · <b>' + got.length + '</b> in the trolley' : '') + '</span>') +
+      (s.items.length ? '<button type="button" class="sh-btn ghost sm bad' + (armed ? " armed" : "") + '" data-sh-clearall>' +
+        (armed ? "Tap again to clear" : "Clear list") + '</button>' : ''));
+  }
+
+  // The usuals (bought at least twice, not on the list), or — while typing —
+  // anything bought before that matches.
+  function chipsHtml(s) {
+    var typed = key(ui.typed.split(/[,;]/).pop().replace(/^\s*\d+\S*\s*/, "")), list = [], label;
+    var on = {};
+    s.items.forEach(function (i) { if (!i.done) on[key(i.name)] = 1; });
+    var all = Object.keys(hist).map(function (k) { return hist[k]; }).filter(function (h) { return !on[key(h.name)]; });
+    if (typed) {
+      label = "Bought before";
+      list = all.filter(function (h) { return key(h.name).indexOf(typed) >= 0 && key(h.name) !== typed; })
+        .sort(function (a, b) { return (key(b.name).indexOf(typed) === 0) - (key(a.name).indexOf(typed) === 0) || b.n - a.n; });
+    } else {
+      label = "Usuals";
+      list = all.filter(function (h) { return h.n >= 2; }).sort(function (a, b) { return b.n - a.n || b.at - a.at; });
+    }
+    list = list.slice(0, typed ? 6 : 10);
+    if (!list.length) return "";
+    return '<span class="sh-chips-h">' + label + '</span>' + list.map(function (h) {
+      return '<button type="button" class="sh-chip" data-sh-quick="' + esc(h.name) + '">' + I.plus + esc(h.name) + '</button>';
+    }).join("");
+  }
+
+  // ── the recipe card ──────────────────────────────────────────────────────
+  var R = null;
+  function recipeShell() {
+    var host = D.$("sh-recipes");
+    if (!host) return null;
+    if (R && host.contains(R.root)) return R;
+    host.innerHTML =
+      '<div class="shr">' +
+        '<div class="shr-bar">' +
+          '<label class="shr-find">' + I.search + '<input class="sh-in" type="search" placeholder="Find a recipe…" aria-label="Find a recipe"></label>' +
+          '<button type="button" class="sh-btn" data-shr-new>' + I.plus + 'New recipe</button>' +
+        '</div>' +
+        '<div class="shr-panel" data-shr-panel></div>' +
+        '<div class="shr-grid" data-shr-grid></div>' +
+      '</div>';
+    var root = host.firstElementChild;
+    R = { root: root, bar: root.querySelector(".shr-bar"), find: root.querySelector(".shr-find input"),
+      panel: root.querySelector("[data-shr-panel]"), grid: root.querySelector("[data-shr-grid]"), mode: null };
+    R.find.addEventListener("input", function () { ui.find = R.find.value; refresh(); });
+    return R;
+  }
+  function recipe(s, id) { for (var i = 0; i < s.recipes.length; i++) if (s.recipes[i].id === id) return s.recipes[i]; return null; }
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+  function drawRecipes(s) {
+    var C = recipeShell();
+    if (!C) return;
+    var q = key(ui.find), rs = s.recipes;
+    C.bar.classList.toggle("many", rs.length > 6);
+    var shown = q ? rs.filter(function (r) {
+      return key(r.name).indexOf(q) >= 0 || r.ingredients.some(function (g) { return key(g.name).indexOf(q) >= 0; });
+    }) : rs;
+    D.paint(C.grid, !rs.length
+      ? '<div class="sh-empty"><span aria-hidden="true">📖</span><b>No recipes yet</b>Add the meals you cook most — then one tap puts everything they need on the list.</div>'
+      : !shown.length ? '<div class="shr-none">Nothing matches “' + esc(ui.find) + '”.</div>'
+      : shown.map(function (r) {
+        var need = r.ingredients.filter(function (g) { return !onList(s, g.name); }).length;
+        return '<button type="button" class="shr-tile' + (ui.cook === r.id || ui.rEdit === r.id ? " on" : "") + '" data-shr-open="' + r.id + '">' +
+          '<span class="shr-ico" aria-hidden="true">' + esc(r.icon || "🍽️") + '</span>' +
+          '<span class="shr-tile-t"><b>' + esc(r.name) + '</b><small>' + plural(r.ingredients.length, "ingredient", "ingredients") +
+            (need < r.ingredients.length ? ' · ' + (need ? need + " to get" : "all on the list") : '') + '</small></span></button>';
+      }).join(""));
+
+    if (ui.rEdit !== null) {
+      if (C.mode !== "edit:" + ui.rEdit) { C.panel.innerHTML = editorHtml(ui.rEdit === "new" ? null : recipe(s, ui.rEdit)); C.mode = "edit:" + ui.rEdit; }
+      var del = C.panel.querySelector("[data-shr-del]");
+      if (del) { var armed = Date.now() - ui.rArm < 3000; del.classList.toggle("armed", armed); del.textContent = armed ? "Tap again to delete" : "Delete"; }
+    } else if (ui.cook) {
+      var r = recipe(s, ui.cook);
+      if (!r) { ui.cook = null; C.panel.innerHTML = ""; C.mode = null; return; }
+      if (C.mode !== "cook") { C.panel.innerHTML = ""; C.mode = "cook"; }
+      D.paint(C.panel, cookHtml(s, r));
+    } else if (C.mode) {
+      C.panel.innerHTML = ""; C.mode = null;
+    }
+  }
+
+  function cookHtml(s, r) {
+    var n = 0;
+    var rows = r.ingredients.map(function (g, i) {
+      var on = !ui.off[i], have = onList(s, g.name);
+      if (on) n++;
+      return '<button type="button" class="shr-ing' + (on ? " on" : "") + (have ? " have" : "") + '" data-shr-ing="' + i + '" aria-pressed="' + on + '">' +
+        '<span class="sh-box" aria-hidden="true">' + I.check + '</span>' +
+        '<span class="shr-ing-n">' + esc(g.name) + (have ? '<em>on the list</em>' : '') + '</span>' +
+        (g.qty ? '<span class="sh-qty">' + esc(g.qty) + '</span>' : '') + '</button>';
+    }).join("");
+    return '<div class="shr-cook">' +
+      '<div class="shr-head"><span class="shr-ico lg" aria-hidden="true">' + esc(r.icon || "🍽️") + '</span>' +
+        '<span class="shr-head-t"><b>' + esc(r.name) + '</b><small>' + plural(r.ingredients.length, "ingredient", "ingredients") +
+          (r.used ? ' · on the list ' + plural(r.used, "time", "times") + ' before' : '') + '</small></span>' +
+        '<button type="button" class="sh-x" data-shr-close aria-label="Close">' + I.x + '</button></div>' +
+      '<div class="shr-hint">Untick anything you\'ve already got.</div>' +
+      '<div class="shr-ings">' + rows + '</div>' +
+      (r.note ? '<div class="shr-note">' + esc(r.note) + '</div>' : '') +
+      '<div class="sh-act">' +
+        '<button type="button" class="sh-btn ghost" data-shr-edit>Edit</button>' +
+        '<button type="button" class="sh-btn ghost" data-shr-all>' + (n === r.ingredients.length ? "None" : "All") + '</button>' +
+        '<button type="button" class="sh-btn go" data-shr-add' + (n ? "" : " disabled") + '>' +
+          (n ? "Add " + n + " to the list" : "Nothing to add") + '</button>' +
+      '</div></div>';
+  }
+
+  function editorHtml(r) {
+    var icon = (r && r.icon) || "🍝";
+    var lines = r ? r.ingredients.map(function (g) { return (g.qty ? g.qty + " " : "") + g.name; }).join("\n") : "";
+    return '<form class="shr-ed" data-shr-form autocomplete="off">' +
+      '<div class="shr-head"><span class="shr-head-t"><b>' + (r ? "Edit recipe" : "New recipe") + '</b>' +
+        '<small>One ingredient a line — “500g beef mince”, “2 onions”, “garlic”.</small></span>' +
+        '<button type="button" class="sh-x" data-shr-close aria-label="Close">' + I.x + '</button></div>' +
+      '<div class="shr-name">' +
+        '<button type="button" class="shr-ico lg shr-pick" data-shr-icon aria-label="Pick a picture" aria-expanded="false">' + esc(icon) + '</button>' +
+        '<input class="sh-in" name="name" maxlength="80" placeholder="What\'s it called?" aria-label="Recipe name" value="' + esc(r ? r.name : "") + '">' +
+      '</div>' +
+      '<div class="shr-emoji" hidden>' + EMOJI.map(function (e) {
+        return '<button type="button" data-shr-emoji="' + e + '"' + (e === icon ? ' class="on"' : '') + '>' + e + '</button>';
+      }).join("") + '</div>' +
+      '<label class="sh-f"><span>Ingredients</span><textarea class="sh-in" name="ings" rows="8" placeholder="500g beef mince&#10;1 onion&#10;2 cloves garlic&#10;1 tin chopped tomatoes&#10;Spaghetti">' + esc(lines) + '</textarea></label>' +
+      '<label class="sh-f"><span>Notes <small>optional</small></span><textarea class="sh-in" name="note" rows="2" maxlength="600" placeholder="Serves 4 · double it for leftovers">' + esc(r ? r.note || "" : "") + '</textarea></label>' +
+      '<div class="shr-err" hidden></div>' +
+      '<div class="sh-act">' +
+        (r ? '<button type="button" class="sh-btn ghost bad" data-shr-del>Delete</button>' : '') +
+        '<button type="button" class="sh-btn ghost" data-shr-close>Cancel</button>' +
+        '<button type="submit" class="sh-btn go">' + (r ? "Save" : "Save recipe") + '</button>' +
+      '</div></form>';
+  }
+
+  function openCook(id) {
+    var s = current();
+    var r = recipe(s, id);
+    if (!r) return;
+    ui.rEdit = null; ui.cook = id; ui.off = {};
+    r.ingredients.forEach(function (g, i) { if (onList(s, g.name)) ui.off[i] = true; });
+    render();
+    reveal();
+  }
+  function openEditor(id) { ui.cook = null; ui.rEdit = id; ui.rArm = 0; render(); reveal(); var n = R && R.panel.querySelector('input[name="name"]'); if (n && id === "new") n.focus(); }
+  function closePanel() { ui.cook = null; ui.rEdit = null; ui.rArm = 0; refresh(); }
+  function reveal() {
+    if (!R || !R.panel.firstElementChild) return;
+    var r = R.panel.getBoundingClientRect();
+    if (r.top < 70 || r.top > innerHeight - 120) R.panel.scrollIntoView({ behavior: CALM ? "auto" : "smooth", block: "start" });
+  }
+  function submitRecipe(form) {
+    var s = current(), editing = ui.rEdit !== "new" ? recipe(s, ui.rEdit) : null;
+    var name = form.querySelector('[name="name"]').value.replace(/\s+/g, " ").trim();
+    var ings = String(form.querySelector('[name="ings"]').value).split("\n").map(parse).filter(Boolean)
+      .map(function (g) { return { name: g.name, qty: g.qty, cat: categorise(g.name) }; });
+    var err = form.querySelector(".shr-err");
+    if (!name || !ings.length) {
+      err.textContent = !name ? "Give it a name." : "Add at least one ingredient.";
+      err.hidden = false;
+      (!name ? form.querySelector('[name="name"]') : form.querySelector('[name="ings"]')).focus();
+      return;
+    }
+    var rec = { id: editing ? editing.id : rid(), name: cap(name), icon: form.querySelector("[data-shr-icon]").textContent,
+      ingredients: ings, note: form.querySelector('[name="note"]').value.trim() };
+    if (editing) { rec.used = editing.used; }
+    saveRecipe(rec);
+    ui.rEdit = null;
+    ui.cook = rec.id; ui.off = {};
+    rec.ingredients.forEach(function (g, i) { if (onList(s, g.name)) ui.off[i] = true; });
+    say(editing ? "Saved " + rec.name : "Added " + rec.name + " to your recipes");
+    render();
+  }
+
+  // ── the toast (one at a time, with Undo when there is something to undo) ─
+  var toast = null, toastT = null, undoFn = null;
+  function say(msg, o) {
+    o = o || {};
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.className = "sh-toast";
+      toast.setAttribute("role", "status");
+      document.body.appendChild(toast); // not in a card: a backdrop-filter there would trap position:fixed
+      toast.addEventListener("click", function (e) {
+        if (e.target.closest("[data-sh-undo]") && undoFn) { var f = undoFn; undoFn = null; f(); hide(); }
+      });
+    }
+    undoFn = o.undo || null;
+    toast.className = "sh-toast" + (o.bad ? " bad" : "");
+    toast.innerHTML = '<span>' + esc(msg) + '</span>' + (undoFn ? '<button type="button" data-sh-undo>Undo</button>' : '');
+    // Above Glance's phone bar when it is showing.
+    var nav = document.querySelector(".mobile-navigation");
+    var lift = nav && getComputedStyle(nav).display !== "none" ? nav.getBoundingClientRect().height : 0;
+    toast.style.bottom = Math.round(lift + 18) + "px";
+    toast.classList.add("show");
+    clearTimeout(toastT);
+    toastT = setTimeout(hide, undoFn ? 6500 : o.bad ? 6000 : 3000);
+  }
+  function hide() { clearTimeout(toastT); if (toast) toast.classList.remove("show"); undoFn = null; }
+
+  // ── input ────────────────────────────────────────────────────────────────
+  function buzz() { try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {} }
+  function closeEdit(save) {
+    var id = ui.edit;
+    if (!id) return;
+    var ed = document.querySelector('#sh-list .sh-ed[data-id="' + id + '"]'), it = byId(current(), id);
+    if (save && ed && it) {
+      var name = ed.querySelector('[data-f="name"]').value.replace(/\s+/g, " ").trim();
+      var qty = ed.querySelector('[data-f="qty"]').value.replace(/\s+/g, " ").trim();
+      var ch = {};
+      if (name && name !== it.name) ch.name = name;
+      if (qty !== (it.qty || "")) ch.qty = qty;
+      if (Object.keys(ch).length) edit(id, ch);
+    }
+    ui.edit = null;
+    refresh();
+  }
+
+  function onClick(e) {
+    var t = e.target, el;
+    if (!t.closest) return;
+    if (t.closest("#sh-list")) {
+      var row = t.closest("[data-id]"), id = row && row.getAttribute("data-id");
+      if ((el = t.closest("[data-sh-tick]")) && id) {
+        var it = byId(current(), id);
+        if (it) { toggle(id, !it.done); if (!it.done) buzz(); }
+      } else if (t.closest("[data-sh-edit]") && id) {
+        if (ui.edit === id) closeEdit(true);
+        else { closeEdit(true); ui.edit = id; render(); var f = document.querySelector('#sh-list .sh-ed[data-id="' + id + '"] [data-f="name"]'); if (f && matchMedia("(hover: hover)").matches) f.focus(); }
+      } else if ((el = t.closest("[data-sh-cat]")) && id) {
+        var cat = el.getAttribute("data-sh-cat");
+        el.parentNode.querySelectorAll(".sh-ais").forEach(function (b) { b.classList.toggle("on", b === el); });
+        edit(id, { cat: cat });
+      } else if (t.closest("[data-sh-save]")) {
+        closeEdit(true);
+      } else if (t.closest("[data-sh-del]") && id) {
+        ui.edit = null;
+        remove([id]);
+      } else if ((el = t.closest("[data-sh-quick]"))) {
+        addItems([{ name: el.getAttribute("data-sh-quick") }]);
+        if (ui.typed && L) { var parts = L.input.value.split(/[,;]/); parts.pop(); L.input.value = parts.length ? parts.join(",") + ", " : ""; ui.typed = L.input.value; L.input.focus(); }
+        buzz();
+      } else if (t.closest("[data-sh-got]")) {
+        ui.got = !ui.got;
+        try { localStorage.setItem("sh-got", ui.got ? "open" : "closed"); } catch (_) {}
+        refresh();
+      } else if (t.closest("[data-sh-clear]")) {
+        clear("done");
+      } else if (t.closest("[data-sh-clearall]")) {
+        if (Date.now() - ui.clearArm < 3000) { ui.clearArm = 0; clear("all"); }
+        else { ui.clearArm = Date.now(); setTimeout(refresh, 3050); }
+        refresh();
+      }
+      return;
+    }
+    if (t.closest("#sh-recipes")) {
+      if ((el = t.closest("[data-shr-open]"))) {
+        var rid2 = el.getAttribute("data-shr-open");
+        if (ui.cook === rid2) closePanel(); else openCook(rid2);
+      } else if (t.closest("[data-shr-new]")) {
+        openEditor("new");
+      } else if (t.closest("[data-shr-close]")) {
+        closePanel();
+      } else if ((el = t.closest("[data-shr-ing]"))) {
+        var i = +el.getAttribute("data-shr-ing");
+        if (ui.off[i]) delete ui.off[i]; else ui.off[i] = true;
+        render();
+      } else if (t.closest("[data-shr-all]")) {
+        var r = recipe(current(), ui.cook);
+        if (r) {
+          var allOn = r.ingredients.every(function (g, j) { return !ui.off[j]; });
+          ui.off = {};
+          if (allOn) r.ingredients.forEach(function (g, j) { ui.off[j] = true; });
+        }
+        render();
+      } else if (t.closest("[data-shr-add]")) {
+        var rr = recipe(current(), ui.cook);
+        if (!rr) return;
+        var pick = rr.ingredients.filter(function (g, j) { return !ui.off[j]; });
+        if (!pick.length) return;
+        var res = addItems(pick.map(function (g) { return { name: cap(g.name), qty: g.qty, cat: g.cat && g.cat !== "other" ? g.cat : undefined }; }),
+          { from: rr.name, recipe: rr.id });
+        var fresh = res.fresh;
+        say("Added " + plural(pick.length, "thing", "things") + " for " + rr.name,
+          fresh.length ? { undo: function () { remove(fresh, "Took them back off"); } } : {});
+        buzz();
+        closePanel();
+      } else if (t.closest("[data-shr-edit]")) {
+        openEditor(ui.cook);
+      } else if ((el = t.closest("[data-shr-icon]"))) {
+        var box = R.panel.querySelector(".shr-emoji");
+        box.hidden = !box.hidden;
+        el.setAttribute("aria-expanded", String(!box.hidden));
+      } else if ((el = t.closest("[data-shr-emoji]"))) {
+        var pickB = R.panel.querySelector("[data-shr-icon]");
+        pickB.textContent = el.getAttribute("data-shr-emoji");
+        el.parentNode.querySelectorAll("button").forEach(function (b) { b.classList.toggle("on", b === el); });
+        el.parentNode.hidden = true;
+        pickB.setAttribute("aria-expanded", "false");
+      } else if (t.closest("[data-shr-del]")) {
+        var victim = recipe(current(), ui.rEdit);
+        if (!victim) return;
+        if (Date.now() - ui.rArm < 3000) { ui.rArm = 0; ui.rEdit = null; deleteRecipe(victim); }
+        else { ui.rArm = Date.now(); setTimeout(refresh, 3050); }
+        refresh();
+      }
+    }
+  }
+  function onKey(e) {
+    var t = e.target;
+    if (!t.closest) return;
+    var ed = t.closest("#sh-list .sh-ed");
+    if (ed) {
+      if (e.key === "Enter") { e.preventDefault(); closeEdit(true); }
+      else if (e.key === "Escape") closeEdit(false);
+      return;
+    }
+    if (e.key === "Escape" && t.closest("#sh-recipes")) closePanel();
+    if (e.key === "Escape" && L && t === L.input) { L.input.value = ""; ui.typed = ""; refresh(); }
+  }
+  function onSubmit(e) {
+    var f = e.target.closest && e.target.closest("[data-shr-form]");
+    if (!f) return;
+    e.preventDefault();
+    submitRecipe(f);
+  }
+
+  // ── go ───────────────────────────────────────────────────────────────────
+  function render() {
+    queued = false;
+    var s = current();
+    if (!s) return;
+    drawList(s);
+    drawRecipes(s);
+  }
+  function refresh() { if (!queued) { queued = true; requestAnimationFrame(render); } }
+
+  D.ready("#sh-list, #sh-recipes", function () {
+    D.stream(API + "/events", { state: function (s) { take(s); kick(); } }, "sh-live");
+    document.addEventListener("click", onClick);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("submit", onSubmit);
+    // rAF doesn't run in a hidden tab; draw what came in while it was hidden.
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) render(); });
+  });
+})();

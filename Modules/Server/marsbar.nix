@@ -15,9 +15,10 @@
   #                                      ├── /             → 127.0.0.1:8890  Glance
   #                                      ├── /ha/*         → 127.0.0.1:9556  ha-bridge
   #                                      ├── /eclipse-api/* → 127.0.0.1:9554  eclipse-control
-  #                                      └── /net-api/*    → 127.0.0.1:9555  network-panel
+  #                                      ├── /net-api/*    → 127.0.0.1:9555  network-panel
+  #                                      └── /shop-api/*   → 127.0.0.1:9558  shopping-list
   #
-  # Only Glance itself binds loopback-only. The other three are shared with the
+  # Only Glance itself binds loopback-only. The other four are shared with the
   # admin dashboard, which calls them directly over Asgard's own tailnet address,
   # so they listen on 0.0.0.0 — kept off the LAN by the firewall (none of their
   # ports is in allowedTCPPorts; only tailscale0 is trusted). Nothing here opens a
@@ -31,6 +32,7 @@
     bridgePort = 9556; # ha-bridge from Modules/Server/home-assistant.nix
     eclipsePort = 9554; # eclipse-control from Modules/Server/eclipse.nix (drives the Pi over SSH)
     netPort = 9555;     # network-panel from Modules/Server/network.nix (Asgard's live throughput)
+    shopPort = 9558;    # shopping-list from Modules/Server/shopping.nix (the list you share)
 
     tsDir = "/run/tailscale-marsbar";
     tsSocket = "${tsDir}/tailscaled.sock";
@@ -59,6 +61,9 @@
       "lights.js" = ../../Resources/Glance/lights.js;
       "eclipse.js" = ../../Resources/Glance/eclipse.js;
       "net.js" = ../../Resources/Glance/net.js;
+      # the shopping list + recipes she shares with rock — the SAME cards as
+      # his Shopping page, one live list between the two dashboards
+      "shopping.js" = ../../Resources/Glance/shopping.js;
       # her colour picker (the "marsbar" profile of Asgard's own picker) and the
       # cats it can put all over the page
       "theme.js" = ../../Resources/Glance/theme.js;
@@ -292,16 +297,22 @@
         <script src="${asset "lights.js"}" data-api="/ha" defer></script>
         <script src="${asset "eclipse.js"}" data-api="/eclipse-api" data-jellyfin="http://asgard:8096" defer></script>
         <script src="${asset "net.js"}" data-api="/net-api" data-readonly defer></script>
+        <script src="${asset "shopping.js"}" data-api="/shop-api" data-who="Kit-Kat" defer></script>
         <script src="${asset "garden.js"}" defer></script>
       '';
 
-      # ONE page, three COLUMNS — Home · Eclipse · Network. On a phone Glance
+      # ONE page, three COLUMNS — Home · Shopping · Eclipse. On a phone Glance
       # shows one column at a time and puts a dot per column in its bottom bar,
       # so she swaps sections with a single tap on a dot. (Separate PAGES —
       # how this was before — live behind the ☰ menu instead: open it, find
       # the page, tap it. She only uses this on her phone.) Opens on the first
       # full column, Home. No `width = "slim"`: slim allows only two columns;
       # on a desktop the three simply sit side by side.
+      #
+      # Three is Glance's limit (and at most two `full`), so Shopping took the
+      # middle dot (a `small` column — marsbar.css widens it a little on a
+      # desktop) and the read-only Network card moved to the foot of the
+      # Eclipse column — its numbers are mostly about the TV anyway.
       pages = [
         {
           name = "MarsBar";
@@ -357,6 +368,16 @@
                 }
               ];
             }
+            # The shopping list and the recipe book — shopping.js through her
+            # /shop-api mount. The same cards as rock's Shopping page; what
+            # either of you does shows on the other's at once.
+            {
+              size = "small";
+              widgets = [
+                (liveCard { id = "sh-list"; title = "Shopping list"; badge = "sh-live"; })
+                (liveCard { id = "sh-recipes"; title = "Recipes"; })
+              ];
+            }
             {
               size = "full";
               widgets = [
@@ -366,11 +387,6 @@
                 (liveCard { id = "ec-ctl"; title = "Controllers"; })
                 (liveCard { id = "ec-net"; title = "Eclipse network"; })
                 (liveCard { id = "ec-log"; title = "Activity"; })
-              ];
-            }
-            {
-              size = "small";
-              widgets = [
                 (liveCard { id = "nw"; title = "Network"; badge = "nw-live"; })
               ];
             }
@@ -491,6 +507,10 @@
         # Live network throughput (Asgard's enp3s0), for the graphs on her Eclipse
         # page. Same `-api` suffix rule as above so it can never shadow a page slug.
         ${ts} serve --bg --http=${toString servePort} --set-path=/net-api http://127.0.0.1:${toString netPort}
+
+        # The shared shopping list + recipes (Modules/Server/shopping.nix): its
+        # /events stream and its writes, on her origin like the others.
+        ${ts} serve --bg --http=${toString servePort} --set-path=/shop-api http://127.0.0.1:${toString shopPort}
 
         # HTTP ONLY — deliberately no HTTPS/443 here.
         #

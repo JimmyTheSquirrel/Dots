@@ -692,3 +692,12 @@ html[data-ha-link="offline"] .mb-mix-rows { filter: saturate(0.35); opacity: 0.7
   .mb-mix-row input[type="range"] { grid-area: s; }
   .mb-mix-row b { grid-area: v; }
 }
+
+/* ── Her Shopping column ──────────────────────────────────────────────────────
+   Glance's small column is a fixed 300px on a desktop (its phone layout,
+   ≤1190px, is full width), and her vine takes 46px of every card — too tight
+   for a list whose names have to be read at a glance. A little wider, there
+   only. */
+@media (min-width: 1191px) {
+  .page-column-small:has(#sh-list) { width: 380px; }
+}

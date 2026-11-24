@@ -17,6 +17,7 @@
   #   network.nix    Tailscale, status proxy, speed test, network panel,
   #                  Cloudflare tunnel
   #   eclipse.nix    Eclipse TV-box control endpoint
+  #   shopping.nix   the shared shopping list + recipes (both dashboards)
   #   glance.nix     the Glance dashboard and its whole config
   #   ttyd.nix       web terminal
   #   _lib.nix       shell helpers (waitForHttp), imported by path
