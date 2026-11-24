@@ -13,11 +13,13 @@ her thumb is off the glass, and the other way round. Plus a recipe book: tap a r
 untick what's already in the cupboard, *Add 7 to the list* — filed by aisle.
 
 **It is ONE card** (`#sh-list`), on purpose — you both just run down it in the shop.
-Top to bottom: the add box, the usuals, **Cupboard staples** and the recipe book — each
-**folded to one bar** (a little stack of pictures, a count, a chevron) — then the list by
-aisle, then In the trolley. The recipe book opens in place (an animated fold), is **shut by default**, and
-remembers open/shut per browser (`localStorage["sh-recipes"]`). It was two cards for a day;
-rock and Kit-Kat both wanted the one — don't split it back out.
+Top to bottom: the add box, **Usuals** and the recipe book — each **folded to one bar** (a
+little stack of pictures, a count, a chevron), shut by default, open/shut remembered per
+browser — then the list by aisle, then In the trolley. It was two cards for a day; rock and
+Kit-Kat both wanted the one — don't split it back out.
+
+Everything that needs more room than a row — an item's details, a doubled-up decision, a
+usual, a group, a recipe to shop for, the recipe editor — opens in **a sheet** (below).
 
 ```
 her phone ──► marsbar:1111/shop-api/* ──► tailscale serve ──┐
@@ -34,8 +36,10 @@ rock's browser ──► asgard:9558 (tailnet, CORS) ─────────
   Quantities are read off the front or back: `500g beef mince`, `2 cloves garlic`,
   `milk x2`, `eggs (dozen)`, `Milk 2L`. (`7up` stays `7up`: a number glued to a word that
   isn't a unit is part of the name.)
-- **Usuals.** Under the box: anything bought at least twice that isn't on the list, one
-  tap to add. While typing, it becomes *Bought before* — matches from the history.
+- **Suggestions while typing** — usuals that match first (with their amount: *Thickened
+  cream 300mL*), then things bought before. Nothing shows under an empty box: the
+  automatic "Usuals" row (anything bought twice) was removed 2026-11-24 — rock: "kinda
+  pointless now" — and the curated **Usuals** drawer took its name.
 - **Aisles.** Grouped in the order a shop is walked: Fruit & veg → Bakery → Meat & fish →
   Dairy & chilled → Pantry → Frozen → Snacks → Drinks → Household → Health & beauty →
   Pets → Other. The aisle is guessed from the name (`shopping.js` → `WORDS` / `PHRASES`:
@@ -47,17 +51,41 @@ rock's browser ──► asgard:9558 (tailnet, CORS) ─────────
 - **Same thing twice is merged, not duplicated.** Names match ignoring case, spacing and a
   plural (`Onions` = `onion`). Quantities with the same unit add up (`500g` + `500g` =
   `1000g`); different units join (`1 tin + 400g`). Re-adding something already *in the
-  trolley* puts it back on the list. The merged row flashes.
-- **Tap a quantity pill** and it opens into **− 2L +** right on the row (added 2026-11-24 at
-  rock's request — "an easier way to increase / decrease"). Each tap saves; a run of quick
-  taps goes to the server as ONE edit (`send()` folds a queued edit for the same item into
-  the next). It folds back after 4 quiet seconds or the first tap anywhere else. A ticked
-  row's pill is just a label. A row with no quantity has no pill — ⋯ sets one.
-- **⋯ on a row** opens its editor: name, **How many** (− amount +), **Unit** chips
-  (each · g · kg · mL · L · pack · tin · bottle · bunch, plus whatever odd unit the item
-  already had, e.g. *cloves*), aisle, **Remove**. Tapping a unit on an item with no amount
-  starts it somewhere sensible (100mL / 100g / 1L / 1kg / 1 pack). A unit typed into the
-  amount box (`300ml`) wins over the chips.
+  trolley* puts it back on the list. The merged row flashes. **If the second add said an
+  amount or came from a recipe, the row is flagged** (next section).
+- **Tap a quantity pill** and it opens into **− 2L +** right on the row. Each tap saves; a
+  run of quick taps goes to the server as ONE edit (`send()` folds a queued edit for the
+  same item into the next). It folds back after 4 quiet seconds or the first tap anywhere
+  else. A ticked row's pill is just a label. A row with no quantity has no pill — ⋯ sets one.
+- **⋯ on a row** opens its sheet: name, **How many** (the shared Amount control), who asked
+  for how much (if it was doubled up), Aisle, and **Remove · ☆ Add to usuals · Save**.
+
+**Doubled up — the ⚑ flag (added 2026-11-24)**
+
+Two recipes both wanting 300mL of cream really do need 600mL; two recipes both wanting
+sour cream probably need one tub. The list can't know which, so it **adds it all up and
+flags it**, and whoever is in the shop decides.
+- Each item keeps its **parts** — `[{id, from, qty, by}]`, one per time it was asked for.
+  An add of something already on the list *with an amount or a recipe* appends a part,
+  sums the quantity, and un-settles it. A bare re-add (typing `milk` when milk is there)
+  only flashes the row — no part, no flag.
+- **Flagged = not ticked, not `settled`, two or more parts.** The row gets a gold edge and
+  a chip — *⚑ 2 recipes — check* or *⚑ Added twice — check* — inside the tick button but
+  checked first in `onListClick`, so tapping it opens the decision instead of ticking.
+- The **flag sheet** lists each part (amount · recipe or who) and the total, then
+  **Just one · 300mL** (the biggest single part — `justOne()`) or **Get both · 600mL**
+  (*Get all 3* for three). *Some other amount…* opens the item sheet. Either answer
+  settles it, on both phones.
+- **Changing the amount by hand settles it too** — the server sets `settled` on any `qty`
+  edit (the pill's − / +, the item sheet). A *third* ask re-flags.
+- Amounts sum with `add_up()` in the .py: a part with no amount counts as one —
+  `""` + `""` = **2**, but `""` + `300mL` = **300mL** (a "some cream" and a "300mL cream"
+  are probably the same tub, not 301).
+- The **cook sheet** warns before it happens: an ingredient already on the list says
+  *⚑ On the list · 300mL — this adds to it*, and the toast after adding counts them
+  (*2 already on the list — ⚑ to check*).
+- ⚠ Idempotent like every write: a part's id IS the client's add id, and `_seen()` checks
+  item ids and part ids — a retried recipe add can't double-count.
 
 **Quantities and units** (`parseQty` / `fmtQty` / `stepQty` in shopping.js, `merge_qty`
 in the .py — ⚠ their metric tables must agree)
@@ -72,58 +100,86 @@ in the .py — ⚠ their metric tables must agree)
   ABSOLUTE new quantity, never a delta — that's what keeps it idempotent.
 - **Merging** on the server adds metric across sizes (600mL + 1L = 1.6L, 750g + 500g =
   1.25kg) and the same word unit across plurals (1 tin + 2 tins = 3 tins).
-- **Undo** (a toast at the bottom) after Remove, Clear, Clear list, deleting a recipe or
-  adding a recipe's ingredients.
+- **Undo** (a toast) after Remove, Clear, Clear list, deleting a recipe, a usual or a
+  group, and adding a recipe's ingredients or a usual.
 - **Who added it.** Each dashboard stamps its adds (`data-who`: `Rock` on the admin script
   tag, `Kit-Kat` on MarsBar's); the *other* dashboard shows "added by …" on the row.
 
-**Cupboard staples (`#sh-staples`, inside the list card — added 2026-11-24)**
-- The things you always keep in — toilet paper, cereal, cordial — saved so they're quick to
-  add when you're running low. **A plain list you control, NOT a tracker:** nothing in it
-  shows or changes what's already on the list. (The first version lit a chip for anything on
-  the list and took it off on a second tap; rock and Kit-Kat wanted "more control … not
-  something we're tracking", so it was rebuilt the same day. Don't bring the tracking back.)
-- Different from the **Usuals** row, which is automatic (bought twice or more); staples are
-  the ones you chose. Usuals don't repeat a staple.
-- Open the bar (shut by default, remembered per browser as `sh-staples`): a row per staple,
-  in aisle order, showing its usual amount if it has one ("usually 24 packs").
+**Usuals (`#sh-usuals`, inside the list card — reworked 2026-11-24)**
+- The things you always keep in — cream, butter, toilet paper, cordial — each with **its
+  usual amount** (*Thickened cream 300mL*, *Butter 250g*), sorted into **groups you make**
+  (*Cupboard*, *Fridge*, *Cleaning & paper*, *Baking*…). Was "Cupboard staples" (one flat
+  list); rock asked for it to become the Usuals, "with the ability to create categories".
+- **A plain list you control, NOT a tracker:** nothing in it shows or changes what's
+  already on the list. (The first staples lit a chip for anything on the list and took it
+  off on a second tap; rock and Kit-Kat wanted "more control … not something we're
+  tracking". Don't bring the tracking back.)
+- Open the bar: **group chips** (*All 16 · Cupboard 6 · Fridge 4…*, a scroller; the pick is
+  remembered as `sh-usual-group`) and **Edit** on the right; under them a section per
+  group, *No group* last.
   - **round +** → onto the list now, at its usual amount.
-  - **tap the name** → the row opens with **− amount +** (the same steps as the list:
-    packs, mL/L, g/kg…; starts at the usual amount, or one) and **Add to list**.
-  - Already on the list? The amount is **added to** it (the server sums: 24 packs + 24 packs
-    = 48 packs; 2L + 2.5L = 4.5L). With no amount on either, it just says it's already there.
-  - A fresh add can be undone from the toast.
-- **Edit staples**: each row gets a × (take it out, with Undo) and an add box at the top that
-  reads like the list's — `cordial, 24 pack toilet paper` → two staples, and **an amount in
-  front becomes its usual one**. Saving a name that's already a staple updates it (one per
-  name, `key()`), which is also how to change a usual amount.
-- **★ Keep as a staple** in a row's ⋯ editor saves that item (name, quantity, aisle) as a
-  staple in one tap; it reads **★ A staple** if it already is one, and tapping that takes
-  it out.
-- **Pictures** (added 2026-11-24): each staple has its own, not its aisle's. Unpicked, it's
-  **guessed from the name** (`iconFor` in shopping.js — `ICON_PHRASES` first, then the last
-  word that means something, like `categorise()`: bin bags 🗑️, herbs/coriander/basil 🌿,
-  coffee ☕️, cereal 🥣, cordial 🧃, laundry 🧺…; unknown → the aisle's picture). In **Edit
-  staples** the picture is a button (dashed ring) that opens a grid of ~95 (`STAPLE_ICONS`)
-  plus **Auto** (back to the guess). A picked one is stored as the staple's `icon`; the
-  server keeps it when a save doesn't mention one (re-adding `2 tissues` keeps 🧼).
-  ⚠ Symbols from the old BMP block (☕) need U+FE0F after them or they render as small grey
-  text — the tables carry it; add it to any new one.
-- Twelve generic **starter staples** (`starterStaples` in shopping.nix) are written in on a
-  fresh install — and, ONCE, onto a list from before staples existed (state.json had no
-  `staples` key). After that the key is there, so taking them all out sticks.
+  - **tap the name** → the row opens with **− amount +** and unit chips (starts at the usual
+    amount) and **Add to list**.
+  - Already on the list? The amount is **added**, and the row is flagged (⚑) for the shop
+    to decide. With no amount, it just says it's already there.
+- **Edit** → rows become buttons (tap one → its sheet), each group header gets **Rename**
+  (the group sheet: name, who's in it, *Delete group* — its usuals stay, with no group,
+  and Undo brings both back), and **+ New group** / **+ Add a usual** appear.
+- **The usual sheet:** picture + name (the picture follows the name until one is picked),
+  **Usual amount** (the Amount control), **Group** chips with *+ New group* inline, Aisle,
+  **Delete · Save**. Saving a name that's already a usual updates that one (one per name,
+  `key()`), keeping its picture and group.
+- **☆ Add to usuals** on an item's sheet saves it (name, amount, aisle) in one tap; it
+  reads **★ A usual** if it already is one, and tapping that takes it out.
+- **Pictures:** each has its own, not its aisle's. Unpicked, it's **guessed from the name**
+  (`iconFor` — `ICON_PHRASES` first, then the last word that means something, like
+  `categorise()`: bin bags 🗑️, herbs/coriander/basil 🌿, coffee ☕️, cereal 🥣, cordial 🧃…;
+  unknown → the aisle's). The sheet's picture opens a grid of ~95 (`STAPLE_ICONS`) plus
+  **Auto**. ⚠ Symbols from the old BMP block (☕) need U+FE0F after them or they render as
+  small grey text — the tables carry it; add it to any new one.
+- **Stored as `staples`** (the server's name — kept so old lists and backups load):
+  `{id, name, qty, cat, icon, group}`, and `groups: [{id, name}]` (≤ 30, one per name).
+- **Starters & migration** (`starterGroups` / `starterStaples` in shopping.nix): 16 usuals
+  in Cupboard / Fridge / Cleaning & paper, written on a fresh install and, ONCE, onto a list
+  with no `staples` key. A list from the flat-staples days (has `staples`, no `groups`) is
+  **grouped by aisle once** (`group_by_aisle()`: dairy/meat/produce/bakery/frozen → Fridge,
+  household/personal/pets → Cleaning & paper, the rest → Cupboard), pictures kept. After
+  that both keys exist, so emptying them sticks.
 
-**Recipes (`#sh-recipes`, built by shopping.js inside the list card)**
-- Tap the bar to open the book, tap it again to fold it away. Shutting it closes an open
-  recipe, but an unsaved recipe *editor* survives for when it's opened again.
-- Tap a recipe → its ingredients, each pre-ticked **unless it's already on the list**
-  (marked *on the list*). Untick what's in the cupboard → **Add N to the list**. They land
-  in their aisles tagged with the recipe's name, and merge with anything already there.
-- **+ New recipe / Edit**: a name, a picture (one of ~60 meal emoji, `EMOJI`), ingredients one a line (same parsing
-  as the add box), an optional note. Delete takes a second tap.
-- A search box appears once there are more than six.
-- Four **starter recipes** (`starterRecipes` in `shopping.nix`) are written in only when
-  there is no state file at all — a fresh install. Deleting one sticks.
+**Recipes (`#sh-recipes`, inside the list card)**
+- Open the bar: **+ New recipe** (and **Find a recipe**, matching ingredients too, once
+  there are more than six), then a row per recipe — *7 ingredients · 2 on the list*.
+- **Tap a recipe → its cook sheet:** every ingredient ticked to start; untick what's in the
+  cupboard → **Add N to the list** (or *All / None*). Anything already on the list is
+  marked *⚑ On the list — this adds to it* (it used to be pre-unticked; now it's left to
+  you, since 300mL twice may really mean 600mL). They land in their aisles tagged with the
+  recipe's name. **Edit** opens the editor.
+- **The recipe editor** (rock: "legit just a text box" → rebuilt 2026-11-24): picture +
+  name; **Ingredients** as rows (picture, name, amount pill, ×) — tap one to change it in
+  place (name + the Amount control, Done); under them **Add an ingredient**: *What*, then
+  − amount + with unit chips, **Add ingredient** (Enter works). `300ml cream` typed into
+  *What* is parsed too. **Paste a whole list instead** takes one a line, like the old box.
+  An optional note; **Delete · Save**.
+- Four **starter recipes** (`starterRecipes` in shopping.nix) are written in only when
+  there is no state file at all. Deleting one sticks.
+
+**Sheets — one system for every editor**
+- A bottom sheet on a phone (grab handle, the footer's buttons always in thumb reach), a
+  centred dialog from 700px wide. Appended to `<body>` — MarsBar's `backdrop-filter` would
+  trap `position: fixed` inside a card.
+- Fits the phone keyboard (`visualViewport` → `--kb` / `--vvh`). Escape or the scrim
+  closes; with unsaved changes the first close only warns. Deletes take a second tap.
+- **The Amount control** (`amountHtml` / `amtRead` / `amtStep` / `amtUnit`) is one piece used
+  everywhere an amount is set — item, usual, ingredient, the usual drawer's row: − box +
+  with the same steps as the list's pill, and unit chips. A unit typed into the box
+  (`300ml`) wins over the chips; tapping a unit with no amount starts somewhere sensible
+  (100mL / 100g / 1L / 1kg / 1 pack).
+- **Editors are drawn once and never repainted** — the other phone's changes can't wipe
+  what's being typed. The **flag and cook sheets repaint live** (`paintSheet()` on every
+  state), so a decision made on the other phone shows at once.
+- ⚠ The sheet uses `--ag-surface` (opaque), not `--ag-pop` — pop is see-through and the
+  list showed through it. HUD squaring for it is `.sh-scrim .sh-sheet` in asgard.css: a
+  bare `.sh-sheet` loses to cards.css, which loads later.
 
 ## Instant, and fine on one bar of signal
 
@@ -148,16 +204,18 @@ person's newer ones.
 
 - stdlib Python, one process, one lock. `GET /events` (SSE — `state` with everything on
   connect and after every change, `ping` every 15 s), `GET /state`, and POSTs:
-  `items/{add,toggle,edit,remove,clear,restore}`, `recipes/{save,delete}`. Every POST
-  answers `{ok, state}`. Full contract in the file's header.
+  `items/{add,toggle,edit,remove,clear,restore}`, `recipes/{save,delete}`,
+  `staples/{save,delete}` (the usuals), `groups/{save,delete}`. Every POST answers
+  `{ok, state}`. Full contract in the file's header.
 - **All or nothing:** a request refused halfway (a batch that would overfill the list) or
   one that can't be written to disk leaves memory exactly as it was.
 - **State:** `/var/lib/private/shopping-list/state.json` (StateDirectory under
   DynamicUser), written to a temp file, fsynced and renamed on every change — a crash
   mid-write can't leave half a file. An unreadable file is kept as `state.json.broken-<t>`
   and the service starts empty (without re-seeding — the deleted starters would come back).
-- **Limits:** 300 items, 200 recipes, 60 ingredients a recipe, 400 remembered names
-  (160 sent to the page), names 80 chars, quantities 24, bodies 64 KB.
+- **Limits:** 300 items, 200 recipes, 60 ingredients a recipe, 30 groups, 12 parts an
+  item, 400 remembered names (160 sent to the page), names 80 chars, group names 40,
+  quantities 24, bodies 64 KB.
 - **Typos don't haunt the suggestions:** an item removed within two minutes of being added
   for the first time is dropped from the history too.
 
@@ -219,14 +277,15 @@ arr databases. All in `Modules/Server/shopping.nix`:
   The server stores whatever `[a-z]{1,12}` it's given; an id the client doesn't know is
   drawn under Other. `key()` (what counts as "the same item") exists in BOTH files — keep
   them in step or merging and "on the list" disagree.
-- ⚠ `#sh-recipes` and `#sh-staples` are INSIDE `#sh-list`, so `onClick` must route their
-  taps before the list's branch (`#sh-staples` first; the list branch excludes
-  `#sh-recipes`) — otherwise every drawer button is swallowed by the list handler and does
-  nothing.
+- ⚠ `#sh-usuals` and `#sh-recipes` are INSIDE `#sh-list`, so `onClick` routes taps in
+  order — the sheet, then `#sh-usuals`, then `#sh-recipes`, then the list — otherwise every
+  drawer button is swallowed by the list handler and does nothing.
 - Rows are a **keyed** list (not `Dash.paint`'s positional morph) so they slide when they
-  change aisle or get ticked. An open row editor or recipe editor is drawn once and never
-  repainted, so the other person's changes can't wipe what's being typed.
-- The toast is appended to `<body>`: inside a card, MarsBar's `backdrop-filter` would
-  trap `position: fixed`. It lifts itself above Glance's phone bar when that's showing.
+  change aisle or get ticked.
+- The toast is appended to `<body>` (same reason as the sheet). It sits above Glance's
+  phone bar — measured from **`.mobile-navigation`'s top edge**, never its height: that
+  box also holds the ☰ drawer parked below the screen, so it's ~600px tall and the toast
+  used to float mid-screen. While a sheet is open it moves to the **top** (`.top`), and
+  `openSheet`/`closeSheet` re-place one that's already showing (`placeToast()`).
 - ⚠ Glance overrides `HTMLElement.prototype.animate` — the row animations use
   `Element.prototype.animate` (as garden.js does).

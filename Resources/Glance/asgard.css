@@ -1438,15 +1438,23 @@ html[data-ha-link="offline"] :is(.ag-swatches, .ag-bright) { filter: saturate(0.
 /* The shopping list and recipes (cards.css): the same squared HUD, its
    buttons and section heads in Orbitron. Item names stay in the body face —
    they're read in a hurry in a shop. */
-.widget :is(.sh-in, .sh-plus, .sh-btn, .sh-chip, .sh-row, .sh-main, .sh-more, .sh-qty, .sh-by, .sh-ed, .sh-ais, .sh-empty, .shr-tile, .shr-ico,
-  .shr-toggle, .shr-stack span, .sh-stepper, .sh-st, .sh-qrow .sh-st, .shs-row, .shs-main, .shs-i, .shs-btn, .shs-icons button,
-  .shr-cook, .shr-ed, .shr-ing, .shr-emoji, .shr-emoji button) { border-radius: 2px; }
+.widget :is(.sh-in, .sh-plus, .sh-btn, .sh-chip, .sh-row, .sh-main, .sh-more, .sh-qty, .sh-by, .sh-flag, .sh-empty, .sh-stepper, .sh-st,
+  .shr-toggle, .shr-stack span, .shx-row, .shx-main, .shx-pic, .shx-btn, .shx-empty, .shx-none, .sh-opt, .sh-opt i) { border-radius: 2px; }
 .widget .sh-box { border-radius: 2px; }
-.widget :is(.sh-btn, .sh-sec, .sh-chips-h, .sh-f > span:first-child) { font-family: var(--ag-title); letter-spacing: 0.12em; }
-.widget :is(.sh-btn, .sh-sec) { font-weight: 500; }
-.widget :is(.sh-row:not(.done), .shr-tile, .shr-toggle) { border-color: var(--ag-line); }
+.widget :is(.sh-btn, .sh-sec, .sh-chips-h, .shx-h) { font-family: var(--ag-title); letter-spacing: 0.12em; }
+.widget :is(.sh-btn, .sh-sec, .shx-h) { font-weight: 500; }
+.widget :is(.sh-row:not(.done):not(.flagged), .shr-toggle, .shx-row) { border-color: var(--ag-line); }
 .sh-toast { border-radius: 2px; font-family: inherit; }
 .sh-toast button { border-radius: 2px; font-family: var(--ag-title); letter-spacing: 0.1em; }
+/* The sheet lives on <body>, outside every .widget: the same HUD squaring and
+   type, and a neon edge in the viewer's colour. */
+.sh-scrim .sh-sheet { border-radius: 2px; border-color: color-mix(in srgb, var(--acc) 45%, transparent);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4), 0 0 40px -12px color-mix(in srgb, var(--acc) 55%, transparent), 0 -24px 60px -24px rgb(0 0 0 / 0.85); }
+.sh-sheet :is(.sh-in, .sh-btn, .sh-st, .sh-opt, .sh-opt i, .shx-row, .shx-main, .shx-pic, .shx-btn, .shx-check, .shx-ed, .shx-none,
+  .sh-pic, .sh-picgrid, .sh-picgrid button, .sh-compose, .sh-parts li, .sh-parts b, .sh-mini span, .sh-err, .sh-note, .sh-sheet-ic, .sh-qty, .sh-box) { border-radius: 2px; }
+.sh-sheet :is(.sh-btn, .sh-label, .sh-compose-h, .sh-sheet-tt b) { font-family: var(--ag-title); letter-spacing: 0.1em; }
+.sh-sheet .sh-sheet-tt b { font-weight: 600; font-size: 1.6rem; }
+.sh-sheet :is(.sh-btn, .sh-label) { font-weight: 500; }
 .widget .ag-pill { font-size: 1.05rem; }
 
 /* The host's facts, each beside a boxed icon (stats.js marks them data-k). */

@@ -782,17 +782,15 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 .sh-row.done .sh-qty { color: var(--ag-text-faint); background: none; }
 .sh-row.done .sh-meta { opacity: 0.6; }
 
-/* a row's editor */
-.sh-ed { display: flex; flex-direction: column; gap: 12px; margin: -4px 0 6px; padding: 14px; border-radius: 0 0 14px 14px;
-  border: 1px solid color-mix(in srgb, var(--acc) 45%, transparent); border-top: none; background: var(--ag-well); }
-.sh-ed-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 10px; }
-.sh-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.sh-f > span:first-child { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ag-text-faint); }
-.sh-f small { font-weight: 400; letter-spacing: 0.02em; text-transform: none; }
-.sh-aisles { display: flex; flex-wrap: wrap; gap: 6px; }
-.sh-ais { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 4px 10px; font: inherit; font-size: 1.2rem;
-  color: var(--ag-text-dim); cursor: pointer; background: var(--ag-tile); border: 1px solid var(--ag-line-soft); border-radius: 999px; transition: all 0.2s; }
-.sh-ais.on { color: var(--ag-on-acc); background: var(--acc); border-color: var(--acc); }
+/* A doubled-up row: asked for by two recipes (or by both of you) and not yet
+   decided — a warm edge and a ⚑ chip, which opens the decision (shopping.js
+   → openFlag). */
+.sh-row.flagged { border-color: color-mix(in srgb, var(--ag-warn) 45%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ag-warn) 85%, transparent); }
+.sh-flag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 9px 1px 7px; border-radius: 999px; cursor: pointer;
+  font-weight: 700; letter-spacing: 0.02em; color: var(--ag-warn); background: color-mix(in srgb, var(--ag-warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ag-warn) 40%, transparent); }
+.sh-flag svg { width: 12px; height: 12px; stroke-width: 2.4; }
 
 .sh-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 26px 16px; text-align: center;
   font-size: 1.3rem; color: var(--ag-text-faint); border: 1px dashed var(--ag-line); border-radius: 14px; }
@@ -804,27 +802,33 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
   font-size: 1.2rem; color: var(--ag-text-faint); }
 .sh-foot:empty { display: none; }
 .sh-count b { color: var(--ag-text); font-weight: 600; }
+.sh-count em { display: inline-flex; align-items: center; gap: 3px; font-style: normal; font-weight: 700; color: var(--ag-warn); }
+.sh-count em svg { width: 11px; height: 11px; }
 .sh-sync { display: inline-flex; align-items: center; gap: 8px; color: var(--ag-warn); }
 .sh-sync svg { width: 18px; height: 18px; }
 
-/* the toast — on <body>, outside every card */
-/* Centred by auto margins between left:0 and right:0, not left:50% + a
+/* the toast — on <body>, outside every card, above the sheet.
+   Centred by auto margins between left:0 and right:0, not left:50% + a
    translate: the latter gives a fixed box only HALF the screen to shrink into,
    and on a phone the message folded into a tall blob. */
-.sh-toast { --acc: var(--color-primary); position: fixed; left: 0; right: 0; bottom: 18px; z-index: 60; display: flex; align-items: center; gap: 14px;
+.sh-toast { --acc: var(--color-primary); position: fixed; left: 0; right: 0; bottom: 18px; z-index: 90; display: flex; align-items: center; gap: 14px;
   width: fit-content; max-width: min(calc(100vw - 32px), 480px); margin: 0 auto; padding: 8px 8px 8px 18px; font-size: 1.35rem; color: var(--ag-text);
-  background: var(--ag-pop); border: 1px solid var(--ag-line); border-radius: 18px; box-shadow: 0 18px 40px -14px rgb(0 0 0 / 0.8);
+  background: color-mix(in srgb, var(--acc) 9%, var(--ag-surface)); border: 1px solid color-mix(in srgb, var(--acc) 30%, var(--ag-line));
+  border-radius: 18px; box-shadow: 0 18px 40px -14px rgb(0 0 0 / 0.8);
   transform: translateY(16px); opacity: 0; pointer-events: none; transition: opacity 0.22s, transform 0.28s var(--ag-ease); }
 .sh-toast.show { transform: none; opacity: 1; pointer-events: auto; }
+.sh-toast.top { top: calc(14px + env(safe-area-inset-top)); bottom: auto; transform: translateY(-16px); }
+.sh-toast.top.show { transform: none; }
 .sh-toast.bad { border-color: color-mix(in srgb, var(--ag-bad) 50%, transparent); color: var(--ag-bad); }
 .sh-toast span { min-width: 0; padding: 6px 0; line-height: 1.35; }
 .sh-toast:not(:has(button)) { padding-right: 18px; }
 .sh-toast button { flex: none; min-height: 36px; padding: 4px 16px; font: inherit; font-size: 1.25rem; font-weight: 700; letter-spacing: 0.04em;
   color: var(--ag-on-acc); background: var(--acc); border: none; border-radius: 12px; cursor: pointer; }
 
-/* recipes — one bar until opened (shopping.js remembers which, per browser).
-   The body animates its height with the 0fr → 1fr grid-row trick; the inner
-   box is `inert` while shut so nothing hidden takes focus. */
+/* ── The drawers (Usuals, the recipe book): each folded to one bar until
+   tapped open — kept per browser. The body animates its height with the
+   0fr → 1fr grid-row trick; the inner box is `inert` while shut, so nothing
+   hidden takes focus. */
 .shr { display: flex; flex-direction: column; }
 .shr-toggle { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 58px; padding: 8px 14px 8px 12px;
   font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 14px; border: 1px solid var(--ag-line-soft);
@@ -847,128 +851,213 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
    margin keep focus rings from being clipped by the overflow. */
 .shr-inner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; margin: 0 -3px; padding: 0 3px; }
 .shr.open .shr-inner { padding-top: 12px; padding-bottom: 3px; }
-.shr-bar { display: flex; gap: 8px; justify-content: flex-end; }
-
-/* Cupboard staples — the same fold as the recipe book (.shr): a plain list to
-   add from, not a tracker. Each row: the staple (tap it to pick an amount) and
-   a round + that adds it at once; an opened row shows − amount + and "Add to
-   list" under the name. In "Edit staples" the + is a ×, and the add box shows. */
-.shs-list { display: flex; flex-direction: column; gap: 6px; }
-.shs-row { display: flex; flex-wrap: wrap; align-items: center; border-radius: 14px; border: 1px solid var(--ag-line-soft);
-  background: linear-gradient(170deg, var(--ag-tile-hi), var(--ag-tile-lo)); transition: border-color 0.2s; }
-.shs-row.open { border-color: color-mix(in srgb, var(--acc) 50%, transparent); }
-.shs-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 8px 6px 10px;
-  font: inherit; color: inherit; text-align: left; background: none; border: none; border-radius: 14px; cursor: pointer;
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-span.shs-main { cursor: default; }
-.shs-i { flex: none; display: grid; place-items: center; width: 34px; height: 34px; font-size: 1.8rem; line-height: 1; border-radius: 50%;
-  background: color-mix(in srgb, var(--acc) 12%, var(--ag-surface)); }
-.shs-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.shs-n { font-size: 1.5rem; font-weight: 500; color: var(--ag-text); overflow-wrap: break-word; }
-.shs-t small { font-size: 1.1rem; color: var(--ag-text-faint); }
-/* the round + (and, editing, the ×) */
-.shs-btn { flex: none; display: grid; place-items: center; width: 40px; height: 40px; margin-right: 8px; padding: 0; cursor: pointer;
-  color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, transparent); border: 1px solid color-mix(in srgb, var(--acc) 45%, transparent);
-  border-radius: 50%; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: background-color 0.2s, transform 0.08s; }
-.shs-btn svg { width: 20px; height: 20px; stroke-width: 2.6; }
-.shs-btn:active { transform: scale(0.9); }
-@media (hover: hover) { .shs-btn:hover { background: color-mix(in srgb, var(--acc) 26%, transparent); } }
-.shs-btn.del { color: var(--ag-bad); background: none; border-color: color-mix(in srgb, var(--ag-bad) 40%, transparent); }
-/* an opened row: the amount, then Add — on a line of their own under the name */
-.shs-pick { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 2px 10px 10px 56px; animation: sh-pop 0.18s var(--ag-ease); }
-.shs-pick .sh-stepper { margin-left: 0; }
-/* wraps under the amount rather than spill out of the row when both won't fit */
-.shs-pick .sh-btn.go { flex: 1 1 auto; min-width: 0; max-width: 220px; }
-/* a phone-width card: no indent under the name, so − 24 packs + and Add fit on one line */
-@container sh (max-width: 400px) { .shs-pick { padding-left: 10px; } }
-/* Editing: a staple's picture is a button (dashed ring) that opens a grid of
-   them under the row; "Auto" goes back to the guess from its name. */
-button.shs-i.pickable { padding: 0; cursor: pointer; border: 1px dashed color-mix(in srgb, var(--acc) 60%, transparent);
-  -webkit-tap-highlight-color: transparent; transition: transform 0.08s, border-color 0.2s; }
-button.shs-i.pickable:active { transform: scale(0.9); }
-.shs-row.open button.shs-i.pickable { border-style: solid; border-color: var(--acc); }
-.shs-pick.shs-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; }
-.shs-icons button { height: 40px; padding: 0; font-size: 2rem; line-height: 1; cursor: pointer; background: none;
-  border: 1px solid transparent; border-radius: 10px; -webkit-tap-highlight-color: transparent; transition: background-color 0.15s, transform 0.08s; }
-.shs-icons button:active { transform: scale(0.9); }
-.shs-icons button.on, .shs-icons button:focus-visible { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, transparent); }
-@media (hover: hover) { .shs-icons button:hover { background: color-mix(in srgb, var(--acc) 10%, transparent); } }
-.shs-icons .shs-auto { grid-column: span 2; font: inherit; font-size: 1.2rem; font-weight: 600; letter-spacing: 0.04em; color: var(--acc);
-  border-color: color-mix(in srgb, var(--acc) 40%, transparent); }
-.shs-add { display: flex; gap: 8px; }
-.shs.editing .shs-tools { order: -1; } /* editing: the add box first, where the thumb already is */
-.shs-tools .sh-act { align-items: center; }
-.shs-hint { margin-right: auto; font-size: 1.15rem; color: var(--ag-text-faint); }
-.sh-star.on { color: var(--acc); border-color: color-mix(in srgb, var(--acc) 50%, transparent); }
 .shr-find { display: none; position: relative; flex: 1; min-width: 0; }
-.shr-bar.many .shr-find { display: block; }
+.shx-bar.many .shr-find { display: block; }
 .shr-find svg { position: absolute; left: 12px; top: 50%; width: 17px; height: 17px; margin-top: -8.5px; color: var(--ag-text-faint); pointer-events: none; }
 .shr-find .sh-in { padding-left: 38px; }
-.shr-bar .sh-btn { min-height: 44px; }
-.shr-bar:not(.many) .sh-btn { flex: 1; }
-.shr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 8px; }
-.shr-grid > .sh-empty, .shr-none { grid-column: 1 / -1; }
-.shr-none { padding: 14px; text-align: center; font-size: 1.25rem; color: var(--ag-text-faint); }
-.shr-tile { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 10px 12px; font: inherit; color: inherit; text-align: left;
-  cursor: pointer; border-radius: 14px; border: 1px solid var(--ag-line-soft); background: linear-gradient(170deg, var(--ag-tile-hi), var(--ag-tile-lo));
-  -webkit-tap-highlight-color: transparent; transition: border-color 0.2s, background 0.2s, transform 0.08s, box-shadow 0.2s; }
-.shr-tile:active { transform: scale(0.98); }
-@media (hover: hover) { .shr-tile:hover { border-color: color-mix(in srgb, var(--acc) 45%, transparent); } }
-.shr-tile.on { border-color: var(--acc); box-shadow: 0 0 0 1px var(--acc), 0 0 22px -8px color-mix(in srgb, var(--acc) 70%, transparent); }
-.shr-ico { flex: none; display: grid; place-items: center; width: 40px; height: 40px; font-size: 2.2rem; line-height: 1; border-radius: 12px;
+
+/* ── Rows: one look for the usuals, the recipe list, a recipe's ingredients
+   and the cook sheet's checklist. */
+.shx-bar { display: flex; align-items: center; gap: 8px; }
+.shx-bar > .sh-btn { flex: none; min-height: 40px; }
+.shx-bar:not(.many) > .sh-btn:only-of-type:last-child { margin-left: auto; }
+.shx-list, .shx-sec { display: flex; flex-direction: column; gap: 6px; }
+.shx-sec + .shx-sec { margin-top: 10px; }
+.shx-h { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 4px; font-size: 1.1rem; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; color: color-mix(in srgb, var(--acc) 45%, var(--ag-text)); }
+.shx-h b { font-weight: 600; letter-spacing: 0.02em; color: var(--ag-text-faint); }
+.shx-h::after { content: ""; flex: 1; min-width: 12px; height: 1px; order: 1; background: linear-gradient(to right, color-mix(in srgb, var(--acc) 30%, transparent), transparent); }
+.shx-h .sh-btn { order: 2; text-transform: none; letter-spacing: 0.02em; }
+.shx-row { display: flex; flex-wrap: wrap; align-items: center; border-radius: 14px; border: 1px solid var(--ag-line-soft);
+  background: linear-gradient(170deg, var(--ag-tile-hi), var(--ag-tile-lo)); transition: border-color 0.2s; }
+.shx-row.open { border-color: color-mix(in srgb, var(--acc) 50%, transparent); }
+@media (hover: hover) { .shx-row:hover { border-color: var(--ag-line); } }
+.shx-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 7px 10px;
+  font: inherit; color: inherit; text-align: left; background: none; border: none; border-radius: 14px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.shx-pic { flex: none; display: grid; place-items: center; width: 38px; height: 38px; font-size: 2rem; line-height: 1; border-radius: 12px;
+  background: color-mix(in srgb, var(--acc) 12%, var(--ag-surface)); }
+.shx-pic.sm { width: 30px; height: 30px; font-size: 1.6rem; border-radius: 10px; }
+.shx-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.shx-t b { font-size: 1.5rem; font-weight: 500; color: var(--ag-text); overflow-wrap: break-word; }
+.shx-t small { font-size: 1.15rem; color: var(--ag-text-faint); }
+.shx-t small.warn { display: inline-flex; align-items: center; gap: 4px; color: var(--ag-warn); }
+.shx-t small.warn svg { width: 11px; height: 11px; flex: none; }
+.shx-act { flex: none; display: grid; place-items: center; width: 28px; color: var(--ag-text-faint); }
+.shx-act svg { width: 18px; height: 18px; }
+.shx-main .sh-qty { align-self: center; }
+/* the round + (and the × that drops an ingredient) */
+.shx-btn { flex: none; display: grid; place-items: center; width: 40px; height: 40px; margin-right: 8px; padding: 0; cursor: pointer;
+  color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, transparent); border: 1px solid color-mix(in srgb, var(--acc) 45%, transparent);
+  border-radius: 50%; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: background-color 0.2s, transform 0.08s; }
+.shx-btn svg { width: 20px; height: 20px; stroke-width: 2.6; }
+.shx-btn:active { transform: scale(0.9); }
+@media (hover: hover) { .shx-btn:hover { background: color-mix(in srgb, var(--acc) 26%, transparent); } }
+.shx-btn.del { width: 34px; height: 34px; color: var(--ag-text-faint); background: none; border-color: transparent; }
+.shx-btn.del svg { width: 17px; height: 17px; }
+@media (hover: hover) { .shx-btn.del:hover { color: var(--ag-bad); background: color-mix(in srgb, var(--ag-bad) 10%, transparent); } }
+/* a usual opened to pick how many: the amount, then Add, under the name */
+.shx-pick { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 2px 10px 10px 60px; animation: sh-pop 0.18s var(--ag-ease); }
+.shx-pick .sh-stepper { margin-left: 0; }
+.shx-pick .sh-btn.go { flex: 1 1 auto; min-width: 0; max-width: 220px; }
+@container sh (max-width: 400px) { .shx-pick { padding-left: 10px; } }
+.shx-foot { display: flex; flex-wrap: wrap; gap: 8px; }
+.shx-foot .sh-btn { flex: 1 1 auto; min-height: 42px; }
+.shx-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 16px; text-align: center;
+  font-size: 1.25rem; line-height: 1.45; color: var(--ag-text-faint); border: 1px dashed var(--ag-line); border-radius: 14px; }
+.shx-empty span { font-size: 2.6rem; }
+.shx-empty b { font-size: 1.45rem; font-weight: 600; color: var(--ag-text-dim); }
+.shx-none { padding: 12px; text-align: center; font-size: 1.2rem; color: var(--ag-text-faint); border: 1px dashed var(--ag-line-soft); border-radius: 12px; }
+/* the cook sheet's checklist */
+.shx-check { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 7px 12px; font: inherit; color: inherit; text-align: left;
+  cursor: pointer; border-radius: 14px; border: 1px solid var(--ag-line-soft); background: var(--ag-tile);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: border-color 0.2s, background-color 0.2s; }
+.shx-check .sh-box { width: 24px; height: 24px; }
+.shx-check .sh-box svg { width: 14px; height: 14px; }
+.shx-check.on { border-color: color-mix(in srgb, var(--acc) 35%, transparent); }
+.shx-check.on .sh-box { background: var(--acc); border-color: var(--acc); }
+.shx-check.on .sh-box svg { stroke-dashoffset: 0; }
+.shx-check:not(.on) :is(.shx-pic, .shx-t b, .sh-qty) { opacity: 0.45; }
+.shx-check:not(.on) .shx-t b { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ag-text-faint) 60%, transparent); }
+/* an ingredient opened in the recipe editor */
+.shx-ed { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; border: 1px solid var(--acc);
+  background: color-mix(in srgb, var(--acc) 6%, var(--ag-tile)); animation: sh-pop 0.18s var(--ag-ease); }
+
+/* ── Option chips — units, aisles, groups, the usuals' filters. One look. */
+.sh-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.sh-opts.scroll { flex: 1; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 3px; margin: -3px;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+.sh-opts.scroll::-webkit-scrollbar { display: none; }
+.sh-opt { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 5px 13px; font: inherit; font-size: 1.25rem;
+  color: var(--ag-text-dim); cursor: pointer; white-space: nowrap; background: var(--ag-tile); border: 1px solid var(--ag-line-soft); border-radius: 999px;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: color 0.15s, background-color 0.15s, border-color 0.15s, transform 0.08s; }
+.sh-opt:active { transform: scale(0.95); }
+@media (hover: hover) { .sh-opt:hover:not(.on) { color: var(--ag-text); border-color: color-mix(in srgb, var(--acc) 45%, transparent); } }
+.sh-opt i { font-style: normal; font-size: 1.05rem; font-weight: 700; min-width: 1.6em; padding: 0 5px; text-align: center; border-radius: 999px;
+  background: color-mix(in srgb, var(--ag-text) 9%, transparent); }
+.sh-opt.on { color: var(--ag-on-acc); background: var(--acc); border-color: var(--acc); font-weight: 600; }
+.sh-opt.on i { background: color-mix(in srgb, var(--ag-on-acc) 16%, transparent); }
+.sh-opt.add { color: var(--acc); background: none; border-style: dashed; border-color: color-mix(in srgb, var(--acc) 50%, transparent); }
+.sh-opt.add svg { width: 13px; height: 13px; stroke-width: 2.6; }
+/* suggestions under the add box: a picture and a usual amount when there is one */
+.sh-chip > span { font-size: 1.5rem; line-height: 1; }
+.sh-chip small { font-size: 1.1rem; color: var(--acc); margin-left: 2px; }
+
+/* ── The amount control: − amount + over the unit chips. */
+.sh-amt { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── The sheet — every editor. A panel that slides up from the bottom on a
+   phone (above the keyboard: --kb / --vvh come from visualViewport) and a
+   dialog in the middle of a desktop. On <body>, so it takes the page's root
+   tokens; --acc comes from Glance's primary colour, i.e. the viewer's pick. */
+html.sh-locked, html.sh-locked body { overflow: hidden; }
+.sh-scrim { --acc: var(--color-primary); position: fixed; inset: 0; z-index: 80; display: flex; align-items: flex-end; justify-content: center;
+  background: rgb(0 0 0 / 0); transition: background-color 0.25s; -webkit-tap-highlight-color: transparent; }
+.sh-scrim[hidden] { display: none; }
+.sh-scrim.open { background: rgb(0 0 0 / 0.55); }
+.sh-sheet { position: relative; display: flex; flex-direction: column; width: 100%; max-width: 640px;
+  max-height: calc(var(--vvh, 100vh) - 28px); margin-bottom: var(--kb, 0px); font-size: 1.4rem; color: var(--ag-text);
+  /* --ag-surface, not --ag-pop: pop is see-through, and the list showed through */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--acc) 7%, var(--ag-surface)), var(--ag-surface) 160px) var(--ag-surface);
+  border: 1px solid var(--ag-line); border-bottom: none; border-radius: 22px 22px 0 0;
+  box-shadow: 0 -24px 60px -24px rgb(0 0 0 / 0.85); transform: translateY(100%); transition: transform 0.3s var(--ag-ease); }
+.sh-scrim.open .sh-sheet { transform: none; }
+.sh-grip { flex: none; width: 42px; height: 5px; margin: 8px auto 0; border-radius: 99px; background: var(--ag-line); }
+.sh-sheet-h { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 12px 12px 18px; border-bottom: 1px solid var(--ag-line-soft); }
+.sh-sheet-ic { flex: none; display: grid; place-items: center; width: 42px; height: 42px; font-size: 2.2rem; line-height: 1; border-radius: 12px;
+  background: color-mix(in srgb, var(--acc) 14%, var(--ag-surface)); }
+.sh-sheet-ic[hidden] { display: none; }
+.sh-sheet[data-kind="flag"] .sh-sheet-ic { color: var(--ag-warn); font-size: 2rem; background: color-mix(in srgb, var(--ag-warn) 14%, var(--ag-surface)); }
+.sh-sheet-tt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sh-sheet-tt b { font-size: 1.8rem; font-weight: 700; color: var(--ag-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-sheet-tt small { font-size: 1.2rem; color: var(--ag-text-faint); }
+.sh-sheet-tt small[hidden] { display: none; }
+.sh-sheet-b { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 18px;
+  padding: 16px 18px 22px; container: sh / inline-size; }
+.sh-sheet-f { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--ag-line-soft);
+  padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); }
+.sh-sheet-f:empty { display: none; }
+.sh-sheet-f .sh-btn { min-height: 46px; }
+.sh-sheet-f .sh-btn.go { flex: 1 1 170px; }
+@media (min-width: 700px) {
+  .sh-scrim { align-items: center; padding: 28px; }
+  .sh-sheet { max-width: 560px; max-height: min(86vh, 860px); margin-bottom: 0; border-bottom: 1px solid var(--ag-line); border-radius: 20px;
+    transform: translateY(14px) scale(0.98); opacity: 0; transition: transform 0.25s var(--ag-ease), opacity 0.2s; }
+  .sh-scrim.open .sh-sheet { transform: none; opacity: 1; }
+  .sh-grip { display: none; }
+  .sh-sheet-h { padding-top: 14px; }
+}
+
+/* what's in a sheet */
+.sh-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sh-label { display: flex; align-items: baseline; gap: 8px; font-size: 1.1rem; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ag-text-faint); }
+.sh-label small { font-weight: 400; letter-spacing: 0.02em; text-transform: none; }
+.sh-label i { font-style: normal; min-width: 1.6em; padding: 0 6px; text-align: center; border-radius: 999px; color: var(--acc);
   background: color-mix(in srgb, var(--acc) 12%, transparent); }
-.shr-ico.lg { width: 52px; height: 52px; font-size: 2.9rem; border-radius: 14px; }
-.shr-tile-t, .shr-head-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.shr-tile-t b { font-size: 1.45rem; font-weight: 600; color: var(--ag-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shr-tile-t small, .shr-head-t small { font-size: 1.15rem; color: var(--ag-text-faint); }
+.sh-label i:empty { display: none; }
+.sh-ident { display: flex; align-items: center; gap: 12px; }
+.sh-ident .sh-in { flex: 1; min-height: 52px; font-size: max(16px, 1.8rem); font-weight: 600; }
+.sh-pic { flex: none; display: grid; place-items: center; width: 56px; height: 56px; padding: 0; font-size: 3rem; line-height: 1; cursor: pointer;
+  border-radius: 16px; background: color-mix(in srgb, var(--acc) 12%, var(--ag-surface));
+  border: 1px dashed color-mix(in srgb, var(--acc) 60%, transparent); transition: transform 0.08s, border-color 0.2s; }
+.sh-pic[aria-expanded="true"] { border-style: solid; border-color: var(--acc); }
+.sh-pic:active { transform: scale(0.94); }
+.sh-picgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 4px; margin-top: -8px; padding: 8px;
+  border-radius: 14px; background: var(--ag-tile); border: 1px solid var(--ag-line-soft); animation: sh-pop 0.18s var(--ag-ease); }
+.sh-picgrid[hidden] { display: none; }
+.sh-picgrid button { height: 42px; padding: 0; font-size: 2.1rem; line-height: 1; cursor: pointer; background: none;
+  border: 1px solid transparent; border-radius: 10px; transition: background-color 0.15s, transform 0.08s; }
+.sh-picgrid button:active { transform: scale(0.9); }
+.sh-picgrid button.on, .sh-picgrid button:focus-visible { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 14%, transparent); }
+@media (hover: hover) { .sh-picgrid button:hover { background: color-mix(in srgb, var(--acc) 10%, transparent); } }
+.sh-picgrid .auto { grid-column: span 2; font: inherit; font-size: 1.2rem; font-weight: 600; color: var(--acc);
+  border-color: color-mix(in srgb, var(--acc) 40%, transparent); }
+.sh-inline { display: flex; gap: 8px; }
+.sh-inline[hidden] { display: none; }
+/* the recipe editor's "Add an ingredient" */
+.sh-compose { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 16px;
+  border: 1px dashed color-mix(in srgb, var(--acc) 50%, transparent); background: color-mix(in srgb, var(--acc) 5%, transparent); }
+.sh-compose.nudge { animation: sh-nudge 0.35s; }
+@keyframes sh-nudge { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+.sh-compose-h { display: inline-flex; align-items: center; gap: 6px; font-size: 1.1rem; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--acc); }
+.sh-compose-h svg { width: 13px; height: 13px; stroke-width: 2.8; }
+.sh-compose > .sh-btn { min-height: 46px; }
+.sh-link { align-self: flex-start; padding: 2px 0; font: inherit; font-size: 1.25rem; color: var(--acc); background: none; border: none;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--acc) 45%, transparent); }
+.sh-paste { display: flex; flex-direction: column; gap: 8px; }
+.sh-paste[hidden] { display: none; }
+.sh-paste .sh-btn { align-self: flex-end; }
+/* the flag sheet */
+.sh-lede { margin: 0; font-size: 1.35rem; line-height: 1.5; color: var(--ag-text-dim); }
+.sh-parts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sh-parts li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; font-size: 1.35rem;
+  color: var(--ag-text-dim); background: var(--ag-tile); border: 1px solid var(--ag-line-soft); }
+.sh-parts b { flex: none; min-width: 4.4em; padding: 3px 10px; text-align: center; border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--acc); background: color-mix(in srgb, var(--acc) 12%, transparent); }
+.sh-parts span { min-width: 0; overflow-wrap: anywhere; }
+.sh-total { display: flex; align-items: center; justify-content: space-between; padding: 2px 12px; font-size: 1.25rem; color: var(--ag-text-faint); }
+.sh-total b { font-size: 1.9rem; font-weight: 700; color: var(--ag-text); }
+.sh-note { padding: 10px 14px; font-size: 1.3rem; line-height: 1.5; color: var(--ag-text-dim); white-space: pre-line;
+  border-left: 2px solid color-mix(in srgb, var(--acc) 45%, transparent); background: var(--ag-tile); border-radius: 0 12px 12px 0; }
+.sh-mini { display: flex; flex-wrap: wrap; gap: 6px; }
+.sh-mini span { padding: 4px 10px; font-size: 1.25rem; color: var(--ag-text-dim); background: var(--ag-tile); border: 1px solid var(--ag-line-soft); border-radius: 999px; }
+.sh-err { padding: 9px 12px; font-size: 1.25rem; color: var(--ag-bad); border-radius: 10px;
+  background: color-mix(in srgb, var(--ag-bad) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ag-bad) 35%, transparent); }
+.sh-err[hidden] { display: none; }
 
-.shr-panel:empty { display: none; }
-.shr-cook, .shr-ed { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--acc) 40%, transparent); background: var(--ag-well);
-  box-shadow: 0 0 30px -14px color-mix(in srgb, var(--acc) 70%, transparent); scroll-margin-top: 70px; }
-.shr-head { display: flex; align-items: center; gap: 12px; }
-.shr-head-t b { font-size: 1.8rem; font-weight: 700; color: var(--ag-text); overflow-wrap: anywhere; }
-.shr-hint { font-size: 1.15rem; color: var(--ag-text-faint); margin-bottom: -4px; }
-.shr-ings { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 6px; }
-.shr-ing { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; font: inherit; color: inherit; text-align: left;
-  cursor: pointer; border-radius: 12px; border: 1px solid var(--ag-line-soft); background: var(--ag-tile);
-  -webkit-tap-highlight-color: transparent; transition: opacity 0.2s, border-color 0.2s; }
-.shr-ing .sh-box { width: 22px; height: 22px; }
-.shr-ing .sh-box svg { width: 13px; height: 13px; }
-.shr-ing.on .sh-box { background: var(--acc); border-color: var(--acc); }
-.shr-ing.on .sh-box svg { stroke-dashoffset: 0; }
-.shr-ing:not(.on) { opacity: 0.55; }
-.shr-ing-n { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 1.35rem; color: var(--ag-text); overflow-wrap: anywhere; }
-.shr-ing-n em { font-style: normal; font-size: 1.05rem; color: var(--ag-good); }
-.shr-ing .sh-qty { font-size: 1.15rem; padding: 2px 8px; }
-.shr-note { font-size: 1.25rem; line-height: 1.5; color: var(--ag-text-dim); padding: 8px 12px; border-left: 2px solid color-mix(in srgb, var(--acc) 45%, transparent); white-space: pre-line; }
-.shr-name { display: flex; gap: 10px; align-items: center; }
-.shr-pick { cursor: pointer; border: 1px dashed color-mix(in srgb, var(--acc) 50%, transparent); padding: 0; font-family: inherit; }
-.shr-emoji { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; padding: 8px; border-radius: 12px; background: var(--ag-tile); }
-.shr-emoji[hidden] { display: none; }
-.shr-emoji button { height: 40px; padding: 0; font-size: 2.1rem; line-height: 1; cursor: pointer; background: none; border: 1px solid transparent; border-radius: 10px; }
-.shr-emoji button.on, .shr-emoji button:hover { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 12%, transparent); }
-.shr-err { font-size: 1.25rem; color: var(--ag-bad); }
-.shr-err[hidden] { display: none; }
-
-/* A narrow card (Glance's small column): the quantity drops under the name
-   so the name keeps the width — "Tortillas" was breaking in two. */
+/* A narrow card (Glance's small column): tighter rows. */
 @container sh (max-width: 290px) {
   .sh-main { column-gap: 10px; padding-left: 10px; }
   .sh-row > .sh-qty { max-width: 7em; padding: 2px 8px; font-size: 1.15rem; }
   .sh-st { width: 32px; height: 32px; }
   .sh-more { width: 34px; }
-  .sh-ed-row { grid-template-columns: 1fr; }
-  .shs-pick { padding-left: 10px; }
-}
-@media (max-width: 560px) {
-  .sh-ed-row { grid-template-columns: 1fr; }
-  .sh-act .sh-btn.go { max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sh-box svg, .sh-row, .sh-toast, .sh-chev, .shr-body { transition: none !important; }
-  .sh-row.flash, .sh-stepper, .shs-pick { animation: none; }
+  .sh-box svg, .sh-row, .sh-toast, .sh-chev, .shr-body, .sh-scrim, .sh-sheet { transition: none !important; }
+  .sh-row.flash, .sh-stepper, .shx-pick, .shx-ed, .sh-picgrid, .sh-compose.nudge { animation: none; }
 }
 
 /* ── The colour picker (theme.js) — its base look, both dashboards ─────────────

@@ -89,26 +89,31 @@
         note = "";
       }
     ];
-    # Cupboard staples: the things you always keep in, one tap onto the list
-    # from the "Cupboard staples" drop-down. Generic on purpose — edit them on
-    # either dashboard. Written in on a fresh install, and once onto a list
-    # from before staples existed; after that they're user data like the rest.
+    # The Usuals: things you always keep in, one tap onto the list at their
+    # usual amount, sorted into groups you make (these three to start). Generic
+    # on purpose — edit, regroup or delete them on either dashboard.
+    starterGroups = [ "Cupboard" "Fridge" "Cleaning & paper" ];
     starterStaples = [
-      { name = "Toilet paper"; qty = ""; cat = "household"; }
-      { name = "Paper towel"; qty = ""; cat = "household"; }
-      { name = "Tissues"; qty = ""; cat = "household"; }
-      { name = "Dishwashing liquid"; qty = ""; cat = "household"; }
-      { name = "Laundry liquid"; qty = ""; cat = "household"; }
-      { name = "Bin bags"; qty = ""; cat = "household"; }
-      { name = "Cereal"; qty = ""; cat = "pantry"; }
-      { name = "Cordial"; qty = ""; cat = "drinks"; }
-      { name = "Coffee"; qty = ""; cat = "drinks"; }
-      { name = "Tea bags"; qty = ""; cat = "drinks"; }
-      { name = "Rice"; qty = ""; cat = "pantry"; }
-      { name = "Pasta"; qty = ""; cat = "pantry"; }
+      { name = "Cereal"; qty = ""; cat = "pantry"; group = "Cupboard"; }
+      { name = "Pasta"; qty = "500g"; cat = "pantry"; group = "Cupboard"; }
+      { name = "Rice"; qty = "1kg"; cat = "pantry"; group = "Cupboard"; }
+      { name = "Coffee"; qty = ""; cat = "drinks"; group = "Cupboard"; }
+      { name = "Tea bags"; qty = ""; cat = "drinks"; group = "Cupboard"; }
+      { name = "Cordial"; qty = ""; cat = "drinks"; group = "Cupboard"; }
+      { name = "Milk"; qty = "2L"; cat = "dairy"; group = "Fridge"; }
+      { name = "Thickened cream"; qty = "300mL"; cat = "dairy"; group = "Fridge"; }
+      { name = "Butter"; qty = "250g"; cat = "dairy"; group = "Fridge"; }
+      { name = "Eggs"; qty = "1 dozen"; cat = "dairy"; group = "Fridge"; }
+      { name = "Toilet paper"; qty = ""; cat = "household"; group = "Cleaning & paper"; }
+      { name = "Paper towel"; qty = ""; cat = "household"; group = "Cleaning & paper"; }
+      { name = "Tissues"; qty = ""; cat = "household"; group = "Cleaning & paper"; }
+      { name = "Dishwashing liquid"; qty = ""; cat = "household"; group = "Cleaning & paper"; }
+      { name = "Laundry liquid"; qty = ""; cat = "household"; group = "Cleaning & paper"; }
+      { name = "Bin bags"; qty = ""; cat = "household"; group = "Cleaning & paper"; }
     ];
     seed = pkgs.writeText "shopping-starters.json" (builtins.toJSON {
       recipes = starterRecipes;
+      groups = starterGroups;
       staples = starterStaples;
     });
 

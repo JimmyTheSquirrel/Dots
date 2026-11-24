@@ -17,11 +17,15 @@ this port.
 
   POST /items/add       {items: [{id?, name, qty?, cat?, from?}], by?, recipe?}
                         A name already on the list is MERGED, not duplicated:
-                        quantities with the same unit add up ("2" + "3" → "5",
-                        "500g" + "250g" → "750g"); one already ticked is put
-                        back on the list. `recipe` (an id) counts a cook.
+                        quantities add up ("2" + "3" → "5", 600mL + 1L → 1.6L,
+                        "" counts as one); one already ticked is put back on
+                        the list. Each add that says something is kept in the
+                        item's `parts` ({id, from, qty, by}), and two or more
+                        make it "doubled up" (`settled` false) — flagged on the
+                        dashboards for the shopper to decide. `recipe` (an id)
+                        counts a cook.
   POST /items/toggle    {id, done}
-  POST /items/edit      {id, name?, qty?, cat?}
+  POST /items/edit      {id, name?, qty?, cat?, settled?}   setting qty settles a flag
   POST /items/remove    {ids: [...]}
   POST /items/clear     {which: "done" | "all"}
   POST /items/restore   {items: [...]}   put removed items back (Undo)
@@ -31,6 +35,8 @@ this port.
                         name that's already a staple updates that one (and keeps
                         its picture unless the save names one)
   POST /staples/delete  {id}
+  POST /groups/save     {id?, name}   a group of usuals; one per name
+  POST /groups/delete   {id}          its usuals are left with no group
 
 Every POST answers {ok, state} (or {ok: false, error}) and needs `X-Dash: 1`.
 
@@ -83,7 +89,9 @@ DASH_ORIGINS = frozenset(o.strip() for o in os.environ.get(
 
 MAX_ITEMS = 300
 MAX_RECIPES = 200
-MAX_STAPLES = 150      # the cupboard staples: things you always keep in
+MAX_STAPLES = 150      # the usuals (stored as "staples"): things you always keep in
+MAX_GROUPS = 30        # the groups the usuals are sorted into
+MAX_PARTS = 12         # contributions remembered per list item (who asked, how much)
 MAX_INGREDIENTS = 60
 MAX_HISTORY = 400      # remembered names, for the "usuals" and suggestions
 SENT_HISTORY = 160     # how many of them each snapshot carries
@@ -215,6 +223,25 @@ def merge_qty(a, b):
     return joined if len(joined) <= QTY_LEN else a
 
 
+def _unit(q):
+    """The unit of a numeric quantity ("" for a plain count), or None when it
+    isn't one ("dozen", "2-3")."""
+    m = QTY_RE.match(q or "")
+    return (m.group(2) or "").strip() if m else None
+
+
+def add_up(a, b):
+    """Two contributions to one item, added. An empty quantity is one of the
+    thing, so "" + "" = "2" and "" + "2" = "3"; against a measured amount
+    ("" + "300mL") the measure stands — the item is flagged as asked for
+    twice either way, and the shopper decides (see op_add)."""
+    if not a and _unit(b):
+        return b
+    if not b and _unit(a):
+        return a
+    return merge_qty(a or "1", b or "1")
+
+
 def merge_from(a, b):
     if not b or b in [p.strip() for p in (a or "").split(",")]:
         return a
@@ -226,7 +253,7 @@ def merge_from(a, b):
 def empty():
     # sid: changes only when the file is created afresh, so a client holding a
     # snapshot from before can tell a reset from an old message.
-    return {"sid": new_id(), "v": 0, "items": [], "recipes": [], "staples": [], "history": {}}
+    return {"sid": new_id(), "v": 0, "items": [], "recipes": [], "staples": [], "groups": [], "history": {}}
 
 
 def _seed():
@@ -252,15 +279,52 @@ def seed_recipes():
     return out[:MAX_RECIPES]
 
 
-def seed_staples():
-    """The starter staples, cleaned like any other save."""
+def seed_usuals():
+    """The starter groups and usuals, cleaned like any other save. A seed
+    usual names its group ("Fridge"); here that becomes the group's id."""
+    seed = _seed()
+    groups, ids = [], {}
+    for g in seed.get("groups") or []:
+        name = clean(g if isinstance(g, str) else (g or {}).get("name"), GROUP_LEN)
+        if name and name.lower() not in ids and len(groups) < MAX_GROUPS:
+            ids[name.lower()] = new_id()
+            groups.append({"id": ids[name.lower()], "name": name})
     out, seen = [], set()
-    for r in _seed().get("staples") or []:
-        st = staple_from(r if isinstance(r, dict) else {"name": r}, None)
+    for r in seed.get("staples") or []:
+        r = r if isinstance(r, dict) else {"name": r}
+        st = staple_from(dict(r, group=ids.get(str(r.get("group") or "").lower(), "")), None, groups)
         if st and key(st["name"]) not in seen:
             seen.add(key(st["name"]))
             out.append(st)
-    return out[:MAX_STAPLES]
+    return groups, out[:MAX_STAPLES]
+
+
+# How the usuals saved before groups existed are sorted into some, once, by
+# the aisle each one lives in.
+GROUP_BY_AISLE = [
+    ("Cupboard", ("pantry", "snacks", "drinks", "other")),
+    ("Fridge", ("dairy", "meat", "produce", "bakery", "frozen")),
+    ("Cleaning & paper", ("household", "personal", "pets")),
+]
+
+
+def group_by_aisle(staples):
+    def which(cat):
+        for name, cats in GROUP_BY_AISLE:
+            if cat in cats:
+                return name
+        return "Cupboard"
+    by = {}
+    for x in staples:
+        by.setdefault(which(x.get("cat") or "other"), []).append(x)
+    groups = []
+    for name, _ in GROUP_BY_AISLE:
+        if by.get(name):
+            gid = new_id()
+            groups.append({"id": gid, "name": name})
+            for x in by[name]:
+                x["group"] = gid
+    return groups
 
 
 def load():
@@ -275,15 +339,19 @@ def load():
         st.setdefault("recipes", [])
         st.setdefault("history", {})
         _state = st
-        if "staples" in st:
+        if "staples" not in st:
+            # A list from before staples existed gets the starters, once: the
+            # key is there from now on, so deleting every one sticks.
+            st["groups"], st["staples"] = seed_usuals()
+        elif "groups" not in st:
+            # …and one from before groups, its usuals sorted into some, once.
+            st["groups"] = group_by_aisle(st["staples"])
+        else:
             return
-        # A list from before staples existed gets the starters, once: the key
-        # is there from now on, so deleting every staple sticks.
-        st["staples"] = seed_staples()
     except FileNotFoundError:
         _state = empty()
         _state["recipes"] = seed_recipes()
-        _state["staples"] = seed_staples()
+        _state["groups"], _state["staples"] = seed_usuals()
     except (OSError, ValueError) as exc:
         # Keep the unreadable file for a human to look at, and start empty
         # rather than refuse to run. No re-seeding: the recipes they had
@@ -317,6 +385,7 @@ def snapshot():
         "items": _state["items"],
         "recipes": sorted(_state["recipes"], key=lambda r: r["name"].lower()),
         "staples": sorted(_state["staples"], key=lambda r: r["name"].lower()),
+        "groups": _state.get("groups", []),
         "history": [[h["name"], h.get("cat", "other"), h.get("n", 1), h.get("at", 0)] for h in hist[:SENT_HISTORY]],
     }
 
@@ -343,6 +412,31 @@ def remember(name, cat, bump=True):
             del _state["history"][k2]
 
 
+def _parts(it):
+    """Who asked for an item and how much: one entry per add that said
+    something. An item from before parts existed gets one made from itself."""
+    ps = it.get("parts")
+    if isinstance(ps, list) and ps:
+        return ps
+    return [{"id": it["id"], "from": it.get("from", ""), "qty": it.get("qty", ""), "by": it.get("by", "")}]
+
+
+def _seen(cid):
+    """Has an add with this client id already landed — as an item, or merged
+    into one as a part? A retried request must not count twice."""
+    for it in _state["items"]:
+        if it["id"] == cid or any(p.get("id") == cid for p in it.get("parts") or []):
+            return True
+    return False
+
+
+def part_from(e):
+    if not isinstance(e, dict):
+        return None
+    return {"id": clean_id(e.get("id")) or new_id(), "from": clean(e.get("from"), FROM_LEN),
+            "qty": clean(e.get("qty"), QTY_LEN), "by": clean(e.get("by"), WHO_LEN)}
+
+
 def find(item_id):
     for it in _state["items"]:
         if it["id"] == item_id:
@@ -362,6 +456,15 @@ def who(body):
 
 # ── items ───────────────────────────────────────────────────────────────────
 def op_add(body):
+    """Add things — or, for a name already on the list, add TO it.
+
+    Every add that says something (an amount, or the recipe it's for) is kept
+    as a part of the item — {from, qty, by} — and the quantity is their sum.
+    Two or more parts make the item "doubled up" (`settled` false) and the
+    dashboards flag it, so whoever is shopping can decide: 300mL of cream for
+    each of two recipes probably means 600mL; sour cream for each of two
+    probably means one tub. An add that says nothing more ("milk" again) just
+    finds it's already there."""
     entries = body.get("items")
     if not isinstance(entries, list) or not entries:
         raise Refused(400, "nothing to add")
@@ -373,36 +476,45 @@ def op_add(body):
         if not name:
             continue
         cid = clean_id(e.get("id"))
-        if cid and find(cid):
-            continue  # a retried request: this one is already here
+        if cid and _seen(cid):
+            continue  # a retried request: this one has already landed
         qty, cat, frm = clean(e.get("qty"), QTY_LEN), clean_cat(e.get("cat")), clean(e.get("from"), FROM_LEN)
+        pid = cid or new_id()
+        part = {"id": pid, "from": frm, "qty": qty, "by": by}
         k = key(name)
         same = [it for it in _state["items"] if key(it["name"]) == k]
         live = next((it for it in same if not it.get("done")), None)
-        if live or same:
-            it = live or same[0]
-            if live:
-                it["qty"] = merge_qty(it.get("qty", ""), qty)
-                frm = merge_from(it.get("from", ""), frm)
-            else:
-                # Already in the trolley from earlier: needed again, so it goes
-                # back on the list with the new quantity rather than as a twin.
-                it.update(done=False, qty=qty, at=now)
-                it.pop("doneAt", None)
-                if by:
-                    it["by"] = by
+        if live:
+            if qty or frm:
+                live["parts"] = (_parts(live) + [part])[-MAX_PARTS:]
+                live["qty"] = add_up(live.get("qty", ""), qty)[:QTY_LEN]
+                live["settled"] = False
+                frm2 = merge_from(live.get("from", ""), frm)
+                if frm2:
+                    live["from"] = frm2
+            merged.append(live["id"])
+            # The item keeps its own name and aisle (which may be a correction
+            # someone made); the new entry's guess doesn't overwrite them.
+            remember(live["name"], live["cat"])
+            continue
+        if same:
+            # Already in the trolley from earlier: needed again, so it goes
+            # back on the list with the new quantity rather than as a twin.
+            it = same[0]
+            it.update(done=False, qty=qty, at=now, parts=[part], settled=False)
+            it.pop("doneAt", None)
+            if by:
+                it["by"] = by
             if frm:
                 it["from"] = frm
             else:
                 it.pop("from", None)
             merged.append(it["id"])
-            # The item keeps its own name and aisle (which may be a correction
-            # someone made); the new entry's guess doesn't overwrite them.
             remember(it["name"], it["cat"])
             continue
         if len(_state["items"]) >= MAX_ITEMS:
             raise Refused(409, "the list is full (%d items)" % MAX_ITEMS)
-        it = {"id": cid or new_id(), "name": name, "qty": qty, "cat": cat, "done": False, "at": now}
+        it = {"id": pid, "name": name, "qty": qty, "cat": cat, "done": False, "at": now, "parts": [part]}
         if frm:
             it["from"] = frm
         if by:
@@ -442,6 +554,10 @@ def op_edit(body):
             it["name"] = name
     if "qty" in body:
         it["qty"] = clean(body.get("qty"), QTY_LEN)
+        # Setting the amount by hand IS the decision a doubled-up flag asks for.
+        it["settled"] = True
+    if "settled" in body:
+        it["settled"] = bool(body.get("settled"))
     if "cat" in body:
         it["cat"] = clean_cat(body.get("cat"))
     # The aisle a thing was moved to is the aisle it lives in from now on.
@@ -494,6 +610,11 @@ def op_restore(body):
                 it[f] = v
         if it["done"]:
             it["doneAt"] = int(e["doneAt"]) if isinstance(e.get("doneAt"), int) else int(time.time())
+        parts = [p for p in (part_from(x) for x in (e.get("parts") or [])[:MAX_PARTS]) if p] \
+            if isinstance(e.get("parts"), list) else []
+        if parts:
+            it["parts"] = parts
+            it["settled"] = bool(e.get("settled"))
         _state["items"].append(it)
         back.append(iid)
     return {"restored": back}
@@ -546,21 +667,25 @@ def op_recipe_delete(body):
 # Things you always keep in — toilet paper, cereal, cordial — saved so they're
 # one tap onto the list. One per name (key()): saving a name that's already a
 # staple updates that one, whatever id it came with.
-def staple_from(body, sid):
+def staple_from(body, sid, groups=None):
     name = clean(body.get("name"), NAME_LEN)
     if not name:
         return None
     # icon: a picture someone picked; "" means the dashboard guesses one from
-    # the name (shopping.js → iconFor).
+    # the name (shopping.js → iconFor). group: a group's id, or "" (none) —
+    # including when the group it names has just been deleted.
+    gid = clean_id(body.get("group")) or ""
+    if gid and not any(g["id"] == gid for g in (groups if groups is not None else _state.get("groups", []))):
+        gid = ""
     return {"id": sid or clean_id(body.get("id")) or new_id(), "name": name,
             "qty": clean(body.get("qty"), QTY_LEN), "cat": clean_cat(body.get("cat")),
-            "icon": clean(body.get("icon"), ICON_LEN)}
+            "icon": clean(body.get("icon"), ICON_LEN), "group": gid}
 
 
 def op_staple_save(body):
     st = staple_from(body, None)
     if not st:
-        raise Refused(400, "a staple needs a name")
+        raise Refused(400, "a usual needs a name")
     k = key(st["name"])
     for i, s in enumerate(_state["staples"]):
         if s["id"] == st["id"] or key(s["name"]) == k:
@@ -569,10 +694,12 @@ def op_staple_save(body):
             # toilet paper", ★ from a row) keeps the one that was picked.
             if "icon" not in body:
                 st["icon"] = s.get("icon", "")
+            if "group" not in body:
+                st["group"] = s.get("group", "")
             _state["staples"][i] = st
             return {"id": st["id"]}
     if len(_state["staples"]) >= MAX_STAPLES:
-        raise Refused(409, "that's a lot of staples (%d) — remove one first" % MAX_STAPLES)
+        raise Refused(409, "that's a lot of usuals (%d) — remove one first" % MAX_STAPLES)
     _state["staples"].append(st)
     return {"id": st["id"]}
 
@@ -582,6 +709,43 @@ def op_staple_delete(body):
     gone = [s for s in _state["staples"] if s["id"] == sid]
     _state["staples"] = [s for s in _state["staples"] if s["id"] != sid]
     return {"removed": gone}
+
+
+# ── groups (of usuals) ──────────────────────────────────────────────────────
+# Made by hand — Cupboard, Fridge, Cleaning, whatever suits — and kept in the
+# order they were made. Deleting one leaves its usuals with no group.
+GROUP_LEN = 40
+
+
+def op_group_save(body):
+    gid, name = clean_id(body.get("id")), clean(body.get("name"), GROUP_LEN)
+    if not name:
+        raise Refused(400, "a group needs a name")
+    groups = _state.setdefault("groups", [])
+    for g in groups:
+        if g["id"] == gid:
+            g["name"] = name
+            return {"id": gid}
+    for g in groups:
+        if g["name"].lower() == name.lower():
+            return {"id": g["id"]}  # one per name, so a retry or a twin lands on it
+    if len(groups) >= MAX_GROUPS:
+        raise Refused(409, "that's a lot of groups (%d) — remove one first" % MAX_GROUPS)
+    g = {"id": gid or new_id(), "name": name}
+    groups.append(g)
+    return {"id": g["id"]}
+
+
+def op_group_delete(body):
+    gid = clean_id(body.get("id"))
+    gone = [g for g in _state.get("groups", []) if g["id"] == gid]
+    _state["groups"] = [g for g in _state.get("groups", []) if g["id"] != gid]
+    moved = []
+    for x in _state["staples"]:
+        if gid and x.get("group") == gid:
+            x["group"] = ""
+            moved.append(x["id"])
+    return {"removed": gone, "moved": moved}
 
 
 OPS = {
@@ -595,6 +759,8 @@ OPS = {
     "recipes/delete": op_recipe_delete,
     "staples/save": op_staple_save,
     "staples/delete": op_staple_delete,
+    "groups/save": op_group_save,
+    "groups/delete": op_group_delete,
 }
 
 
