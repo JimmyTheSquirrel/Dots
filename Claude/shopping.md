@@ -17,12 +17,16 @@ two cards for a day; rock and Kit-Kat both wanted the one — don't split it bac
 Across its top are **three tabs — List · Pantry · Recipes** (2026-11-25; before that Pantry
 and Recipes were bars folded inside the list, and rock found them "not impactful … it should
 feel distinct when you're in there"). Mockups of three layouts were weighed first; the tabs
-won, with a big **handwritten heading and a drawing** on Pantry and Recipes.
+won, with a big **handwritten heading and a drawing** on every tab (List got its own the
+next day — rock: "only thing missing now is a list img so it's all consistent").
 - **A swipe across the card** (phones) goes to the next/previous tab; the tab is kept for
   that browser tab only (`sessionStorage`), so a fresh look at the dashboard — the one you
   open in the shop — **always starts on List**.
-- **List** = the trolley bar (*3 of 18 in the trolley*, a gradient bar), the add box, the
-  list by aisle, In the trolley. The List tab carries how many are left to get.
+- **List** = the **Shopping** heading (a trolley of bread, greens and a bottle) whose
+  subtitle IS the trolley bar (*3 of 18 in the trolley*, a gradient bar; *Nothing on it yet*
+  when empty), then the add box, the list by aisle, In the trolley. The List tab carries how
+  many are left to get. "Shopping" is the longest title, so on a phone-width card it and the
+  trolley are a little smaller (a container query) or the "g" runs into the handle.
 
 Everything that needs more room than a row — an item's details, a doubled-up decision, a
 usual, a group, a recipe to shop for, the recipe editor — opens in **a sheet** (below).
@@ -191,17 +195,17 @@ in the .py — ⚠ their metric tables must agree)
 - Four **starter recipes** (`starterRecipes` in shopping.nix) are written in only when
   there is no state file at all. Deleting one sticks.
 
-**The headings (Pantry, Recipes)**
+**The headings (Shopping, Pantry, Recipes)**
 - The title is **Dancing Script Bold** — from nixpkgs (`pkgs.dancing-script`), served by
   BOTH Glances at `/assets/fonts/dancing-script-bold.ttf` (glance.nix `fontFiles`,
   marsbar.nix's asset farm) and loaded by `@font-face "Shop Script"` in cards.css, whose
   relative `url("fonts/…")` resolves next to cards.css. Nothing is fetched from the web.
   It's gradient-filled in the tab's colour with a swash underneath. Neon (Beon) and a
   cookbook serif (Fraunces) were mocked up too; handwritten was picked for both dashboards.
-- The drawings (`POT`, `BASKET` in shopping.js) are inline SVG coloured **only by classes**
-  in cards.css (`--k`, `--k2`, a warm `--wood`) — never a literal — so they follow both
-  colour pickers. Steam, bubbles and sparkles are CSS animations, still under reduced
-  motion. On the HUD (asgard.css) the heading gets a grid instead of dots and the drawing
+- The drawings (`TROLLEY`, `BASKET`, `POT` in shopping.js) are inline SVG coloured **only by
+  classes** in cards.css (`--k`, `--k2`, a warm `--wood`) — never a literal — so they follow
+  both colour pickers. The pot's steam and bubbles, the trolley's goods bobbing and the
+  sparkles are CSS animations, still under reduced motion. On the HUD (asgard.css) the heading gets a grid instead of dots and the drawing
   glows; everything is squared and the tab labels are Orbitron.
 - `--ag-alt` (the second colour) is a token each theme defines — `marsbar.css`
   (`hsl(var(--mb-h2) …)`) and `asgard.css` (`var(--hud2)`) — so cards.css stays

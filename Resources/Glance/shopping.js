@@ -5,7 +5,8 @@
 // :9558), with three tabs across its top (a swipe on a phone moves between
 // them; the tab lasts for the browser tab, so a fresh look starts on List):
 //
-//   List         the trolley bar (how far through the shop), an add box (a
+//   List         a "Shopping" heading with a trolley, and under it the
+//                trolley bar (how far through the shop), an add box (a
 //                comma adds several — "milk, eggs, 2 onions"), then the list
 //                grouped by aisle in the order you walk a supermarket, ticked
 //                things sinking into "In the trolley", ⋯ on a row for its
@@ -548,12 +549,29 @@
     '<path class="label" d="M77 46h14v9H77z"/>' +
     '<path class="s f" d="M18 62h134l-14 52H32z"/><path class="s rim" d="M14 62h142"/>' +
     '<path class="weave" d="M24 80h122M28 96h114M56 62l4 52M85 62v52M114 62l-4 52"/>' + SPARKS + '</svg>';
+  var TROLLEY = '<svg class="sh-ill" viewBox="0 0 170 132" aria-hidden="true">' +
+    '<ellipse class="shade" cx="94" cy="124" rx="58" ry="4.5"/>' +
+    '<g class="goods">' +
+      '<rect class="wood f" x="58" y="10" width="13" height="44" rx="6.5" transform="rotate(-18 64 32)"/>' +
+      '<path class="grain" d="M58 22l8 3M60 31l8 3M62 40l8 3" transform="rotate(-18 64 32)"/>' +
+      '<g class="leaf"><ellipse cx="98" cy="30" rx="9" ry="16" transform="rotate(18 98 30)"/><ellipse cx="110" cy="33" rx="8" ry="14" transform="rotate(40 110 33)"/>' +
+        '<path class="vein" d="M95 44l5-26M107 46l8-22"/></g>' +
+      '<path class="s f" d="M124 42V26c0-6 5-9 5-14V6h10v6c0 5 5 8 5 14v16z"/><rect class="s lid" x="127" y="-1" width="12" height="7" rx="2"/>' +
+      '<path class="label" d="M127 26h14v8h-14z"/>' +
+    '</g>' +
+    '<path class="grip" d="M5 18h9"/><path class="s" d="M8 18h18l16 66"/>' +
+    '<path class="s f" d="M30 40h132l-14 44H42z"/><path class="weave" d="M64 40l3 44M96 40v44M128 40l-3 44M34 62h124"/>' +
+    '<path class="s" d="M42 84l-4 14h112"/>' +
+    '<circle class="s f" cx="52" cy="112" r="9"/><circle class="hub" cx="52" cy="112" r="2.6"/>' +
+    '<circle class="s f" cx="136" cy="112" r="9"/><circle class="hub" cx="136" cy="112" r="2.6"/>' + SPARKS + '</svg>';
   var SWASH = '<svg class="sh-swash" viewBox="0 0 200 18" preserveAspectRatio="none" aria-hidden="true"><path d="M4 12C40 3 80 4 112 9s58 6 84-4"/></svg>';
-  var HERO = { pantry: ["Pantry", "What we keep in", BASKET], recipes: ["Recipes", "What are we cooking tonight?", POT] };
+  // The list's subtitle is the trolley bar itself (drawProg paints it).
+  var HERO = { list: ["Shopping", '<div class="sh-prog" data-sh-prog></div>', TROLLEY],
+    pantry: ["Pantry", "<p>What we keep in</p>", BASKET], recipes: ["Recipes", "<p>What are we cooking tonight?</p>", POT] };
   function hero(k) {
     var h = HERO[k];
     return '<header class="sh-hero ' + k + '"><div class="sh-hero-t"><h3 class="sh-script">' + h[0] + '</h3>' + SWASH +
-      '<p>' + h[1] + '</p></div>' + h[2] + '</header>';
+      h[1] + '</div>' + h[2] + '</header>';
   }
 
   // ── drawing: a keyed list, so rows MOVE (and can be animated) ────────────
@@ -629,8 +647,7 @@
           return '<button type="button" class="sh-tab" role="tab" id="sh-tab-' + t[0] + '" data-sh-tab="' + t[0] + '" aria-controls="sh-pane-' + t[0] + '">' +
             '<span class="sh-tab-i" aria-hidden="true">' + t[1] + '</span><span class="sh-tab-t">' + t[2] + '</span><i data-sh-tab-n></i></button>';
         }).join("") + '</div>' +
-        '<div class="sh-pane" id="sh-pane-list" role="tabpanel" aria-labelledby="sh-tab-list" data-pane="list">' +
-        '<div class="sh-prog" data-sh-prog></div>' +
+        '<div class="sh-pane" id="sh-pane-list" role="tabpanel" aria-labelledby="sh-tab-list" data-pane="list">' + hero("list") +
         '<form class="sh-add" autocomplete="off" data-sh-add>' +
           '<input class="sh-in" type="text" maxlength="300" placeholder="Add to the list… (milk, eggs, 300mL cream)" ' +
             'aria-label="Add to the shopping list" enterkeyhint="done" autocapitalize="sentences">' +
@@ -1326,13 +1343,13 @@
     });
     L.panes.forEach(function (p) { p.hidden = p.getAttribute("data-pane") !== ui.tab; });
   }
-  // The trolley bar on the list tab: how far through the shop you are.
+  // The trolley bar, under the list's heading: how far through the shop you are.
   function drawProg(s) {
     if (!L) return;
     var all = s.items.length, got = s.items.filter(function (i) { return i.done; }).length;
     L.prog.classList.toggle("all", !!all && got === all);
-    D.paint(L.prog, !all ? "" :
-      '<span class="sh-prog-t"><span aria-hidden="true">🛒</span>' + (got === all ? "All " + all + " in the trolley" : '<b>' + got + '</b> of ' + all + ' in the trolley') + '</span>' +
+    D.paint(L.prog, !all ? '<span class="sh-prog-t">Nothing on it yet — add something below</span>' :
+      '<span class="sh-prog-t">' + (got === all ? "All " + all + " in the trolley ✓" : '<b>' + got + '</b> of ' + all + ' in the trolley') + '</span>' +
       '<span class="sh-prog-bar" role="progressbar" aria-valuemin="0" aria-valuemax="' + all + '" aria-valuenow="' + got + '" aria-label="In the trolley">' +
         '<i style="width:' + Math.round(got / all * 100) + '%"></i></span>');
   }

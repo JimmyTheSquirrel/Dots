@@ -857,7 +857,7 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 .sh-recipes { --acc: var(--ag-alt); }
 .sh-sheet:is([data-kind="cook"], [data-kind="recipe"]) { --acc: var(--ag-alt, var(--color-primary)); }
 
-/* the trolley bar (List): how far through the shop you are */
+/* the trolley bar — the List heading's subtitle: how far through the shop you are */
 .sh-prog { display: flex; align-items: center; gap: 12px; padding: 0 2px; font-size: 1.2rem; color: var(--ag-text-dim); }
 .sh-prog:empty { display: none; }
 .sh-prog-t { flex: none; display: inline-flex; align-items: center; gap: 6px; }
@@ -866,6 +866,8 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 .sh-prog-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--ag-alt, var(--acc)), var(--acc));
   box-shadow: 0 0 12px var(--acc); transition: width 0.5s var(--ag-ease); }
 .sh-prog.all { color: var(--ag-good); }
+.sh-hero .sh-prog { position: relative; flex-direction: column; align-items: stretch; gap: 8px; max-width: 360px; margin: 0 0 2px 4px; padding: 0; font-size: 1.3rem; }
+.sh-hero .sh-prog-bar { flex: none; width: 100%; }
 
 /* ── The headings: a handwritten title (Dancing Script, from nixpkgs — both
    Glances serve it at /assets/fonts/) and a line drawing in the tab's
@@ -919,8 +921,11 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 .sh-ill .leaf .stem { fill: none; stroke: var(--k2); stroke-width: 2.6; stroke-linecap: round; }
 .sh-ill .vein { fill: none; stroke: rgb(0 0 0 / 0.25); stroke-width: 1.2; stroke-linecap: round; }
 .sh-ill .sp path { fill: color-mix(in srgb, white 50%, var(--k)); }
+.sh-ill .hub { fill: color-mix(in srgb, white 40%, var(--k)); }
+.sh-ill .grip { fill: none; stroke: var(--k2); stroke-width: 7; stroke-linecap: round; }
 /* alive: the steam rises, the bubbles pop, the sparkles twinkle */
-.sh-ill :is(.st path, .bub circle, .sp path) { transform-box: fill-box; transform-origin: center; }
+.sh-ill :is(.st path, .bub circle, .sp path, .goods) { transform-box: fill-box; transform-origin: center; }
+.sh-ill .goods { animation: sh-bob 3.4s ease-in-out infinite; }
 .sh-ill .st path { animation: sh-steam 3.3s ease-in-out infinite; }
 .sh-ill .st path:nth-child(2) { animation-delay: -1.1s; }
 .sh-ill .st path:nth-child(3) { animation-delay: -2.2s; }
@@ -931,7 +936,14 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 .sh-ill .sp path:nth-child(2) { animation-delay: -1.4s; }
 @keyframes sh-steam { 0% { opacity: 0; transform: translateY(8px) scaleY(0.9); } 30% { opacity: 0.85; } 70% { opacity: 0.45; } 100% { opacity: 0; transform: translateY(-12px) scaleY(1.1); } }
 @keyframes sh-bubble { 0%, 100% { opacity: 0; transform: translateY(2px) scale(0.4); } 40% { opacity: 0.9; } 80% { opacity: 0; transform: translateY(-7px) scale(1); } }
+@keyframes sh-bob { 0%, 100% { transform: none; } 50% { transform: translateY(-2.5px) rotate(-1deg); } }
 @keyframes sh-twinkle { 0%, 100% { opacity: 0.35; transform: scale(0.7); } 50% { opacity: 1; transform: scale(1.12); } }
+/* "Shopping" is the longest title: on a phone it gives the trolley's handle room */
+@container sh (max-width: 520px) {
+  .sh-hero.list .sh-script { font-size: 4.7rem; }
+  .sh-hero.list .sh-hero-t { max-width: 60%; }
+  .sh-hero.list .sh-ill { width: 128px; right: 2px; }
+}
 @container sh (min-width: 700px) {
   .sh-hero { min-height: 186px; padding: 26px 30px; }
   .sh-ill { width: 206px; right: 30px; }
