@@ -46,6 +46,13 @@ rock's browser ──► asgard:9558 (tailnet, CORS) ─────────
   Quantities are read off the front or back: `500g beef mince`, `2 cloves garlic`,
   `milk x2`, `eggs (dozen)`, `Milk 2L`. (`7up` stays `7up`: a number glued to a word that
   isn't a unit is part of the name.)
+- **Its details (2026-11-25).** Typing ONE thing (no comma) opens a panel under the box:
+  **how much** (the Amount control — − amount +, and the units as one sideways-scrolling
+  row) and the **aisle** (chips, the guess centred and marked *guessed* until you pick).
+  A typed amount (`500g mince`) fills the control until you touch it; then the control
+  wins. Enter (in the box or the amount) adds with those details; the panel folds away.
+  A comma list adds as before. The panel is built once in `listShell` and never
+  repainted (`addSync()` follows the typing), so the other phone can't reset it.
 - **Suggestions while typing** — pantry things that match first (with their amount: *Thickened
   cream 300mL*), then things bought before. Nothing shows under an empty box: the
   automatic "Usuals" row (anything bought twice) was removed 2026-11-24 — rock: "kinda
@@ -70,19 +77,31 @@ rock's browser ──► asgard:9558 (tailnet, CORS) ─────────
 - **⋯ on a row** opens its sheet: name, **How many** (the shared Amount control), who asked
   for how much (if it was doubled up), Aisle, and **Remove · ☆ Add to usuals · Save**.
 
-**Doubled up — the ⚑ flag (added 2026-11-24)**
+**Requests, and the ⚑ flag (2026-11-24; every add a request since 2026-11-25)**
 
 Two recipes both wanting 300mL of cream really do need 600mL; two recipes both wanting
-sour cream probably need one tub. The list can't know which, so it **adds it all up and
-flags it**, and whoever is in the shop decides.
-- Each item keeps its **parts** — `[{id, from, qty, by}]`, one per time it was asked for.
-  An add of something already on the list *with an amount or a recipe* appends a part,
-  sums the quantity, and un-settles it. A bare re-add (typing `milk` when milk is there)
-  only flashes the row — no part, no flag.
+sour cream probably need one tub; rock asking for pasta and Kit-Kat asking for 2 more may
+be one too many. The list can't know which, so it **adds it all up and flags it**, and
+whoever is in the shop decides.
+- Each item keeps its **parts** — its **requests**, `[{id, from, qty, by}]`: who asked, for
+  how much, for which recipe. **Every** add of something already on the list is another
+  request (since 2026-11-25 — rock: "it should let me add multiple … but flag it as a
+  check"; before, a bare re-add was refused as "already on the list"). It sums the
+  quantity and un-settles the item. The client adds the request on screen at once
+  (`addUp()`, the JS twin of the server's `add_up`/`merge_qty` for the common cases;
+  anything odd waits for the server's reply).
+- **Void a request** (`items/unpart {id, part}`): each request in the flag sheet and in the
+  item sheet's **Requests** has **Void** — *"Rock asked for 700g · ✕ Void"*. The amount
+  becomes the sum of what's left (and who added it / which recipes follow); down to one,
+  the flag goes and the flag sheet closes itself. The last request can't be voided (that's
+  Remove). Undo puts the same request back: an add with the voided request's id — which
+  `_seen()` lets in again, because an item's own id only counts as "seen" while no stored
+  request carries it.
 - **Flagged = not ticked, not `settled`, two or more parts.** The row gets a gold edge and
   a chip — *⚑ 2 recipes — check* or *⚑ Added twice — check* — inside the tick button but
   checked first in `onListClick`, so tapping it opens the decision instead of ticking.
-- The **flag sheet** lists each part (amount · recipe or who) and the total, then
+- The **flag sheet** lists each request (*You asked for 500g*, *Rock asked for 700g*,
+  with the recipe under it if there was one — and Void on each) and the total, then
   **Just one · 300mL** (the biggest single part — `justOne()`) or **Get both · 600mL**
   (*Get all 3* for three). *Some other amount…* opens the item sheet. Either answer
   settles it, on both phones.
@@ -131,12 +150,13 @@ in the .py — ⚠ their metric tables must agree)
   remembered as `sh-usual-group`; a group's picture is guessed from its name —
   `groupIcon()`, 🏷️ when nothing fits) and **Edit**; then a section per group, *No group*
   last, each a grid of **tiles** (picture, name, usual amount, a round **+** in the corner).
-  - **+** → onto the list now, at its usual amount — and the tile **ticks for ~1.6 s**
-    (`ui.uJust`) so you see it went on.
-  - **tap the tile** → it spans the row and opens **− amount +** (starts at the usual
-    amount) and **Add to list**.
-  - Already on the list? The amount is **added**, and the row is flagged (⚑) for the shop
-    to decide. With no amount, it just says it's already there.
+  - **+ or the tile → "how much?"** — ALWAYS (rock, 2026-11-25: "it should always ask how
+    much you want and give you the choice of requesting it in mL"). A sheet (`want`) with
+    the Amount control, starting at the usual amount; **Add to list**. Then the tile
+    **ticks for ~1.6 s** (`ui.uJust`) so you see it went on. (It used to add in one tap and
+    pick inline; an inline picker was repainted by every change from the other phone.)
+  - Already on the list? The sheet says so — *Already on the list — 500g · Asked for by
+    Kit-Kat (500g)* — and **Add my request** adds yours alongside, flagged ⚑.
   - Tiles are **stacked** (picture over name): a phone's two columns are too narrow to put
     a name beside the picture and the + — it broke words mid-letter.
 - **Edit** → tiles become buttons with a pencil (tap one → its sheet), each group header
@@ -150,9 +170,19 @@ in the .py — ⚠ their metric tables must agree)
   reads **★ In the pantry** if it already is, and tapping that takes it out.
 - **Pictures:** each has its own, not its aisle's. Unpicked, it's **guessed from the name**
   (`iconFor` — `ICON_PHRASES` first, then the last word that means something, like
-  `categorise()`: bin bags 🗑️, herbs/coriander/basil 🌿, coffee ☕️, cereal 🥣, cordial 🧃…;
-  unknown → the aisle's). The sheet's picture opens a grid of ~95 (`STAPLE_ICONS`) plus
-  **Auto**. ⚠ Symbols from the old BMP block (☕) need U+FE0F after them or they render as
+  `categorise()`: bin bags 🗑️, herbs/coriander/basil 🌿, coffee ☕️, cereal 🥣…;
+  unknown → the aisle's). The sheet's picture opens a grid of ~105 (`STAPLE_ICONS`) plus
+  **Auto**.
+- **Drawn pictures** (2026-11-25) for what emoji hasn't got: a packet of **chips** (Grain
+  Waves, Doritos…), a box of **crackers** (Shapes, Jatz), a **cordial** bottle (anything
+  with "cordial" or "iced tea" — a phrase, so it beats the "tea" at the end of *Cordial -
+  Peach Iced Tea*), a **tissue** box, a **kitchen roll** (paper towel), **washing powder**,
+  **dishwasher tablets**, a **spray** cleaner and a **sauce** bottle. Toilet paper keeps 🧻,
+  so the three paper things finally differ. They're inline SVG in `ART` (shopping.js),
+  stored on a pantry thing as `@chips`, `@cordial`… (fits the server's 16-char icon field),
+  and drawn by **`pic()`, which every place that shows a picture goes through** — it also
+  escapes emoji, since a stored picture comes back from the server. Fixed colours, like
+  emoji; sized up a little (`.sh-art`) to match an emoji's footprint. ⚠ Symbols from the old BMP block (☕) need U+FE0F after them or they render as
   small grey text — the tables carry it; add it to any new one.
 - **Stored as `staples`** (the server's name, from before either rename — kept so old
   lists and backups load): `{id, name, qty, cat, icon, group}`, and `groups: [{id, name}]`
@@ -252,7 +282,7 @@ person's newer ones.
 
 - stdlib Python, one process, one lock. `GET /events` (SSE — `state` with everything on
   connect and after every change, `ping` every 15 s), `GET /state`, and POSTs:
-  `items/{add,toggle,edit,remove,clear,restore}`, `recipes/{save,delete}`,
+  `items/{add,toggle,edit,remove,unpart,clear,restore}`, `recipes/{save,delete}`,
   `staples/{save,delete}` (the usuals), `groups/{save,delete}`. Every POST answers
   `{ok, state}`. Full contract in the file's header.
 - **All or nothing:** a request refused halfway (a batch that would overfill the list) or

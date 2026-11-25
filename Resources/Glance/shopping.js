@@ -244,6 +244,25 @@
     next = snap(n, 1, dir);
     return next < 1 ? null : fmtQty(next, u);
   }
+  // Two requests for one thing, added — the server's add_up/merge_qty, for the
+  // instant answer on screen (its reply has the final word). An empty amount is
+  // one of the thing ("" + "" = "2"); against a measure the measure stands
+  // ("" + "300mL" = "300mL"). null = something odd ("2 + 1 bunch"): leave it
+  // to the server.
+  var DIM = { g: ["g", 1], kg: ["g", 1000], mL: ["mL", 1], L: ["mL", 1000] };
+  function addUp(a, b) {
+    var pa = parseQty(a), pb = parseQty(b);
+    if (!a && pb.n != null && pb.u) return b;
+    if (!b && pa.n != null && pa.u) return a;
+    pa = parseQty(a || "1"); pb = parseQty(b || "1");
+    if (pa.n == null || pb.n == null || pa.other || pb.other) return null;
+    var da = DIM[pa.u], db = DIM[pb.u];
+    if (da && db && da[0] === db[0]) {
+      var t = pa.n * da[1] + pb.n * db[1];
+      return t >= 1000 ? fmtQty(t / 1000, da[0] === "g" ? "kg" : "L") : fmtQty(t, da[0]);
+    }
+    return pa.u === pb.u ? fmtQty(pa.n + pb.n, pa.u) : null;
+  }
   // Where a unit chip is first tapped on an item with no amount yet.
   function startQty(u) {
     return u === "g" || u === "mL" ? fmtQty(100, u) : u ? fmtQty(1, u) : "2";
@@ -268,7 +287,8 @@
   var srv = null, queue = [], busy = false, retryT = null, backoff = 1000, offline = false, queued = false;
   var ui = { typed: "", find: "", got: true, clearArm: 0, step: null, stepT: null,
     tab: "list",                                                   // list | pantry | recipes
-    uEdit: false, uGroup: "all", uPick: null, uAmt: "", uJust: {} }; // the pantry
+    uEdit: false, uGroup: "all", uJust: {},                        // the pantry
+    addTouched: false, addCat: "" };                               // the add box's details
   try {
     ui.got = localStorage.getItem("sh-got") !== "closed";
     ui.uGroup = localStorage.getItem("sh-usual-group") || "all";
@@ -352,13 +372,28 @@
     entries = entries.map(function (e) {
       return { id: rid(), name: e.name, qty: e.qty || "", cat: e.cat || categorise(e.name), from: extra.from || "" };
     });
-    var s = current(), fresh = [], dup = [];
-    entries.forEach(function (e) { var on = onList(s, e.name); if (on) dup.push(on.id); else fresh.push(e.id); });
+    var s = current(), fresh = [], dup = [], asks = [];
+    entries.forEach(function (e) {
+      var on = onList(s, e.name);
+      if (on) { dup.push(on.id); asks.push({ item: on.id, part: e.id, name: on.name }); } else fresh.push(e.id);
+    });
     var body = { items: entries, by: WHO };
     if (extra.recipe) body.recipe = extra.recipe;
     send("items/add", body, function (st) {
       entries.forEach(function (e) {
-        if (byId(st, e.id) || onList(st, e.name)) return; // there already: the server merges the quantity
+        if (byId(st, e.id)) return;
+        var live = onList(st, e.name);
+        if (live) { // already there: one more request (the server adds it up too)
+          var ps = live.parts && live.parts.length ? live.parts.slice()
+            : [{ id: live.id, from: live.from || "", qty: live.qty || "", by: live.by || "" }];
+          if (ps.some(function (p) { return p.id === e.id; })) return;
+          ps.push({ id: e.id, from: e.from, qty: e.qty, by: WHO });
+          live.parts = ps.slice(-12);
+          var q = addUp(live.qty || "", e.qty);
+          if (q != null) live.qty = q;
+          live.settled = false;
+          return;
+        }
         var k = key(e.name);
         for (var i = 0; i < st.items.length; i++) {
           var it = st.items[i];
@@ -368,7 +403,38 @@
       });
     }, function (j) { flash(j.merged); });
     flash(dup);
-    return { fresh: fresh, dup: dup };
+    return { fresh: fresh, dup: dup, asks: asks };
+  }
+  // Void one request on an item — "Kit-Kat asked for 2" when Rock had it. The
+  // amount becomes the sum of what's left. Undo puts the same request back (the
+  // server lets an add with a voided request's id back in).
+  function voidPart(itemId, partId, quiet) {
+    var it = byId(current(), itemId), p = it && (it.parts || []).filter(function (x) { return x.id === partId; })[0];
+    if (!it || !p || (it.parts || []).length < 2) return;
+    send("items/unpart", { id: itemId, part: partId }, function (st) {
+      var x = byId(st, itemId);
+      if (!x || !x.parts) return;
+      var left = x.parts.filter(function (y) { return y.id !== partId; });
+      if (!left.length || left.length === x.parts.length) return;
+      var q = left[0].qty || "";
+      for (var i = 1; i < left.length && q != null; i++) q = addUp(q, left[i].qty || "");
+      x.parts = left;
+      if (q != null) x.qty = q;
+      x.settled = false;
+      if (left[0].by) x.by = left[0].by;
+    });
+    if (quiet) return;
+    say("Took off " + (p.by || "that") + (p.by ? "'s request" : " request") + (p.qty ? " (" + p.qty + ")" : ""), { undo: function () {
+      var body = { items: [{ id: p.id, name: it.name, qty: p.qty || "", cat: it.cat, from: p.from || "" }], by: p.by || WHO };
+      send("items/add", body, function (st) {
+        var x = byId(st, itemId);
+        if (!x || (x.parts || []).some(function (y) { return y.id === p.id; })) return;
+        x.parts = (x.parts || []).concat([p]);
+        var q = addUp(x.qty || "", p.qty || "");
+        if (q != null) x.qty = q;
+        x.settled = false;
+      });
+    } });
   }
   function toggle(id, done) {
     send("items/toggle", { id: id, done: done }, function (st) {
@@ -653,6 +719,15 @@
             'aria-label="Add to the shopping list" enterkeyhint="done" autocapitalize="sentences">' +
           '<button class="sh-plus" type="submit" aria-label="Add">' + I.plus + '</button>' +
         '</form>' +
+        // Typing ONE thing opens its details: how much (with units) and the
+        // aisle, guessed from the name until you pick one. Built once and
+        // never repainted, like a sheet, so the other phone can't reset it.
+        '<div class="sh-addx" data-sh-addx hidden>' + amountHtml("", "How much") +
+          '<div class="sh-addx-cat"><span class="sh-label">Aisle <i data-add-hint>guessed</i></span>' +
+            '<div class="sh-opts scroll" data-add-cats role="group" aria-label="Aisle">' + AISLES.map(function (a) {
+              return '<button type="button" class="sh-opt" data-add-cat="' + a[0] + '" aria-pressed="false"><span aria-hidden="true">' + a[1] + '</span>' + esc(a[2]) + '</button>';
+            }).join("") + '</div></div>' +
+        '</div>' +
         '<div class="sh-chips" data-sh-chips></div>' +
         '<div class="sh-list" role="list" data-sh-items></div>' +
         '<div class="sh-foot" data-sh-foot></div>' +
@@ -664,20 +739,54 @@
     L = { root: root, form: root.querySelector("[data-sh-add]"), input: root.querySelector(".sh-add .sh-in"),
       chips: root.querySelector("[data-sh-chips]"), list: root.querySelector("[data-sh-items]"),
       foot: root.querySelector("[data-sh-foot]"), prog: root.querySelector("[data-sh-prog]"),
-      tabs: root.querySelectorAll("[data-sh-tab]"), panes: root.querySelectorAll("[data-pane]"), first: true };
+      tabs: root.querySelectorAll("[data-sh-tab]"), panes: root.querySelectorAll("[data-pane]"),
+      addx: root.querySelector("[data-sh-addx]"), first: true };
+    L.amt = L.addx.querySelector("[data-amt]");
     swipe(root);
-    L.input.addEventListener("input", function () { ui.typed = L.input.value; refresh(); });
+    L.input.addEventListener("input", function () { ui.typed = L.input.value; addSync(); refresh(); });
     L.form.addEventListener("submit", function (e) {
       e.preventDefault();
       var got = parseMany(L.input.value);
       if (!got.length) return;
+      if (!L.addx.hidden && got.length === 1) { // one thing, with its details
+        got[0].qty = amtRead(L.amt);
+        got[0].cat = ui.addCat || got[0].cat;
+      }
       var r = addItems(got);
-      if (r.dup.length && !r.fresh.length && got.length === 1 && !got[0].qty) say(got[0].name + " is already on the list");
+      if (r.asks.length === 1 && got.length === 1) {
+        var a = r.asks[0];
+        say(a.name + " was already on the list — your request is on it too ⚑", { undo: function () { voidPart(a.item, a.part, true); } });
+      } else if (r.asks.length) say(plural(r.asks.length, "thing was", "things were") + " already on the list — asked for again ⚑");
       L.input.value = ""; ui.typed = "";
+      addSync();
       refresh();
       L.input.focus();
     });
     return L;
+  }
+
+  // The add box's details follow what's typed: shown for ONE thing (not a
+  // comma list), the amount mirroring a typed one ("300ml cream") until you
+  // touch the control, the aisle guessed until you pick one.
+  function addSync() {
+    if (!L) return;
+    var raw = L.input.value, one = !!raw.trim() && !/[,;]/.test(raw);
+    if (!one) { ui.addTouched = false; ui.addCat = ""; if (!L.addx.hidden) { L.addx.hidden = true; amtShow(L.amt, ""); } return; }
+    var p = parse(raw) || { name: raw.trim(), qty: "" };
+    if (L.addx.hidden) { L.addx.hidden = false; anim(L.addx, [{ opacity: 0, transform: "translateY(-6px)" }, { opacity: 1, transform: "none" }], 220); }
+    if (!ui.addTouched) amtShow(L.amt, p.qty || "");
+    var cat = ui.addCat || categorise(p.name);
+    L.addx.querySelectorAll("[data-add-cat]").forEach(function (b) {
+      var on = b.getAttribute("data-add-cat") === cat;
+      if (b.classList.contains("on") !== on) {
+        b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on));
+        if (on) { // centre the guess in its row (not at the faded edge)
+          var row = b.parentNode, d = b.getBoundingClientRect().left - row.getBoundingClientRect().left;
+          row.scrollTo({ left: row.scrollLeft + d - (row.clientWidth - b.offsetWidth) / 2, behavior: CALM ? "auto" : "smooth" });
+        }
+      }
+    });
+    L.addx.querySelector("[data-add-hint]").textContent = ui.addCat ? "" : "guessed";
   }
 
   var icons = {}; // recipe name → its picture, for the "from" tag on a row
@@ -798,7 +907,7 @@
     if (!list.length) return "";
     return '<span class="sh-chips-h">Suggestions</span>' + list.map(function (h) {
       return '<button type="button" class="sh-chip" data-sh-quick="' + esc(h.name) + '" data-qty="' + esc(h.qty) + '">' +
-        (h.icon ? '<span aria-hidden="true">' + h.icon + '</span>' : I.plus) + esc(h.name) + (h.qty ? '<small>' + esc(h.qty) + '</small>' : '') + '</button>';
+        (h.icon ? '<span aria-hidden="true">' + pic(h.icon) + '</span>' : I.plus) + esc(h.name) + (h.qty ? '<small>' + esc(h.qty) + '</small>' : '') + '</button>';
     }).join("");
   }
 
@@ -826,23 +935,32 @@
     "🍚": "rice", "🍝": "pasta spaghetti penne noodle lasagne fettuccine linguine macaroni", "🥣": "cereal oat muesli granola weetbix",
     "🥫": "tin can soup stock broth passata gravy", "🫒": "olive oil", "🧂": "salt pepper spice seasoning paprika cumin",
     "🍯": "honey syrup", "🫙": "jam vegemite nutella mayo mayonnaise mustard sauce paste pickle", "🌾": "flour",
-    "🍬": "sugar lolly lollie", "🍫": "chocolate choc", "🍪": "biscuit cookie cracker", "🥜": "nut peanut almond cashew",
-    "🍿": "popcorn", "🥨": "pretzel", "🍟": "chip crisp",
-    "☕️": "coffee", "🍵": "tea", "🧃": "juice cordial", "🥤": "soda coke cola softdrink lemonade kombucha",
+    "🍬": "sugar lolly lollie", "🍫": "chocolate choc", "🍪": "biscuit cookie", "🥜": "nut peanut almond cashew",
+    "🍿": "popcorn", "🥨": "pretzel", "@chips": "chip crisp dorito twistie pringle cheezel smith kettle",
+    "@crackers": "cracker shape jatz sao vitaweat cruskit",
+    "☕️": "coffee", "🍵": "tea", "🧃": "juice", "@cordial": "cordial", "🥤": "soda coke cola softdrink lemonade kombucha",
     "🍺": "beer", "🍷": "wine", "💧": "water",
-    "🗑️": "bin garbage rubbish", "🧽": "sponge dishwashing dishwasher detergent scourer", "🧺": "laundry softener",
-    "🧻": "toilet tissue towel napkin", "🧼": "soap", "🧴": "shampoo conditioner lotion sunscreen moisturiser moisturizer bodywash",
-    "🪥": "toothbrush toothpaste floss", "🧹": "broom", "🪣": "bucket bleach cleaner spray", "🔋": "battery",
+    "🗑️": "bin garbage rubbish", "🧽": "sponge dishwashing detergent scourer", "🧺": "laundry softener",
+    "@tablets": "dishwasher", "@powder": "powder", "@spray": "spray cleaner windex",
+    "🧻": "toilet napkin", "@tissues": "tissue kleenex", "@towel": "towel", "🧼": "soap", "🧴": "shampoo conditioner lotion sunscreen moisturiser moisturizer bodywash",
+    "🪥": "toothbrush toothpaste floss", "🧹": "broom", "🪣": "bucket bleach", "🔋": "battery",
     "💡": "bulb", "🕯️": "candle", "💊": "panadol paracetamol ibuprofen nurofen vitamin", "🩹": "plaster bandaid",
-    "🍼": "nappy formula", "🐱": "cat kitty litter", "🐶": "dog", "🌯": "burrito"
+    "🍼": "nappy formula", "🐱": "cat kitty litter", "🐶": "dog", "🌯": "burrito", "@sauce": "ketchup sriracha"
   };
+  // Checked in order, before single words: "cordial" anywhere wins over the
+  // "tea" at the end of "Cordial - Peach Iced Tea".
   var ICON_PHRASES = [
-    ["toilet paper", "🧻"], ["paper towel", "🧻"], ["bin bag", "🗑️"], ["bin liner", "🗑️"], ["garbage bag", "🗑️"],
-    ["dishwashing", "🧽"], ["laundry", "🧺"], ["washing powder", "🧺"], ["olive oil", "🫒"], ["ice cream", "🍦"],
+    ["cordial", "@cordial"], ["iced tea", "@cordial"], ["ice tea", "@cordial"], ["grain wave", "@chips"], ["hot chip", "🍟"],
+    ["toilet paper", "🧻"], ["toilet roll", "🧻"], ["toilet tissue", "🧻"], ["paper towel", "@towel"], ["kitchen towel", "@towel"],
+    ["kitchen roll", "@towel"], ["bin bag", "🗑️"], ["bin liner", "🗑️"], ["garbage bag", "🗑️"],
+    ["washing powder", "@powder"], ["laundry powder", "@powder"], ["dishwasher", "@tablets"], ["dishwashing", "🧽"],
+    ["spray and wipe", "@spray"], ["glen 20", "@spray"], ["tomato sauce", "@sauce"], ["bbq sauce", "@sauce"],
+    ["barbecue sauce", "@sauce"], ["sweet chilli", "@sauce"],
+    ["laundry", "🧺"], ["olive oil", "🫒"], ["ice cream", "🍦"],
     ["peanut butter", "🥜"], ["coconut milk", "🥥"], ["coconut cream", "🥥"], ["tea bag", "🍵"], ["cat food", "🐱"],
     ["dog food", "🐶"], ["hand wash", "🧼"], ["body wash", "🧴"], ["sweet potato", "🍠"], ["spring onion", "🧅"],
     ["baked bean", "🥫"], ["chopped tomato", "🥫"], ["tinned tomato", "🥫"], ["diced tomato", "🥫"], ["tomato paste", "🫙"],
-    ["maple syrup", "🍯"], ["soy sauce", "🫙"], ["sour cream", "🥛"], ["cream cheese", "🧀"], ["hot chip", "🍟"],
+    ["maple syrup", "🍯"], ["soy sauce", "🫙"], ["sour cream", "🥛"], ["cream cheese", "🧀"],
     ["fish finger", "🐟"], ["garlic bread", "🥖"]
   ];
   var ICON_KW = {};
@@ -858,8 +976,83 @@
   // What can be picked for a staple: roughly by aisle, so it's quick to scan.
   var STAPLE_ICONS = ("🍎 🍌 🍊 🍋 🍓 🫐 🍇 🍉 🍍 🥭 🥝 🍐 🍑 🍒 🥑 🍅 🥔 🍠 🧅 🧄 🥕 🥬 🥦 🥒 🍆 🍄 🎃 🌽 🌶️ 🫑 " +
     "🌿 🌱 🍃 🥗 🍞 🥖 🥐 🥯 🫓 🧁 🍗 🥩 🥓 🍖 🌭 🐟 🦐 🥛 🧀 🧈 🥚 🍦 🥄 " +
-    "🍚 🍝 🥣 🥫 🫘 🫒 🧂 🍯 🫙 🌾 🍬 🍫 🍪 🥜 🍿 🍟 ☕️ 🍵 🧃 🥤 🍺 🍷 💧 " +
-    "🗑️ 🧽 🧺 🧻 🧼 🧴 🪥 🧹 🪣 🔋 💡 🕯️ 💊 🩹 🍼 🐱 🐶 🐾 🎁 🛒").split(" ");
+    "🍚 🍝 🥣 🥫 🫘 🫒 🧂 🍯 🫙 @sauce 🌾 🍬 🍫 🍪 @crackers @chips 🥜 🍿 🍟 ☕️ 🍵 🧃 @cordial 🥤 🍺 🍷 💧 " +
+    "🗑️ 🧽 @tablets 🧺 @powder 🧻 @towel @tissues 🧼 🧴 @spray 🪥 🧹 🪣 🔋 💡 🕯️ 💊 🩹 🍼 🐱 🐶 🐾 🎁 🛒").split(" ");
+
+  // ── pictures emoji doesn't have, drawn here ─────────────────────────────
+  // A packet of chips, a box of crackers, a cordial bottle, a tissue box, a
+  // kitchen roll, washing powder, dishwasher tablets, a spray cleaner, a
+  // sauce bottle. Stored on a pantry thing as "@name" (like an emoji, it
+  // fits the server's icon field) and drawn by pic(), which every place that
+  // shows a picture goes through. Fixed colours, like emoji themselves.
+  var ART = {
+    "@chips": '<polygon points="15,11 15,9 17.8,4.6 20.7,9 23.5,4.6 26.3,9 29.2,4.6 32,9 34.8,4.6 37.7,9 40.5,4.6 43.3,9 46.2,4.6 49,9 49,11" fill="#e5533d" stroke="#9c2f1f" stroke-width="2" stroke-linejoin="round"/>' +
+      '<polygon points="15,53 15,55 17.8,59.4 20.7,55 23.5,59.4 26.3,55 29.2,59.4 32,55 34.8,59.4 37.7,55 40.5,59.4 43.3,55 46.2,59.4 49,55 49,53" fill="#e5533d" stroke="#9c2f1f" stroke-width="2" stroke-linejoin="round"/>' +
+      '<path d="M15 9h34l2 6c3 12 3 22 0 34l-2 6H15l-2-6c-3-12-3-22 0-34z" fill="#e5533d" stroke="#9c2f1f" stroke-width="2" stroke-linejoin="round"/>' +
+      '<path d="M13 21c12-4 26-4 38 0v7c-12-4-26-4-38 0z" fill="#f7c948"/>' +
+      '<path d="M21 40c2-6 8-9 12-8 5 1 9 5 9 9-1 5-6 8-11 8-6 0-11-3-10-9z" fill="#f6d77a" stroke="#c18f2b" stroke-width="1.8"/>' +
+      '<g fill="#c18f2b"><circle cx="28" cy="39" r="1.1"/><circle cx="34" cy="43.5" r="1.1"/><circle cx="36.5" cy="37" r="1"/></g>' +
+      '<path d="M18 14c-1.5 9-1.5 25 0 36" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2.4" stroke-linecap="round"/>',
+    "@crackers": '<path d="M14 12l6-6h36l-6 6z" fill="#f6bd61" stroke="#a5651a" stroke-width="2" stroke-linejoin="round"/>' +
+      '<path d="M50 12l6-6v44l-6 6z" fill="#d98a26" stroke="#a5651a" stroke-width="2" stroke-linejoin="round"/>' +
+      '<path d="M14 12h36v44H17a3 3 0 0 1-3-3z" fill="#f0a23b" stroke="#a5651a" stroke-width="2" stroke-linejoin="round"/>' +
+      '<rect x="18" y="17" width="28" height="9" rx="2" fill="#8a3d12"/><path d="M22 21.5h20" stroke="#f6bd61" stroke-width="2" stroke-dasharray="3 2"/>' +
+      '<path d="M22 37l5-3 5 3v6l-5 3-5-3z" fill="#f7d48a" stroke="#b07a2a" stroke-width="1.5" stroke-linejoin="round"/>' +
+      '<circle cx="38" cy="46" r="5" fill="#f7d48a" stroke="#b07a2a" stroke-width="1.5"/><path d="M34 31h8l-4 6z" fill="#f7d48a" stroke="#b07a2a" stroke-width="1.5" stroke-linejoin="round"/>' +
+      '<g fill="#b07a2a"><circle cx="27" cy="40" r=".9"/><circle cx="38" cy="46" r=".9"/><circle cx="36.5" cy="44" r=".7"/></g>',
+    "@cordial": '<rect x="27" y="4" width="10" height="7" rx="1.6" fill="#e2564b" stroke="#9e3029" stroke-width="1.6"/>' +
+      '<path d="M28 11h8v5c6 3 9 8 9 14v24a5 5 0 0 1-5 5H24a5 5 0 0 1-5-5V30c0-6 3-11 9-14z" fill="#eaf4f8" stroke="#7d98a6" stroke-width="2" stroke-linejoin="round"/>' +
+      '<path d="M21 31h22v23a3 3 0 0 1-3 3H24a3 3 0 0 1-3-3z" fill="#f39a5c"/><path d="M21 31c4 2 8 2 11 0s7-2 11 0" fill="none" stroke="#f8c08f" stroke-width="1.6"/>' +
+      '<rect x="22.5" y="37" width="19" height="12" rx="2.5" fill="#fff8ec" stroke="#d9a777" stroke-width="1.2"/>' +
+      '<circle cx="32" cy="43.4" r="3.6" fill="#f07c3e"/><path d="M32 39.8c1.5-1.8 3.4-2 4.6-1.6-1 1.4-2.6 2.2-4.6 1.6z" fill="#5fae5a"/>' +
+      '<path d="M24.5 21c-1.8 2-2.6 4.5-2.6 7" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-opacity=".85"/>',
+    "@tissues": '<rect x="8" y="25" width="48" height="31" rx="4" fill="#7cc1e4" stroke="#3a7fa6" stroke-width="2"/>' +
+      '<g fill="#bfe3f4"><circle cx="16" cy="45" r="3"/><circle cx="48" cy="41" r="2.6"/><circle cx="30" cy="50" r="2.2"/><circle cx="41" cy="51" r="1.6"/></g>' +
+      '<g fill="#fff"><circle cx="16" cy="45" r="1.1"/><circle cx="48" cy="41" r="1"/></g>' +
+      '<ellipse cx="32" cy="29" rx="11.5" ry="3.2" fill="#2d6a8c"/>' +
+      '<path d="M23.5 29.5C21 21 26.5 12.5 33 8c.2 5.5 5.2 8.5 7 12.5 1.6 3.6.6 7-.5 9z" fill="#fff" stroke="#b9c7cf" stroke-width="1.8" stroke-linejoin="round"/>' +
+      '<path d="M31 14c-2 4-3 9-2 14" fill="none" stroke="#dbe4e9" stroke-width="1.4" stroke-linecap="round"/>',
+    "@towel": '<ellipse cx="32" cy="57.5" rx="19" ry="4" fill="#b07a46" stroke="#7a5230" stroke-width="1.6"/>' +
+      '<rect x="30.5" y="3" width="3" height="10" rx="1.5" fill="#b07a46"/>' +
+      '<path d="M17 13h30v38a4 4 0 0 1-4 4H21a4 4 0 0 1-4-4z" fill="#fbfaf5" stroke="#aab6bd" stroke-width="2"/>' +
+      '<path d="M41 16v36" stroke="#e1e7ea" stroke-width="5" stroke-linecap="round"/>' +
+      '<path d="M17 27h30M17 41h30" stroke="#b7c3ca" stroke-width="1.4" stroke-dasharray="2 2"/>' +
+      '<g fill="#6aa9dc"><path d="M24 18.5l2 2-2 2-2-2z"/><path d="M35 20l1.6 1.6-1.6 1.6-1.6-1.6z"/><path d="M29 32.5l2 2-2 2-2-2z"/>' +
+        '<path d="M38 34l1.6 1.6-1.6 1.6-1.6-1.6z"/><path d="M24 46l2 2-2 2-2-2z"/><path d="M35 47l1.6 1.6-1.6 1.6-1.6-1.6z"/></g>' +
+      '<ellipse cx="32" cy="13" rx="15" ry="4" fill="#fff" stroke="#aab6bd" stroke-width="2"/><ellipse cx="32" cy="13" rx="4.5" ry="1.6" fill="#c89a63"/>',
+    "@powder": '<rect x="10" y="15" width="42" height="43" rx="4" fill="#3f84dc" stroke="#22508e" stroke-width="2"/>' +
+      '<path d="M10 23h42" stroke="#22508e" stroke-width="1.6"/><rect x="24" y="17.3" width="14" height="3.4" rx="1.7" fill="#1f4a83"/>' +
+      '<g fill="#cfe6ff"><circle cx="19" cy="31" r="3"/><circle cx="26" cy="28.5" r="2"/><circle cx="44" cy="30.5" r="2.4"/></g>' +
+      '<path d="M14 40c6-7 12-7 18 0s12 7 18 0" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>' +
+      '<path d="M38 47h19l-2.6 11H40.6z" fill="#f2c94c" stroke="#b08a1e" stroke-width="1.6" stroke-linejoin="round"/>' +
+      '<path d="M38.5 47c2-4.2 6.2-5.6 9-5.6s7 1.4 9 5.6z" fill="#fff" stroke="#cdd8e4" stroke-width="1.2"/>',
+    "@tablets": '<g transform="rotate(-12 23 31)"><rect x="8" y="20" width="30" height="22" rx="5" fill="#fff"/>' +
+        '<path d="M8 31h30v6a5 5 0 0 1-5 5H13a5 5 0 0 1-5-5z" fill="#4f8fe0"/><circle cx="23" cy="31" r="4.4" fill="#e5484d" stroke="#a52a2e" stroke-width="1.2"/>' +
+        '<rect x="8" y="20" width="30" height="22" rx="5" fill="none" stroke="#8ea4b6" stroke-width="1.8"/></g>' +
+      '<g transform="rotate(8 40 42)"><rect x="24" y="30" width="32" height="24" rx="5" fill="#fff"/>' +
+        '<path d="M24 42h32v7a5 5 0 0 1-5 5H29a5 5 0 0 1-5-5z" fill="#4f8fe0"/><circle cx="40" cy="42" r="5" fill="#e5484d" stroke="#a52a2e" stroke-width="1.2"/>' +
+        '<path d="M37.8 40.4a2.4 2.4 0 0 1 2.8-1.2" fill="none" stroke="#fff" stroke-width="1.2" stroke-linecap="round"/>' +
+        '<rect x="24" y="30" width="32" height="24" rx="5" fill="none" stroke="#8ea4b6" stroke-width="1.8"/></g>' +
+      '<g fill="none" stroke="#7fc3f0" stroke-width="1.6"><circle cx="51" cy="15" r="4"/><circle cx="58" cy="24" r="2.4"/><circle cx="11" cy="53" r="2.8"/></g>',
+    "@spray": '<path d="M24 27h16l3 6v21a5 5 0 0 1-5 5H26a5 5 0 0 1-5-5V33z" fill="#58c4a5" stroke="#2c7d66" stroke-width="2" stroke-linejoin="round"/>' +
+      '<rect x="25" y="21" width="14" height="7" rx="1.5" fill="#f2f2f2" stroke="#8c99a3" stroke-width="1.6"/>' +
+      '<path d="M22 8h21l6 4v5H31l-2 4h-7z" fill="#f2f2f2" stroke="#8c99a3" stroke-width="1.6" stroke-linejoin="round"/>' +
+      '<path d="M29 21l-3 8 4 1 2.4-9" fill="#f2f2f2" stroke="#8c99a3" stroke-width="1.4" stroke-linejoin="round"/>' +
+      '<path d="M49 12.5h3" stroke="#8c99a3" stroke-width="2" stroke-linecap="round"/>' +
+      '<g fill="#9fdcf7"><circle cx="56" cy="9" r="1.6"/><circle cx="58.5" cy="14" r="1.3"/><circle cx="56" cy="19" r="1.1"/></g>' +
+      '<rect x="25" y="38" width="14" height="12" rx="2" fill="#fff" fill-opacity=".85"/><path d="M28 44h8" stroke="#2c7d66" stroke-width="1.6" stroke-linecap="round"/>',
+    "@sauce": '<path d="M29 4h6l1 7h-8z" fill="#f3f3f3" stroke="#9aa5ad" stroke-width="1.5" stroke-linejoin="round"/>' +
+      '<rect x="25" y="11" width="14" height="7" rx="2" fill="#f3f3f3" stroke="#9aa5ad" stroke-width="1.6"/>' +
+      '<path d="M26 18h12c5 4 8 10 8 18v17a6 6 0 0 1-6 6H24a6 6 0 0 1-6-6V36c0-8 3-14 8-18z" fill="#d93a2b" stroke="#8f2117" stroke-width="2"/>' +
+      '<rect x="21" y="34" width="22" height="13" rx="3" fill="#fff6e6" stroke="#c9a27a" stroke-width="1.2"/>' +
+      '<circle cx="32" cy="41" r="3.8" fill="#e8453a"/><path d="M30 37.8c1-1 3-1 4 0" fill="none" stroke="#5aa253" stroke-width="1.6" stroke-linecap="round"/>' +
+      '<path d="M23 24c-2 3-3 6-3 10" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="2.2" stroke-linecap="round"/>'
+  };
+  // A picture as HTML: one of ours, drawn, or an emoji (escaped — a stored
+  // picture comes back from the server and is never trusted as markup).
+  function pic(icon) {
+    return ART[icon] ? '<svg class="sh-art" viewBox="0 0 64 64" aria-hidden="true">' + ART[icon] + '</svg>' : esc(icon || "");
+  }
 
   // ── small shared bits ────────────────────────────────────────────────────
   function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
@@ -938,7 +1131,8 @@
   // on <body>, not in the card (her backdrop-filter would trap position:fixed),
   // above everything. One at a time. Kinds:
   //   item    a list row's ⋯: name, how many, aisle, Remove, ☆ add to usuals
-  //   flag    a doubled-up row: who asked for how much → Get both / Just one
+  //   flag    a doubled-up row: who asked for how much → Get both / Just one / Void one
+  //   want    a pantry thing onto the list: how much (with units)?
   //   usual   a usual: picture, name, usual amount, group, aisle
   //   group   a group of usuals: name, delete
   //   cook    a recipe to shop for: tick what's needed → Add N to the list
@@ -979,7 +1173,7 @@
     var E = sheetRoot();
     SH = Object.assign({ dirty: false, closeArm: 0, arm: 0 }, o);
     E.sheet.setAttribute("data-kind", o.kind);
-    E.ic.textContent = o.icon || "";
+    E.ic.innerHTML = pic(o.icon);
     E.ic.hidden = !o.icon;
     E.t.textContent = o.title;
     E.sub.textContent = o.sub || "";
@@ -1011,7 +1205,7 @@
     setTimeout(function () { if (!SH) { SE.root.hidden = true; SE.body.innerHTML = ""; SE.foot.innerHTML = ""; } }, CALM ? 0 : 280);
     refresh();
   }
-  function markDirty() { if (SH && SH.kind !== "flag" && SH.kind !== "cook") SH.dirty = true; }
+  function markDirty() { if (SH && SH.kind !== "flag" && SH.kind !== "cook" && SH.kind !== "want") SH.dirty = true; }
   function sheetErr(msg) {
     var e = SE.body.querySelector(".sh-err");
     if (!e) { e = document.createElement("div"); e.className = "sh-err"; SE.body.appendChild(e); }
@@ -1043,12 +1237,16 @@
     }
   }
 
-  // Who asked for how much — on a flag, and in a row's sheet.
+  // Who asked for how much — on a flag, and in a row's sheet. With two or more,
+  // each can be voided (a mistake, or both of you remembering the same thing).
   function partsHtml(it) {
-    return '<ul class="sh-parts">' + (it.parts || []).map(function (p) {
-      var src = p.from ? (icons[p.from] || "🍳") + " " + p.from : "Added " + (p.by ? "by " + p.by : "by hand");
-      if (p.from && p.by && p.by !== WHO) src += " · " + p.by;
-      return '<li><b>' + esc(p.qty || "1") + '</b><span>' + esc(src) + '</span></li>';
+    var ps = it.parts || [], many = ps.length >= 2;
+    return '<ul class="sh-parts">' + ps.map(function (p) {
+      var who = p.by === WHO ? "You" : p.by || "Someone";
+      return '<li><span><strong>' + esc(who) + '</strong> asked for ' + esc(p.qty || "one") +
+          (p.from ? '<small>' + esc((icons[p.from] || "🍳") + " for " + p.from) + '</small>' : '') + '</span>' +
+        (many ? '<button type="button" class="sh-btn ghost sm" data-part-void="' + esc(p.id) + '" aria-label="' + esc("Void " + who + "'s request") + '">' + I.x + 'Void</button>' : '') +
+        '</li>';
     }).join("") + '</ul>';
   }
 
@@ -1062,7 +1260,7 @@
       body:
         field("What", '<input class="sh-in" data-f="name" maxlength="80" enterkeyhint="done" value="' + esc(it.name) + '">') +
         field("How many", amountHtml(it.qty)) +
-        ((it.parts || []).length >= 2 ? field("Asked for by", partsHtml(it), isFlagged(it) ? "doubled up — set the amount you need" : "") : "") +
+        ((it.parts || []).length >= 2 ? field("Requests", '<div data-item-parts>' + partsHtml(it) + '</div>', isFlagged(it) ? "asked for more than once — void one, or set the amount" : "") : "") +
         field("Aisle", '<div class="sh-opts">' + aisleChips(cat) + '</div>'),
       foot: '<button type="button" class="sh-btn ghost bad" data-item-del>Remove</button>' +
         '<button type="button" class="sh-btn ghost" data-item-usual aria-pressed="' + !!u + '">' + (u ? "★ In the pantry" : "☆ Add to pantry") + '</button>' +
@@ -1096,7 +1294,7 @@
   function flagBody(it) {
     return '<p class="sh-lede">' + (it.parts.every(function (p) { return p.from; })
         ? "More than one recipe needs this. If they're cooked separately you'll want it all; if one lot does both, just one."
-        : "This was put on the list more than once. Keep it all, or just one lot?") + '</p>' +
+        : "This was asked for more than once. Keep it all, just one lot — or void a request that was a mistake.") + '</p>' +
       partsHtml(it) +
       '<div class="sh-total"><span>All together</span><b>' + esc(it.qty || "1") + '</b></div>' +
       '<button type="button" class="sh-link" data-flag-other>Some other amount…</button>';
@@ -1108,9 +1306,11 @@
   }
 
   // ── the pantry: things you always keep in, in groups you make ────────────
-  // Its own tab. Group chips filter it; each thing is a tile: the round + adds
-  // it at its usual amount (and ticks for a moment, so you see it went on),
-  // tapping the name opens − amount + / Add to pick first. "Edit" turns the
+  // Its own tab. Group chips filter it; each thing is a tile, and tapping it
+  // (or its round +) ALWAYS asks how much first — a sheet with the amount and
+  // its units, starting at the usual amount (rock: "it should always ask how
+  // much you want"). It ticks for a moment once it's gone on. Something
+  // already on the list gets a second request, flagged ⚑. "Edit" turns the
   // tiles into editors (tap one → its sheet) and offers + New group. NOT a
   // tracker — nothing here reflects the list. The server calls these
   // "staples" (the data predates the name).
@@ -1135,29 +1335,16 @@
     return (AISLE[aisleOf(a.cat)].i - AISLE[aisleOf(b.cat)].i) || (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1);
   }
   function usualTile(x) {
-    var t = '<span class="sht-pic" aria-hidden="true">' + iconFor(x) + '</span>' +
+    var t = '<span class="sht-pic" aria-hidden="true">' + pic(iconFor(x)) + '</span>' +
       '<span class="sht-t"><b>' + esc(x.name) + '</b>' + (x.qty ? '<small>' + esc(x.qty) + '</small>' : '') + '</span>';
     if (ui.uEdit) {
       return '<div class="sht" role="listitem"><button type="button" class="sht-main" data-u-open="' + x.id + '" ' +
         'aria-label="' + esc("Change " + x.name) + '">' + t + '<span class="sht-ed" aria-hidden="true">' + I.pencil + '</span></button></div>';
     }
-    var open = ui.uPick === x.id, just = Date.now() - (ui.uJust[x.id] || 0) < 1600;
-    var html = '<div class="sht' + (open ? " open" : "") + (just ? " got" : "") + '" role="listitem">' +
-      '<button type="button" class="sht-main" data-u-pick="' + x.id + '" aria-expanded="' + open + '" ' +
-        'aria-label="' + esc("Pick how many " + x.name) + '">' + t + '</button>';
-    if (!open) {
-      return html + '<button type="button" class="sht-add" data-u-quick="' + x.id + '" ' +
-        'aria-label="' + esc("Add " + (x.qty ? x.qty + " " : "") + x.name + " to the list") + '">' + (just ? I.tick : I.plus) + '</button></div>';
-    }
-    var down = stepQty(ui.uAmt, -1), up = stepQty(ui.uAmt, 1);
-    return html + '<div class="sht-pick">' +
-        '<span class="sh-stepper" role="group" aria-label="' + esc("How many " + x.name) + '">' +
-          '<button type="button" class="sh-st" data-u-step="-1" aria-label="Fewer"' + (down == null ? " disabled" : "") + '>' + I.minus + '</button>' +
-          '<b aria-live="polite">' + esc(ui.uAmt || "1") + '</b>' +
-          '<button type="button" class="sh-st" data-u-step="1" aria-label="More"' + (up == null ? " disabled" : "") + '>' + I.plus + '</button>' +
-        '</span>' +
-        '<button type="button" class="sh-btn go" data-u-add="' + x.id + '">Add to list</button>' +
-      '</div></div>';
+    var just = Date.now() - (ui.uJust[x.id] || 0) < 1600, ask = esc("Add " + x.name + " to the list — how much?");
+    return '<div class="sht' + (just ? " got" : "") + '" role="listitem">' +
+      '<button type="button" class="sht-main" data-u-want="' + x.id + '" aria-label="' + ask + '">' + t + '</button>' +
+      '<button type="button" class="sht-add" data-u-want="' + x.id + '" aria-label="' + ask + '" tabindex="-1">' + (just ? I.tick : I.plus) + '</button></div>';
   }
   function drawUsuals(s) {
     var C = usualShell();
@@ -1168,7 +1355,6 @@
     var f = ui.uGroup;
     if (f !== "all" && f !== "none" && !known[f]) f = ui.uGroup = "all";
     if (f === "none" && !loose.length) f = ui.uGroup = "all";
-    if (ui.uPick && !usual(s, ui.uPick)) ui.uPick = null;
 
     function chip(id, label, n, icon) {
       return '<button type="button" class="sh-opt' + (f === id ? " on" : "") + '" role="tab" aria-selected="' + (f === id) + '" data-u-filter="' + id + '">' +
@@ -1215,9 +1401,28 @@
     ui.uJust[x.id] = Date.now();
     setTimeout(refresh, 1700);
     if (r.fresh.length) say("Added " + what + " to the list", { undo: function () { remove(r.fresh, "Took " + x.name + " back off"); } });
-    else if (qty) say(x.name + " was already on the list — added " + qty + " (⚑ to check)");
-    else say(x.name + " is already on the list");
+    else if (r.asks.length) {
+      var a = r.asks[0];
+      say(x.name + " was already on the list — your request is on it too ⚑", { undo: function () { voidPart(a.item, a.part, true); } });
+    }
     buzz();
+  }
+
+  // ── want: a pantry thing, onto the list — how much? ──────────────────────
+  function asked(it) {
+    var ps = it.parts && it.parts.length ? it.parts : [{ by: it.by, qty: it.qty }];
+    return ps.map(function (p) { return (p.by === WHO ? "you" : p.by || "someone") + " (" + (p.qty || "1") + ")"; }).join(", ");
+  }
+  function openWant(id) {
+    var s = current(), x = usual(s, id);
+    if (!x) return;
+    var on = onList(s, x.name), g = group(s, x.group);
+    openSheet({ kind: "want", id: id, icon: iconFor(x), title: x.name, sub: g ? g.name : "From the pantry",
+      body: field("How much", amountHtml(x.qty || ""), x.qty ? "usually " + x.qty : "") +
+        (on ? '<div class="sh-note warn">' + I.flag + '<span><b>Already on the list' + (on.qty ? " — " + esc(on.qty) : "") + '</b>' +
+          'Asked for by ' + esc(asked(on)) + '. This adds your request to it, and flags it ⚑ so whoever\'s shopping can check.</span></div>' : ''),
+      foot: '<button type="button" class="sh-btn ghost" data-want-edit>' + I.pencil + 'Edit</button>' +
+        '<button type="button" class="sh-btn go" data-want-add>' + (on ? "Add my request" : "Add to list") + '</button>' });
   }
 
   // ── usual: its sheet ─────────────────────────────────────────────────────
@@ -1230,7 +1435,7 @@
   }
   function picGrid(list, sel, attr, auto) {
     return (auto ? '<button type="button" class="auto' + (!sel ? " on" : "") + '" ' + attr + '="">Auto</button>' : '') +
-      list.map(function (e) { return '<button type="button"' + (sel === e ? ' class="on"' : '') + ' ' + attr + '="' + e + '">' + e + '</button>'; }).join("");
+      list.map(function (e) { return '<button type="button"' + (sel === e ? ' class="on"' : '') + ' ' + attr + '="' + esc(e) + '">' + pic(e) + '</button>'; }).join("");
   }
   function openUsual(id, preset) {
     var s = current(), x = id ? usual(s, id) : null;
@@ -1238,7 +1443,7 @@
     openSheet({ kind: "usual", id: d.id, isNew: !x, draft: d, cat: x ? aisleOf(x.cat) : "",
       icon: x ? iconFor(x) : "🧺", title: x ? x.name : "Add to the pantry", sub: x ? "In the pantry" : "Something you buy all the time",
       body:
-        '<div class="sh-ident"><button type="button" class="sh-pic" data-u-pic aria-expanded="false" aria-label="Change the picture">' + iconFor(d) + '</button>' +
+        '<div class="sh-ident"><button type="button" class="sh-pic" data-u-pic aria-expanded="false" aria-label="Change the picture">' + pic(iconFor(d)) + '</button>' +
           '<input class="sh-in" data-f="name" maxlength="80" enterkeyhint="done" autocapitalize="sentences" placeholder="What is it? — e.g. thickened cream" value="' + esc(d.name) + '"></div>' +
         '<div class="sh-picgrid" data-u-pics hidden>' + picGrid(STAPLE_ICONS, d.icon, "data-u-seticon", true) + '</div>' +
         field("Usual amount", amountHtml(d.qty), "what + puts on the list") +
@@ -1269,7 +1474,7 @@
       sub: g ? plural(members.length, "thing", "things") : "Fridge, Baking, Cleaning… whatever suits",
       body: field("Name", '<input class="sh-in" data-f="name" maxlength="40" enterkeyhint="done" placeholder="e.g. Baking" value="' + esc(g ? g.name : "") + '">') +
         (members.length ? field("In it", '<div class="sh-mini">' + members.map(function (x) {
-          return '<span>' + iconFor(x) + ' ' + esc(x.name) + '</span>'; }).join("") + '</div>', "deleting the group keeps these, with no group") : ""),
+          return '<span>' + pic(iconFor(x)) + ' ' + esc(x.name) + '</span>'; }).join("") + '</div>', "deleting the group keeps these, with no group") : ""),
       foot: (g ? '<button type="button" class="sh-btn ghost bad" data-g-del>Delete group</button>' : '') +
         '<button type="button" class="sh-btn go" data-g-save>' + (g ? "Save" : "Create group") + '</button>',
       focus: g ? null : '[data-f="name"]' });
@@ -1310,7 +1515,7 @@
       '<span class="shc-big" aria-hidden="true">' + esc(icon) + '</span>' +
       '<span class="shc-plate" aria-hidden="true">' + esc(icon) + '</span>' +
       '<b>' + esc(r.name) + '</b>' +
-      '<span class="shc-strip" aria-hidden="true">' + pics.slice(0, 5).join("") + (more > 0 ? '<i>+' + more + '</i>' : '') + '</span>' +
+      '<span class="shc-strip" aria-hidden="true">' + pics.slice(0, 5).map(pic).join("") + (more > 0 ? '<i>+' + more + '</i>' : '') + '</span>' +
       (have ? '<span class="shc-on" aria-hidden="true">' + I.tick + have + '</span>' : '') + '</button>';
   }
   function drawRecipes(s) {
@@ -1357,7 +1562,6 @@
     if (k === ui.tab || TAB_IX[k] == null || !L) return;
     var back = TAB_IX[k] < TAB_IX[ui.tab];
     ui.tab = k;
-    ui.uPick = null;
     if (k !== "pantry") ui.uEdit = false;
     if (ui.step) stepFor(null);
     try { sessionStorage.setItem("sh-tab", k); } catch (_) {}
@@ -1389,7 +1593,7 @@
     }
     root.addEventListener("touchstart", function (e) {
       var t = e.target;
-      dead = e.touches.length !== 1 || !!(t.closest && t.closest("input, textarea, select, .sh-opts.scroll, .sh-stepper, .sh-tabs"));
+      dead = e.touches.length !== 1 || !!(t.closest && t.closest("input, textarea, select, .sh-opts.scroll, .sh-stepper, .sh-tabs, .sh-addx"));
       if (dead) return;
       live = false;
       x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
@@ -1438,7 +1642,7 @@
       var on = !SH.off[i], have = onList(s, g.name);
       return '<button type="button" class="shx-check' + (on ? " on" : "") + (g.skip ? " have" : "") + '" role="listitem" data-cook-ing="' + i + '" aria-pressed="' + on + '">' +
         '<span class="sh-box" aria-hidden="true">' + I.check + '</span>' +
-        '<span class="shx-pic sm" aria-hidden="true">' + iconFor(g) + '</span>' +
+        '<span class="shx-pic sm" aria-hidden="true">' + pic(iconFor(g)) + '</span>' +
         '<span class="shx-t"><b>' + esc(g.name) + '</b>' +
           (have && on ? '<small class="warn">' + I.flag + 'On the list' + (have.qty ? ' · ' + esc(have.qty) : '') + ' — this adds to it</small>'
             : g.skip ? '<small>' + (on ? "Adding it this time" : "Tap if you\'ve run out") + '</small>' : '') + '</span>' +
@@ -1517,7 +1721,7 @@
             'aria-label="' + esc(g.skip ? g.name + ": usually have it — tap to buy it with the recipe" : g.name + ": bought with the recipe — tap if you usually have it") + '">' +
             '<span class="sh-box" aria-hidden="true">' + I.check + '</span></button>' +
           '<button type="button" class="shx-main" data-ing-edit="' + i + '" aria-label="' + esc("Change " + g.name) + '">' +
-            '<span class="shx-pic sm" aria-hidden="true">' + iconFor(g) + '</span><span class="shx-t"><b>' + esc(g.name) + '</b>' +
+            '<span class="shx-pic sm" aria-hidden="true">' + pic(iconFor(g)) + '</span><span class="shx-t"><b>' + esc(g.name) + '</b>' +
             (g.skip ? '<small class="sh-have"><span aria-hidden="true">🫙</span>Usually have — not added</small>' : '') + '</span>' +
             (g.qty ? '<span class="sh-qty">' + esc(g.qty) + '</span>' : '') + '</button>' +
           '<button type="button" class="shx-btn del" data-ing-del="' + i + '" aria-label="' + esc("Drop " + g.name) + '">' + I.x + '</button></div>';
@@ -1627,6 +1831,12 @@
 
   function onListClick(t) {
     var el, row = t.closest("[data-id]"), id = row && row.getAttribute("data-id");
+    if (t.closest("[data-sh-addx]")) {
+      if ((el = t.closest("[data-amt-step]"))) { amtStep(el); ui.addTouched = true; }
+      else if ((el = t.closest("[data-amt-unit]"))) { amtUnit(el); ui.addTouched = true; }
+      else if ((el = t.closest("[data-add-cat]"))) { ui.addCat = el.getAttribute("data-add-cat"); addSync(); buzz(); }
+      return;
+    }
     if (t.closest("[data-sh-flag]") && id) { openFlag(id); return; } // inside the tick: first
     if (t.closest("[data-sh-step-open]") && id) {
       stepFor(id);
@@ -1641,7 +1851,7 @@
       openItem(id);
     } else if ((el = t.closest("[data-sh-quick]"))) {
       addItems([{ name: el.getAttribute("data-sh-quick"), qty: el.getAttribute("data-qty") || "" }]);
-      if (L) { var parts = L.input.value.split(/[,;]/); parts.pop(); L.input.value = parts.length ? parts.join(",") + ", " : ""; ui.typed = L.input.value; L.input.focus(); }
+      if (L) { var parts = L.input.value.split(/[,;]/); parts.pop(); L.input.value = parts.length ? parts.join(",") + ", " : ""; ui.typed = L.input.value; addSync(); L.input.focus(); }
       buzz();
       refresh();
     } else if (t.closest("[data-sh-got]")) {
@@ -1661,29 +1871,13 @@
     var el, s = current();
     if ((el = t.closest("[data-u-filter]"))) {
       ui.uGroup = el.getAttribute("data-u-filter");
-      ui.uPick = null;
       remember("sh-usual-group", ui.uGroup);
       refresh();
     } else if (t.closest("[data-u-edit]")) {
-      ui.uEdit = !ui.uEdit; ui.uPick = null;
+      ui.uEdit = !ui.uEdit;
       refresh();
-    } else if ((el = t.closest("[data-u-quick]"))) {
-      var q = usual(s, el.getAttribute("data-u-quick"));
-      if (q) addUsual(q, q.qty || "");
-    } else if ((el = t.closest("[data-u-pick]"))) {
-      var pk = usual(s, el.getAttribute("data-u-pick"));
-      if (!pk) return;
-      if (ui.uPick === pk.id) ui.uPick = null;
-      else { ui.uPick = pk.id; ui.uAmt = pk.qty || ""; }
-      refresh();
-    } else if ((el = t.closest("[data-u-step]"))) {
-      var nq = stepQty(ui.uAmt, +el.getAttribute("data-u-step"));
-      if (nq) { ui.uAmt = nq; buzz(); refresh(); }
-    } else if ((el = t.closest("[data-u-add]"))) {
-      var ad = usual(s, el.getAttribute("data-u-add"));
-      if (ad) addUsual(ad, ui.uAmt);
-      ui.uPick = null;
-      refresh();
+    } else if ((el = t.closest("[data-u-want]"))) {
+      openWant(el.getAttribute("data-u-want"));
     } else if ((el = t.closest("[data-u-open]"))) {
       openUsual(el.getAttribute("data-u-open"));
     } else if ((el = t.closest("[data-g-open]"))) {
@@ -1721,6 +1915,17 @@
     var it, s = current();
     switch (SH.kind) {
       case "item":
+        if ((el = t.closest("[data-part-void]"))) {
+          voidPart(SH.id, el.getAttribute("data-part-void"));
+          buzz();
+          var now2 = byId(current(), SH.id), box = b.querySelector("[data-item-parts]");
+          if (now2 && box) {
+            if ((now2.parts || []).length >= 2) box.innerHTML = partsHtml(now2);
+            else box.closest(".sh-field").remove();
+            if (!SH.dirty) amtShow(b.querySelector("[data-amt]"), now2.qty || "");
+          }
+          return;
+        }
         if (t.closest("[data-item-save]")) saveItem();
         else if ((el = t.closest("[data-item-del]"))) {
           var gone = SH.id;
@@ -1753,6 +1958,21 @@
         } else if (t.closest("[data-flag-other]")) {
           closeSheet(true);
           openItem(it.id);
+        } else if ((el = t.closest("[data-part-void]"))) {
+          voidPart(it.id, el.getAttribute("data-part-void"));
+          buzz();
+        }
+        return;
+      case "want":
+        var wx = usual(s, SH.id);
+        if (!wx) { closeSheet(true); return; }
+        if (t.closest("[data-want-add]")) {
+          var wq = amtRead(b.querySelector("[data-amt]"));
+          closeSheet(true);
+          addUsual(wx, wq);
+        } else if (t.closest("[data-want-edit]")) {
+          closeSheet(true);
+          openUsual(wx.id);
         }
         return;
       case "usual":
@@ -1766,7 +1986,7 @@
           b.querySelector("[data-u-pic]").setAttribute("aria-expanded", String(!grid.hidden));
         } else if ((el = t.closest("[data-u-seticon]"))) {
           SH.draft.icon = el.getAttribute("data-u-seticon");
-          b.querySelector("[data-u-pic]").textContent = iconFor({ name: clean(b.querySelector('[data-f="name"]').value), cat: SH.cat, icon: SH.draft.icon });
+          b.querySelector("[data-u-pic]").innerHTML = pic(iconFor({ name: clean(b.querySelector('[data-f="name"]').value), cat: SH.cat, icon: SH.draft.icon }));
           el.parentNode.querySelectorAll("button").forEach(function (x) { x.classList.toggle("on", x === el); });
           el.parentNode.hidden = true;
           markDirty();
@@ -1904,6 +2124,7 @@
       if (b) b.focus();
       return;
     }
+    if (e.key === "Enter" && L && t.closest("[data-sh-addx]")) { e.preventDefault(); L.form.requestSubmit(); return; }
     if (SH && SE.root.contains(t)) {
       if (e.key === "Escape") { e.preventDefault(); closeSheet(); return; }
       if (e.key !== "Enter" || t.tagName === "TEXTAREA") return;
@@ -1919,11 +2140,12 @@
   }
   function onInput(e) {
     var t = e.target;
+    if (t.closest && t.closest("[data-sh-addx]")) { ui.addTouched = true; return; }
     if (!SH || !SE || !SE.root.contains(t)) return;
     markDirty();
     // A usual's picture follows its name until one is picked.
     if (SH.kind === "usual" && t.matches('[data-f="name"]') && !SH.draft.icon) {
-      SE.body.querySelector("[data-u-pic]").textContent = iconFor({ name: t.value || "?", cat: SH.cat });
+      SE.body.querySelector("[data-u-pic]").innerHTML = pic(iconFor({ name: t.value || "?", cat: SH.cat }));
     }
   }
 

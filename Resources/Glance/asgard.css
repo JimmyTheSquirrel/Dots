@@ -1440,10 +1440,10 @@ html[data-ha-link="offline"] :is(.ag-swatches, .ag-bright) { filter: saturate(0.
    buttons and section heads in Orbitron. Item names stay in the body face —
    they're read in a hurry in a shop. */
 .widget :is(.sh-in, .sh-plus, .sh-btn, .sh-chip, .sh-row, .sh-main, .sh-more, .sh-qty, .sh-by, .sh-flag, .sh-empty, .sh-stepper, .sh-st,
-  .sh-tabs, .sh-tab, .sh-tab i, .sh-prog-bar, .sh-hero, .shc, .shc-plate, .shc-on, .sht, .sht-pic, .sht-add,
+  .sh-tabs, .sh-tab, .sh-tab i, .sh-prog-bar, .sh-hero, .shc, .shc-plate, .shc-on, .sht, .sht-pic, .sht-add, .sh-addx,
   .shx-row, .shx-main, .shx-pic, .shx-btn, .shx-empty, .shx-none, .sh-opt, .sh-opt i) { border-radius: 2px; }
 .widget .sh-box { border-radius: 2px; }
-.widget :is(.sh-btn, .sh-sec, .sh-chips-h, .shx-h, .sht-h, .sh-tab-t) { font-family: var(--ag-title); letter-spacing: 0.12em; }
+.widget :is(.sh-btn, .sh-sec, .sh-chips-h, .shx-h, .sht-h, .sh-tab-t, .sh-addx .sh-label) { font-family: var(--ag-title); letter-spacing: 0.12em; }
 .widget .sh-tab { font-size: 1.15rem; font-weight: 500; text-transform: uppercase; }
 .widget .sht-h { font-weight: 500; font-size: 1.05rem; }
 /* The headings on the HUD: a grid instead of dots, the drawing glowing like

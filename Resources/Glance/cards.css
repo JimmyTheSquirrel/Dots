@@ -961,6 +961,22 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 .sh-find svg { position: absolute; left: 12px; top: 50%; width: 17px; height: 17px; margin-top: -8.5px; color: var(--ag-text-faint); pointer-events: none; }
 .sh-find .sh-in { padding-left: 38px; }
 .sh-opt span { font-size: 1.4rem; line-height: 1; }
+
+/* A picture emoji doesn't have, drawn (shopping.js → ART): sized like an
+   emoji glyph, so it slots in wherever one would. */
+/* (drawn with a margin inside its 64-unit box, so it's sized up to sit as big as an emoji does) */
+.sh-art { display: inline-block; width: 1.42em; height: 1.42em; margin: -0.12em -0.08em; vertical-align: -0.3em; overflow: visible; }
+
+/* The add box's details, for ONE thing typed: how much, the aisle. */
+.sh-addx { display: flex; flex-direction: column; gap: 10px; margin-top: -4px; padding: 12px; border-radius: 14px;
+  border: 1px dashed color-mix(in srgb, var(--acc) 45%, transparent); background: color-mix(in srgb, var(--acc) 5%, transparent); }
+.sh-addx[hidden] { display: none; }
+/* its unit chips: one row that scrolls sideways, so the box stays short on a phone */
+.sh-addx [data-amt-units] { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px 24px 2px 2px; margin: -2px;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+.sh-addx [data-amt-units]::-webkit-scrollbar { display: none; }
+.sh-addx-cat { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sh-addx .sh-label i { color: var(--ag-text-faint); background: none; font-weight: 400; letter-spacing: 0.02em; text-transform: none; }
 /* a scrolling chip row fades out at its right edge, so it reads as "more this way" */
 .sh-bar .sh-opts.scroll { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 24px; }
 
@@ -1231,11 +1247,19 @@ html.sh-locked, html.sh-locked body { overflow: hidden; }
   color: var(--ag-text-dim); background: var(--ag-tile); border: 1px solid var(--ag-line-soft); }
 .sh-parts b { flex: none; min-width: 4.4em; padding: 3px 10px; text-align: center; border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums;
   color: var(--acc); background: color-mix(in srgb, var(--acc) 12%, transparent); }
-.sh-parts span { min-width: 0; overflow-wrap: anywhere; }
+.sh-parts span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sh-parts strong { font-weight: 700; color: var(--ag-text); }
+.sh-parts small { display: block; margin-top: 2px; font-size: 1.15rem; color: var(--ag-text-faint); }
+.sh-parts .sh-btn { flex: none; min-height: 34px; padding: 4px 10px; gap: 4px; }
+.sh-parts .sh-btn svg { width: 13px; height: 13px; }
 .sh-total { display: flex; align-items: center; justify-content: space-between; padding: 2px 12px; font-size: 1.25rem; color: var(--ag-text-faint); }
 .sh-total b { font-size: 1.9rem; font-weight: 700; color: var(--ag-text); }
 .sh-note { padding: 10px 14px; font-size: 1.3rem; line-height: 1.5; color: var(--ag-text-dim); white-space: pre-line;
   border-left: 2px solid color-mix(in srgb, var(--acc) 45%, transparent); background: var(--ag-tile); border-radius: 0 12px 12px 0; }
+/* "Already on the list" on the how-much sheet */
+.sh-note.warn { display: flex; gap: 10px; white-space: normal; border-left-color: var(--ag-warn); }
+.sh-note.warn svg { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--ag-warn); }
+.sh-note.warn b { display: block; margin-bottom: 2px; color: var(--ag-text); }
 .sh-mini { display: flex; flex-wrap: wrap; gap: 6px; }
 .sh-mini span { padding: 4px 10px; font-size: 1.25rem; color: var(--ag-text-dim); background: var(--ag-tile); border: 1px solid var(--ag-line-soft); border-radius: 999px; }
 .sh-err { padding: 9px 12px; font-size: 1.25rem; color: var(--ag-bad); border-radius: 10px;

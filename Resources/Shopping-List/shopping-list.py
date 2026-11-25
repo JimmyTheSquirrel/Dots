@@ -27,6 +27,7 @@ this port.
   POST /items/toggle    {id, done}
   POST /items/edit      {id, name?, qty?, cat?, settled?}   setting qty settles a flag
   POST /items/remove    {ids: [...]}
+  POST /items/unpart    {id, part}   void one request on an item (not its last)
   POST /items/clear     {which: "done" | "all"}
   POST /items/restore   {items: [...]}   put removed items back (Undo)
   POST /recipes/save    {id?, name, icon?, ingredients: [{name, qty?, cat?, skip?}], note?}
@@ -425,7 +426,12 @@ def _seen(cid):
     """Has an add with this client id already landed — as an item, or merged
     into one as a part? A retried request must not count twice."""
     for it in _state["items"]:
-        if it["id"] == cid or any(p.get("id") == cid for p in it.get("parts") or []):
+        ps = it.get("parts") or []
+        if any(p.get("id") == cid for p in ps):
+            return True
+        # An item's id is the id of the add that made it — still "seen" unless
+        # that first request has since been voided (then an Undo may put it back).
+        if it["id"] == cid and not ps:
             return True
     return False
 
@@ -458,13 +464,14 @@ def who(body):
 def op_add(body):
     """Add things — or, for a name already on the list, add TO it.
 
-    Every add that says something (an amount, or the recipe it's for) is kept
-    as a part of the item — {from, qty, by} — and the quantity is their sum.
-    Two or more parts make the item "doubled up" (`settled` false) and the
-    dashboards flag it, so whoever is shopping can decide: 300mL of cream for
-    each of two recipes probably means 600mL; sour cream for each of two
-    probably means one tub. An add that says nothing more ("milk" again) just
-    finds it's already there."""
+    Every add is kept as a part of the item — a request, {id, from, qty, by}:
+    who asked, for how much, for which recipe — and the quantity is their sum
+    (an add with no amount counts as one). Two or more requests make the item
+    "doubled up" (`settled` false) and the dashboards flag it, so whoever is
+    shopping can decide: 300mL of cream for each of two recipes probably means
+    600mL; sour cream for each of two probably means one tub; Rock asking for
+    pasta and Kit-Kat asking for 2 more may be one too many. A request that
+    was a mistake can be voided (items/unpart)."""
     entries = body.get("items")
     if not isinstance(entries, list) or not entries:
         raise Refused(400, "nothing to add")
@@ -485,13 +492,12 @@ def op_add(body):
         same = [it for it in _state["items"] if key(it["name"]) == k]
         live = next((it for it in same if not it.get("done")), None)
         if live:
-            if qty or frm:
-                live["parts"] = (_parts(live) + [part])[-MAX_PARTS:]
-                live["qty"] = add_up(live.get("qty", ""), qty)[:QTY_LEN]
-                live["settled"] = False
-                frm2 = merge_from(live.get("from", ""), frm)
-                if frm2:
-                    live["from"] = frm2
+            live["parts"] = (_parts(live) + [part])[-MAX_PARTS:]
+            live["qty"] = add_up(live.get("qty", ""), qty)[:QTY_LEN]
+            live["settled"] = False
+            frm2 = merge_from(live.get("from", ""), frm)
+            if frm2:
+                live["from"] = frm2
             merged.append(live["id"])
             # The item keeps its own name and aisle (which may be a correction
             # someone made); the new entry's guess doesn't overwrite them.
@@ -562,6 +568,38 @@ def op_edit(body):
         it["cat"] = clean_cat(body.get("cat"))
     # The aisle a thing was moved to is the aisle it lives in from now on.
     remember(it["name"], it["cat"], bump=False)
+    return {}
+
+
+def op_unpart(body):
+    """Void one request on an item ("Kit-Kat asked for 2" when Rock already had
+    it covered). The amount becomes the sum of the requests that are left, and
+    who added it / which recipes follow them. Voiding a request that's already
+    gone does nothing — a retry, or the other phone got there first — and the
+    last one can't be voided: that's removing the item."""
+    it = find(clean_id(body.get("id")))
+    if not it:
+        raise Refused(404, "that item is no longer on the list")
+    pid = clean_id(body.get("part"))
+    ps = _parts(it)
+    left = [p for p in ps if p.get("id") != pid]
+    if len(left) == len(ps):
+        return {}
+    if not left:
+        raise Refused(409, "that's the only request — remove the item instead")
+    q = left[0].get("qty", "")
+    for p in left[1:]:
+        q = add_up(q, p.get("qty", ""))
+    it["parts"], it["qty"], it["settled"] = left, q[:QTY_LEN], False
+    frm = ""
+    for p in left:
+        frm = merge_from(frm, p.get("from", ""))
+    if frm:
+        it["from"] = frm
+    else:
+        it.pop("from", None)
+    if left[0].get("by"):
+        it["by"] = left[0]["by"]
     return {}
 
 
@@ -759,6 +797,7 @@ OPS = {
     "items/toggle": op_toggle,
     "items/edit": op_edit,
     "items/remove": op_remove,
+    "items/unpart": op_unpart,
     "items/clear": op_clear,
     "items/restore": op_restore,
     "recipes/save": op_recipe_save,
