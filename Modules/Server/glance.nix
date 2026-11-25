@@ -90,6 +90,8 @@
     fontFiles = {
       "fonts/orbitron-bold.ttf" = "${pkgs.orbitron}/share/fonts/truetype/Orbitron Bold.ttf";
       "fonts/orbitron-medium.ttf" = "${pkgs.orbitron}/share/fonts/truetype/Orbitron Medium.ttf";
+      # the shopping card's handwritten headings (cards.css's @font-face) — MarsBar serves it too
+      "fonts/dancing-script-bold.ttf" = "${pkgs.dancing-script}/share/fonts/truetype/DancingScript-Bold.ttf";
     };
     glanceAssets = pkgs.linkFarm "glance-assets" (assetFiles // fontFiles // { inherit hud; });
 

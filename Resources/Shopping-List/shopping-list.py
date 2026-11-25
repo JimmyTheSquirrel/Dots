@@ -29,7 +29,7 @@ this port.
   POST /items/remove    {ids: [...]}
   POST /items/clear     {which: "done" | "all"}
   POST /items/restore   {items: [...]}   put removed items back (Undo)
-  POST /recipes/save    {id?, name, icon?, ingredients: [{name, qty?, cat?}], note?}
+  POST /recipes/save    {id?, name, icon?, ingredients: [{name, qty?, cat?, skip?}], note?}
   POST /recipes/delete  {id}
   POST /staples/save    {id?, name, qty?, cat?, icon?}   one per name: saving a
                         name that's already a staple updates that one (and keeps
@@ -631,7 +631,13 @@ def recipe_from(body, rid):
             continue
         n = clean(g.get("name"), NAME_LEN)
         if n:
-            ings.append({"name": n, "qty": clean(g.get("qty"), QTY_LEN), "cat": clean_cat(g.get("cat"))})
+            ing = {"name": n, "qty": clean(g.get("qty"), QTY_LEN), "cat": clean_cat(g.get("cat"))}
+            # "Usually have" (spices, sauces, oil): part of the recipe, left off
+            # the list when shopping for it unless ticked that time. Stored only
+            # when set, so recipes from before it read exactly as they did.
+            if g.get("skip") is True:
+                ing["skip"] = True
+            ings.append(ing)
     if not name or not ings:
         return None
     return {"id": rid or clean_id(body.get("id")) or new_id(), "name": name,

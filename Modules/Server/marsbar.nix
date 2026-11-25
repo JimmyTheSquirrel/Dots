@@ -77,7 +77,11 @@
       "garden.js" = ../../Resources/MarsBar/garden.js;
       "garden.css" = ../../Resources/MarsBar/garden.css;
     };
-    marsbarAssets = pkgs.linkFarm "glance-marsbar-assets" assetFiles;
+    # the shopping card's handwritten headings (cards.css's @font-face; Asgard's
+    # Glance serves the same file at the same path)
+    marsbarAssets = pkgs.linkFarm "glance-marsbar-assets" (assetFiles // {
+      "fonts/dancing-script-bold.ttf" = "${pkgs.dancing-script}/share/fonts/truetype/DancingScript-Bold.ttf";
+    });
 
     # Glance serves /assets/ with a 2h Cache-Control, so a script URL that never
     # changes would keep running the OLD code on her phone for up to two hours

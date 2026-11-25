@@ -85,6 +85,7 @@
   --ag-well: rgb(0 0 0 / 0.38);           /* recessed controls: the path switch, End */
   --ag-pop: rgb(18 21 25 / 0.97);         /* hover read-outs */
   --ag-on-acc: #0b0d10;                   /* text on an accent fill */
+  --ag-alt: var(--hud2);                  /* the pick's second colour: the Recipes tab */
 
   /* data palette — one green family, see the header */
   --s1: #3be8a8;   /* mint         */
@@ -1439,11 +1440,22 @@ html[data-ha-link="offline"] :is(.ag-swatches, .ag-bright) { filter: saturate(0.
    buttons and section heads in Orbitron. Item names stay in the body face —
    they're read in a hurry in a shop. */
 .widget :is(.sh-in, .sh-plus, .sh-btn, .sh-chip, .sh-row, .sh-main, .sh-more, .sh-qty, .sh-by, .sh-flag, .sh-empty, .sh-stepper, .sh-st,
-  .shr-toggle, .shr-stack span, .shx-row, .shx-main, .shx-pic, .shx-btn, .shx-empty, .shx-none, .sh-opt, .sh-opt i) { border-radius: 2px; }
+  .sh-tabs, .sh-tab, .sh-tab i, .sh-prog-bar, .sh-hero, .shc, .shc-plate, .shc-on, .sht, .sht-pic, .sht-add,
+  .shx-row, .shx-main, .shx-pic, .shx-btn, .shx-empty, .shx-none, .sh-opt, .sh-opt i) { border-radius: 2px; }
 .widget .sh-box { border-radius: 2px; }
-.widget :is(.sh-btn, .sh-sec, .sh-chips-h, .shx-h) { font-family: var(--ag-title); letter-spacing: 0.12em; }
+.widget :is(.sh-btn, .sh-sec, .sh-chips-h, .shx-h, .sht-h, .sh-tab-t) { font-family: var(--ag-title); letter-spacing: 0.12em; }
+.widget .sh-tab { font-size: 1.15rem; font-weight: 500; text-transform: uppercase; }
+.widget .sht-h { font-weight: 500; font-size: 1.05rem; }
+/* The headings on the HUD: a grid instead of dots, the drawing glowing like
+   the rest of the HUD; recipe tiles stay in the viewer's colours (not their
+   food's — every colour here is the picker's). */
+.widget .sh-hero::before { opacity: 0.35; background-image: linear-gradient(color-mix(in srgb, var(--k) 30%, transparent) 1px, transparent 1px),
+  linear-gradient(90deg, color-mix(in srgb, var(--k) 30%, transparent) 1px, transparent 1px); background-size: 18px 18px; }
+.widget .sh-ill { filter: drop-shadow(0 0 6px var(--k)); }
+.widget .sh-hero { --wood: color-mix(in srgb, white 40%, var(--k2)); }
+.widget .shc { --f: var(--acc); }
 .widget :is(.sh-btn, .sh-sec, .shx-h) { font-weight: 500; }
-.widget :is(.sh-row:not(.done):not(.flagged), .shr-toggle, .shx-row) { border-color: var(--ag-line); }
+.widget :is(.sh-row:not(.done):not(.flagged), .shx-row) { border-color: var(--ag-line); }
 .sh-toast { border-radius: 2px; font-family: inherit; }
 .sh-toast button { border-radius: 2px; font-family: var(--ag-title); letter-spacing: 0.1em; }
 /* The sheet lives on <body>, outside every .widget: the same HUD squaring and

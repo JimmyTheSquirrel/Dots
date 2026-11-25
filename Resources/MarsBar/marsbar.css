@@ -70,6 +70,7 @@
   --ag-well: hsla(calc(var(--mb-h) - 2), 30%, 8%, 0.5);
   --ag-pop: hsla(calc(var(--mb-h) - 2), 30%, 8%, 0.95);
   --ag-on-acc: hsl(calc(var(--mb-h) - 2), 40%, 12%);
+  --ag-alt: hsl(var(--mb-h2), 60%, 68%);                 /* the second colour (the vine's): the Recipes tab */
   --ag-surface: hsl(calc(var(--mb-h) - 2), 26%, 12%);   /* #1f1727 */
   --ag-shadow: var(--mb-shadow);
   --ag-r-tile: var(--mb-r-tile);

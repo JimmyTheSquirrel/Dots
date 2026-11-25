@@ -825,36 +825,197 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 .sh-toast button { flex: none; min-height: 36px; padding: 4px 16px; font: inherit; font-size: 1.25rem; font-weight: 700; letter-spacing: 0.04em;
   color: var(--ag-on-acc); background: var(--acc); border: none; border-radius: 12px; cursor: pointer; }
 
-/* ── The drawers (Usuals, the recipe book): each folded to one bar until
-   tapped open — kept per browser. The body animates its height with the
-   0fr → 1fr grid-row trick; the inner box is `inert` while shut, so nothing
-   hidden takes focus. */
-.shr { display: flex; flex-direction: column; }
-.shr-toggle { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 58px; padding: 8px 14px 8px 12px;
-  font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 14px; border: 1px solid var(--ag-line-soft);
-  background: linear-gradient(170deg, var(--ag-tile-hi), var(--ag-tile-lo)); -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation; transition: border-color 0.2s, background 0.2s, transform 0.08s; }
-.shr-toggle:active { transform: scale(0.99); }
-@media (hover: hover) { .shr-toggle:hover { border-color: color-mix(in srgb, var(--acc) 45%, transparent); } }
-.shr.open .shr-toggle { border-color: color-mix(in srgb, var(--acc) 35%, transparent); }
-.shr-stack { flex: none; display: flex; padding-left: 8px; }
-.shr-stack span { display: grid; place-items: center; width: 34px; height: 34px; margin-left: -8px; font-size: 1.8rem; line-height: 1;
-  border-radius: 50%; background: color-mix(in srgb, var(--acc) 16%, var(--ag-surface)); border: 2px solid var(--ag-surface); }
-.shr-toggle-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.shr-toggle-t b { font-size: 1.5rem; font-weight: 600; color: var(--ag-text); }
-.shr-toggle-t small { font-size: 1.15rem; color: var(--ag-text-faint); }
-.shr-toggle .sh-chev { flex: none; width: 20px; height: 20px; color: var(--acc); }
-.shr.open .shr-toggle .sh-chev { transform: rotate(180deg); }
-.shr-body { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.34s var(--ag-ease), opacity 0.22s; }
-.shr.open .shr-body { grid-template-rows: 1fr; opacity: 1; }
-/* min-height 0 lets the row shrink to nothing; the 3px pad and its negative
-   margin keep focus rings from being clipped by the overflow. */
-.shr-inner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; margin: 0 -3px; padding: 0 3px; }
-.shr.open .shr-inner { padding-top: 12px; padding-bottom: 3px; }
-.shr-find { display: none; position: relative; flex: 1; min-width: 0; }
-.shx-bar.many .shr-find { display: block; }
-.shr-find svg { position: absolute; left: 12px; top: 50%; width: 17px; height: 17px; margin-top: -8.5px; color: var(--ag-text-faint); pointer-events: none; }
-.shr-find .sh-in { padding-left: 38px; }
+/* ── The tabs: List · Pantry · Recipes across the top of the one card.
+   Glossy pills; the active one is filled in its tab's colour — the viewer's
+   pick for List and Pantry, the pick's SECOND colour (--ag-alt: her vine
+   green, the HUD's second tone) for Recipes. A swipe across the card moves
+   between them (shopping.js → swipe). */
+.sh-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 5px; border-radius: 999px;
+  background: linear-gradient(180deg, rgb(0 0 0 / 0.32), rgb(0 0 0 / 0.16)); border: 1px solid var(--ag-line-soft); box-shadow: inset 0 2px 8px rgb(0 0 0 / 0.3); }
+.sh-tab { --k: var(--acc); display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 44px; padding: 0 8px;
+  font: inherit; font-size: 1.35rem; font-weight: 700; color: var(--ag-text-dim); cursor: pointer; background: none; border: 0; border-radius: 999px;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: color 0.2s, background 0.25s, box-shadow 0.25s, transform 0.08s; }
+.sh-tab[data-sh-tab="recipes"] { --k: var(--ag-alt, var(--acc)); }
+.sh-tab:active { transform: scale(0.96); }
+.sh-tab:focus-visible { outline: 2px solid var(--k); outline-offset: 2px; }
+@media (hover: hover) { .sh-tab:not(.on):hover { color: var(--ag-text); background: rgb(255 255 255 / 0.04); } }
+.sh-tab-i { font-size: 1.8rem; line-height: 1; filter: saturate(0.55) brightness(0.9); transition: filter 0.2s, transform 0.25s var(--ag-ease); }
+.sh-tab-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-tab i { flex: none; min-width: 2.2rem; padding: 1px 6px; font-style: normal; font-size: 1.05rem; font-weight: 700; text-align: center; border-radius: 999px;
+  color: var(--ag-text); background: color-mix(in srgb, var(--acc) 22%, rgb(0 0 0 / 0.3)); }
+.sh-tab i:empty { display: none; }
+.sh-tab.on { color: var(--ag-on-acc);
+  background: linear-gradient(135deg, color-mix(in srgb, white 28%, var(--k)), var(--k) 55%, color-mix(in srgb, black 12%, var(--k)));
+  box-shadow: 0 8px 22px -8px var(--k), inset 0 0 0 1px color-mix(in srgb, white 25%, var(--k)), inset 0 1px 0 rgb(255 255 255 / 0.45); }
+.sh-tab.on .sh-tab-i { filter: none; transform: scale(1.1); }
+.sh-tab.on i { color: var(--ag-on-acc); background: color-mix(in srgb, var(--ag-on-acc) 18%, transparent); }
+@container sh (max-width: 330px) { .sh-tab { gap: 4px; padding: 0 4px; font-size: 1.25rem; } .sh-tab-i { font-size: 1.5rem; } }
+
+.sh-pane, .sh-pane-in { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.sh-pane[hidden] { display: none; }
+/* Recipes wear the second colour throughout (its buttons, chips, focus). */
+.sh-recipes { --acc: var(--ag-alt); }
+.sh-sheet:is([data-kind="cook"], [data-kind="recipe"]) { --acc: var(--ag-alt, var(--color-primary)); }
+
+/* the trolley bar (List): how far through the shop you are */
+.sh-prog { display: flex; align-items: center; gap: 12px; padding: 0 2px; font-size: 1.2rem; color: var(--ag-text-dim); }
+.sh-prog:empty { display: none; }
+.sh-prog-t { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.sh-prog b { color: var(--ag-text); font-weight: 700; }
+.sh-prog-bar { flex: 1; min-width: 40px; height: 8px; overflow: hidden; border-radius: 999px; background: var(--ag-well); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.45); }
+.sh-prog-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--ag-alt, var(--acc)), var(--acc));
+  box-shadow: 0 0 12px var(--acc); transition: width 0.5s var(--ag-ease); }
+.sh-prog.all { color: var(--ag-good); }
+
+/* ── The headings: a handwritten title (Dancing Script, from nixpkgs — both
+   Glances serve it at /assets/fonts/) and a line drawing in the tab's
+   colours. Every colour here comes from --k / --k2, never a literal, so it
+   follows the colour pickers. */
+@font-face { font-family: "Shop Script"; src: url("fonts/dancing-script-bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+.sh-hero { --k: var(--acc); --k2: var(--ag-alt, var(--acc)); --wood: hsl(28 55% 62%);
+  position: relative; overflow: hidden; min-height: 150px; padding: 18px 18px 16px; border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--k) 45%, transparent);
+  background:
+    radial-gradient(60% 90% at 92% 30%, color-mix(in srgb, var(--k) 40%, transparent), transparent 70%),
+    radial-gradient(50% 80% at 0% 110%, color-mix(in srgb, var(--k2) 26%, transparent), transparent 70%),
+    linear-gradient(160deg, color-mix(in srgb, var(--k) 18%, var(--ag-surface)), color-mix(in srgb, var(--k) 5%, var(--ag-surface)));
+  box-shadow: 0 22px 44px -26px var(--k), inset 0 1px 0 rgb(255 255 255 / 0.07); }
+.sh-hero.recipes { --k2: var(--color-primary); }
+.sh-hero::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.5;
+  background-image: radial-gradient(color-mix(in srgb, var(--k) 40%, transparent) 1px, transparent 1.6px); background-size: 14px 14px;
+  -webkit-mask-image: linear-gradient(100deg, transparent 30%, #000 75%); mask-image: linear-gradient(100deg, transparent 30%, #000 75%); }
+.sh-hero-t { position: relative; z-index: 1; max-width: 64%; }
+.sh-script { display: inline-block; margin: 0; padding: 0 8px 6px 0; font-family: "Shop Script", cursive; font-weight: 700; font-size: 5.6rem; line-height: 1;
+  letter-spacing: 0; text-transform: none; rotate: -4deg; transform-origin: left center;
+  background: linear-gradient(100deg, color-mix(in srgb, white 55%, var(--k)), var(--k) 45%, color-mix(in srgb, white 20%, var(--k)));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--k) 55%, transparent)) drop-shadow(0 1px 0 rgb(0 0 0 / 0.5)); }
+.sh-swash { display: block; width: 150px; height: 14px; margin: -2px 0 6px 4px; overflow: visible; }
+.sh-swash path { fill: none; stroke: var(--k); stroke-width: 3; stroke-linecap: round; opacity: 0.75; filter: drop-shadow(0 0 6px var(--k)); }
+.sh-hero p { position: relative; margin: 0 0 0 4px; font-size: 1.3rem; color: var(--ag-text-dim); }
+.sh-ill { position: absolute; right: 6px; bottom: 2px; width: 150px; height: auto; overflow: visible;
+  filter: drop-shadow(0 10px 18px color-mix(in srgb, var(--k) 45%, transparent)); }
+.sh-ill .s { fill: none; stroke: color-mix(in srgb, white 25%, var(--k)); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.sh-ill .f { fill: color-mix(in srgb, var(--k) 24%, transparent); }
+.sh-ill .rim { stroke-width: 5.5; }
+.sh-ill .lid { fill: color-mix(in srgb, var(--k) 70%, transparent); }
+.sh-ill .shade { fill: rgb(0 0 0 / 0.3); }
+.sh-ill .hl { fill: none; stroke: rgb(255 255 255 / 0.32); stroke-width: 3; stroke-linecap: round; }
+.sh-ill .band { fill: none; stroke: color-mix(in srgb, white 25%, var(--k)); stroke-width: 2; opacity: 0.7; }
+.sh-ill .dots circle, .sh-ill .rivet circle { fill: color-mix(in srgb, white 35%, var(--k)); }
+.sh-ill .heart { fill: var(--k2); }
+.sh-ill .soup { fill: color-mix(in srgb, var(--wood) 50%, var(--ag-surface)); }
+.sh-ill .carrot { fill: hsl(24 85% 60%); } .sh-ill .carrot-in { fill: hsl(34 90% 74%); }
+.sh-ill .herb { fill: var(--k); } .sh-ill .pea { fill: color-mix(in srgb, white 30%, var(--k)); }
+.sh-ill .bub circle { fill: none; stroke: rgb(255 255 255 / 0.7); stroke-width: 1.2; }
+.sh-ill .wood { fill: none; stroke: var(--wood); stroke-width: 5.5; stroke-linecap: round; }
+.sh-ill .wood.f { fill: color-mix(in srgb, var(--wood) 45%, transparent); stroke-width: 3.5; }
+.sh-ill .grain, .sh-ill .wrap { fill: none; stroke: color-mix(in srgb, var(--wood) 60%, black); stroke-width: 1.6; stroke-linecap: round; opacity: 0.8; }
+.sh-ill .wrap { stroke: color-mix(in srgb, white 25%, var(--k)); stroke-width: 2; opacity: 0.55; }
+.sh-ill .weave { fill: none; stroke: color-mix(in srgb, white 25%, var(--k)); stroke-width: 2.2; opacity: 0.8; }
+.sh-ill .label { fill: color-mix(in srgb, var(--k2) 60%, transparent); }
+.sh-ill .st path { fill: none; stroke: color-mix(in srgb, white 60%, var(--k)); stroke-width: 3.6; stroke-linecap: round; opacity: 0.75; }
+.sh-ill .leaf ellipse { fill: color-mix(in srgb, var(--k2) 75%, transparent); }
+.sh-ill .leaf .stem { fill: none; stroke: var(--k2); stroke-width: 2.6; stroke-linecap: round; }
+.sh-ill .vein { fill: none; stroke: rgb(0 0 0 / 0.25); stroke-width: 1.2; stroke-linecap: round; }
+.sh-ill .sp path { fill: color-mix(in srgb, white 50%, var(--k)); }
+/* alive: the steam rises, the bubbles pop, the sparkles twinkle */
+.sh-ill :is(.st path, .bub circle, .sp path) { transform-box: fill-box; transform-origin: center; }
+.sh-ill .st path { animation: sh-steam 3.3s ease-in-out infinite; }
+.sh-ill .st path:nth-child(2) { animation-delay: -1.1s; }
+.sh-ill .st path:nth-child(3) { animation-delay: -2.2s; }
+.sh-ill .bub circle { animation: sh-bubble 2.6s ease-in infinite; }
+.sh-ill .bub circle:nth-child(2) { animation-delay: -0.9s; }
+.sh-ill .bub circle:nth-child(3) { animation-delay: -1.7s; }
+.sh-ill .sp path { animation: sh-twinkle 2.8s ease-in-out infinite; }
+.sh-ill .sp path:nth-child(2) { animation-delay: -1.4s; }
+@keyframes sh-steam { 0% { opacity: 0; transform: translateY(8px) scaleY(0.9); } 30% { opacity: 0.85; } 70% { opacity: 0.45; } 100% { opacity: 0; transform: translateY(-12px) scaleY(1.1); } }
+@keyframes sh-bubble { 0%, 100% { opacity: 0; transform: translateY(2px) scale(0.4); } 40% { opacity: 0.9; } 80% { opacity: 0; transform: translateY(-7px) scale(1); } }
+@keyframes sh-twinkle { 0%, 100% { opacity: 0.35; transform: scale(0.7); } 50% { opacity: 1; transform: scale(1.12); } }
+@container sh (min-width: 700px) {
+  .sh-hero { min-height: 186px; padding: 26px 30px; }
+  .sh-ill { width: 206px; right: 30px; }
+  .sh-script { font-size: 7.4rem; }
+  .sh-swash { width: 230px; }
+}
+
+/* the tools under a heading: the pantry's group chips + Edit; find + New */
+.sh-bar { display: flex; align-items: center; gap: 8px; }
+.sh-bar > .sh-btn { flex: none; min-height: 40px; }
+.sh-bar .sh-btn svg { width: 15px; height: 15px; }
+.sh-find { display: none; position: relative; flex: 1; min-width: 0; }
+.sh-bar.many .sh-find { display: block; }
+.sh-bar:not(.many) > .sh-btn:last-child { margin-left: auto; }
+.sh-find svg { position: absolute; left: 12px; top: 50%; width: 17px; height: 17px; margin-top: -8.5px; color: var(--ag-text-faint); pointer-events: none; }
+.sh-find .sh-in { padding-left: 38px; }
+.sh-opt span { font-size: 1.4rem; line-height: 1; }
+/* a scrolling chip row fades out at its right edge, so it reads as "more this way" */
+.sh-bar .sh-opts.scroll { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 24px; }
+
+/* ── Recipe tiles: each in the colour of its food (--fh, a hue set by
+   shopping.js), the dish on a plate, a big faded one behind it, its
+   ingredients as a strip of pictures, ✓ n when some are on the list. */
+.shc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 10px; }
+.shc { --f: hsl(var(--fh, 270) 85% 62%); position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  min-width: 0; padding: 12px 12px 11px; font: inherit; color: var(--ag-text); text-align: left; cursor: pointer; border-radius: 16px;
+  background: radial-gradient(90% 70% at 100% 0%, color-mix(in srgb, var(--f) 32%, transparent), transparent 70%), linear-gradient(170deg, var(--ag-tile-hi), var(--ag-tile-lo));
+  border: 1px solid color-mix(in srgb, var(--f) 30%, var(--ag-line-soft));
+  box-shadow: 0 14px 28px -18px color-mix(in srgb, var(--f) 80%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: transform 0.12s, border-color 0.2s; }
+.shc:active { transform: scale(0.97); }
+@media (hover: hover) { .shc:hover { border-color: color-mix(in srgb, var(--f) 65%, transparent); } }
+.shc:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+.shc-big { position: absolute; right: -14px; top: -14px; font-size: 7.6rem; line-height: 1; opacity: 0.2; rotate: 14deg; pointer-events: none; }
+.shc-plate { position: relative; display: grid; place-items: center; width: 54px; height: 54px; font-size: 3.1rem; line-height: 1; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.03) 60%), color-mix(in srgb, var(--f) 16%, var(--ag-surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--f) 45%, transparent), 0 10px 18px -8px rgb(0 0 0 / 0.7); }
+.shc b { position: relative; margin-top: 4px; font-size: 1.5rem; font-weight: 700; line-height: 1.22; overflow-wrap: anywhere; }
+.shc-strip { position: relative; display: flex; align-items: center; gap: 1px; margin-top: auto; padding-top: 2px; font-size: 1.4rem; line-height: 1.2; }
+.shc-strip i { margin-left: 5px; font-style: normal; font-size: 1.1rem; font-weight: 700; color: var(--ag-text-faint); }
+.shc-on { position: absolute; top: 10px; right: 10px; display: flex; align-items: center; gap: 3px; padding: 2px 8px 2px 6px; font-size: 1.1rem; font-weight: 800;
+  color: var(--ag-on-acc); background: var(--acc); border-radius: 999px; box-shadow: 0 4px 12px -4px var(--acc); }
+.shc-on svg { width: 12px; height: 12px; stroke-width: 3; }
+
+/* ── Pantry tiles: the picture with a round + in the corner, the name and its
+   usual amount under them (a phone's two columns are too narrow to put the
+   name beside both) — and a ✓ for a moment after it went on. Tapping the
+   tile opens − amount + / Add right in it, and it spans the row. */
+.sht-list { display: flex; flex-direction: column; gap: 14px; }
+.sht-sec { display: flex; flex-direction: column; gap: 8px; }
+.sht-h { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 2px; font-size: 1.15rem; font-weight: 800; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--acc); }
+.sht-h-i { font-size: 1.6rem; letter-spacing: 0; }
+.sht-h b { font-weight: 600; letter-spacing: 0.02em; color: var(--ag-text-faint); }
+.sht-h::after { content: ""; flex: 1; min-width: 12px; height: 2px; order: 1; border-radius: 2px;
+  background: linear-gradient(to right, color-mix(in srgb, var(--acc) 50%, transparent), transparent); }
+.sht-h .sh-btn { order: 2; text-transform: none; letter-spacing: 0.02em; }
+.sht-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.sht { position: relative; display: flex; flex-wrap: wrap; align-items: stretch; align-content: flex-start; min-width: 0; border-radius: 16px;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--acc) 13%, var(--ag-surface)), color-mix(in srgb, var(--acc) 4%, var(--ag-surface)));
+  border: 1px solid color-mix(in srgb, var(--acc) 24%, transparent); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05); transition: border-color 0.2s, box-shadow 0.25s; }
+.sht.open { grid-column: 1 / -1; border-color: var(--acc); }
+.sht.got { border-color: var(--acc); box-shadow: 0 0 0 1px var(--acc), 0 0 18px -6px var(--acc); }
+.sht-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 10px 11px;
+  font: inherit; color: inherit; text-align: left; cursor: pointer; background: none; border: 0; -webkit-tap-highlight-color: transparent; }
+.sht-pic { flex: none; display: grid; place-items: center; width: 44px; height: 44px; font-size: 2.4rem; line-height: 1; border-radius: 12px;
+  background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--acc) 34%, transparent), color-mix(in srgb, var(--acc) 7%, transparent) 72%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--acc) 28%, transparent); }
+.sht-t { width: 100%; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sht-t b { font-size: 1.4rem; font-weight: 600; line-height: 1.22; color: var(--ag-text); overflow-wrap: break-word; hyphens: auto; }
+.sht-t small { font-size: 1.15rem; font-weight: 700; color: var(--acc); }
+.sht-add { position: absolute; top: 12px; right: 10px; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; cursor: pointer; border: 0; border-radius: 50%;
+  color: var(--ag-on-acc); background: linear-gradient(135deg, color-mix(in srgb, white 25%, var(--acc)), var(--acc)); box-shadow: 0 6px 16px -6px var(--acc);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: transform 0.08s, background 0.2s, color 0.2s; }
+.sht-add:active { transform: scale(0.86); }
+.sht-add svg { width: 18px; height: 18px; stroke-width: 2.6; }
+.sht.got .sht-add { color: var(--acc); background: transparent; box-shadow: inset 0 0 0 2px var(--acc); }
+.sht-ed { position: absolute; top: 14px; right: 12px; display: grid; place-items: center; width: 28px; height: 28px; color: var(--ag-text-faint); }
+.sht-ed svg { width: 17px; height: 17px; }
+.sht-pick { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px 10px; }
+.sht.open .sht-main { flex-direction: row; align-items: center; }
+.sht.open .sht-t { width: auto; flex: 1; }
+.sht-pick .sh-stepper { margin-left: 0; }
+.sht-pick .sh-btn.go { flex: 1 1 auto; min-width: 0; max-width: 240px; }
 
 /* ── Rows: one look for the usuals, the recipe list, a recipe's ingredients
    and the cook sheet's checklist. */
@@ -924,7 +1085,28 @@ button.sh-qty { align-self: center; margin-left: 4px; border: 1px solid transpar
 .shx-ed { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; border: 1px solid var(--acc);
   background: color-mix(in srgb, var(--acc) 6%, var(--ag-tile)); animation: sh-pop 0.18s var(--ag-ease); }
 
-/* ── Option chips — units, aisles, groups, the usuals' filters. One look. */
+/* "Usually have" (spices, sauces, oil): in the editor a tick per ingredient —
+   unticked means it stays off the list when shopping for the recipe; on the
+   cook sheet those sit in their own section, unticked until you've run out. */
+.shx-tick { flex: none; align-self: stretch; display: grid; place-items: center; width: 42px; padding: 0 0 0 8px; cursor: pointer; background: none; border: 0;
+  -webkit-tap-highlight-color: transparent; }
+.shx-tick .sh-box { width: 24px; height: 24px; }
+.shx-tick .sh-box svg { width: 14px; height: 14px; }
+.shx-tick.on .sh-box { background: var(--acc); border-color: var(--acc); }
+.shx-tick.on .sh-box svg { stroke-dashoffset: 0; }
+.shx-row.have .shx-main { opacity: 0.55; }
+.sh-have { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; margin-top: 3px; padding: 1px 8px; font-size: 1.05rem; font-weight: 700;
+  color: var(--ag-text-dim) !important; border: 1px dashed var(--ag-text-faint); border-radius: 999px; }
+.sh-hint { margin: -2px 2px 4px; font-size: 1.2rem; line-height: 1.4; color: var(--ag-text-faint); }
+.sh-hint[hidden] { display: none; }
+.sh-have-h { display: flex; align-items: center; gap: 8px; margin: 14px 2px 2px; font-size: 1.05rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ag-text-faint); }
+.sh-have-h span { font-size: 1.5rem; letter-spacing: 0; }
+.sh-have-h::after { content: ""; flex: 1; height: 1px; background: var(--ag-line); }
+.shx-check.have:not(.on) .shx-t b { text-decoration: none; }
+.shx-check.have:not(.on) { opacity: 0.75; border-style: dashed; }
+
+/* ── Option chips — units, aisles, groups, the pantry's filters. One look. */
 .sh-opts { display: flex; flex-wrap: wrap; gap: 6px; }
 .sh-opts.scroll { flex: 1; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 3px; margin: -3px;
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
@@ -1056,7 +1238,8 @@ html.sh-locked, html.sh-locked body { overflow: hidden; }
   .sh-more { width: 34px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sh-box svg, .sh-row, .sh-toast, .sh-chev, .shr-body, .sh-scrim, .sh-sheet { transition: none !important; }
+  .sh-box svg, .sh-row, .sh-toast, .sh-chev, .sh-scrim, .sh-sheet, .sh-tab, .sht, .shc, .sh-prog-bar i { transition: none !important; }
+  .sh-ill * { animation: none !important; }
   .sh-row.flash, .sh-stepper, .shx-pick, .shx-ed, .sh-picgrid, .sh-compose.nudge { animation: none; }
 }
 

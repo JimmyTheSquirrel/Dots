@@ -12,11 +12,17 @@ One list for the two of you. A tick on her phone in the shop is on rock's screen
 her thumb is off the glass, and the other way round. Plus a recipe book: tap a recipe,
 untick what's already in the cupboard, *Add 7 to the list* — filed by aisle.
 
-**It is ONE card** (`#sh-list`), on purpose — you both just run down it in the shop.
-Top to bottom: the add box, **Usuals** and the recipe book — each **folded to one bar** (a
-little stack of pictures, a count, a chevron), shut by default, open/shut remembered per
-browser — then the list by aisle, then In the trolley. It was two cards for a day; rock and
-Kit-Kat both wanted the one — don't split it back out.
+**It is ONE card** (`#sh-list`), on purpose — you both just run down it in the shop. It was
+two cards for a day; rock and Kit-Kat both wanted the one — don't split it back out.
+Across its top are **three tabs — List · Pantry · Recipes** (2026-11-25; before that Pantry
+and Recipes were bars folded inside the list, and rock found them "not impactful … it should
+feel distinct when you're in there"). Mockups of three layouts were weighed first; the tabs
+won, with a big **handwritten heading and a drawing** on Pantry and Recipes.
+- **A swipe across the card** (phones) goes to the next/previous tab; the tab is kept for
+  that browser tab only (`sessionStorage`), so a fresh look at the dashboard — the one you
+  open in the shop — **always starts on List**.
+- **List** = the trolley bar (*3 of 18 in the trolley*, a gradient bar), the add box, the
+  list by aisle, In the trolley. The List tab carries how many are left to get.
 
 Everything that needs more room than a row — an item's details, a doubled-up decision, a
 usual, a group, a recipe to shop for, the recipe editor — opens in **a sheet** (below).
@@ -36,10 +42,10 @@ rock's browser ──► asgard:9558 (tailnet, CORS) ─────────
   Quantities are read off the front or back: `500g beef mince`, `2 cloves garlic`,
   `milk x2`, `eggs (dozen)`, `Milk 2L`. (`7up` stays `7up`: a number glued to a word that
   isn't a unit is part of the name.)
-- **Suggestions while typing** — usuals that match first (with their amount: *Thickened
+- **Suggestions while typing** — pantry things that match first (with their amount: *Thickened
   cream 300mL*), then things bought before. Nothing shows under an empty box: the
   automatic "Usuals" row (anything bought twice) was removed 2026-11-24 — rock: "kinda
-  pointless now" — and the curated **Usuals** drawer took its name.
+  pointless now" — and the curated list took its name, then became the **Pantry** tab.
 - **Aisles.** Grouped in the order a shop is walked: Fruit & veg → Bakery → Meat & fish →
   Dairy & chilled → Pantry → Frozen → Snacks → Drinks → Household → Health & beauty →
   Pets → Other. The aisle is guessed from the name (`shopping.js` → `WORDS` / `PHRASES`:
@@ -105,63 +111,101 @@ in the .py — ⚠ their metric tables must agree)
 - **Who added it.** Each dashboard stamps its adds (`data-who`: `Rock` on the admin script
   tag, `Kit-Kat` on MarsBar's); the *other* dashboard shows "added by …" on the row.
 
-**Usuals (`#sh-usuals`, inside the list card — reworked 2026-11-24)**
+**Pantry (`#sh-usuals`, the Pantry tab — named 2026-11-25)**
 - The things you always keep in — cream, butter, toilet paper, cordial — each with **its
   usual amount** (*Thickened cream 300mL*, *Butter 250g*), sorted into **groups you make**
-  (*Cupboard*, *Fridge*, *Cleaning & paper*, *Baking*…). Was "Cupboard staples" (one flat
-  list); rock asked for it to become the Usuals, "with the ability to create categories".
+  (*Cupboard*, *Fridge*, *Cleaning & paper*, *Baking*…). It was "Cupboard staples", then
+  "Usuals" (rock: "I also hate usuals") — six names were mocked up and **Pantry** won.
+  ⚠ The list's aisle that used to be called *Pantry* is now **Tins & dry goods** (label
+  only — its id is still `pantry`), so the two can't be confused.
 - **A plain list you control, NOT a tracker:** nothing in it shows or changes what's
   already on the list. (The first staples lit a chip for anything on the list and took it
   off on a second tap; rock and Kit-Kat wanted "more control … not something we're
   tracking". Don't bring the tracking back.)
-- Open the bar: **group chips** (*All 16 · Cupboard 6 · Fridge 4…*, a scroller; the pick is
-  remembered as `sh-usual-group`) and **Edit** on the right; under them a section per
-  group, *No group* last.
-  - **round +** → onto the list now, at its usual amount.
-  - **tap the name** → the row opens with **− amount +** and unit chips (starts at the usual
+- The tab: the **Pantry heading** (a basket of bread, greens and a bottle), **group chips**
+  (*All 16 · 🥫 Cupboard 6 · 🧊 Fridge 4…*, a scroller that fades at its edge; the pick is
+  remembered as `sh-usual-group`; a group's picture is guessed from its name —
+  `groupIcon()`, 🏷️ when nothing fits) and **Edit**; then a section per group, *No group*
+  last, each a grid of **tiles** (picture, name, usual amount, a round **+** in the corner).
+  - **+** → onto the list now, at its usual amount — and the tile **ticks for ~1.6 s**
+    (`ui.uJust`) so you see it went on.
+  - **tap the tile** → it spans the row and opens **− amount +** (starts at the usual
     amount) and **Add to list**.
   - Already on the list? The amount is **added**, and the row is flagged (⚑) for the shop
     to decide. With no amount, it just says it's already there.
-- **Edit** → rows become buttons (tap one → its sheet), each group header gets **Rename**
-  (the group sheet: name, who's in it, *Delete group* — its usuals stay, with no group,
-  and Undo brings both back), and **+ New group** / **+ Add a usual** appear.
-- **The usual sheet:** picture + name (the picture follows the name until one is picked),
+  - Tiles are **stacked** (picture over name): a phone's two columns are too narrow to put
+    a name beside the picture and the + — it broke words mid-letter.
+- **Edit** → tiles become buttons with a pencil (tap one → its sheet), each group header
+  gets **Rename** (the group sheet: name, who's in it, *Delete group* — its things stay,
+  with no group, and Undo brings both back), and **+ New group** / **+ Add to the pantry**.
+- **The pantry sheet:** picture + name (the picture follows the name until one is picked),
   **Usual amount** (the Amount control), **Group** chips with *+ New group* inline, Aisle,
-  **Delete · Save**. Saving a name that's already a usual updates that one (one per name,
+  **Delete · Save**. Saving a name that's already there updates that one (one per name,
   `key()`), keeping its picture and group.
-- **☆ Add to usuals** on an item's sheet saves it (name, amount, aisle) in one tap; it
-  reads **★ A usual** if it already is one, and tapping that takes it out.
+- **☆ Add to pantry** on an item's sheet saves it (name, amount, aisle) in one tap; it
+  reads **★ In the pantry** if it already is, and tapping that takes it out.
 - **Pictures:** each has its own, not its aisle's. Unpicked, it's **guessed from the name**
   (`iconFor` — `ICON_PHRASES` first, then the last word that means something, like
   `categorise()`: bin bags 🗑️, herbs/coriander/basil 🌿, coffee ☕️, cereal 🥣, cordial 🧃…;
   unknown → the aisle's). The sheet's picture opens a grid of ~95 (`STAPLE_ICONS`) plus
   **Auto**. ⚠ Symbols from the old BMP block (☕) need U+FE0F after them or they render as
   small grey text — the tables carry it; add it to any new one.
-- **Stored as `staples`** (the server's name — kept so old lists and backups load):
-  `{id, name, qty, cat, icon, group}`, and `groups: [{id, name}]` (≤ 30, one per name).
-- **Starters & migration** (`starterGroups` / `starterStaples` in shopping.nix): 16 usuals
+- **Stored as `staples`** (the server's name, from before either rename — kept so old
+  lists and backups load): `{id, name, qty, cat, icon, group}`, and `groups: [{id, name}]`
+  (≤ 30, one per name). The code still says `usual`/`staple`; only what you see says Pantry.
+- **Starters & migration** (`starterGroups` / `starterStaples` in shopping.nix): 16 things
   in Cupboard / Fridge / Cleaning & paper, written on a fresh install and, ONCE, onto a list
   with no `staples` key. A list from the flat-staples days (has `staples`, no `groups`) is
   **grouped by aisle once** (`group_by_aisle()`: dairy/meat/produce/bakery/frozen → Fridge,
   household/personal/pets → Cleaning & paper, the rest → Cupboard), pictures kept. After
   that both keys exist, so emptying them sticks.
 
-**Recipes (`#sh-recipes`, inside the list card)**
-- Open the bar: **+ New recipe** (and **Find a recipe**, matching ingredients too, once
-  there are more than six), then a row per recipe — *7 ingredients · 2 on the list*.
+**Recipes (`#sh-recipes`, the Recipes tab)**
+- The tab wears the pick's **second colour** (`--ag-alt`: her vine green, the HUD's second
+  tone) — its buttons, chips, and the recipe/cook sheets. The **Recipes heading** is a pot
+  of soup with rising steam, popping bubbles, a band of dots with a heart, rivets, a wooden
+  spoon and a herb sprig (rock asked for "a bit more design in the pot").
+- **+ New**, and **Find a recipe** (names and ingredients) once there are more than four.
+  Then a **tile per recipe**: the dish on a plate, a big faded copy behind it, the tile
+  washed in **the colour of its food** (`FOOD_HUE` by the recipe's picture — tomato-red
+  bolognese, corn-yellow tacos; a hash of the name for anything unlisted; the HUD ignores
+  it and stays in the viewer's colours), its ingredients as a **strip of pictures** (+N for
+  the rest), and **✓ n** when n of them are on the list already.
 - **Tap a recipe → its cook sheet:** every ingredient ticked to start; untick what's in the
   cupboard → **Add N to the list** (or *All / None*). Anything already on the list is
-  marked *⚑ On the list — this adds to it* (it used to be pre-unticked; now it's left to
-  you, since 300mL twice may really mean 600mL). They land in their aisles tagged with the
-  recipe's name. **Edit** opens the editor.
+  marked *⚑ On the list — this adds to it* (left to you: 300mL twice may really mean
+  600mL). They land in their aisles tagged with the recipe's name. **Edit** opens the editor.
+- **"Usually have" (2026-11-25)** — spices, sauces, oil: part of the recipe, but in the
+  cupboard for years. In the editor every ingredient has a **tick** ("Ticked ones go on the
+  list. Untick what you always have"); unticked ones grey out with *🫙 Usually have — not
+  added*. On the cook sheet they sit in their own **Usually have — not added** section,
+  **unticked** — tap one if you've run out this time. *All / None* only touch the rest.
+  Stored as `skip: true` on the ingredient (only when set — the server drops anything
+  else, and recipes from before read as they did).
 - **The recipe editor** (rock: "legit just a text box" → rebuilt 2026-11-24): picture +
-  name; **Ingredients** as rows (picture, name, amount pill, ×) — tap one to change it in
-  place (name + the Amount control, Done); under them **Add an ingredient**: *What*, then
-  − amount + with unit chips, **Add ingredient** (Enter works). `300ml cream` typed into
-  *What* is parsed too. **Paste a whole list instead** takes one a line, like the old box.
-  An optional note; **Delete · Save**.
+  name; **Ingredients** as rows (tick, picture, name, amount pill, ×) — tap one to change
+  it in place (name + the Amount control, Done); under them **Add an ingredient**: *What*,
+  then − amount + with unit chips, **Add ingredient** (Enter works). `300ml cream` typed
+  into *What* is parsed too. **Paste a whole list instead** takes one a line. An optional
+  note; **Delete · Save**.
 - Four **starter recipes** (`starterRecipes` in shopping.nix) are written in only when
   there is no state file at all. Deleting one sticks.
+
+**The headings (Pantry, Recipes)**
+- The title is **Dancing Script Bold** — from nixpkgs (`pkgs.dancing-script`), served by
+  BOTH Glances at `/assets/fonts/dancing-script-bold.ttf` (glance.nix `fontFiles`,
+  marsbar.nix's asset farm) and loaded by `@font-face "Shop Script"` in cards.css, whose
+  relative `url("fonts/…")` resolves next to cards.css. Nothing is fetched from the web.
+  It's gradient-filled in the tab's colour with a swash underneath. Neon (Beon) and a
+  cookbook serif (Fraunces) were mocked up too; handwritten was picked for both dashboards.
+- The drawings (`POT`, `BASKET` in shopping.js) are inline SVG coloured **only by classes**
+  in cards.css (`--k`, `--k2`, a warm `--wood`) — never a literal — so they follow both
+  colour pickers. Steam, bubbles and sparkles are CSS animations, still under reduced
+  motion. On the HUD (asgard.css) the heading gets a grid instead of dots and the drawing
+  glows; everything is squared and the tab labels are Orbitron.
+- `--ag-alt` (the second colour) is a token each theme defines — `marsbar.css`
+  (`hsl(var(--mb-h2) …)`) and `asgard.css` (`var(--hud2)`) — so cards.css stays
+  theme-neutral.
 
 **Sheets — one system for every editor**
 - A bottom sheet on a phone (grab handle, the footer's buttons always in thumb reach), a
@@ -170,7 +214,7 @@ in the .py — ⚠ their metric tables must agree)
 - Fits the phone keyboard (`visualViewport` → `--kb` / `--vvh`). Escape or the scrim
   closes; with unsaved changes the first close only warns. Deletes take a second tap.
 - **The Amount control** (`amountHtml` / `amtRead` / `amtStep` / `amtUnit`) is one piece used
-  everywhere an amount is set — item, usual, ingredient, the usual drawer's row: − box +
+  everywhere an amount is set — item, pantry thing, ingredient, an open pantry tile: − box +
   with the same steps as the list's pill, and unit chips. A unit typed into the box
   (`300ml`) wins over the chips; tapping a unit with no amount starts somewhere sensible
   (100mL / 100g / 1L / 1kg / 1 pack).
@@ -277,9 +321,19 @@ arr databases. All in `Modules/Server/shopping.nix`:
   The server stores whatever `[a-z]{1,12}` it's given; an id the client doesn't know is
   drawn under Other. `key()` (what counts as "the same item") exists in BOTH files — keep
   them in step or merging and "on the list" disagree.
-- ⚠ `#sh-usuals` and `#sh-recipes` are INSIDE `#sh-list`, so `onClick` routes taps in
-  order — the sheet, then `#sh-usuals`, then `#sh-recipes`, then the list — otherwise every
-  drawer button is swallowed by the list handler and does nothing.
+- ⚠ `#sh-usuals` and `#sh-recipes` are INSIDE `#sh-list` (they're the Pantry and Recipes
+  panes), so `onClick` routes taps in order — the sheet, a tab, `#sh-usuals`,
+  `#sh-recipes`, then the list — otherwise every pane button is swallowed by the list
+  handler and does nothing.
+- ⚠ `render()` must call `drawList()` FIRST: it builds the card the tabs and the trolley bar
+  live in. Drawn before it, the first paint had no active tab and no trolley bar.
+- The panes are hidden with the `hidden` attribute, which `.sh-pane { display: flex }`
+  would override — hence `.sh-pane[hidden] { display: none }`. Keep it.
+- **The swipe** (`swipe()`) uses passive touch listeners only, so it can never block a
+  scroll: it gives up as soon as the finger moves more up/down than across, and ignores
+  touches that start on something that scrolls sideways or takes text (the group chips,
+  inputs, a stepper, the tab bar). The pane leans a little with the finger; at the first
+  or last tab it barely moves. Glance itself has no touch gestures (checked) to fight with.
 - Rows are a **keyed** list (not `Dash.paint`'s positional morph) so they slide when they
   change aisle or get ticked.
 - The toast is appended to `<body>` (same reason as the sheet). It sits above Glance's

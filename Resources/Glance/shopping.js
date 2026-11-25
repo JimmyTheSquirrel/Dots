@@ -2,17 +2,20 @@
 //
 // ONE card (#sh-list — one card to run down in the shop), painted from
 // shopping-list's /events stream (Resources/Shopping-List/shopping-list.py,
-// :9558), top to bottom:
+// :9558), with three tabs across its top (a swipe on a phone moves between
+// them; the tab lasts for the browser tab, so a fresh look starts on List):
 //
-//   adding       an add box (a comma adds several — "milk, eggs, 2 onions"),
-//                the usuals one tap away, and the recipe book (#sh-recipes,
-//                built inside this card) folded to one bar until tapped open,
-//                remembered per browser: tap a recipe, untick what you've
-//                already got, "Add 7 to the list"; + New recipe / Edit, one
-//                ingredient a line
-//   the list     grouped by aisle in the order you walk a supermarket, ticked
-//                things sinking into "In the trolley", ⋯ on a row to fix its
-//                name, quantity or aisle, Undo after anything that removes
+//   List         the trolley bar (how far through the shop), an add box (a
+//                comma adds several — "milk, eggs, 2 onions"), then the list
+//                grouped by aisle in the order you walk a supermarket, ticked
+//                things sinking into "In the trolley", ⋯ on a row for its
+//                sheet, ⚑ on a row asked for twice, Undo after anything that
+//                removes
+//   Pantry       (#sh-usuals) the things you keep in, in groups you make, each
+//                with its usual amount — + puts it on the list
+//   Recipes      (#sh-recipes) a tile per meal: tap one, untick what you've
+//                already got, "Add 7 to the list"; ingredients you usually
+//                have (spices) start unticked
 //
 // Loaded from document.head with
 //   <script src="/assets/shopping.js?v=…" data-api-port="9558" data-who="Rock" defer></script>     (admin)
@@ -52,7 +55,7 @@
     ["bakery", "🍞", "Bakery"],
     ["meat", "🥩", "Meat & fish"],
     ["dairy", "🧀", "Dairy & chilled"],
-    ["pantry", "🥫", "Pantry"],
+    ["pantry", "🥫", "Tins & dry goods"],   // id stays "pantry"; the label can't clash with the Pantry tab
     ["frozen", "🧊", "Frozen"],
     ["snacks", "🍫", "Snacks & treats"],
     ["drinks", "🥤", "Drinks"],
@@ -263,13 +266,15 @@
   // ── state: the server's, plus our unconfirmed changes on top ─────────────
   var srv = null, queue = [], busy = false, retryT = null, backoff = 1000, offline = false, queued = false;
   var ui = { typed: "", find: "", got: true, clearArm: 0, step: null, stepT: null,
-    rOpen: false,                                              // the recipe book: open?
-    uOpen: false, uEdit: false, uGroup: "all", uPick: null, uAmt: "" };   // the usuals
+    tab: "list",                                                   // list | pantry | recipes
+    uEdit: false, uGroup: "all", uPick: null, uAmt: "", uJust: {} }; // the pantry
   try {
     ui.got = localStorage.getItem("sh-got") !== "closed";
-    ui.rOpen = localStorage.getItem("sh-recipes") === "open";
-    ui.uOpen = (localStorage.getItem("sh-usuals") || localStorage.getItem("sh-staples")) === "open";
     ui.uGroup = localStorage.getItem("sh-usual-group") || "all";
+    // The tab lasts for this browser tab only: a fresh look at the dashboard
+    // (the one you open in the shop) always starts on the list.
+    var t0 = sessionStorage.getItem("sh-tab");
+    if (t0 === "pantry" || t0 === "recipes") ui.tab = t0;
   } catch (_) {}
 
   function take(s) {
@@ -438,7 +443,7 @@
     send("staples/delete", { id: u.id }, function (s) {
       s.staples = s.staples.filter(function (x) { return x.id !== u.id; });
     });
-    say("Took " + u.name + " out of your usuals", { undo: function () { saveUsual(u); } });
+    say("Took " + u.name + " out of the pantry", { undo: function () { saveUsual(u); } });
   }
   function saveGroup(g) {
     send("groups/save", { id: g.id, name: g.name }, function (s) {
@@ -476,10 +481,80 @@
     search: svg('<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>'),
     next: svg('<path d="M9 6l6 6-6 6"/>', "sh-next"),
     pencil: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
-    flag: svg('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>')
+    flag: svg('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
+    tick: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>')   // a plain tick (I.check is the animated one in .sh-box)
   };
   var EMOJI = ("🍝 🍛 🍜 🍲 🥘 🫕 🍳 🥗 🌮 🌯 🫔 🥙 🧆 🍕 🍔 🌭 🍟 🥪 🍗 🍖 🥩 🥓 🐟 🍤 🦐 🦀 🍣 🍱 🍙 🥟 🍢 🍚 🥞 🧇 " +
     "🥐 🥯 🍞 🥖 🧀 🥚 🍰 🧁 🍪 🥧 🍩 🍨 🥣 🍎 🍓 🍌 🥦 🥕 🌽 🌶️ 🥑 🍄 🥔 🍠 🎃 🌿 🍽️").split(" ");
+  // Each meal's tile takes the colour of its food (a hue; cards.css mixes it
+  // into the tile). The HUD ignores it and stays in the viewer's colours.
+  var FOOD_HUE = { "🍝": 4, "🍛": 38, "🍜": 30, "🍲": 14, "🥘": 18, "🫕": 40, "🍳": 46, "🥗": 100, "🌮": 44, "🌯": 34, "🫔": 30,
+    "🥙": 32, "🧆": 28, "🍕": 10, "🍔": 26, "🌭": 12, "🍟": 44, "🥪": 36, "🍗": 24, "🍖": 14, "🥩": 356, "🥓": 8, "🐟": 205,
+    "🍤": 18, "🦐": 14, "🦀": 6, "🍣": 12, "🍱": 350, "🍙": 210, "🥟": 36, "🍢": 20, "🍚": 200, "🥞": 34, "🧇": 38, "🥐": 34,
+    "🥯": 30, "🍞": 32, "🥖": 32, "🧀": 46, "🥚": 44, "🍰": 340, "🧁": 320, "🍪": 30, "🥧": 26, "🍩": 330, "🍨": 300, "🥣": 210,
+    "🍎": 358, "🍓": 350, "🍌": 50, "🥦": 110, "🥕": 24, "🌽": 50, "🌶️": 4, "🥑": 85, "🍄": 18, "🥔": 34, "🍠": 20, "🎃": 26, "🌿": 120 };
+  function foodHue(icon, name) {
+    if (FOOD_HUE[icon] != null) return FOOD_HUE[icon];
+    for (var h = 0, i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    return h;
+  }
+  // A group's picture, guessed from its name (a group is only ever a name).
+  var GROUP_ICONS = [["🧊", "fridge fridges chilled cold dairy"], ["❄️", "freezer frozen"], ["🥫", "cupboard cupboards pantry tins dry"],
+    ["🧽", "cleaning clean laundry"], ["🧻", "paper toilet"], ["🧴", "toiletries beauty health personal bathroom"],
+    ["🧁", "baking bake"], ["🥤", "drinks drink"], ["🍫", "snacks snack treats"], ["🐾", "pets pet cat cats dog dogs"],
+    ["🍼", "baby"], ["🥬", "fruit veg produce garden"], ["🥖", "bread bakery"], ["🥩", "meat butcher"], ["🍷", "wine alcohol"], ["💊", "medicine meds"]];
+  function groupIcon(name) {
+    var w = String(name || "").toLowerCase().split(/[^a-z]+/);
+    for (var i = 0; i < w.length; i++) for (var j = 0; w[i] && j < GROUP_ICONS.length; j++)
+      if ((" " + GROUP_ICONS[j][1] + " ").indexOf(" " + w[i] + " ") >= 0) return GROUP_ICONS[j][0];
+    return "🏷️";
+  }
+
+  // ── the headings: a handwritten title and a drawing in the tab's colours ──
+  // Line art, coloured entirely by cards.css (classes, never literal colours),
+  // so it follows the viewer's colour picker. The steam rises, the bubbles pop
+  // and the sparkles twinkle — CSS only, and still for reduced motion.
+  var SPARKS = '<g class="sp"><path d="M24 30l2.6 6 6 2.6-6 2.6-2.6 6-2.6-6-6-2.6 6-2.6z"/><path d="M156 42l1.8 4.2 4.2 1.8-4.2 1.8-1.8 4.2-1.8-4.2-4.2-1.8 4.2-1.8z"/></g>';
+  var POT = '<svg class="sh-ill" viewBox="0 0 170 132" aria-hidden="true">' +
+    '<ellipse class="shade" cx="86" cy="123" rx="52" ry="4.5"/>' +
+    '<g class="st"><path d="M66 44c-9-9 9-15 0-27"/><path d="M86 39c-9-10 9-17 0-31"/><path d="M106 44c-9-9 9-15 0-27"/></g>' +
+    '<path class="wood" d="M110 70L141 19"/><ellipse class="wood f" cx="145" cy="12.5" rx="6.5" ry="10" transform="rotate(31 145 12.5)"/>' +
+    '<path class="grain" d="M143.5 8.5l2 6.5"/>' +
+    '<path class="s f" d="M28 64v24a26 26 0 0 0 26 26h64a26 26 0 0 0 26-26V64"/>' +
+    '<path class="band" d="M29 84q57 9 114 0M29 95q57 9 114 0"/>' +
+    '<g class="dots"><circle cx="42" cy="91.4" r="1.9"/><circle cx="56" cy="93" r="1.9"/><circle cx="70" cy="93.8" r="1.9"/>' +
+      '<circle cx="102" cy="93.8" r="1.9"/><circle cx="116" cy="93" r="1.9"/><circle cx="130" cy="91.4" r="1.9"/></g>' +
+    '<path class="heart" d="M86 92.2c-1.6-2.6-6-2-5.4 1.4.5 2.6 5.4 5.2 5.4 5.2s4.9-2.6 5.4-5.2c.6-3.4-3.8-4-5.4-1.4z"/>' +
+    '<path class="s" d="M28 70h-8a7 7 0 0 0 0 14h8M144 70h8a7 7 0 0 1 0 14h-8"/>' +
+    '<g class="rivet"><circle cx="32.5" cy="73" r="1.7"/><circle cx="32.5" cy="81" r="1.7"/><circle cx="139.5" cy="73" r="1.7"/><circle cx="139.5" cy="81" r="1.7"/></g>' +
+    '<ellipse class="soup" cx="86" cy="64" rx="54" ry="6.4"/>' +
+    '<circle class="carrot" cx="67" cy="64.5" r="3.6"/><circle class="carrot-in" cx="67" cy="64.5" r="1.3"/>' +
+    '<ellipse class="herb" cx="96" cy="63" rx="4.6" ry="2" transform="rotate(-22 96 63)"/><ellipse class="herb" cx="122" cy="64.5" rx="3.6" ry="1.7" transform="rotate(18 122 64.5)"/>' +
+    '<circle class="pea" cx="108" cy="65.2" r="2.2"/><circle class="pea" cx="80" cy="66.6" r="1.8"/><circle class="pea" cx="52" cy="63.4" r="1.6"/>' +
+    '<g class="bub"><circle cx="74" cy="60.5" r="2"/><circle cx="102" cy="59.5" r="1.6"/><circle cx="114" cy="61" r="1.2"/></g>' +
+    '<ellipse class="s rim" cx="86" cy="64" rx="58" ry="8"/>' +
+    '<path class="hl" d="M40 79v10a16 16 0 0 0 10 14"/>' +
+    '<g class="leaf"><path class="stem" d="M6 126c8-14 20-20 34-22"/><ellipse cx="16" cy="112" rx="8" ry="4" transform="rotate(-40 16 112)"/>' +
+      '<ellipse cx="28" cy="106" rx="8" ry="4" transform="rotate(-18 28 106)"/><ellipse cx="22" cy="121" rx="7" ry="3.6" transform="rotate(12 22 121)"/>' +
+      '<path class="vein" d="M11 116l10-8M23 109l10-5"/></g>' + SPARKS + '</svg>';
+  var BASKET = '<svg class="sh-ill" viewBox="0 0 170 132" aria-hidden="true">' +
+    '<ellipse class="shade" cx="85" cy="123" rx="58" ry="4.5"/>' +
+    '<path class="s" d="M40 64c0-42 90-42 90 0"/><path class="wrap" d="M52 33l6 5M62 27l5 6M75 23l3 7M95 23l-3 7M108 27l-5 6M118 33l-6 5"/>' +
+    '<rect class="wood f" x="44" y="22" width="13" height="48" rx="6.5" transform="rotate(-24 50 46)"/>' +
+    '<path class="grain" d="M44 38l8 3M47 47l8 3M50 56l8 3" transform="rotate(-24 50 46)"/>' +
+    '<g class="leaf"><ellipse cx="104" cy="44" rx="9" ry="17" transform="rotate(22 104 44)"/><ellipse cx="116" cy="47" rx="8" ry="15" transform="rotate(44 116 47)"/>' +
+      '<path class="vein" d="M100 58l7-26M112 58l9-22"/></g>' +
+    '<path class="s f" d="M74 64V46c0-6 5-9 5-14v-8h10v8c0 5 5 8 5 14v18z"/><rect class="s lid" x="78" y="17" width="12" height="7" rx="2"/>' +
+    '<path class="label" d="M77 46h14v9H77z"/>' +
+    '<path class="s f" d="M18 62h134l-14 52H32z"/><path class="s rim" d="M14 62h142"/>' +
+    '<path class="weave" d="M24 80h122M28 96h114M56 62l4 52M85 62v52M114 62l-4 52"/>' + SPARKS + '</svg>';
+  var SWASH = '<svg class="sh-swash" viewBox="0 0 200 18" preserveAspectRatio="none" aria-hidden="true"><path d="M4 12C40 3 80 4 112 9s58 6 84-4"/></svg>';
+  var HERO = { pantry: ["Pantry", "What we keep in", BASKET], recipes: ["Recipes", "What are we cooking tonight?", POT] };
+  function hero(k) {
+    var h = HERO[k];
+    return '<header class="sh-hero ' + k + '"><div class="sh-hero-t"><h3 class="sh-script">' + h[0] + '</h3>' + SWASH +
+      '<p>' + h[1] + '</p></div>' + h[2] + '</header>';
+  }
 
   // ── drawing: a keyed list, so rows MOVE (and can be animated) ────────────
   // Dash.paint morphs by position, which is right for cards whose shape
@@ -548,23 +623,32 @@
     if (L && host.contains(L.root)) return L;
     host.innerHTML =
       '<div class="sh">' +
+        // List · Pantry · Recipes — still ONE card (you run down it in the
+        // shop); a swipe across it on a phone goes to the next tab.
+        '<div class="sh-tabs" role="tablist" aria-label="Shopping">' + TABS.map(function (t) {
+          return '<button type="button" class="sh-tab" role="tab" id="sh-tab-' + t[0] + '" data-sh-tab="' + t[0] + '" aria-controls="sh-pane-' + t[0] + '">' +
+            '<span class="sh-tab-i" aria-hidden="true">' + t[1] + '</span><span class="sh-tab-t">' + t[2] + '</span><i data-sh-tab-n></i></button>';
+        }).join("") + '</div>' +
+        '<div class="sh-pane" id="sh-pane-list" role="tabpanel" aria-labelledby="sh-tab-list" data-pane="list">' +
+        '<div class="sh-prog" data-sh-prog></div>' +
         '<form class="sh-add" autocomplete="off" data-sh-add>' +
           '<input class="sh-in" type="text" maxlength="300" placeholder="Add to the list… (milk, eggs, 300mL cream)" ' +
             'aria-label="Add to the shopping list" enterkeyhint="done" autocapitalize="sentences">' +
           '<button class="sh-plus" type="submit" aria-label="Add">' + I.plus + '</button>' +
         '</form>' +
         '<div class="sh-chips" data-sh-chips></div>' +
-        // The usuals and the recipe book live IN this card, each folded to one
-        // bar: one card to run down in the shop, everything for adding on top.
-        '<div class="sh-usuals" id="sh-usuals"></div>' +
-        '<div class="sh-recipes" id="sh-recipes"></div>' +
         '<div class="sh-list" role="list" data-sh-items></div>' +
         '<div class="sh-foot" data-sh-foot></div>' +
+        '</div>' +
+        '<div class="sh-pane sh-pantry" id="sh-usuals" role="tabpanel" aria-labelledby="sh-tab-pantry" data-pane="pantry"></div>' +
+        '<div class="sh-pane sh-recipes" id="sh-recipes" role="tabpanel" aria-labelledby="sh-tab-recipes" data-pane="recipes"></div>' +
       '</div>';
     var root = host.firstElementChild;
     L = { root: root, form: root.querySelector("[data-sh-add]"), input: root.querySelector(".sh-add .sh-in"),
       chips: root.querySelector("[data-sh-chips]"), list: root.querySelector("[data-sh-items]"),
-      foot: root.querySelector("[data-sh-foot]"), first: true };
+      foot: root.querySelector("[data-sh-foot]"), prog: root.querySelector("[data-sh-prog]"),
+      tabs: root.querySelectorAll("[data-sh-tab]"), panes: root.querySelectorAll("[data-pane]"), first: true };
+    swipe(root);
     L.input.addEventListener("input", function () { ui.typed = L.input.value; refresh(); });
     L.form.addEventListener("submit", function (e) {
       e.preventDefault();
@@ -678,9 +762,9 @@
         (armed ? "Tap again to clear" : "Clear list") + '</button>' : ''));
   }
 
-  // While typing in the add box: your usuals that match (with their usual
+  // While typing in the add box: pantry things that match (with their usual
   // amounts), then anything bought before. Nothing when the box is empty —
-  // the usuals have their own drawer.
+  // the pantry has its own tab.
   function chipsHtml(s) {
     var typed = key(ui.typed.split(/[,;]/).pop().replace(/^\s*\d+\S*\s*/, ""));
     if (!typed) return "";
@@ -964,7 +1048,7 @@
         ((it.parts || []).length >= 2 ? field("Asked for by", partsHtml(it), isFlagged(it) ? "doubled up — set the amount you need" : "") : "") +
         field("Aisle", '<div class="sh-opts">' + aisleChips(cat) + '</div>'),
       foot: '<button type="button" class="sh-btn ghost bad" data-item-del>Remove</button>' +
-        '<button type="button" class="sh-btn ghost" data-item-usual aria-pressed="' + !!u + '">' + (u ? "★ A usual" : "☆ Add to usuals") + '</button>' +
+        '<button type="button" class="sh-btn ghost" data-item-usual aria-pressed="' + !!u + '">' + (u ? "★ In the pantry" : "☆ Add to pantry") + '</button>' +
         '<button type="button" class="sh-btn go" data-item-save>Save</button>' });
   }
   function saveItem() {
@@ -1006,55 +1090,50 @@
       '<button type="button" class="sh-btn go" data-flag-all>' + (n === 2 ? "Get both" : "Get all " + n) + ' · ' + esc(it.qty || String(n)) + '</button>';
   }
 
-  // ── the usuals: things you always keep in, in groups you make ────────────
-  // Folded to one bar like the recipe book (open/shut kept per browser). Group
-  // chips filter it; each usual is a row: the round + adds it at its usual
-  // amount, tapping the name opens − amount + / Add to pick first. "Edit" turns
-  // the rows into editors (tap one → its sheet), and offers + New group.
+  // ── the pantry: things you always keep in, in groups you make ────────────
+  // Its own tab. Group chips filter it; each thing is a tile: the round + adds
+  // it at its usual amount (and ticks for a moment, so you see it went on),
+  // tapping the name opens − amount + / Add to pick first. "Edit" turns the
+  // tiles into editors (tap one → its sheet) and offers + New group. NOT a
+  // tracker — nothing here reflects the list. The server calls these
+  // "staples" (the data predates the name).
   var U = null;
   function usualShell() {
     var host = D.$("sh-usuals");
     if (!host) return null;
     if (U && host.contains(U.root)) return U;
     host.innerHTML =
-      '<div class="shr shs">' +
-        '<button type="button" class="shr-toggle" data-u-toggle aria-expanded="false" aria-controls="shu-body"></button>' +
-        '<div class="shr-body" id="shu-body"><div class="shr-inner">' +
-          '<div class="shx-bar"><div class="sh-opts scroll" role="tablist" aria-label="Groups" data-u-filters></div>' +
-            '<button type="button" class="sh-btn ghost sm" data-u-edit></button></div>' +
-          '<div class="shx-list" data-u-list></div>' +
-          '<div class="shx-foot" data-u-foot></div>' +
-        '</div></div>' +
+      '<div class="sh-pane-in">' + hero("pantry") +
+        '<div class="sh-bar"><div class="sh-opts scroll" role="tablist" aria-label="Groups" data-u-filters></div>' +
+          '<button type="button" class="sh-btn ghost sm" data-u-edit></button></div>' +
+        '<div class="sht-list" data-u-list></div>' +
+        '<div class="shx-foot" data-u-foot></div>' +
       '</div>';
     var root = host.firstElementChild;
-    U = { root: root, toggle: root.querySelector("[data-u-toggle]"), inner: root.querySelector(".shr-inner"),
-      filters: root.querySelector("[data-u-filters]"), editBtn: root.querySelector("[data-u-edit]"),
+    U = { root: root, filters: root.querySelector("[data-u-filters]"), editBtn: root.querySelector("[data-u-edit]"),
       list: root.querySelector("[data-u-list]"), foot: root.querySelector("[data-u-foot]") };
     return U;
   }
   function usualSort(a, b) {
     return (AISLE[aisleOf(a.cat)].i - AISLE[aisleOf(b.cat)].i) || (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1);
   }
-  function stack(faces) {
-    return '<span class="shr-stack" aria-hidden="true">' + faces.slice(0, 3).map(function (f) { return '<span>' + f + '</span>'; }).join("") + '</span>';
-  }
-  function usualRow(x) {
-    var icon = iconFor(x), t = '<span class="shx-pic" aria-hidden="true">' + icon + '</span>' +
-      '<span class="shx-t"><b>' + esc(x.name) + '</b>' + (x.qty ? '<small>' + esc(x.qty) + '</small>' : '') + '</span>';
+  function usualTile(x) {
+    var t = '<span class="sht-pic" aria-hidden="true">' + iconFor(x) + '</span>' +
+      '<span class="sht-t"><b>' + esc(x.name) + '</b>' + (x.qty ? '<small>' + esc(x.qty) + '</small>' : '') + '</span>';
     if (ui.uEdit) {
-      return '<div class="shx-row" role="listitem"><button type="button" class="shx-main" data-u-open="' + x.id + '" ' +
-        'aria-label="' + esc("Change " + x.name) + '">' + t + '<span class="shx-act">' + I.pencil + '</span></button></div>';
+      return '<div class="sht" role="listitem"><button type="button" class="sht-main" data-u-open="' + x.id + '" ' +
+        'aria-label="' + esc("Change " + x.name) + '">' + t + '<span class="sht-ed" aria-hidden="true">' + I.pencil + '</span></button></div>';
     }
-    var open = ui.uPick === x.id;
-    var html = '<div class="shx-row' + (open ? " open" : "") + '" role="listitem">' +
-      '<button type="button" class="shx-main" data-u-pick="' + x.id + '" aria-expanded="' + open + '" ' +
+    var open = ui.uPick === x.id, just = Date.now() - (ui.uJust[x.id] || 0) < 1600;
+    var html = '<div class="sht' + (open ? " open" : "") + (just ? " got" : "") + '" role="listitem">' +
+      '<button type="button" class="sht-main" data-u-pick="' + x.id + '" aria-expanded="' + open + '" ' +
         'aria-label="' + esc("Pick how many " + x.name) + '">' + t + '</button>';
     if (!open) {
-      return html + '<button type="button" class="shx-btn" data-u-quick="' + x.id + '" ' +
-        'aria-label="' + esc("Add " + (x.qty ? x.qty + " " : "") + x.name + " to the list") + '">' + I.plus + '</button></div>';
+      return html + '<button type="button" class="sht-add" data-u-quick="' + x.id + '" ' +
+        'aria-label="' + esc("Add " + (x.qty ? x.qty + " " : "") + x.name + " to the list") + '">' + (just ? I.tick : I.plus) + '</button></div>';
     }
     var down = stepQty(ui.uAmt, -1), up = stepQty(ui.uAmt, 1);
-    return html + '<div class="shx-pick">' +
+    return html + '<div class="sht-pick">' +
         '<span class="sh-stepper" role="group" aria-label="' + esc("How many " + x.name) + '">' +
           '<button type="button" class="sh-st" data-u-step="-1" aria-label="Fewer"' + (down == null ? " disabled" : "") + '>' + I.minus + '</button>' +
           '<b aria-live="polite">' + esc(ui.uAmt || "1") + '</b>' +
@@ -1073,25 +1152,15 @@
     if (f !== "all" && f !== "none" && !known[f]) f = ui.uGroup = "all";
     if (f === "none" && !loose.length) f = ui.uGroup = "all";
     if (ui.uPick && !usual(s, ui.uPick)) ui.uPick = null;
-    C.root.classList.toggle("open", ui.uOpen);
-    C.toggle.setAttribute("aria-expanded", String(ui.uOpen));
-    C.inner.inert = !ui.uOpen;
-    var faces = [];
-    all.forEach(function (x) { var i = iconFor(x); if (faces.indexOf(i) < 0) faces.push(i); });
-    D.paint(C.toggle, stack(faces.length ? faces : ["🧺"]) +
-      '<span class="shr-toggle-t"><b>Usuals</b><small>' +
-        (!all.length ? "Save the things you always buy" : ui.uOpen ? (ui.uEdit ? "Tap one to change it" : "+ adds it, or tap a name")
-          : plural(all.length, "usual", "usuals") + (groups.length ? " · " + plural(groups.length, "group", "groups") : "")) +
-      '</small></span>' + I.chev);
 
-    function chip(id, label, n) {
+    function chip(id, label, n, icon) {
       return '<button type="button" class="sh-opt' + (f === id ? " on" : "") + '" role="tab" aria-selected="' + (f === id) + '" data-u-filter="' + id + '">' +
-        esc(label) + (n != null ? '<i>' + n + '</i>' : '') + '</button>';
+        (icon ? '<span aria-hidden="true">' + icon + '</span>' : '') + esc(label) + (n != null ? '<i>' + n + '</i>' : '') + '</button>';
     }
     D.paint(C.filters, (groups.length || loose.length < all.length ? chip("all", "All", all.length) : "") +
-      groups.map(function (g) { return chip(g.id, g.name, all.filter(function (x) { return x.group === g.id; }).length); }).join("") +
-      (loose.length && groups.length ? chip("none", "No group", loose.length) : ""));
-    C.editBtn.textContent = ui.uEdit ? "Done" : "Edit";
+      groups.map(function (g) { return chip(g.id, g.name, all.filter(function (x) { return x.group === g.id; }).length, groupIcon(g.name)); }).join("") +
+      (loose.length && groups.length ? chip("none", "No group", loose.length, "📦") : ""));
+    D.paint(C.editBtn, ui.uEdit ? "Done" : I.pencil + "Edit");
     C.editBtn.classList.toggle("go", ui.uEdit);
     C.editBtn.hidden = !all.length && !groups.length;
 
@@ -1102,28 +1171,32 @@
     } else if (f === "none") secs.push([{ id: "none", name: "" }, loose]);
     else secs.push([group(s, f), all.filter(function (x) { return x.group === f; })]);
     var html = !all.length && !groups.length
-      ? '<div class="shx-empty"><span aria-hidden="true">🧺</span><b>No usuals yet</b>Save what you buy all the time — 300mL cream, 250g butter, ' +
+      ? '<div class="shx-empty"><span aria-hidden="true">🧺</span><b>The pantry\'s empty</b>Save what you buy all the time — 300mL cream, 250g butter, ' +
         'toilet paper — and it\'s one tap onto the list.</div>'
       : secs.map(function (sec) {
         var g = sec[0], rows = sec[1];
         if (!rows.length && !ui.uEdit) return "";
         var head = (f === "all" && g.name) || (f !== "all" && ui.uEdit && g.id !== "none")
-          ? '<div class="shx-h"><span>' + esc(g.name) + '</span><b>' + rows.length + '</b>' +
+          ? '<div class="sht-h"><span class="sht-h-i" aria-hidden="true">' + (g.id === "none" ? "📦" : groupIcon(g.name)) + '</span>' +
+            '<span>' + esc(g.name) + '</span><b>' + rows.length + '</b>' +
             (ui.uEdit && g.id !== "none" ? '<button type="button" class="sh-btn ghost sm" data-g-open="' + g.id + '">' + I.pencil + 'Rename</button>' : '') + '</div>'
           : '';
-        return '<div class="shx-sec" role="list">' + head +
-          (rows.length ? rows.map(usualRow).join("") : '<div class="shx-none">Nothing in this group yet.</div>') + '</div>';
+        return '<div class="sht-sec">' + head + (rows.length
+          ? '<div class="sht-grid" role="list">' + rows.map(usualTile).join("") + '</div>'
+          : '<div class="shx-none">Nothing in this group yet.</div>') + '</div>';
       }).join("");
     D.paint(C.list, html);
     D.paint(C.foot,
       (ui.uEdit ? '<button type="button" class="sh-btn ghost" data-g-new>' + I.plus + 'New group</button>' : '') +
-      '<button type="button" class="sh-btn" data-u-new>' + I.plus + 'Add a usual</button>');
+      '<button type="button" class="sh-btn" data-u-new>' + I.plus + 'Add to the pantry</button>');
   }
   // Put a usual on the list at the amount given ("" = just the thing).
   function addUsual(x, qty) {
     if (/^1$/.test(qty)) qty = ""; // one, unitless, is just the thing
     var r = addItems([{ name: x.name, qty: qty, cat: x.cat && x.cat !== "other" ? x.cat : undefined }]);
     var what = (qty ? qty + " " : "") + x.name;
+    ui.uJust[x.id] = Date.now();
+    setTimeout(refresh, 1700);
     if (r.fresh.length) say("Added " + what + " to the list", { undo: function () { remove(r.fresh, "Took " + x.name + " back off"); } });
     else if (qty) say(x.name + " was already on the list — added " + qty + " (⚑ to check)");
     else say(x.name + " is already on the list");
@@ -1146,7 +1219,7 @@
     var s = current(), x = id ? usual(s, id) : null;
     var d = x ? Object.assign({}, x) : { id: rid(), name: "", qty: "", cat: "", icon: "", group: preset || "" };
     openSheet({ kind: "usual", id: d.id, isNew: !x, draft: d, cat: x ? aisleOf(x.cat) : "",
-      icon: x ? iconFor(x) : "🧺", title: x ? x.name : "New usual", sub: x ? "A usual" : "Something you buy all the time",
+      icon: x ? iconFor(x) : "🧺", title: x ? x.name : "Add to the pantry", sub: x ? "In the pantry" : "Something you buy all the time",
       body:
         '<div class="sh-ident"><button type="button" class="sh-pic" data-u-pic aria-expanded="false" aria-label="Change the picture">' + iconFor(d) + '</button>' +
           '<input class="sh-in" data-f="name" maxlength="80" enterkeyhint="done" autocapitalize="sentences" placeholder="What is it? — e.g. thickened cream" value="' + esc(d.name) + '"></div>' +
@@ -1157,7 +1230,7 @@
           '<button type="button" class="sh-btn" data-g-make>Add</button></div>') +
         field("Aisle", '<div class="sh-opts">' + aisleChips(x ? aisleOf(x.cat) : "") + '</div>', x ? "" : "worked out from the name if you leave it"),
       foot: (x ? '<button type="button" class="sh-btn ghost bad" data-u-del>Delete</button>' : '') +
-        '<button type="button" class="sh-btn go" data-u-save>' + (x ? "Save" : "Add to usuals") + '</button>',
+        '<button type="button" class="sh-btn go" data-u-save>' + (x ? "Save" : "Add to pantry") + '</button>',
       focus: x ? null : '[data-f="name"]' });
   }
   function saveUsualSheet() {
@@ -1168,7 +1241,7 @@
     var isNew = SH.isNew;
     saveUsual(u);
     closeSheet(true);
-    say(isNew ? "Added " + u.name + " to your usuals" : "Saved " + u.name);
+    say(isNew ? "Added " + u.name + " to the pantry" : "Saved " + u.name);
   }
 
   // ── group: its sheet ─────────────────────────────────────────────────────
@@ -1176,7 +1249,7 @@
     var s = current(), g = id ? group(s, id) : null;
     var members = g ? s.staples.filter(function (x) { return x.group === g.id; }) : [];
     openSheet({ kind: "group", id: g ? g.id : rid(), isNew: !g, icon: "🗂️", title: g ? g.name : "New group",
-      sub: g ? plural(members.length, "usual", "usuals") : "Fridge, Baking, Cleaning… whatever suits",
+      sub: g ? plural(members.length, "thing", "things") : "Fridge, Baking, Cleaning… whatever suits",
       body: field("Name", '<input class="sh-in" data-f="name" maxlength="40" enterkeyhint="done" placeholder="e.g. Baking" value="' + esc(g ? g.name : "") + '">') +
         (members.length ? field("In it", '<div class="sh-mini">' + members.map(function (x) {
           return '<span>' + iconFor(x) + ' ' + esc(x.name) + '</span>'; }).join("") + '</div>', "deleting the group keeps these, with no group") : ""),
@@ -1186,55 +1259,146 @@
   }
 
   // ── the recipe book ──────────────────────────────────────────────────────
-  // Folded to one bar like the usuals. A row per recipe; tap one → its cook
-  // sheet (tick what's needed, add it to the list); + New recipe → the editor.
+  // Its own tab: a tile per recipe in the colour of its food, its ingredients
+  // as a strip of pictures, ✓ n when some are already on the list. Tap one →
+  // its cook sheet (tick what's needed, add it to the list); + New → the editor.
   var R = null;
   function recipeShell() {
     var host = D.$("sh-recipes");
     if (!host) return null;
     if (R && host.contains(R.root)) return R;
     host.innerHTML =
-      '<div class="shr">' +
-        '<button type="button" class="shr-toggle" data-shr-toggle aria-expanded="false" aria-controls="shr-body"></button>' +
-        '<div class="shr-body" id="shr-body"><div class="shr-inner">' +
-          '<div class="shx-bar">' +
-            '<label class="shr-find">' + I.search + '<input class="sh-in" type="search" placeholder="Find a recipe or ingredient…" aria-label="Find a recipe"></label>' +
-            '<button type="button" class="sh-btn" data-r-new>' + I.plus + 'New recipe</button>' +
-          '</div>' +
-          '<div class="shx-list" role="list" data-r-list></div>' +
-        '</div></div>' +
+      '<div class="sh-pane-in">' + hero("recipes") +
+        '<div class="sh-bar">' +
+          '<label class="sh-find">' + I.search + '<input class="sh-in" type="search" placeholder="Find a recipe" aria-label="Find a recipe or an ingredient"></label>' +
+          '<button type="button" class="sh-btn go" data-r-new>' + I.plus + 'New</button>' +
+        '</div>' +
+        '<div class="shc-grid" data-r-list></div>' +
       '</div>';
     var root = host.firstElementChild;
-    R = { root: root, toggle: root.querySelector("[data-shr-toggle]"), inner: root.querySelector(".shr-inner"),
-      bar: root.querySelector(".shx-bar"), find: root.querySelector(".shr-find input"), list: root.querySelector("[data-r-list]") };
+    R = { root: root, bar: root.querySelector(".sh-bar"), find: root.querySelector(".sh-find input"), list: root.querySelector("[data-r-list]") };
     R.find.addEventListener("input", function () { ui.find = R.find.value; refresh(); });
     return R;
+  }
+  function recipeTile(s, r) {
+    var icon = r.icon || "🍽️", have = 0, pics = [];
+    r.ingredients.forEach(function (g) {
+      if (!g.skip && onList(s, g.name)) have++;
+      var p = iconFor(g);
+      if (pics.indexOf(p) < 0) pics.push(p);
+    });
+    var more = r.ingredients.length - Math.min(5, pics.length);
+    return '<button type="button" class="shc" data-r-open="' + r.id + '" style="--fh:' + foodHue(icon, r.name) + '" ' +
+      'aria-label="' + esc(r.name + " — " + plural(r.ingredients.length, "ingredient", "ingredients") + (have ? ", " + have + " on the list" : "")) + '">' +
+      '<span class="shc-big" aria-hidden="true">' + esc(icon) + '</span>' +
+      '<span class="shc-plate" aria-hidden="true">' + esc(icon) + '</span>' +
+      '<b>' + esc(r.name) + '</b>' +
+      '<span class="shc-strip" aria-hidden="true">' + pics.slice(0, 5).join("") + (more > 0 ? '<i>+' + more + '</i>' : '') + '</span>' +
+      (have ? '<span class="shc-on" aria-hidden="true">' + I.tick + have + '</span>' : '') + '</button>';
   }
   function drawRecipes(s) {
     var C = recipeShell();
     if (!C) return;
     var q = key(ui.find), rs = s.recipes;
-    C.root.classList.toggle("open", ui.rOpen);
-    C.toggle.setAttribute("aria-expanded", String(ui.rOpen));
-    C.inner.inert = !ui.rOpen;
-    C.bar.classList.toggle("many", rs.length > 6);
-    D.paint(C.toggle, stack(rs.length ? rs.map(function (r) { return r.icon || "🍽️"; }) : ["📖"]) +
-      '<span class="shr-toggle-t"><b>' + (rs.length ? plural(rs.length, "recipe", "recipes") : "Recipes") + '</b>' +
-        '<small>' + (ui.rOpen ? "Tap one to shop for it" : rs.length ? "Tap to pick one" : "Add the meals you cook most") + '</small></span>' + I.chev);
+    C.bar.classList.toggle("many", rs.length > 4 || !!ui.find);
     var shown = q ? rs.filter(function (r) {
       return key(r.name).indexOf(q) >= 0 || r.ingredients.some(function (g) { return key(g.name).indexOf(q) >= 0; });
     }) : rs;
     D.paint(C.list, !rs.length
       ? '<div class="shx-empty"><span aria-hidden="true">📖</span><b>No recipes yet</b>Add the meals you cook most — then one tap puts everything they need on the list.</div>'
       : !shown.length ? '<div class="shx-none">Nothing matches “' + esc(ui.find) + '”.</div>'
-      : shown.map(function (r) {
-        var have = r.ingredients.filter(function (g) { return onList(s, g.name); }).length;
-        return '<div class="shx-row" role="listitem"><button type="button" class="shx-main" data-r-open="' + r.id + '">' +
-          '<span class="shx-pic" aria-hidden="true">' + esc(r.icon || "🍽️") + '</span>' +
-          '<span class="shx-t"><b>' + esc(r.name) + '</b><small>' + plural(r.ingredients.length, "ingredient", "ingredients") +
-            (have ? ' · ' + have + ' on the list' : '') + '</small></span>' +
-          '<span class="shx-act">' + I.next + '</span></button></div>';
-      }).join(""));
+      : shown.map(function (r) { return recipeTile(s, r); }).join(""));
+  }
+
+  // ── the tabs ─────────────────────────────────────────────────────────────
+  var TABS = [["list", "🛒", "List"], ["pantry", "🧺", "Pantry"], ["recipes", "📖", "Recipes"]];
+  var TAB_IX = { list: 0, pantry: 1, recipes: 2 };
+  function drawTabs(s) {
+    if (!L) return;
+    var left = s.items.filter(function (i) { return !i.done; }).length;
+    L.tabs.forEach(function (b) {
+      var k = b.getAttribute("data-sh-tab"), on = k === ui.tab, n = b.querySelector("[data-sh-tab-n]");
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", String(on));
+      b.tabIndex = on ? 0 : -1;
+      var txt = k === "list" && left ? String(left) : "";
+      if (n.textContent !== txt) n.textContent = txt;
+    });
+    L.panes.forEach(function (p) { p.hidden = p.getAttribute("data-pane") !== ui.tab; });
+  }
+  // The trolley bar on the list tab: how far through the shop you are.
+  function drawProg(s) {
+    if (!L) return;
+    var all = s.items.length, got = s.items.filter(function (i) { return i.done; }).length;
+    L.prog.classList.toggle("all", !!all && got === all);
+    D.paint(L.prog, !all ? "" :
+      '<span class="sh-prog-t"><span aria-hidden="true">🛒</span>' + (got === all ? "All " + all + " in the trolley" : '<b>' + got + '</b> of ' + all + ' in the trolley') + '</span>' +
+      '<span class="sh-prog-bar" role="progressbar" aria-valuemin="0" aria-valuemax="' + all + '" aria-valuenow="' + got + '" aria-label="In the trolley">' +
+        '<i style="width:' + Math.round(got / all * 100) + '%"></i></span>');
+  }
+  function setTab(k) {
+    if (k === ui.tab || TAB_IX[k] == null || !L) return;
+    var back = TAB_IX[k] < TAB_IX[ui.tab];
+    ui.tab = k;
+    ui.uPick = null;
+    if (k !== "pantry") ui.uEdit = false;
+    if (ui.step) stepFor(null);
+    try { sessionStorage.setItem("sh-tab", k); } catch (_) {}
+    render(); // now, so the pane is there to slide in
+    var pane = L.root.querySelector('[data-pane="' + k + '"]');
+    anim(pane, [{ transform: "translateX(" + (back ? -36 : 36) + "px)", opacity: 0 }, { transform: "none", opacity: 1 }], 280);
+    // Switching from far down the list: bring the tabs (and the new tab's top) back into view.
+    var bar = L.root.querySelector(".sh-tabs"), top = bar.getBoundingClientRect().top;
+    if (top < 0) bar.scrollIntoView({ block: "start", behavior: CALM ? "auto" : "smooth" });
+  }
+  // A swipe across the card goes to the next tab (phones). Passive listeners
+  // only — it never blocks scrolling — and it gives up the moment the finger
+  // moves more up/down than across, or starts on something that scrolls
+  // sideways itself (the group chips) or takes text.
+  function swipe(root) {
+    var x0 = 0, y0 = 0, t0 = 0, live = false, dead = true, pane = null;
+    function lean(dx) {
+      if (!pane || CALM) return;
+      var edge = (dx > 0 && TAB_IX[ui.tab] === 0) || (dx < 0 && TAB_IX[ui.tab] === TABS.length - 1);
+      pane.style.transform = "translateX(" + Math.max(-60, Math.min(60, dx * (edge ? 0.12 : 0.3))) + "px)";
+    }
+    function settle() {
+      if (!pane) return;
+      var p = pane; pane = null;
+      if (!p.style.transform) return;
+      p.style.transition = "transform 0.2s cubic-bezier(.2,.7,.2,1)";
+      p.style.transform = "";
+      setTimeout(function () { p.style.transition = ""; }, 220);
+    }
+    root.addEventListener("touchstart", function (e) {
+      var t = e.target;
+      dead = e.touches.length !== 1 || !!(t.closest && t.closest("input, textarea, select, .sh-opts.scroll, .sh-stepper, .sh-tabs"));
+      if (dead) return;
+      live = false;
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+      pane = root.querySelector('[data-pane="' + ui.tab + '"]');
+    }, { passive: true });
+    root.addEventListener("touchmove", function (e) {
+      if (dead) return;
+      var dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
+      if (!live) {
+        if (Math.abs(dy) > 10 && Math.abs(dy) >= Math.abs(dx)) { dead = true; settle(); return; }
+        if (Math.abs(dx) > 14) live = true;
+      }
+      if (live) lean(dx);
+    }, { passive: true });
+    root.addEventListener("touchend", function (e) {
+      if (dead) return;
+      dead = true;
+      var t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0, quick = Date.now() - t0 < 350;
+      var go = live && Math.abs(dx) > 1.5 * Math.abs(dy) && (Math.abs(dx) > 70 || (quick && Math.abs(dx) > 40));
+      var next = go && TABS[TAB_IX[ui.tab] + (dx < 0 ? 1 : -1)];
+      if (!next) { settle(); return; }
+      if (pane) { pane.style.transform = ""; pane = null; }
+      setTab(next[0]);
+      buzz();
+    }, { passive: true });
+    root.addEventListener("touchcancel", function () { dead = true; settle(); }, { passive: true });
   }
 
   // ── cook: a recipe, to shop for ──────────────────────────────────────────
@@ -1245,30 +1409,41 @@
     var s = current(), r = recipe(s, id);
     if (!r) return;
     // Opened empty, then painted: cookBody reads SH.off, which is the new sheet's.
-    openSheet({ kind: "cook", id: id, off: {}, icon: r.icon || "🍽️", title: r.name,
+    var off = {};
+    r.ingredients.forEach(function (g, i) { if (g.skip) off[i] = true; }); // usually have: unticked to start
+    openSheet({ kind: "cook", id: id, off: off, icon: r.icon || "🍽️", title: r.name,
       sub: plural(r.ingredients.length, "ingredient", "ingredients") + (r.used ? " · shopped for " + times(r.used).replace("twice", "2 times") : ""),
       body: "", foot: "" });
     paintSheet(s);
   }
   function cookBody(s, r) {
+    function row(g, i) {
+      var on = !SH.off[i], have = onList(s, g.name);
+      return '<button type="button" class="shx-check' + (on ? " on" : "") + (g.skip ? " have" : "") + '" role="listitem" data-cook-ing="' + i + '" aria-pressed="' + on + '">' +
+        '<span class="sh-box" aria-hidden="true">' + I.check + '</span>' +
+        '<span class="shx-pic sm" aria-hidden="true">' + iconFor(g) + '</span>' +
+        '<span class="shx-t"><b>' + esc(g.name) + '</b>' +
+          (have && on ? '<small class="warn">' + I.flag + 'On the list' + (have.qty ? ' · ' + esc(have.qty) : '') + ' — this adds to it</small>'
+            : g.skip ? '<small>' + (on ? "Adding it this time" : "Tap if you\'ve run out") + '</small>' : '') + '</span>' +
+        (g.qty ? '<span class="sh-qty">' + esc(g.qty) + '</span>' : '') + '</button>';
+    }
+    var main = "", kept = "";
+    r.ingredients.forEach(function (g, i) { if (g.skip) kept += row(g, i); else main += row(g, i); });
     return '<p class="sh-lede">Untick anything that\'s already in the cupboard.</p>' +
-      '<div class="shx-list" role="list">' + r.ingredients.map(function (g, i) {
-        var on = !SH.off[i], have = onList(s, g.name);
-        return '<button type="button" class="shx-check' + (on ? " on" : "") + '" role="listitem" data-cook-ing="' + i + '" aria-pressed="' + on + '">' +
-          '<span class="sh-box" aria-hidden="true">' + I.check + '</span>' +
-          '<span class="shx-pic sm" aria-hidden="true">' + iconFor(g) + '</span>' +
-          '<span class="shx-t"><b>' + esc(g.name) + '</b>' +
-            (have ? '<small class="warn">' + I.flag + 'On the list' + (have.qty ? ' · ' + esc(have.qty) : '') + ' — this adds to it</small>' : '') + '</span>' +
-          (g.qty ? '<span class="sh-qty">' + esc(g.qty) + '</span>' : '') + '</button>';
-      }).join("") + '</div>' +
+      (main ? '<div class="shx-list" role="list">' + main + '</div>' : '') +
+      (kept ? '<div class="sh-have-h"><span aria-hidden="true">🫙</span>Usually have — not added</div><div class="shx-list" role="list">' + kept + '</div>' : '') +
       (r.note ? '<div class="sh-note">' + esc(r.note) + '</div>' : '');
   }
   function cookFoot(r) {
     var n = r.ingredients.filter(function (g, i) { return !SH.off[i]; }).length;
     return '<button type="button" class="sh-btn ghost" data-cook-edit>' + I.pencil + 'Edit</button>' +
-      '<button type="button" class="sh-btn ghost" data-cook-all>' + (n === r.ingredients.length ? "None" : "All") + '</button>' +
+      '<button type="button" class="sh-btn ghost" data-cook-all>' + (mainOn(r) ? "None" : "All") + '</button>' +
       '<button type="button" class="sh-btn go" data-cook-add' + (n ? "" : " disabled") + '>' + (n ? "Add " + n + " to the list" : "Nothing ticked") + '</button>';
   }
+
+  // All / None only touch what you'd normally buy; the "usually have" ones
+  // change one tap at a time.
+  function mainOn(r) { return r.ingredients.every(function (g, i) { return g.skip || !SH.off[i]; }); }
 
   // ── recipe: the editor ───────────────────────────────────────────────────
   // A row per ingredient (picture, name, amount — tap to change, × to drop);
@@ -1287,6 +1462,7 @@
           '<input class="sh-in" data-f="name" maxlength="80" enterkeyhint="next" autocapitalize="sentences" placeholder="What\'s it called?" value="' + esc(d.name) + '"></div>' +
         '<div class="sh-picgrid" data-r-pics hidden>' + picGrid(EMOJI, d.icon, "data-r-seticon", false) + '</div>' +
         '<div class="sh-field"><span class="sh-label">Ingredients <i data-ing-count></i></span>' +
+          '<p class="sh-hint" data-ing-hint>Ticked ones go on the list. Untick what you always have — spices, sauces, oil.</p>' +
           '<div class="shx-list" role="list" data-ing-list></div>' +
           '<div class="sh-compose" data-ing-compose>' +
             '<span class="sh-compose-h">' + I.plus + 'Add an ingredient</span>' +
@@ -1309,6 +1485,7 @@
   function paintIngredients(focusIdx) {
     var d = SH.draft, box = SE.body.querySelector("[data-ing-list]");
     SE.body.querySelector("[data-ing-count]").textContent = d.ingredients.length ? String(d.ingredients.length) : "";
+    SE.body.querySelector("[data-ing-hint]").hidden = !d.ingredients.length;
     box.innerHTML = !d.ingredients.length ? '<div class="shx-none">Nothing yet — add the first one below.</div>' :
       d.ingredients.map(function (g, i) {
         if (SH.ingEdit === i) {
@@ -1318,9 +1495,13 @@
             '<div class="sh-act"><button type="button" class="sh-btn ghost bad sm" data-ing-del="' + i + '">Remove</button>' +
               '<button type="button" class="sh-btn go sm" data-ing-done>Done</button></div></div>';
         }
-        return '<div class="shx-row" role="listitem" data-ing-row="' + i + '">' +
+        return '<div class="shx-row' + (g.skip ? " have" : "") + '" role="listitem" data-ing-row="' + i + '">' +
+          '<button type="button" class="shx-tick' + (g.skip ? "" : " on") + '" data-ing-skip="' + i + '" aria-pressed="' + !g.skip + '" ' +
+            'aria-label="' + esc(g.skip ? g.name + ": usually have it — tap to buy it with the recipe" : g.name + ": bought with the recipe — tap if you usually have it") + '">' +
+            '<span class="sh-box" aria-hidden="true">' + I.check + '</span></button>' +
           '<button type="button" class="shx-main" data-ing-edit="' + i + '" aria-label="' + esc("Change " + g.name) + '">' +
-            '<span class="shx-pic sm" aria-hidden="true">' + iconFor(g) + '</span><span class="shx-t"><b>' + esc(g.name) + '</b></span>' +
+            '<span class="shx-pic sm" aria-hidden="true">' + iconFor(g) + '</span><span class="shx-t"><b>' + esc(g.name) + '</b>' +
+            (g.skip ? '<small class="sh-have"><span aria-hidden="true">🫙</span>Usually have — not added</small>' : '') + '</span>' +
             (g.qty ? '<span class="sh-qty">' + esc(g.qty) + '</span>' : '') + '</button>' +
           '<button type="button" class="shx-btn del" data-ing-del="' + i + '" aria-label="' + esc("Drop " + g.name) + '">' + I.x + '</button></div>';
       }).join("");
@@ -1355,7 +1536,11 @@
     if (pending) addIngredient(); // typed but not added yet — that's still meant
     if (!d.ingredients.length) { sheetErr("Add at least one ingredient."); SE.body.querySelector("[data-ing-name]").focus(); return; }
     var rec = { id: d.id, name: cap(name), icon: d.icon, note: clean(SE.body.querySelector('[data-f="note"]').value),
-      ingredients: d.ingredients.map(function (g) { return { name: g.name, qty: g.qty || "", cat: g.cat || categorise(g.name) }; }) };
+      ingredients: d.ingredients.map(function (g) {
+        var o = { name: g.name, qty: g.qty || "", cat: g.cat || categorise(g.name) };
+        if (g.skip) o.skip = true;
+        return o;
+      }) };
     if (d.used) rec.used = d.used;
     var isNew = SH.isNew;
     saveRecipe(rec);
@@ -1415,7 +1600,9 @@
     if (!t.closest) return;
     if (SE && SE.root.contains(t)) { onSheetClick(t); return; }
     if (ui.step && !t.closest(".sh-stepper")) stepFor(null);
-    // The drawers live inside the list card: route them first.
+    var tab = t.closest("[data-sh-tab]");
+    if (tab) { setTab(tab.getAttribute("data-sh-tab")); return; }
+    // The panes live inside the list card: route them before the list.
     if (t.closest("#sh-usuals")) { onUsualClick(t); return; }
     if (t.closest("#sh-recipes")) { onRecipeClick(t); return; }
     if (t.closest("#sh-list")) onListClick(t);
@@ -1455,12 +1642,7 @@
 
   function onUsualClick(t) {
     var el, s = current();
-    if (t.closest("[data-u-toggle]")) {
-      ui.uOpen = !ui.uOpen;
-      if (!ui.uOpen) { ui.uEdit = false; ui.uPick = null; }
-      remember("sh-usuals", ui.uOpen ? "open" : "closed");
-      refresh();
-    } else if ((el = t.closest("[data-u-filter]"))) {
+    if ((el = t.closest("[data-u-filter]"))) {
       ui.uGroup = el.getAttribute("data-u-filter");
       ui.uPick = null;
       remember("sh-usual-group", ui.uGroup);
@@ -1498,11 +1680,7 @@
 
   function onRecipeClick(t) {
     var el;
-    if (t.closest("[data-shr-toggle]")) {
-      ui.rOpen = !ui.rOpen;
-      remember("sh-recipes", ui.rOpen ? "open" : "closed");
-      refresh();
-    } else if ((el = t.closest("[data-r-open]"))) {
+    if ((el = t.closest("[data-r-open]"))) {
       openCook(el.getAttribute("data-r-open"));
     } else if (t.closest("[data-r-new]")) {
       openRecipeEditor(null);
@@ -1535,11 +1713,11 @@
           it = byId(s, SH.id);
           if (!it) return;
           var name = clean(b.querySelector('[data-f="name"]').value) || it.name, was = usualOf(s, name);
-          if (was) { deleteUsual(was); el.textContent = "☆ Add to usuals"; el.setAttribute("aria-pressed", "false"); }
+          if (was) { deleteUsual(was); el.textContent = "☆ Add to pantry"; el.setAttribute("aria-pressed", "false"); }
           else {
             saveUsual({ id: rid(), name: cap(name), qty: amtRead(b.querySelector("[data-amt]")), cat: SH.cat, icon: "", group: "" });
-            el.textContent = "★ A usual"; el.setAttribute("aria-pressed", "true");
-            say(cap(name) + " is in your usuals now");
+            el.textContent = "★ In the pantry"; el.setAttribute("aria-pressed", "true");
+            say(cap(name) + " is in the pantry now");
           }
         }
         return;
@@ -1596,7 +1774,7 @@
           var isNew = SH.isNew, gid = SH.id;
           saveGroup({ id: gid, name: gname });
           closeSheet(true);
-          if (isNew) { ui.uGroup = gid; ui.uOpen = true; remember("sh-usual-group", gid); say("Made the " + gname + " group — add usuals to it"); }
+          if (isNew) { ui.uGroup = gid; remember("sh-usual-group", gid); say("Made the " + gname + " group — add things to it"); }
         } else if ((el = t.closest("[data-g-del]"))) {
           var g = group(s, SH.id);
           if (g && armed(el, "Tap again to delete")) { closeSheet(true); deleteGroup(g); }
@@ -1610,9 +1788,8 @@
           if (SH.off[i]) delete SH.off[i]; else SH.off[i] = true;
           refresh();
         } else if (t.closest("[data-cook-all]")) {
-          var allOn = r.ingredients.every(function (g, j) { return !SH.off[j]; });
-          SH.off = {};
-          if (allOn) r.ingredients.forEach(function (g, j) { SH.off[j] = true; });
+          var allOn = mainOn(r);
+          r.ingredients.forEach(function (g, j) { if (!g.skip) { if (allOn) SH.off[j] = true; else delete SH.off[j]; } });
           refresh();
         } else if (t.closest("[data-cook-edit]")) {
           closeSheet(true);
@@ -1646,6 +1823,12 @@
           markDirty();
         } else if (t.closest("[data-ing-add]")) {
           addIngredient();
+        } else if ((el = t.closest("[data-ing-skip]"))) {
+          commitIng();
+          var sg = SH.draft.ingredients[+el.getAttribute("data-ing-skip")];
+          if (sg) { if (sg.skip) delete sg.skip; else sg.skip = true; }
+          markDirty();
+          paintIngredients();
         } else if ((el = t.closest("[data-ing-edit]"))) {
           commitIng();
           SH.ingEdit = +el.getAttribute("data-ing-edit");
@@ -1694,6 +1877,16 @@
   function onKey(e) {
     var t = e.target;
     if (!t.closest) return;
+    var tab = t.closest("[data-sh-tab]");
+    if (tab && (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End")) {
+      e.preventDefault();
+      var i = TAB_IX[ui.tab], n = TABS.length;
+      i = e.key === "Home" ? 0 : e.key === "End" ? n - 1 : (i + (e.key === "ArrowRight" ? 1 : n - 1)) % n;
+      setTab(TABS[i][0]);
+      var b = L && L.root.querySelector('[data-sh-tab="' + TABS[i][0] + '"]');
+      if (b) b.focus();
+      return;
+    }
     if (SH && SE.root.contains(t)) {
       if (e.key === "Escape") { e.preventDefault(); closeSheet(); return; }
       if (e.key !== "Enter" || t.tagName === "TEXTAREA") return;
@@ -1722,7 +1915,9 @@
     queued = false;
     var s = current();
     if (!s) return;
-    drawList(s);
+    drawList(s); // first: it builds the card the tabs and the trolley bar live in
+    drawTabs(s);
+    drawProg(s);
     drawUsuals(s);
     drawRecipes(s);
     paintSheet(s);
