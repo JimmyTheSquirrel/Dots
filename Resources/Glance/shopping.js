@@ -89,7 +89,7 @@
       "halloumi brie camembert custard margarine tofu hummus dip tzatziki gnocchi",
     pantry: "rice pasta spaghetti penne fettuccine linguine lasagne macaroni risoni noodle flour sugar oil salt spice cumin " +
       "paprika turmeric cinnamon oregano nutmeg stock broth sauce passata paste lentil chickpea cereal oat muesli granola " +
-      "honey jam vegemite nutella mayo mayonnaise mustard vinegar ketchup curry cornflour powder yeast vanilla cocoa " +
+      "honey jam vegemite nutella mayo mayonnaise mustard vinegar ketchup curry cornflour cornstarch powder yeast vanilla cocoa cayenne " +
       "breadcrumb panko couscous quinoa tuna sardine soup gravy seed sesame tahini salsa seasoning syrup sriracha pickle " +
       "olive caper peppercorn bicarb",
     frozen: "icecream gelato pizza dumpling nugget",
@@ -117,7 +117,8 @@
     ["tin foil", "household"], ["dishwasher", "household"], ["washing up", "household"],
     ["washing powder", "household"], ["hand wash", "personal"], ["body wash", "personal"], ["face wash", "personal"],
     ["cotton bud", "personal"], ["energy drink", "drinks"], ["soft drink", "drinks"], ["sparkling water", "drinks"],
-    ["spring onion", "produce"], ["cat food", "pets"], ["dog food", "pets"]
+    ["spring onion", "produce"], ["cat food", "pets"], ["dog food", "pets"], ["salt and pepper", "pantry"],
+    ["cayenne", "pantry"], ["bell pepper", "produce"], ["water chestnut", "pantry"]
   ];
   // The same as the server's key(): case, spacing and a plural ending don't
   // make a different thing. ⚠ Keep in step with shopping-list.py.
@@ -143,7 +144,7 @@
   }
 
   // ── "500g beef mince", "2 onions", "milk x2", "eggs (dozen)", "Milk 2L" ───
-  var UNIT = "kg|g|gm|grams?|mg|l|ml|litres?|liters?|lbs?|oz|tins?|cans?|cups?|tbsp|tsp|tablespoons?|teaspoons?|packs?|" +
+  var UNIT = "kg|g|gm|grams?|mg|l|ml|litres?|liters?|lbs?|pounds?|oz|ounces?|tins?|cans?|cups?|tbsp|tsp|tablespoons?|teaspoons?|packs?|" +
     "packets?|pkts?|bunch(?:es)?|cloves?|heads?|bags?|bottles?|jars?|loaf|loaves|slices?|dozen|doz|pieces?|pcs|rolls?|" +
     "sticks?|sprigs?|handfuls?|pinch(?:es)?|punnets?|fillets?|cartons?|box(?:es)?|blocks?|sachets?|stalks?|tubs?|cobs?|" +
     "rashers?|sheets?";
@@ -154,16 +155,65 @@
   var LEAD = new RegExp("^(" + NUM + ")(\\s*)(?:(" + UNIT + ")(?![a-z]))?\\.?\\s*(?:x\\s+)?(?:of\\s+)?(.+)$", "i");
   var TRAIL = new RegExp("^(.+?)\\s*(?:[x×]\\s*(\\d+)|\\(([^()]{1,20})\\)|\\s(\\d+(?:[.,]\\d+)?\\s*(?:" + UNIT + ")))$", "i");
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
-  function parse(line) {
-    line = String(line || "").replace(/^[\s•*·–-]+/, "").replace(/\s+/g, " ").trim();
+  // Recipe sites write "1 1/4 cups (300 ml) heavy cream, divided", "2 Tbsp
+  // olive oil", "1 pinch each salt and pepper", "8 6-inch tortillas". So:
+  // fractions become decimals; a metric amount in brackets wins over cups, and
+  // a cup of something liquid becomes mL; a spoon/pinch of something is what
+  // the recipe USES, not what you buy — `kitchen`, no amount (a recipe marks it
+  // "usually have"). With `recipe`, the rest of the line is cut down to the
+  // thing you buy: no brackets, no ", sliced", no "fresh chopped". The add box
+  // keeps what was typed ("Fresh pasta" is not "Pasta").
+  var FRAC = { "½": 0.5, "¼": 0.25, "¾": 0.75, "⅓": 1 / 3, "⅔": 2 / 3, "⅛": 0.125, "⅜": 0.375, "⅝": 0.625, "⅞": 0.875 };
+  function normNum(s) {
+    return s.replace(/(\d+)\s+(\d+)\/(\d+)(?!\d)/g, function (m, a, b, c) { return +c ? num(+a + b / c) : m; })
+      .replace(/(\d+)\s*([½¼¾⅓⅔⅛⅜⅝⅞])/g, function (m, a, f) { return num(+a + FRAC[f]); })
+      .replace(/(^|[^\d.\/])(\d+)\/(\d+)(?!\d)/g, function (m, p, b, c) { return +c ? p + num(b / c) : m; })
+      .replace(/[½¼¾⅓⅔⅛⅜⅝⅞]/g, function (f) { return num(FRAC[f]); });
+  }
+  var BRACKET = new RegExp("^(?:" + NUM + ")\\s*(?:(?:" + UNIT + ")s?)?$|^(?:a\\s+)?(?:dozen|doz)$", "i");
+  var SPOON = /^(?:tbsp|tbs|tbl|tablespoons?|tsp|teaspoons?|pinch(?:es)?|dash(?:es)?|drops?)$/i;
+  var LIQUID = /\b(?:broth|stock|milk|water|cream|juice|wine|passata)\b/i;
+  var PREP = /^(?:fresh(?:ly)?|chopped|finely|roughly|thinly|diced|minced|sliced|grated|crushed|shredded|peeled|large|small|medium|boneless|skinless|dry|uncooked|ripe|packed|heaped|level|toasted|about|approx\.?|around|each|\d+(?:\.\d+)?(?:-|\s)?(?:inch|in|cm))\s+/i;
+  function parse(line, recipe) {
+    line = normNum(String(line || "").replace(/^[\s•*·–-]+/, "")).replace(/\s+/g, " ").trim();
     if (!line) return null;
-    var qty = "", name = line, m = LEAD.exec(line);
+    var metric = "", pm = /\((?:about |approx\.? |~ ?)?(\d+(?:\.\d+)?)\s*(ml|l|g|kg)\)/i.exec(line);
+    if (pm) metric = pm[1] + pm[2];
+    var bare = line.replace(/\([^()]*\)/g, " ").replace(/\s+/g, " ").trim();
+    var qty = "", unit = "", n = "", name = bare, kitchen = false, m = LEAD.exec(bare);
     // "7up": a number glued to a word that isn't a unit is part of the name.
-    if (m && (m[2] || m[3])) { qty = m[1] + (m[3] ? m[2].replace(/\s+/g, " ") + m[3] : ""); name = m[4]; }
-    else if ((m = TRAIL.exec(line))) { name = m[1]; qty = m[2] || m[3] || m[4] || ""; }
+    if (m && (m[2] || m[3])) { n = m[1]; unit = m[3] || ""; qty = n + (unit ? m[2].replace(/\s+/g, " ") + unit : ""); name = m[4]; }
+    // "eggs (dozen)", "milk (2L)" — but "(optional)" or "(boiled 3 min)" isn't an amount
+    else if ((m = TRAIL.exec(line)) && (!m[3] || BRACKET.test(m[3].trim()))) { name = m[1]; qty = m[2] || m[3] || m[4] || ""; }
+    if (unit && SPOON.test(unit)) { kitchen = true; qty = ""; }
+    else if (unit && /^cups?$/i.test(unit)) {
+      // a cup of milk is 250mL; a cup of sour cream or cheese is "get some"
+      var c = parseFloat(n);
+      qty = metric || (c && LIQUID.test(name) && !/sour cream/i.test(name) ? Math.max(5, Math.round(c * 250 / 5) * 5) + "mL" : "");
+    } else if (unit && /^(?:lbs?|pounds?|oz|ounces?)$/i.test(unit)) {
+      // shops here sell grams: 1 lb → 450g, 8 oz → 250g (or the recipe's own)
+      var w = parseFloat(n) * (/^o/i.test(unit) ? 28.35 : 453.6);
+      qty = metric || (w ? (w < 100 ? Math.round(w / 10) * 10 : Math.round(w / 50) * 50) + "g" : "");
+    }
+    if (recipe) {
+      name = name.replace(/\s*,.*$/, "");
+      for (var i = 0; i < 4 && PREP.test(name); i++) name = name.replace(PREP, "");
+      name = name.replace(/^of\s+/i, "");
+    }
     name = name.replace(/^[\s,;:-]+|[\s,;:-]+$/g, "");
     if (!name) return null;
-    return { name: cap(name).slice(0, 80), qty: tidyQty(qty).slice(0, 24) };
+    return { name: cap(name).slice(0, 80), qty: tidyQty(qty).slice(0, 24), kitchen: kitchen };
+  }
+  // Things that keep for months and are in the cupboard already — a recipe
+  // marks them "usually have" so shopping for it leaves them off. Not bell
+  // peppers, sugar snap peas or water chestnuts.
+  var LONG_LIFE = new RegExp("\\b(?:oil|salt|pepper(?:corns?)?|sugar|flour|corn ?(?:starch|flour)|vinegar|(?:soy|fish|oyster|hoisin|worcestershire) sauce|" +
+    "worcestershire|sriracha|stock cubes?|bouillon|baking (?:powder|soda)|bicarb(?:onate)?(?: of)?(?: soda)?|vanilla|honey|sesame seeds?|spices?|" +
+    "seasoning|paprika|cumin|turmeric|cinnamon|nutmeg|cayenne|garam masala|(?:chill?i|curry|onion|garlic|ginger) powder|chill?i flakes|" +
+    "mixed herbs|dried (?:oregano|basil|thyme|rosemary|parsley|herbs)|oregano|bay lea(?:f|ves)|water)\\b", "i");
+  function longLife(name) {
+    var t = String(name || "").toLowerCase();
+    return !/bell pepper|capsicum|sweet pepper|sugar snap|water chestnut/.test(t) && LONG_LIFE.test(t);
   }
   // The add box takes several at once: "milk, eggs, 2 onions".
   function parseMany(text) { return String(text || "").split(/[,;\n]/).map(parse).filter(Boolean); }
@@ -552,14 +602,14 @@
     tick: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>')   // a plain tick (I.check is the animated one in .sh-box)
   };
   var EMOJI = ("🍝 🍛 🍜 🍲 🥘 🫕 🍳 🥗 🌮 🌯 🫔 🥙 🧆 🍕 🍔 🌭 🍟 🥪 🍗 🍖 🥩 🥓 🐟 🍤 🦐 🦀 🍣 🍱 🍙 🥟 🍢 🍚 🥞 🧇 " +
-    "🥐 🥯 🍞 🥖 🧀 🥚 🍰 🧁 🍪 🥧 🍩 🍨 🥣 🍎 🍓 🍌 🥦 🥕 🌽 🌶️ 🥑 🍄 🥔 🍠 🎃 🌿 🍽️").split(" ");
+    "🥐 🥯 🍞 🥖 🧀 🥚 🍰 🧁 🍪 🥧 🍩 🍨 🥣 🍎 🍓 🍌 🥦 🥕 🌽 🌶️ 🥑 🍄 🥔 🍠 🎃 🌿 🥡 🍽️").split(" ");
   // Each meal's tile takes the colour of its food (a hue; cards.css mixes it
   // into the tile). The HUD ignores it and stays in the viewer's colours.
   var FOOD_HUE = { "🍝": 4, "🍛": 38, "🍜": 30, "🍲": 14, "🥘": 18, "🫕": 40, "🍳": 46, "🥗": 100, "🌮": 44, "🌯": 34, "🫔": 30,
     "🥙": 32, "🧆": 28, "🍕": 10, "🍔": 26, "🌭": 12, "🍟": 44, "🥪": 36, "🍗": 24, "🍖": 14, "🥩": 356, "🥓": 8, "🐟": 205,
     "🍤": 18, "🦐": 14, "🦀": 6, "🍣": 12, "🍱": 350, "🍙": 210, "🥟": 36, "🍢": 20, "🍚": 200, "🥞": 34, "🧇": 38, "🥐": 34,
     "🥯": 30, "🍞": 32, "🥖": 32, "🧀": 46, "🥚": 44, "🍰": 340, "🧁": 320, "🍪": 30, "🥧": 26, "🍩": 330, "🍨": 300, "🥣": 210,
-    "🍎": 358, "🍓": 350, "🍌": 50, "🥦": 110, "🥕": 24, "🌽": 50, "🌶️": 4, "🥑": 85, "🍄": 18, "🥔": 34, "🍠": 20, "🎃": 26, "🌿": 120 };
+    "🍎": 358, "🍓": 350, "🍌": 50, "🥦": 110, "🥕": 24, "🌽": 50, "🌶️": 4, "🥑": 85, "🍄": 18, "🥔": 34, "🍠": 20, "🎃": 26, "🌿": 120, "🥡": 8 };
   function foodHue(icon, name) {
     if (FOOD_HUE[icon] != null) return FOOD_HUE[icon];
     for (var h = 0, i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
@@ -921,7 +971,7 @@
     "🫐": "blueberry", "🍇": "grape", "🍉": "watermelon melon rockmelon", "🍍": "pineapple", "🥭": "mango",
     "🥝": "kiwi kiwifruit", "🍐": "pear", "🍑": "peach nectarine apricot plum", "🍒": "cherry", "🥑": "avocado",
     "🍅": "tomato", "🥔": "potato", "🧅": "onion shallot leek", "🧄": "garlic", "🥕": "carrot",
-    "🥬": "lettuce cabbage kale spinach choy silverbeet rocket", "🥦": "broccoli broccolini cauliflower",
+    "🥬": "lettuce cabbage kale spinach choy silverbeet rocket", "🫚": "ginger", "🥦": "broccoli broccolini cauliflower",
     "🥒": "cucumber zucchini", "🍆": "eggplant", "🍄": "mushroom", "🎃": "pumpkin", "🌽": "corn sweetcorn cob",
     "🌶️": "chilli chili", "🫑": "capsicum", "🌿": "herb coriander cilantro parsley basil mint dill rosemary thyme sage chive oregano lemongrass",
     "🥗": "salad", "🫘": "bean chickpea lentil",
@@ -934,14 +984,14 @@
     "🧈": "butter margarine", "🥚": "egg", "🍦": "icecream gelato", "🥄": "yoghurt yogurt custard",
     "🍚": "rice", "🍝": "pasta spaghetti penne noodle lasagne fettuccine linguine macaroni", "🥣": "cereal oat muesli granola weetbix",
     "🥫": "tin can soup stock broth passata gravy", "🫒": "olive oil", "🧂": "salt pepper spice seasoning paprika cumin",
-    "🍯": "honey syrup", "🫙": "jam vegemite nutella mayo mayonnaise mustard sauce paste pickle", "🌾": "flour",
+    "🍯": "honey syrup", "🫙": "jam vegemite nutella mayo mayonnaise mustard sauce paste pickle", "🌾": "flour cornflour cornstarch",
     "🍬": "sugar lolly lollie", "🍫": "chocolate choc", "🍪": "biscuit cookie", "🥜": "nut peanut almond cashew",
     "🍿": "popcorn", "🥨": "pretzel", "@chips": "chip crisp dorito twistie pringle cheezel smith kettle",
     "@crackers": "cracker shape jatz sao vitaweat cruskit",
     "☕️": "coffee", "🍵": "tea", "🧃": "juice", "@cordial": "cordial", "🥤": "soda coke cola softdrink lemonade kombucha",
     "🍺": "beer", "🍷": "wine", "💧": "water",
     "🗑️": "bin garbage rubbish", "🧽": "sponge dishwashing detergent scourer", "🧺": "laundry softener",
-    "@tablets": "dishwasher", "@powder": "powder", "@spray": "spray cleaner windex",
+    "@tablets": "dishwasher", "@spray": "spray cleaner windex",
     "🧻": "toilet napkin", "@tissues": "tissue kleenex", "@towel": "towel", "🧼": "soap", "🧴": "shampoo conditioner lotion sunscreen moisturiser moisturizer bodywash",
     "🪥": "toothbrush toothpaste floss", "🧹": "broom", "🪣": "bucket bleach", "🔋": "battery",
     "💡": "bulb", "🕯️": "candle", "💊": "panadol paracetamol ibuprofen nurofen vitamin", "🩹": "plaster bandaid",
@@ -956,6 +1006,8 @@
     ["washing powder", "@powder"], ["laundry powder", "@powder"], ["dishwasher", "@tablets"], ["dishwashing", "🧽"],
     ["spray and wipe", "@spray"], ["glen 20", "@spray"], ["tomato sauce", "@sauce"], ["bbq sauce", "@sauce"],
     ["barbecue sauce", "@sauce"], ["sweet chilli", "@sauce"],
+    ["chili powder", "🧂"], ["chilli powder", "🧂"], ["onion powder", "🧂"], ["garlic powder", "🧂"], ["curry powder", "🧂"], ["ginger powder", "🧂"], ["ginger beer", "🥤"],
+    ["baking powder", "🧂"], ["cayenne", "🧂"], ["salt and pepper", "🧂"], ["bell pepper", "🫑"], ["vinegar", "🫙"],
     ["laundry", "🧺"], ["olive oil", "🫒"], ["ice cream", "🍦"],
     ["peanut butter", "🥜"], ["coconut milk", "🥥"], ["coconut cream", "🥥"], ["tea bag", "🍵"], ["cat food", "🐱"],
     ["dog food", "🐶"], ["hand wash", "🧼"], ["body wash", "🧴"], ["sweet potato", "🍠"], ["spring onion", "🧅"],
@@ -1060,6 +1112,10 @@
   function usual(s, id) { for (var i = 0; i < s.staples.length; i++) if (s.staples[i].id === id) return s.staples[i]; return null; }
   function group(s, id) { for (var i = 0; i < s.groups.length; i++) if (s.groups[i].id === id) return s.groups[i]; return null; }
   function clean(v) { return String(v || "").replace(/\s+/g, " ").trim(); }
+  // a recipe's note keeps its lines (the server's clean_note)
+  function cleanNote(v) {
+    return String(v || "").split(/\r?\n|\r/).map(clean).join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, 600);
+  }
   // A labelled block in a sheet.
   function field(label, html, hint) {
     return '<div class="sh-field"><span class="sh-label">' + esc(label) + (hint ? '<small>' + esc(hint) + '</small>' : '') + '</span>' + html + '</div>';
@@ -1504,7 +1560,7 @@
   }
   function recipeTile(s, r) {
     var icon = r.icon || "🍽️", have = 0, pics = [];
-    r.ingredients.forEach(function (g) {
+    r.ingredients.filter(function (g) { return !g.skip; }).concat(r.ingredients.filter(function (g) { return g.skip; })).forEach(function (g) {
       if (!g.skip && onList(s, g.name)) have++;
       var p = iconFor(g);
       if (pics.indexOf(p) < 0) pics.push(p);
@@ -1653,7 +1709,7 @@
     return '<p class="sh-lede">Untick anything that\'s already in the cupboard.</p>' +
       (main ? '<div class="shx-list" role="list">' + main + '</div>' : '') +
       (kept ? '<div class="sh-have-h"><span aria-hidden="true">🫙</span>Usually have — not added</div><div class="shx-list" role="list">' + kept + '</div>' : '') +
-      (r.note ? '<div class="sh-note">' + esc(r.note) + '</div>' : '');
+      (r.note ? '<div class="sh-note">' + noteHtml(r.note) + '</div>' : '');
   }
   function cookFoot(r) {
     var n = r.ingredients.filter(function (g, i) { return !SH.off[i]; }).length;
@@ -1662,6 +1718,13 @@
       '<button type="button" class="sh-btn go" data-cook-add' + (n ? "" : " disabled") + '>' + (n ? "Add " + n + " to the list" : "Nothing ticked") + '</button>';
   }
 
+  // A recipe's note, with its links tappable (where the recipe came from).
+  function noteHtml(t) {
+    return esc(t).replace(/https?:\/\/[^\s<]+/g, function (u) {
+      var href = u.replace(/[.,;)]+$/, ""), rest = u.slice(href.length);
+      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + href.replace(/^https?:\/\/(?:www\.)?/, "").replace(/\/$/, "") + '</a>' + rest;
+    });
+  }
   // All / None only touch what you'd normally buy; the "usually have" ones
   // change one tap at a time.
   function mainOn(r) { return r.ingredients.every(function (g, i) { return g.skip || !SH.off[i]; }); }
@@ -1693,7 +1756,7 @@
           '</div>' +
           '<button type="button" class="sh-link" data-ing-paste>Paste a whole list instead</button>' +
           '<div class="sh-paste" data-ing-pastebox hidden>' +
-            '<textarea class="sh-in" rows="5" placeholder="One a line:&#10;300mL thickened cream&#10;2 onions&#10;garlic"></textarea>' +
+            '<textarea class="sh-in" rows="6" placeholder="One a line — straight from a recipe site is fine:&#10;500g chicken thighs&#10;1 1/4 cups (300 ml) cream&#10;2 Tbsp olive oil&#10;Spoons of things and oils/spices come in as &quot;usually have&quot;."></textarea>' +
             '<button type="button" class="sh-btn" data-ing-paste-go>Add these</button>' +
           '</div>' +
         '</div>' +
@@ -1740,14 +1803,47 @@
   function addIngredient() {
     var c = SE.body.querySelector("[data-ing-compose]"), inp = c.querySelector("[data-ing-name]"), raw = clean(inp.value);
     if (!raw) { inp.focus(); c.classList.remove("nudge"); void c.offsetWidth; c.classList.add("nudge"); return; }
-    var amt = amtRead(c.querySelector("[data-amt]")), p = parse(raw) || { name: cap(raw), qty: "" };
-    SH.draft.ingredients.push({ name: p.name, qty: amt || p.qty, cat: categorise(p.name) });
+    var amt = amtRead(c.querySelector("[data-amt]")), p = parse(raw, true) || { name: cap(raw), qty: "" };
+    var g = { name: p.name, qty: amt || p.qty, cat: categorise(p.name) };
+    if (p.kitchen || longLife(p.name)) { g.skip = true; if (!amt) g.qty = ""; } // "do we have it?", not an amount
+    SH.draft.ingredients.push(g);
     commitIng();
     inp.value = "";
     amtShow(c.querySelector("[data-amt]"), "");
     markDirty();
     paintIngredients();
     inp.focus();
+  }
+  // A recipe's ingredient list, pasted as it came (a website, a message): one
+  // a line. Links, times ("30 mins") and section headings ("Sauce", a line of
+  // a word or two right before an amount) aren't ingredients; a repeat (the
+  // garlic in the chicken AND the sauce) is added once. Spoons of things and
+  // long-life things come in as "usually have". The original goes in the notes
+  // if they're empty — the amounts are what you cook with.
+  function pasteIngredients(text) {
+    var lines = String(text || "").split("\n").map(function (l) { return l.trim(); }), have = {}, d = SH.draft;
+    d.ingredients.forEach(function (g) { have[key(g.name)] = 1; });
+    // a recipe as she sends it starts with its name, then the link
+    var real = lines.filter(Boolean), nameIn = SE.body.querySelector('[data-f="name"]');
+    if (real.length > 1 && /^https?:\/\//i.test(real[1]) && !/[\d,]/.test(real[0]) && real[0].split(/\s+/).length <= 6) {
+      if (nameIn && !clean(nameIn.value)) nameIn.value = cap(clean(real[0])).slice(0, 80);
+      lines[lines.indexOf(real[0])] = "";
+    }
+    lines.forEach(function (line, i) {
+      if (!line || /^https?:\/\//i.test(line) || /^\d+\s*(?:mins?|minutes|hrs?|hours)\b/i.test(line) || /:$/.test(line) ||
+          /^(?:ingredients|method|instructions|directions|notes?|to serve|for the \w+)$/i.test(line)) return;
+      var next = "";
+      for (var j = i + 1; j < lines.length && !next; j++) next = lines[j];
+      if (!/\d/.test(line) && !/,/.test(line) && line.split(/\s+/).length <= 2 && /^[\d½¼¾⅓⅔⅛]/.test(next)) return; // a heading
+      var g = parse(line, true);
+      if (!g || have[key(g.name)]) return;
+      have[key(g.name)] = 1;
+      var skip = g.kitchen || longLife(g.name), ing = { name: g.name, qty: skip ? "" : g.qty, cat: categorise(g.name) };
+      if (skip) ing.skip = true;
+      d.ingredients.push(ing);
+    });
+    var note = SE.body.querySelector('[data-f="note"]');
+    if (note && !clean(note.value)) note.value = cleanNote(text);
   }
   function saveRecipeSheet() {
     commitIng();
@@ -1756,7 +1852,7 @@
     var pending = clean(SE.body.querySelector("[data-ing-name]").value);
     if (pending) addIngredient(); // typed but not added yet — that's still meant
     if (!d.ingredients.length) { sheetErr("Add at least one ingredient."); SE.body.querySelector("[data-ing-name]").focus(); return; }
-    var rec = { id: d.id, name: cap(name), icon: d.icon, note: clean(SE.body.querySelector('[data-f="note"]').value),
+    var rec = { id: d.id, name: cap(name), icon: d.icon, note: cleanNote(SE.body.querySelector('[data-f="note"]').value),
       ingredients: d.ingredients.map(function (g) {
         var o = { name: g.name, qty: g.qty || "", cat: g.cat || categorise(g.name) };
         if (g.skip) o.skip = true;
@@ -2085,9 +2181,7 @@
           if (!pb.hidden) pb.querySelector("textarea").focus();
         } else if (t.closest("[data-ing-paste-go]")) {
           var ta = b.querySelector("[data-ing-pastebox] textarea");
-          String(ta.value).split("\n").map(parse).filter(Boolean).forEach(function (g) {
-            SH.draft.ingredients.push({ name: g.name, qty: g.qty, cat: categorise(g.name) });
-          });
+          pasteIngredients(ta.value);
           ta.value = "";
           b.querySelector("[data-ing-pastebox]").hidden = true;
           markDirty();

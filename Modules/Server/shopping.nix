@@ -23,6 +23,10 @@
   # empty. The declarative pieces are `starterRecipes` and `starterStaples`
   # below, written in ONLY when there is no state file at all (the staples
   # also once onto a list from before they existed) — so deleting one sticks.
+  # A recipe with `since = N` is one sent over later: the server offers each
+  # such recipe ONCE to a list that already exists (state.json "seeded" keeps
+  # count), so adding one here puts it in the book on the next deploy, and
+  # deleting it from a dashboard still sticks.
   # Full write-up: Claude/shopping.md.
   flake.nixosModules.server = { config, pkgs, lib, ... }:
   let
@@ -87,6 +91,82 @@
           { name = "Maple syrup"; qty = ""; cat = "pantry"; }
         ];
         note = "";
+      }
+
+      # ── since 2 (2026-11-25): Kit-Kat's own three, as she sent them. ──
+      # `skip = true` is "usually have" (spices, oils, sauces — the "do we have
+      # it?" things): left off the list when shopping for it, one tap to add.
+      # The amounts that matter for cooking are in the note.
+      {
+        name = "Alfredo Chicken";
+        icon = "🍝";
+        since = 2;
+        ingredients = [
+          { name = "Chicken thighs"; qty = "500g"; cat = "meat"; }
+          { name = "Brown mushrooms"; qty = "250g"; cat = "produce"; }
+          { name = "Onion"; qty = "1"; cat = "produce"; }
+          { name = "Garlic"; qty = "2 cloves"; cat = "produce"; }
+          { name = "Thickened cream"; qty = "300mL"; cat = "dairy"; }
+          { name = "Pasta"; qty = "250g"; cat = "pantry"; }
+          { name = "Parmesan"; qty = "150g"; cat = "dairy"; }
+          { name = "Fresh parsley"; qty = ""; cat = "produce"; }
+          { name = "Chicken stock"; qty = "375mL"; cat = "pantry"; skip = true; }
+          { name = "Olive oil"; qty = ""; cat = "pantry"; skip = true; }
+        ];
+        note = ''
+          https://cafedelites.com/creamy-garlic-parmesan-chicken-alfredo/
+          500g chicken thighs (or breasts) · 250g brown mushrooms, sliced · 1 onion, diced · 2 cloves garlic, minced · 2 Tbsp olive oil · 1½ cups chicken stock (recipe says 2) · 1¼ cups (300mL) cream, divided · 250g dry penne or fettuccine · 1½ cups grated parmesan · parsley to garnish'';
+      }
+      {
+        name = "Oven Fajitas";
+        icon = "🌯";
+        since = 2;
+        ingredients = [
+          { name = "Chicken breast"; qty = "450g"; cat = "meat"; }
+          { name = "Onion"; qty = "2"; cat = "produce"; }
+          { name = "Capsicum"; qty = "3"; cat = "produce"; }
+          { name = "Lime"; qty = "1"; cat = "produce"; }
+          { name = "Tortillas"; qty = "1 pack"; cat = "bakery"; }
+          { name = "Sour cream"; qty = ""; cat = "dairy"; }
+          { name = "Chili powder"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Paprika"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Onion powder"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Garlic powder"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Cumin"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Cayenne pepper"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Sugar"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Salt"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Cooking oil"; qty = ""; cat = "pantry"; skip = true; }
+        ];
+        note = ''
+          https://www.budgetbytes.com/oven-fajitas/
+          Seasoning: 1 Tbsp chili powder · ½ Tbsp paprika · 1 tsp sugar · ½ tsp onion powder · ¼ tsp garlic powder · ¼ tsp cumin · ⅛ tsp cayenne · ½ tsp salt
+          2 small yellow onions (or 1 large) · 3 capsicums, any colour · 450g chicken breast · 2 Tbsp oil · 1 lime · 8 × 6-inch tortillas · ½ cup sour cream (optional)'';
+      }
+      {
+        name = "Sesame Chicken";
+        icon = "🥡";
+        since = 2;
+        ingredients = [
+          { name = "Chicken thighs"; qty = "500g"; cat = "meat"; }
+          { name = "Broccoli or bok choy"; qty = "1"; cat = "produce"; }
+          { name = "Garlic"; qty = "2 cloves"; cat = "produce"; }
+          { name = "Egg"; qty = "1"; cat = "dairy"; skip = true; }
+          { name = "Ginger"; qty = ""; cat = "produce"; skip = true; }
+          { name = "Cornflour"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Soy sauce"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Brown sugar"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Sesame oil"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Rice vinegar"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Sesame seeds"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Salt and pepper"; qty = ""; cat = "pantry"; skip = true; }
+          { name = "Cooking oil"; qty = ""; cat = "pantry"; skip = true; }
+        ];
+        note = ''
+          https://www.budgetbytes.com/easy-sesame-chicken/
+          30 mins. Greens (broccoli or pak/bok choy): boiling water, 3 min.
+          Chicken: 500g thighs · 1 large egg · 2 Tbsp cornflour · a pinch each salt and pepper · 2 Tbsp vegetable oil
+          Sauce: 2 cloves garlic, minced · ¼ cup soy sauce · 3 Tbsp brown sugar · 1 Tbsp toasted sesame oil · 1 Tbsp rice vinegar · 2 Tbsp water · ½ Tbsp cornflour · 1 Tbsp sesame seeds · 1 tsp grated fresh ginger'';
       }
     ];
     # The Usuals: things you always keep in, one tap onto the list at their

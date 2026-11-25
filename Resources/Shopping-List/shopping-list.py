@@ -128,9 +128,18 @@ def clean(value, limit):
     if not isinstance(value, str):
         return ""
     value = "".join(ch for ch in value
-                    if ch in " \t" or (unicodedata.category(ch) not in ("Cc", "Cs", "Co", "Cn") and ch not in _BIDI))
+                    if ch in " \t\n\r" or (unicodedata.category(ch) not in ("Cc", "Cs", "Co", "Cn") and ch not in _BIDI))
     value = " ".join(value.split())
     return value[:limit].strip()
+
+
+def clean_note(value, limit):
+    """A recipe's note keeps its lines (the link, the amounts, the method), each
+    one cleaned as above; never more than one blank line in a row."""
+    if not isinstance(value, str):
+        return ""
+    lines = [clean(line, limit) for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()[:limit].strip()
 
 
 def clean_cat(value):
@@ -270,14 +279,50 @@ def _seed():
     return {"recipes": raw} if isinstance(raw, list) else raw if isinstance(raw, dict) else {}
 
 
-def seed_recipes():
-    """The starter recipes, cleaned like any other save."""
+def seed_recipes(newer_than=0):
+    """The starter recipes, cleaned like any other save. A seed recipe can say
+    "since": N — one sent over after lists already existed (the starters are
+    1). newer_than picks only those a list hasn't been offered yet."""
     out = []
     for r in _seed().get("recipes") or []:
-        rec = recipe_from(r, None) if isinstance(r, dict) else None
+        if not isinstance(r, dict) or _since(r) <= newer_than:
+            continue
+        rec = recipe_from(r, None)
         if rec:
             out.append(rec)
     return out[:MAX_RECIPES]
+
+
+def _since(r):
+    try:
+        return max(1, int(r.get("since") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def seed_version():
+    """The newest "since" in the seed: what a list has been offered once it's
+    caught up (state["seeded"])."""
+    return max([_since(r) for r in _seed().get("recipes") or [] if isinstance(r, dict)] or [1])
+
+
+def offer_new_recipes(st):
+    """Recipes added to the seed since this list last looked (shopping.nix →
+    starterRecipes with `since`), each offered ONCE: added unless a recipe of
+    that name is already there, and never again after — so one deleted stays
+    deleted. A list from before this existed has seen the starters (1)."""
+    newest, had = seed_version(), int(st.get("seeded") or 1)
+    if newest <= had:
+        return False
+    have = {key(r.get("name", "")) for r in st["recipes"]}
+    now = int(time.time())
+    for rec in seed_recipes(newer_than=had):
+        if key(rec["name"]) not in have and len(st["recipes"]) < MAX_RECIPES:
+            rec["used"], rec["last"], rec["at"] = 0, 0, now
+            st["recipes"].append(rec)
+            have.add(key(rec["name"]))
+    st["seeded"] = newest
+    return True
 
 
 def seed_usuals():
@@ -340,18 +385,24 @@ def load():
         st.setdefault("recipes", [])
         st.setdefault("history", {})
         _state = st
+        changed = False
         if "staples" not in st:
             # A list from before staples existed gets the starters, once: the
             # key is there from now on, so deleting every one sticks.
             st["groups"], st["staples"] = seed_usuals()
+            changed = True
         elif "groups" not in st:
             # …and one from before groups, its usuals sorted into some, once.
             st["groups"] = group_by_aisle(st["staples"])
-        else:
+            changed = True
+        if offer_new_recipes(st):
+            changed = True
+        if not changed:
             return
     except FileNotFoundError:
         _state = empty()
         _state["recipes"] = seed_recipes()
+        _state["seeded"] = seed_version()
         _state["groups"], _state["staples"] = seed_usuals()
     except (OSError, ValueError) as exc:
         # Keep the unreadable file for a human to look at, and start empty
@@ -680,7 +731,7 @@ def recipe_from(body, rid):
         return None
     return {"id": rid or clean_id(body.get("id")) or new_id(), "name": name,
             "icon": clean(body.get("icon"), ICON_LEN) or "🍽️", "ingredients": ings[:MAX_INGREDIENTS],
-            "note": clean(body.get("note"), NOTE_LEN)}
+            "note": clean_note(body.get("note"), NOTE_LEN)}
 
 
 def op_recipe_save(body):

@@ -221,9 +221,43 @@ in the .py — ⚠ their metric tables must agree)
   it in place (name + the Amount control, Done); under them **Add an ingredient**: *What*,
   then − amount + with unit chips, **Add ingredient** (Enter works). `300ml cream` typed
   into *What* is parsed too. **Paste a whole list instead** takes one a line. An optional
-  note; **Delete · Save**.
-- Four **starter recipes** (`starterRecipes` in shopping.nix) are written in only when
-  there is no state file at all. Deleting one sticks.
+  note (it keeps its line breaks, and links in it are tappable on the cook sheet);
+  **Delete · Save**.
+- **Recipe-site lines (2026-11-25)** — her recipes come as websites write them, so
+  `parse(line, true)` (the composer and the paste) reads kitchen measures:
+  - fractions → decimals (`1 1/4`, `½`, `⅛`); a **metric amount in brackets wins**
+    (`1 1/4 cups (300 ml) heavy cream` → *Heavy cream 300mL*); otherwise brackets are
+    dropped (`(or breasts)`), and a trailing bracket only counts as an amount if it is one
+    (`(dozen)`, `(2L)` — not `(Boiled water 3 min)`);
+  - **a spoon, pinch, dash or drop is what the recipe uses, not what you buy** → no amount,
+    and the ingredient comes in **"usually have"** (rock: *"oil and table spoons of stuff
+    should just be items like we need this do we have it"*);
+  - a cup of something liquid (stock, milk, cream, juice, wine, water) → mL at 250 a cup;
+    a cup of anything else (sour cream, parmesan) → no amount; **lb/oz → grams** (1 lb →
+    450g, 8 oz → 250g);
+  - the name is cut down to the thing you buy: no `, sliced` clause, no leading
+    *fresh/chopped/boneless/skinless/small/toasted/6-inch…* (`PREP`). Only in recipes — the
+    list's add box keeps what was typed (*Fresh pasta* is a different thing).
+  - **`longLife(name)`** — oil, salt, pepper (not bell pepper/capsicum), sugar (not sugar
+    snaps), flour, cornflour, vinegar, soy/fish/oyster sauce, spices, powders, dried herbs,
+    stock cubes, honey, sesame seeds, water (not water chestnuts) — also comes in "usually
+    have", even with no spoon. One tap on its tick puts it back to buy.
+- **Pasting a whole recipe** (`pasteIngredients`): a first line followed by a link is the
+  recipe's **name** (filled in if empty); links, times (`30 mins`), lines ending `:` and
+  **section headings** (a word or two, no digits, right before an amount line — *Seasoning*,
+  *Sauce*, *Chicken*) are skipped; something in two sections (garlic, cornflour) is added
+  once; the pasted text becomes the **note** if it's empty — the spoon amounts are what you
+  cook with, so they're kept there, not on the list. Tested on her three recipes as sent
+  (`Fajitas Oven` → 6 to buy, 8 spices + oil usually have).
+- **Starter recipes** (`starterRecipes` in shopping.nix) — the first four (`since` 1) go
+  into a new list only. **Later ones carry `since = N`** and are **offered once** to a list
+  that already exists: on start, `offer_new_recipes` adds every starter with `since` above
+  the list's `seeded` (by name — one you already have isn't doubled), then records the
+  newest. So deleting one sticks, and a restart never brings it back. Kit-Kat's own three
+  (**Alfredo Chicken, Oven Fajitas, Sesame Chicken**) came in this way as `since = 2`, her
+  spices/oils/sauces marked `skip`, the website link and her original amounts in the note.
+  ⚠ To add more starters later, give them `since = 3` (one higher than the current
+  newest), or no existing list ever sees them.
 
 **The headings (Shopping, Pantry, Recipes)**
 - The title is **Dancing Script Bold** — from nixpkgs (`pkgs.dancing-script`), served by
